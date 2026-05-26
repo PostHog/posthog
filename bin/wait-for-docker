@@ -5,8 +5,10 @@ set -euo pipefail
 # Read-only: does not start, stop, or recreate any containers.
 # Used by phrocs processes to block until infrastructure is ready.
 #
-# Always checks core services (db, redis7, kafka, clickhouse).
-# Pass extra service names as arguments, e.g.: bin/wait-for-docker temporal
+# Usage:
+#   bin/wait-for-docker                     # wait for core (db redis7 kafka clickhouse)
+#   bin/wait-for-docker temporal            # wait for core + temporal
+#   bin/wait-for-docker --only db redis7    # wait only for db and redis7 (skip core)
 
 # In a sandbox container, infra is managed by docker compose externally
 # and is guaranteed healthy via depends_on health checks.
@@ -20,8 +22,22 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
 
-SERVICES=(db redis7 kafka clickhouse)
-SERVICES+=("$@")
+only_listed=0
+if [ "${1:-}" = "--only" ]; then
+    only_listed=1
+    shift
+fi
+
+if [ "$only_listed" -eq 1 ]; then
+    if [ "$#" -eq 0 ]; then
+        echo "wait-for-docker: --only requires at least one service argument" >&2
+        exit 2
+    fi
+    SERVICES=("$@")
+else
+    SERVICES=(db redis7 kafka clickhouse)
+    SERVICES+=("$@")
+fi
 
 unique_services=()
 for svc in "${SERVICES[@]}"; do

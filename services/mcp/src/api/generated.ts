@@ -17201,6 +17201,32 @@ export namespace Schemas {
 
     /**
      * * `events` - events
+    * `persons` - persons
+    * `sessions` - sessions
+     */
+    export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
+
+
+    export const FileDownloadBatchExportOnDemandModelEnum = {
+      Events: 'events',
+      Persons: 'persons',
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Request shape for a FileDownload batch export on demand.
+     */
+    export interface FileDownloadBatchExportOnDemand {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadBatchExportOnDemandModelEnum;
+      include?: string[];
+      exclude?: string[];
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    /**
+     * * `events` - events
      */
     export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
 
@@ -21094,7 +21120,7 @@ export namespace Schemas {
     }
 
     export interface MCPSession {
-      /** PostHog $session_id grouping all mcp_tool_call events. */
+      /** $mcp_session_id grouping all mcp_tool_call events in the session. */
       readonly session_id: string;
       /** Total number of mcp_tool_call events in the session. */
       readonly tool_calls: number;
@@ -22942,21 +22968,15 @@ export namespace Schemas {
     }
 
     export interface PaginatedMCPSessionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
       results: MCPSession[];
+      /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+      has_next: boolean;
     }
 
     export interface PaginatedMCPToolCallList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
       results: MCPToolCall[];
+      /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+      has_next: boolean;
     }
 
     export interface PaginatedMaterializedColumnSlotList {
@@ -41263,7 +41283,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_end'.
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string;
     /**
@@ -41613,6 +41633,21 @@ export namespace Schemas {
      */
     offset?: number;
     topic?: string;
+    };
+
+    export type VisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string;
     };
 
     export type VisionScannersListParams = {

@@ -2729,6 +2729,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand(
+            [
+                ("using_sample_before_group_by", "select 1 from events using sample 0.1"),
+                ("bare_sample_statement_level", "select 1 from events where 1 sample 0.1 group by 1"),
+                ("using_sample_after_qualify", "select 1 from events qualify 1 using sample 0.1"),
+                ("sample_after_unpivot", "select 1 from (a positional join b) unpivot (m for n in (o)) sample 0.5"),
+                ("table_and_statement_sample", "select 1 from events sample 0.1 using sample 0.2"),
+            ]
+        )
+        def test_statement_level_sample_rejected(self, _name: str, query: str):
+            # `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for; every backend rejects rather than silently dropping it.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
         def test_select_with_columns(self):
             self.assertEqual(
                 self._select("with event as boo select boo from events"),
@@ -5753,7 +5767,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._assert_ast(src, "select")
 
         def test_join_op_grammar_alts_validation(self):
-            # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
+            # `joinOp` has three disjoint alts:
             # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
             # at most once per alt, and the three alts don't share INNER /
             # LEFT / RIGHT / FULL. Rust's source-order loop set booleans
@@ -6407,12 +6421,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3 ON 4",
                 # Mixed CROSS in chain: constraint can't fall through.
                 "SELECT * FROM a JOIN b ON 1 CROSS JOIN c ON 2",
+                # Statement-level `USING SAMPLE` (the peel loop must not treat the `USING` as a join constraint): it's DuckDB's statement-level sample, which HogQL doesn't implement, so it's rejected rather than silently dropped.
+                "SELECT * FROM t USING SAMPLE 0.5",
+                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
             ):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend=backend)
-            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN, and statement-level `USING SAMPLE` (peel loop must not intercept).
+            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN.
             for src in (
                 "SELECT * FROM a JOIN b ON 1",
                 "SELECT * FROM a JOIN b USING (x)",
@@ -6420,8 +6437,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a CROSS JOIN b",
                 "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
-                "SELECT * FROM t USING SAMPLE 0.5",
-                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
                 # Outer JOIN around a parens-wrapped inner JoinExpr still attaches one constraint at the outer level.
                 "SELECT * FROM (a JOIN b) JOIN c ON 1",
                 "SELECT * FROM a JOIN (b JOIN c ON 1) ON 2",
@@ -7105,32 +7120,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        def test_select_level_sample_requires_using_except_before_group_by(self):
-            # Bare SAMPLE is a SELECT-level clause only in slot 1 (`USING?
-            # sampleClause`, before GROUP BY) — and on the FROM table. After
-            # GROUP BY / HAVING / QUALIFY the only slot is `USING sampleClause`
-            # (USING required); a bare SAMPLE there has no grammar slot, so cpp
-            # rejects it. rust used to consume and silently drop it.
-            for query in (
-                "select 1 from t where x sample 0.1",
-                "select 1 from t sample 0.1",
-                "select 1 from t prewhere x sample 0.1",
-                "select 1 from t qualify z using sample 0.1",
-                "select 1 from t group by x using sample 0.1",
-            ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
-            for query in (
-                "select 1 from t group by x sample 0.1",
-                "select 1 from t group by x having y sample 0.1",
-                "select 1 from t qualify z sample 0.1",
-            ):
-                with self.assertRaises(BaseHogQLError):
-                    parse_select(query, backend=backend)
-
         def test_return_keyword_as_identifier_before_infix_postfix(self):
             # `return` is also a keyword-rule identifier. When it is followed by a
             # pure infix / postfix operator, that operator binds `return` as its
@@ -7558,42 +7547,17 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError, msg=query):
                     fn(query, backend=backend)
 
-        def test_date_literal_tolerated_in_select_level_sample(self):
-            # The `selectStmt` grammar allows a `(USING? sampleClause)?` at SELECT
-            # level (two slots), but cpp's `VISIT(SelectStmt)` never reads it — only
-            # a TABLE-level sample lands on `JoinExpr.sample`. So an unsupported date
-            # literal in a select-level sample's (placeholder) ratio is tolerated;
-            # rust used to fatally reject.
-            for query in (
-                "select 1 using sample { date '' }",
-                "select 1 sample { date '' }",
-                "select 1 from f using sample { date '' }",
-                "select 1 where 1 using sample { date '' }",
-                "select 1 group by 1 using sample { date '' }",
-            ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
-            # A TABLE-level sample IS visited, so its date rejects on both; the
-            # suppression must not leak to it.
-            for query in ("select 1 from f sample { date '' }", "select 1 from f sample date ''"):
-                with self.assertRaises(BaseHogQLError, msg=query):
-                    parse_select(query, backend=backend)
-
         def test_interval_string_without_unit_tolerated_in_unvisited_clause(self):
             # `INTERVAL <string>` with no `<count> <unit>` content is cpp's
             # `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
             # rejects — so it's tolerated in the same clauses cpp grammar-parses but
-            # never visits (discarded ORDER BY, a placeholder body's LIMIT, the
-            # select-level SAMPLE). rust used to fatally require a unit keyword.
+            # never visits (discarded ORDER BY, a placeholder body's LIMIT). rust
+            # used to fatally require a unit keyword.
             for query in (
                 "{x} order by interval 'pk'",
                 "{x} order by interval 'pk' collate ''",
                 "{x} order by 1 with fill to interval 'g'",
                 "{x} limit interval 'p'",
-                "select 1 using sample { interval 'pk' }",
             ):
                 self.assertEqual(
                     parse_select(query, backend="cpp-json"),

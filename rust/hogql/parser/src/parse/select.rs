@@ -618,10 +618,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "where", _v);
         }
-        // `(USING? sampleClause)?` — slot 1, before GROUP BY. USING is
-        // optional here, so a bare SAMPLE is allowed (the cpp visitor drops the
-        // value either way; we mirror the silent drop).
-        self.try_attach_select_level_sample(&mut obj, false)?;
+        // `selectStmt`-level `(USING? sampleClause)?` (before GROUP BY): DuckDB's `USING SAMPLE`, rejected not dropped.
+        self.reject_select_level_sample()?;
         if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
@@ -740,11 +738,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "qualify", _v);
         }
-        // Slot 2 (`(USING sampleClause)?`, after QUALIFY, before WINDOW). USING
-        // is REQUIRED here — a bare SAMPLE has no grammar slot at this point
-        // (nor after GROUP BY / HAVING, which also reach here), so cpp rejects
-        // it. Require USING to match.
-        self.try_attach_select_level_sample(&mut obj, true)?;
+        // Second `selectStmt`-level `(USING sampleClause)?` slot (after QUALIFY): same DuckDB `USING SAMPLE`, rejected not dropped.
+        self.reject_select_level_sample()?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
             let mut windows: std::collections::BTreeMap<String, E::Value> =
@@ -1346,48 +1341,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    /// Consume an optional `[USING] SAMPLE …` clause at SELECT level
-    /// and discard it — the grammar's `selectStmt` rule allows this
-    /// clause in two positions, but the cpp visitor's `VISIT(SelectStmt)`
-    /// doesn't read the `sampleClause` from either slot. Only the
-    /// table-level form (consumed inside `parse_table_atom` while
-    /// building the JoinExpr) ends up on `JoinExpr.sample`. We mirror
-    /// the silent-drop behaviour here so the parser accepts the syntax
-    /// without diverging from cpp.
-    fn try_attach_select_level_sample(
-        &mut self,
-        _obj: &mut E::Value,
-        require_using: bool,
-    ) -> Result<(), ParseError> {
-        // Grammar slot 1 (`(USING? sampleClause)?`, before GROUP BY) makes the
-        // USING optional, so a bare SAMPLE is allowed. Slot 2 (`(USING
-        // sampleClause)?`, after QUALIFY) REQUIRES USING — a bare SAMPLE there
-        // (or after GROUP BY / HAVING, which reach this call) has no grammar
-        // slot, so cpp rejects it. Only accept `USING SAMPLE` when
-        // `require_using`.
-        let saw_sample = if self.peek_kw2(Kw::Using, Kw::Sample) {
-            self.bump()?; // USING
-            true
-        } else if require_using {
-            false
-        } else {
-            matches!(self.peek(), TokenKind::Keyword(Kw::Sample))
-        };
+    /// Reject `selectStmt`-level `[USING] SAMPLE`: DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` lands on `JoinExpr.sample`), so reject rather than silently drop. Matches the python + cpp visitors' `NotImplementedError`.
+    fn reject_select_level_sample(&mut self) -> Result<(), ParseError> {
+        let saw_sample = self.peek_kw2(Kw::Using, Kw::Sample)
+            || matches!(self.peek(), TokenKind::Keyword(Kw::Sample));
         if !saw_sample {
             return Ok(());
         }
-        // The select-level sampleClause is parsed but never visited by cpp
-        // (only a table-level sample lands on `JoinExpr.sample`), so an
-        // unsupported date literal in its ratioExpr is tolerated — suppress the
-        // fatal check for the discard. The table-level sample (parsed in
-        // `parse_table_atom`) is unaffected and stays strict. Restore on every
-        // exit before propagating.
-        let prev_date = self.suppress_unvisited_clause_checks;
-        self.suppress_unvisited_clause_checks = true;
-        let sample_result = self.try_consume_sample();
-        self.suppress_unvisited_clause_checks = prev_date;
-        drop(sample_result?);
-        Ok(())
+        Err(ParseError::not_implemented(
+            "Unsupported: SelectStmt.sampleClause()",
+            self.peek0.start,
+            self.peek0.end,
+        ))
     }
 
     /// LIMIT BY columnExprList: comma-separated columnExprs. Two
