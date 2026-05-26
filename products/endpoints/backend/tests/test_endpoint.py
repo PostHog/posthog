@@ -1061,9 +1061,7 @@ class TestEndpointTags(ClickhouseTestMixin, APIBaseTest):
     def _create(self, name: str, **extra: Any) -> dict:
         payload: dict[str, Any] = {"name": name, "query": self.sample_hogql_query}
         payload.update(extra)
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/", payload, format="json"
-        )
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         return response.json()
 
