@@ -236,6 +236,8 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        await this.eventIngestionRestrictionManager.start()
+        await this.eventFilterManager.start()
         await this.hogTransformer.start()
 
         this.topHog.start()
@@ -313,6 +315,8 @@ export class IngestionConsumer {
         await this.topHog.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        await this.eventFilterManager.stop()
+        await this.eventIngestionRestrictionManager.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

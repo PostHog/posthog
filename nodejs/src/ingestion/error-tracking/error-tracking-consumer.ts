@@ -230,6 +230,7 @@ export class ErrorTrackingConsumer {
             cymbalUrl: this.config.cymbalBaseUrl,
         })
 
+        await this.eventIngestionRestrictionManager.start()
         // Initialize pipeline with dependencies
         await this.initializePipeline()
 
@@ -368,6 +369,8 @@ export class ErrorTrackingConsumer {
         await this.topHog?.stop()
 
         await this.kafkaConsumer.disconnect()
+
+        await this.eventIngestionRestrictionManager.stop()
 
         logger.info('👍', `${this.name} - stopped`)
     }

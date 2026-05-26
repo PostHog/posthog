@@ -12,7 +12,7 @@ describe('EventFilterManager', () => {
     it('returns null for unknown team', async () => {
         mockPostgres.query.mockResolvedValue({ rows: [] })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
         expect(manager.getFilter(999)).toBeNull()
     })
 
@@ -31,7 +31,7 @@ describe('EventFilterManager', () => {
             ],
         })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
 
         const filter = manager.getFilter(1)
         expect(filter).not.toBeNull()
@@ -56,7 +56,7 @@ describe('EventFilterManager', () => {
             ],
         })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
 
         const filter = manager.getFilter(1)
         expect(filter).not.toBeNull()
@@ -75,7 +75,7 @@ describe('EventFilterManager', () => {
             ],
         })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
 
         expect(manager.getFilter(1)).toBeNull()
     })
@@ -103,7 +103,7 @@ describe('EventFilterManager', () => {
             ],
         })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
 
         expect(manager.getFilter(1)).toBeNull()
         expect(manager.getFilter(2)).not.toBeNull()
@@ -127,7 +127,7 @@ describe('EventFilterManager', () => {
             ],
         })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
 
         expect(manager.getFilter(1)).toBeNull()
     })
@@ -150,7 +150,7 @@ describe('EventFilterManager', () => {
             ],
         })
         const manager = new EventFilterManager(mockPostgres)
-        await new Promise((r) => setTimeout(r, 100))
+        await manager.start()
 
         expect(manager.getFilter(1)!.id).toBe('f1')
         expect(manager.getFilter(2)!.id).toBe('f2')

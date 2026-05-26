@@ -104,10 +104,12 @@ describe('EventIngestionRestrictionManager', () => {
             staticSkipPersonTokens: [],
             staticForceOverflowTokens: [],
         })
+        await manager.start()
         jest.clearAllMocks()
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        await manager?.stop()
         jest.clearAllMocks()
     })
 
@@ -303,6 +305,7 @@ describe('EventIngestionRestrictionManager', () => {
             const sessionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 pipeline: 'session_recordings',
             })
+            await sessionManager.start()
 
             pipelineMock.exec.mockResolvedValueOnce([
                 [
@@ -345,6 +348,7 @@ describe('EventIngestionRestrictionManager', () => {
             const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['static-token'],
             })
+            await mgr.start()
             await mgr.forceRefresh()
 
             expect(mgr.getAppliedRestrictions('static-token')).toContain(RestrictionType.DROP_EVENT)
@@ -355,6 +359,7 @@ describe('EventIngestionRestrictionManager', () => {
             const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['static-token:user1'],
             })
+            await mgr.start()
             await mgr.forceRefresh()
 
             expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user1' })).toContain(
@@ -367,6 +372,7 @@ describe('EventIngestionRestrictionManager', () => {
             const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['static-token:distinct_id:user1'],
             })
+            await mgr.start()
             await mgr.forceRefresh()
 
             expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user1' })).toContain(
@@ -378,6 +384,7 @@ describe('EventIngestionRestrictionManager', () => {
             const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['combo-token'],
             })
+            await mgr.start()
 
             pipelineMock.exec.mockResolvedValueOnce([
                 [null, null],

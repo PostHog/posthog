@@ -280,6 +280,7 @@ export class SessionRecordingIngester {
 
         await this.keyStore.start()
         await this.encryptor.start()
+        await this.eventIngestionRestrictionManager.start()
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
@@ -337,6 +338,7 @@ export class SessionRecordingIngester {
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         this.keyStore.stop()
+        await this.eventIngestionRestrictionManager.stop()
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 
