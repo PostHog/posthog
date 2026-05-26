@@ -2050,7 +2050,7 @@ mod tests {
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].details.is_none());
         assert_eq!(events[1].result, EventResult::Retry);
-        assert_eq!(events[1].details, Some("queue_full"));
+        assert_eq!(events[1].details, Some("not_persisted"));
     }
 
     #[test]
