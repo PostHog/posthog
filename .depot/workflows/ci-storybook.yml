@@ -107,3 +107,348 @@ jobs:
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
+            - name: Upload Storybook build artifact
+              # Shadow skips upload, would conflict with storybook-build artifact name
+              if: ${{ !matrix.is_shadow }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+                  retention-days: 1
+            # Consumed by the shadow-story-selection job below. Uploaded
+            # separately so the 20-shard visual-regression matrix doesn't pay
+            # to download it.
+            - name: Upload module-graph artifact
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: storybook-module-graph
+                  path: common/storybook/dist/module-graph.json
+                  retention-days: 1
+                  if-no-files-found: warn
+    # Shadow trial: vr-setup / vr-complete / calculate-running-time jobs stripped.
+    visual-regression:
+        name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        needs: [changes, build-storybook]
+        if: >-
+            always() && needs.changes.outputs.frontend == 'true' && needs.build-storybook.result == 'success'
+        timeout-minutes: 60
+        container:
+            image: ghcr.io/posthog/playwright:v1.45.0
+        strategy:
+            fail-fast: false
+            matrix:
+                # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+                # are tuned for runner CPU — consult #team-devex before changing
+                include:
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 1
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 2
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 3
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 4
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 5
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 6
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 7
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 8
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 9
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 10
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 11
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 12
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 13
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 14
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 15
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 16
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 1
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 2
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 3
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 4
+        env:
+            NODE_OPTIONS: --max-old-space-size=16384
+            OPT_OUT_CAPTURE: 1
+            JEST_JUNIT_SUITE_NAME: '{filepath}'
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .depot/workflows/ci-storybook.yml
+            - name: Install package.json dependencies with pnpm
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+            - name: Install CI utilities with pnpm
+              run: pnpm install http-server wait-on -g
+            - name: Download Storybook build artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+            - name: Serve Storybook in the background
+              run: |
+                  retries=5
+                  max_timeout=30
+                  pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                  server_pid=$!
+                  echo "Started http-server with PID: $server_pid"
+
+                  # Give the server a moment to start
+                  sleep 2
+
+                  while [ $retries -gt 0 ]; do
+                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}s)..."
+                      if pnpm wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
+                          echo "✅ Storybook is available at http://127.0.0.1:6006"
+                          break
+                      fi
+                      retries=$((retries-1))
+                      if [ $retries -gt 0 ]; then
+                          echo "⚠️ Failed to connect to Storybook, retrying... ($retries retries left)"
+                          # Check if server is still running
+                          if ! kill -0 $server_pid 2>/dev/null; then
+                              echo "❌ http-server process is no longer running, restarting it..."
+                              pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                              server_pid=$!
+                              echo "Restarted http-server with PID: $server_pid"
+                              sleep 2
+                          fi
+                      fi
+                  done
+
+                  if [ $retries -eq 0 ]; then
+                      echo "❌ Failed to serve Storybook after all retries"
+                      # Try to get some diagnostic information
+                      echo "Checking port 6006 status:"
+                      netstat -tuln | grep 6006 || echo "Port 6006 is not in use"
+                      echo "Checking http-server process:"
+                      ps aux | grep http-server || echo "No http-server process found"
+                      echo "Checking Storybook dist directory:"
+                      ls -la common/storybook/dist || echo "Storybook dist directory not found"
+                      exit 1
+                  fi
+            # Wipe committed PNGs so each shard only has freshly captured screenshots.
+            # Prevents stale hashes from winning the race in VR's get_or_create.
+            - name: Clean snapshot directory
+              run: find frontend/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+            # Capture-only: VR is the gate for visual changes, jest just captures screenshots
+            - name: Run @storybook/test-runner
+              id: test-runner
+              shell: bash
+              env:
+                  HOME: /root
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
+              run: |
+                  pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+            # Shadow trial: VR upload side effect stripped.
+    # Verify changed story files are stable by re-running them multiple times.
+    # Catches flaky snapshots before they land on master.
+    flake-verification:
+        name: Storybook flake verification
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        needs: [changes, build-storybook]
+        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        timeout-minutes: 30
+        container:
+            image: ghcr.io/posthog/playwright:v1.45.0
+        env:
+            NODE_OPTIONS: --max-old-space-size=16384
+            OPT_OUT_CAPTURE: 1
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .depot/workflows/ci-storybook.yml
+            - name: Install dependencies
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+            - name: Install CI utilities
+              run: pnpm install http-server wait-on -g
+            - name: Download Storybook build artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+            - name: Serve Storybook
+              run: |
+                  pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                  sleep 2
+                  pnpm wait-on http://127.0.0.1:6006 --timeout 30
+            - name: Verify changed stories are stable
+              id: flake-verify
+              env:
+                  HOME: /root
+              run: |
+                  git config --global --add safe.directory '*'
+                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
+                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
+                  .github/scripts/verify-storybook-new-stories.sh "$BASE_SHA" 3
+    visual_regression_tests:
+        needs: [visual-regression]
+        name: Visual regression tests pass
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the visual-regression test matrix failed."
+                    exit 1
+                  fi
+
+                  echo "All jobs passed or were skipped successfully."
+    # Shadow measurement: reports which stories could have rendered differently
+    # given the PR's changed files, using the webpack module graph emitted by
+    # common/storybook/.storybook/main.ts's ModuleGraphPlugin. Does not gate
+    # PRs and does not affect visual-regression selection. Data is used to
+    # evaluate whether real test selection is worth pursuing.
+    shadow-story-selection:
+        name: Shadow story selection
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        timeout-minutes: 5
+        needs: [changes, build-storybook]
+        if: |
+            always() && needs.changes.outputs.frontend == 'true'
+            && github.event_name == 'pull_request'
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Download module-graph artifact
+              id: download
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: storybook-module-graph
+                  path: /tmp/storybook-graph
+            - name: Compute affected stories
+              id: selection
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha —
+                  # base.sha is captured at webhook time and goes stale if the branch later
+                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
+                  # every merged-in master change.
+                  git fetch --no-tags --depth=50 origin "$BASE_REF"
+                  echo "### Changed files" >&2
+                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
+
+                  RESULT=$(bin/find-affected-stories \
+                      --graph /tmp/storybook-graph/module-graph.json \
+                      --base-ref "origin/$BASE_REF")
+                  echo "$RESULT" > /tmp/selection-result.json
+                  # Stash compact form in step output (single line) for the summary step.
+                  COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
+                  echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
+            - name: Write summary
+              env:
+                  RESULT: ${{ steps.selection.outputs.result }}
+                  CURRENT_SHARDS: 20
+                  SHARD_OVERHEAD_MINUTES: 3
+              run: |
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
+                  TOTAL=$(echo "$RESULT" | jq -r '.total_story_count')
+
+                  if [ "$MODE" = "selective" ]; then
+                      COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
+                      SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
+                      AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
+                      TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+
+                      SAVED_STORIES=$((TOTAL - COUNT))
+                      SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))
+                      FULL_MINUTES=$(( (CURRENT_SHARDS * SHARD_OVERHEAD_MINUTES) + (TOTAL_DUR / 60) ))
+                      SELECTIVE_MINUTES=$(( (SHARDS * SHARD_OVERHEAD_MINUTES) + (AFFECTED_DUR / 60) ))
+                      SAVED_MINUTES=$((FULL_MINUTES - SELECTIVE_MINUTES))
+
+                      cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow story selection
+
+                  | Metric | Full run | Selective | Saved |
+                  |---|---|---|---|
+                  | Story files | $TOTAL | $COUNT | **$SAVED_STORIES** |
+                  | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
+                  | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
+                  | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
+
+                  > Shadow-only — no effect on CI. Predictor: webpack module graph from build-storybook.
+                  EOF
+                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
+                  else
+                      REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
+                      cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow story selection
+
+                  **Full run required:** $REASON
+
+                  Total stories: $TOTAL
+
+                  > Shadow-only — no effect on CI.
+                  EOF
+                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
+                  fi
