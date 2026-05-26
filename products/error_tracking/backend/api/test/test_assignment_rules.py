@@ -239,6 +239,10 @@ class TestAssignmentRuleAPI(APIBaseTest):
             ("empty_values", {"type": "AND", "values": []}),
             ("empty_nested_filter", {"type": "AND", "values": [{"type": "empty"}]}),
             ("or_empty_nested_filter", {"type": "OR", "values": [{"type": "empty"}]}),
+            (
+                "deeply_nested_empty",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "empty"}]}]},
+            ),
         ]
     )
     def test_create_with_no_op_filters_emits_match_all_bytecode(
@@ -261,6 +265,10 @@ class TestAssignmentRuleAPI(APIBaseTest):
             ("empty_values", {"type": "AND", "values": []}),
             ("empty_nested_filter", {"type": "AND", "values": [{"type": "empty"}]}),
             ("or_empty_nested_filter", {"type": "OR", "values": [{"type": "empty"}]}),
+            (
+                "deeply_nested_empty",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "empty"}]}]},
+            ),
         ]
     )
     def test_update_with_no_op_filters_emits_match_all_bytecode(

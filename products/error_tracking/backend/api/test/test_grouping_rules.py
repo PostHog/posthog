@@ -155,6 +155,10 @@ class TestGroupingRuleAPI(APIBaseTest):
             ("empty_values", {"type": "AND", "values": []}),
             ("empty_nested_filter", {"type": "AND", "values": [{"type": "empty"}]}),
             ("or_empty_nested_filter", {"type": "OR", "values": [{"type": "empty"}]}),
+            (
+                "deeply_nested_empty",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "empty"}]}]},
+            ),
         ]
     )
     def test_create_rejects_no_op_filters(self, _name: str, empty_filters: dict[str, Any]) -> None:
