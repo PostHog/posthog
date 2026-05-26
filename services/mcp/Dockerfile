@@ -52,6 +52,10 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 # so the whole `products/` tree needs to be in the build context.
 COPY products/ products/
 WORKDIR /code/services/mcp
+
+# Signal CI mode so build-ui-apps.ts limits Vite concurrency (prevents OOM kills
+# when building 27+ UI apps in parallel on memory-constrained Depot builders).
+ENV CI=true
 RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
 
 #
