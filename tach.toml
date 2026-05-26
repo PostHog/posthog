@@ -503,6 +503,27 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.customer_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.data_warehouse",
+    "products.notebooks",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.marketing_analytics"
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.actions",
+    "products.analytics_platform",
+    "products.data_warehouse", "products.warehouse_sources",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.tasks"
 depends_on = [
     "ee",

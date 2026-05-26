@@ -1882,6 +1882,7 @@ When set, the specified dashboard's filters and date range override will be appl
             result,
             insight_name=insight.name,
             insight_description=insight.description,
+            insight_id=insight.id,
         )
 
         return Response({"result": analysis})

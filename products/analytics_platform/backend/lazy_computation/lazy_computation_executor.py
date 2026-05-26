@@ -276,7 +276,10 @@ class LazyComputationTable(StrEnum):
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
+    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
+    WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
+    WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -285,6 +288,7 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
 }
 
 

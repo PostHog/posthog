@@ -71,7 +71,7 @@ describe('evaluateFeatureFlags', () => {
     })
 
     it('should evaluate multiple flags via getAllFlags and forward groups', async () => {
-        mockGetAllFlags.mockResolvedValue({ 'flag-on': true, 'flag-off': false, 'unrelated': true })
+        mockGetAllFlags.mockResolvedValue({ 'flag-on': true, 'flag-off': false, unrelated: true })
 
         const result = await evaluateFeatureFlags(['flag-on', 'flag-off'], 'user-123', { organization: 'org-abc' })
 

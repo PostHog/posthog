@@ -46,6 +46,7 @@ export const urls = {
     destinations: (): string => '/data-management/destinations',
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
+    eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
@@ -147,8 +148,9 @@ export const urls = {
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
     /**
-     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO) or
-     * `github-integration` (user GitHub App integration); see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO),
+     * `github-integration` (user GitHub App integration), or `slack-integration` (team Slack integration);
+     * see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
      */
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,

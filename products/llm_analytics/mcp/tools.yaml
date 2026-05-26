@@ -406,7 +406,7 @@ tools:
         operation: llm_analytics_personal_spend_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - user:read
         annotations:
             readOnly: true
             destructive: false
@@ -414,10 +414,10 @@ tools:
         title: Get my LLM spend analysis
         description: >
             Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
-            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass
-            `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a
-            single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the
-            5-minute cache.
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The
+            `product` query param is required and scopes the tool / model / trace breakdowns to a single product;
+            currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass
+            `refresh=true` to bypass the 5-minute cache.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false
