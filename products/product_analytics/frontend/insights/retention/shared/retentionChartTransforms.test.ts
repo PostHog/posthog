@@ -180,11 +180,6 @@ describe('retentionChartTransforms', () => {
             expect(config.barLayout).toBe('grouped')
         })
 
-        it('closes the plot area so the grid reads as a full rectangle', () => {
-            const config = buildRetentionBarChartConfig({ isPercentage: true, series: baseSeries })
-            expect(config.closePlotArea).toBe(true)
-        })
-
         it.each<[boolean, 'percentage' | 'numeric']>([
             [true, 'percentage'],
             [false, 'numeric'],

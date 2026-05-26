@@ -109,8 +109,6 @@ export function buildRetentionBarChartConfig(opts: BuildRetentionChartConfigOpts
         },
         // Bars side-by-side so the retention trend per cohort stays distinguishable.
         barLayout: 'grouped',
-        // Close the right edge so the grid reads as a full rectangle, matching the legacy chart.
-        closePlotArea: true,
         goalLines: buildGoalLines(opts.goalLines),
         tooltip: opts.tooltip,
     }

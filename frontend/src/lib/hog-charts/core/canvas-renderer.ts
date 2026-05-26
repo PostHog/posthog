@@ -295,16 +295,13 @@ export interface DrawGridOptions {
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
-    /** Close the plot area at the far edge — right side in vertical mode, bottom in horizontal.
-     *  Together with the existing near-edge baseline this draws a full rectangle around the plot. */
-    closePlotArea?: boolean
 }
 
-/** Draws the grid lines and the categorical-axis baseline.
+/** Draws the grid lines and the full plot-area frame.
  *
  * `orientation`:
- *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baseline on the left.
- *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baseline on the top.
+ *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baselines on both left and right.
+ *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baselines on both top and bottom.
  *
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
@@ -350,13 +347,11 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         ctx.moveTo(dimensions.plotLeft, axisY)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
         ctx.stroke()
-        if (options.closePlotArea) {
-            const closingY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
-            ctx.beginPath()
-            ctx.moveTo(dimensions.plotLeft, closingY)
-            ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, closingY)
-            ctx.stroke()
-        }
+        const closingY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+        ctx.beginPath()
+        ctx.moveTo(dimensions.plotLeft, closingY)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, closingY)
+        ctx.stroke()
         return
     }
 
@@ -385,13 +380,11 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
     ctx.stroke()
 
-    if (options.closePlotArea) {
-        const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) - 0.5
-        ctx.beginPath()
-        ctx.moveTo(closingX, dimensions.plotTop)
-        ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
-        ctx.stroke()
-    }
+    const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) - 0.5
+    ctx.beginPath()
+    ctx.moveTo(closingX, dimensions.plotTop)
+    ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
 }
 
 export function drawCrosshair(

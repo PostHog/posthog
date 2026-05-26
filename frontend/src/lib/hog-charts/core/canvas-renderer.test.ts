@@ -453,13 +453,15 @@ describe('hog-charts canvas-renderer', () => {
             expect(fromY).toBe(toY)
         })
 
-        it('draws a vertical y-axis line at plotLeft as the final stroke', () => {
+        it('frames the plot area with left and right vertical axis lines', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']))
-            const lastMove = ctx.moveTo.mock.calls.at(-1)
-            const lastLine = ctx.lineTo.mock.calls.at(-1)
-            expect(lastMove).toEqual([dimensions.plotLeft + 0.5, dimensions.plotTop])
-            expect(lastLine).toEqual([dimensions.plotLeft + 0.5, dimensions.plotTop + dimensions.plotHeight])
+            const leftX = dimensions.plotLeft + 0.5
+            const rightX = dimensions.plotLeft + dimensions.plotWidth - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([leftX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([leftX, dimensions.plotTop + dimensions.plotHeight])
+            expect(ctx.moveTo.mock.calls).toContainEqual([rightX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([rightX, dimensions.plotTop + dimensions.plotHeight])
         })
 
         it('uses the provided gridColor', () => {
@@ -478,13 +480,15 @@ describe('hog-charts canvas-renderer', () => {
             expect(toY).toBe(dimensions.plotTop + dimensions.plotHeight)
         })
 
-        it('draws a horizontal top baseline as the final stroke (horizontal orientation)', () => {
+        it('frames the plot area with top and bottom baselines (horizontal orientation)', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
-            const lastMove = ctx.moveTo.mock.calls.at(-1)
-            const lastLine = ctx.lineTo.mock.calls.at(-1)
-            expect(lastMove).toEqual([dimensions.plotLeft, dimensions.plotTop + 0.5])
-            expect(lastLine).toEqual([dimensions.plotLeft + dimensions.plotWidth, dimensions.plotTop + 0.5])
+            const topY = dimensions.plotTop + 0.5
+            const bottomY = dimensions.plotTop + dimensions.plotHeight - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, topY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, topY])
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, bottomY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, bottomY])
         })
 
         describe('categoryTicks', () => {
@@ -529,40 +533,6 @@ describe('hog-charts canvas-renderer', () => {
             )
         })
 
-        describe('closePlotArea', () => {
-            it('draws a right-edge vertical line as the final stroke (vertical orientation)', () => {
-                const ctx = mockCanvasContext()
-                drawGrid(makeDrawContext(ctx, ['a', 'b']), { closePlotArea: true })
-                const lastMove = ctx.moveTo.mock.calls.at(-1)
-                const lastLine = ctx.lineTo.mock.calls.at(-1)
-                const closingX = dimensions.plotLeft + dimensions.plotWidth - 0.5
-                expect(lastMove).toEqual([closingX, dimensions.plotTop])
-                expect(lastLine).toEqual([closingX, dimensions.plotTop + dimensions.plotHeight])
-            })
-
-            it('draws a bottom-edge horizontal line as the final stroke (horizontal orientation)', () => {
-                const ctx = mockCanvasContext()
-                drawGrid(makeDrawContext(ctx, ['a', 'b']), {
-                    orientation: 'horizontal',
-                    closePlotArea: true,
-                })
-                const lastMove = ctx.moveTo.mock.calls.at(-1)
-                const lastLine = ctx.lineTo.mock.calls.at(-1)
-                const closingY = dimensions.plotTop + dimensions.plotHeight - 0.5
-                expect(lastMove).toEqual([dimensions.plotLeft, closingY])
-                expect(lastLine).toEqual([dimensions.plotLeft + dimensions.plotWidth, closingY])
-            })
-
-            it('does not draw a closing edge when closePlotArea is false (default)', () => {
-                const closed = mockCanvasContext()
-                drawGrid(makeDrawContext(closed, ['a', 'b']), { closePlotArea: true })
-
-                const open = mockCanvasContext()
-                drawGrid(makeDrawContext(open, ['a', 'b']))
-
-                expect(closed.moveTo.mock.calls.length).toBeGreaterThan(open.moveTo.mock.calls.length)
-            })
-        })
     })
 
     describe('composeDrawHoverWithCrosshair', () => {

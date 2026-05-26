@@ -202,9 +202,6 @@ export interface BarChartConfig extends ChartConfig {
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack
      *  below the zero baseline (positives above). Default `false` clamps negatives to 0. */
     divergingStack?: boolean
-    /** Close the plot area at the far edge — right side in vertical mode, bottom in horizontal —
-     *  matching the legacy chart.js box-style grid. Only takes effect when `showGrid` is true. */
-    closePlotArea?: boolean
 }
 
 export interface LineChartConfig extends ChartConfig {
