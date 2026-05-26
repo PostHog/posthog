@@ -32,6 +32,12 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
+    # Depot CI runners expose these ambient (OTEL_SERVICE_NAME=ci-worker, plus a GITHUB_TOKEN)
+    # whereas GitHub Actions test steps do not. Left set, they leak into settings.OTEL_SERVICE_NAME
+    # (personhog metric client_name label) and settings.GITHUB_TOKEN (plugin download auth header),
+    # diverging from snapshot/mock assertions. Blank them to match the GHA environment.
+    OTEL_SERVICE_NAME: ''
+    GITHUB_TOKEN: ''
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
@@ -755,6 +761,7 @@ jobs:
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
+                      ${{ (matrix.person-on-events || matrix.compat) && '--snapshot-update --snapshot-warn-unused' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 \
                       --splitting-algorithm=duration_based_chunks \
