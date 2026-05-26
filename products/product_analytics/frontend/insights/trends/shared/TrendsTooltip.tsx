@@ -65,27 +65,31 @@ export function TrendsTooltip({
     renderCount: renderCountOverride,
     renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
-    const seriesData = useMemo<SeriesDatum[]>(
-        () =>
-            context.seriesData.map((entry, idx) => {
-                const meta = entry.series.meta ?? {}
-                return {
-                    id: idx,
-                    dataIndex: context.dataIndex,
-                    datasetIndex: idx,
-                    order: meta.order ?? idx,
-                    label: entry.series.label,
-                    color: entry.color,
-                    count: entry.value,
-                    action: meta.action,
-                    breakdown_value: meta.breakdown_value,
-                    compare_label: meta.compare_label,
-                    date_label: meta.days?.[context.dataIndex],
-                    filter: meta.filter,
-                }
-            }),
-        [context.seriesData, context.dataIndex]
-    )
+    const seriesData = useMemo<SeriesDatum[]>(() => {
+        const data = context.seriesData.map((entry, idx) => {
+            const meta = entry.series.meta ?? {}
+            return {
+                id: idx,
+                dataIndex: context.dataIndex,
+                datasetIndex: idx,
+                order: meta.order ?? idx,
+                label: entry.series.label,
+                color: entry.color,
+                count: entry.value,
+                action: meta.action,
+                breakdown_value: meta.breakdown_value,
+                compare_label: meta.compare_label,
+                date_label: meta.days?.[context.dataIndex],
+                filter: meta.filter,
+            }
+        })
+        data.sort(
+            (a, b) =>
+                b.count - a.count ||
+                (a.label === undefined || b.label === undefined ? 0 : a.label.localeCompare(b.label))
+        )
+        return data.map((s, id) => ({ ...s, id }))
+    }, [context.seriesData, context.dataIndex])
 
     const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
 

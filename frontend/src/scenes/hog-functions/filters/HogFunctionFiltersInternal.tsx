@@ -141,6 +141,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.Events]
         } else if (contextId === 'activity-log') {
             return [TaxonomicFilterGroupType.ActivityLogProperties]
+        } else if (contextId === 'logs-alerting') {
+            return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
     }, [contextId])
