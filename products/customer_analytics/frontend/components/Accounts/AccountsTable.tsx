@@ -13,9 +13,9 @@ import { ACCOUNTS_PAGE_SIZE, AccountRoleKey, accountsLogic } from './accountsLog
 type AccountAssignment = { id: number; email: string } | null
 
 const ROLE_DEFAULT_LABEL: Record<AccountRoleKey, string> = {
-    csm: 'Assign CSM',
-    account_executive: 'Assign account executive',
-    account_owner: 'Assign account owner',
+    csm: 'Unassigned',
+    account_executive: 'Unassigned',
+    account_owner: 'Unassigned',
 }
 
 export function AccountsTable(): JSX.Element {
