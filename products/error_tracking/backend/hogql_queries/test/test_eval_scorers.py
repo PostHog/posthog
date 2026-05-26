@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from ee.hogai.eval.sandboxed.error_tracking.scorers import (
+    ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
     QUERY_ISSUES_LIST_TOOL,
     EventsToolUsed,
@@ -51,6 +52,13 @@ def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
             }
         )
     return "\n".join(json.dumps(line) for line in lines)
+
+
+def test_write_tool_blocklist_includes_enabled_rule_update_tools() -> None:
+    assert {
+        "error-tracking-grouping-rules-update",
+        "error-tracking-suppression-rules-update",
+    }.issubset(ERROR_TRACKING_WRITE_TOOLS)
 
 
 def test_recordings_text_has_results_accepts_toon_lists() -> None:

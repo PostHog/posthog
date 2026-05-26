@@ -55,7 +55,9 @@ ERROR_TRACKING_WRITE_TOOLS = frozenset(
         "error-tracking-issues-partial-update",
         "error-tracking-issues-split-create",
         "error-tracking-grouping-rules-create",
+        "error-tracking-grouping-rules-update",
         "error-tracking-suppression-rules-create",
+        "error-tracking-suppression-rules-update",
         "error-tracking-assignment-rules-create",
     }
 )
