@@ -11,10 +11,15 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 
 import { ErrorBoundary } from '../layout/ErrorBoundary'
 
-// Disable tracking for all exports and embeds.
-// This is explicitly set as to not track our customers' customers data.
-// Without it, embeds of self-hosted iframes will log metrics to app.posthog.com.
-window.JS_POSTHOG_API_KEY = undefined
+const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
+
+// Disable tracking for shared dashboards / insights / embeds — those iframes can be embedded on
+// our customers' sites, and tracking there would log their visitors to app.posthog.com.
+// The `interview` scene is the exception: it's our own hosted public page, opened by an invitee
+// on a link we sent. We want pageviews + replay to measure the invite-to-call funnel.
+if (exportedData?.type !== 'interview') {
+    window.JS_POSTHOG_API_KEY = undefined
+}
 
 loadPostHogJS()
 initKea({ replaceInitialPathInWindow: false })
@@ -25,8 +30,6 @@ initKea({ replaceInitialPathInWindow: false })
 // NOTE: The first argument is the name of the polyfill to use. This is used to set the font family in our CSS.
 // Make sure to update the font family in the CSS if you change this.
 polyfillCountryFlagEmojis('Emoji Flags Polyfill')
-
-const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
 function renderApp(): void {
     const root = document.getElementById('root')
