@@ -67,11 +67,15 @@ describe('TrendsLineChart', () => {
         })
 
         it('sorts tooltip rows by descending value regardless of series order', async () => {
+            // At index 2: Pageview=134, Napped=5, Minimal=1, NoActivity=0.
+            // Input order, alphabetic, and value order all differ.
             renderInsight({
                 query: buildTrendsQuery({
                     series: [
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Minimal', name: 'Minimal' },
                         { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' },
                     ],
                 }),
                 featureFlags: HOG_CHARTS_FLAG,
@@ -80,9 +84,14 @@ describe('TrendsLineChart', () => {
             const tooltip = await chart.hoverTooltip(2)
 
             const rows = tooltip.rows()
-            expect(rows).toHaveLength(2)
             expect(rows[0]).toContain('Pageview')
             expect(rows[1]).toContain('Napped')
+            expect(rows[2]).toContain('Minimal')
+            expect(rows[3]).toContain('NoActivity')
+            expect(tooltip.row('Pageview')).toContain('134')
+            expect(tooltip.row('Napped')).toContain('5')
+            expect(tooltip.row('Minimal')).toContain('1')
+            expect(tooltip.row('NoActivity')).toContain('0')
         })
 
         it('shows breakdown values in the tooltip', async () => {
