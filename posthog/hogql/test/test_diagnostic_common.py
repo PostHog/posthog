@@ -51,5 +51,5 @@ class TestDiagnosticShadowGuard(TestCase):
 
     def test_bench_aborts_on_shadow_mismatch(self):
         with self.assertRaises(SystemExit) as ctx:
-            bench("smoke", _raise_shadow_mismatch, {"q1": "select 1"}, 1, "cpp-json", "rust-json")
+            bench("smoke", _raise_shadow_mismatch, {"q1": "select 1"}, 1, 1, "cpp-json", "rust-json")
         self.assertIn("HogQLParserShadowMismatch", str(ctx.exception))

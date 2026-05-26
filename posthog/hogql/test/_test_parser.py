@@ -3,7 +3,7 @@
 # every assertion. Each test runs against all 3 backends; a runtime AttributeError surfaces as
 # a test failure anyway. Relax the narrowing checks here only so the rest of the codebase
 # keeps its strictness.
-# mypy: disable-error-code="arg-type, union-attr, attr-defined, assignment"
+# mypy: disable-error-code="arg-type, union-attr, attr-defined, assignment, operator"
 
 import re
 import math

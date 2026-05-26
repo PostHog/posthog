@@ -446,11 +446,11 @@ def main() -> int:
             return
 
         counts["ast_mismatch"] += 1
-        bucket = (_node_type(o_ast), _node_type(c_ast))
+        mismatch_bucket = (_node_type(o_ast), _node_type(c_ast))
         steps = _diff_path(o_ast, c_ast)
-        shape = _ast_mismatch_shape(bucket, steps)
+        shape = _ast_mismatch_shape(mismatch_bucket, steps)
         shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
-        mismatch_buckets.setdefault(bucket, []).append((query, shrunk, steps))
+        mismatch_buckets.setdefault(mismatch_bucket, []).append((query, shrunk, steps))
         write_record(
             {
                 "kind": "ast_mismatch",
