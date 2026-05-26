@@ -145,20 +145,6 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
     ],
 }
 
-# Category -> expected traffic_type mapping
-CATEGORY_TO_TRAFFIC_TYPE: dict[str, str] = {
-    "ai_crawler": "AI Agent",
-    "ai_search": "AI Agent",
-    "ai_assistant": "AI Agent",
-    "search_crawler": "Bot",
-    "seo_crawler": "Bot",
-    "social_crawler": "Bot",
-    "monitoring": "Bot",
-    "http_client": "Automation",
-    "headless_browser": "Automation",
-    "regular_browser": "Regular",
-}
-
 # Category -> expected traffic_category mapping (the $virt_traffic_category value)
 CATEGORY_TO_TRAFFIC_CATEGORY: dict[str, str] = {
     "ai_crawler": "ai_crawler",
