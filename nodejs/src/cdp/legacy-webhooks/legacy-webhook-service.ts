@@ -14,7 +14,7 @@ import { GroupRepository } from '../../worker/ingestion/groups/repositories/grou
 import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
+import { addGroupPropertiesToPostIngestionEventsBatch } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
 export class LegacyWebhookService {
@@ -99,7 +99,7 @@ export class LegacyWebhookService {
     }
 
     public async processBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
-        const events: PostIngestionEvent[] = []
+        const eventsWithoutGroups: PostIngestionEvent[] = []
 
         await Promise.all(
             messages.map(async (message) => {
@@ -110,29 +110,29 @@ export class LegacyWebhookService {
                         !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
                         !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
                     ) {
-                        // exit early if no webhooks nor resthooks
                         return
                     }
 
-                    const eventWithoutGroups = convertToPostIngestionEvent(clickHouseEvent)
-                    // This is very inefficient, we always pull group properties for all groups (up to 5) for this event
-                    // from PG if a webhook is defined for this team.
-                    // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer
-                    // that will be deprecated in the near future by CDP/Hog
-                    const event = await addGroupPropertiesToPostIngestionEvent(
-                        eventWithoutGroups,
-                        this.groupTypeManager,
-                        this.teamManager,
-                        this.groupRepository
-                    )
-
-                    events.push(event)
+                    eventsWithoutGroups.push(convertToPostIngestionEvent(clickHouseEvent))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
                 }
             })
         )
+
+        let events: PostIngestionEvent[]
+        try {
+            events = await addGroupPropertiesToPostIngestionEventsBatch(
+                eventsWithoutGroups,
+                this.groupTypeManager,
+                this.teamManager,
+                this.groupRepository
+            )
+        } catch (e) {
+            logger.error('Batch group enrichment failed, processing events without group properties', e)
+            events = eventsWithoutGroups
+        }
 
         return { backgroundTask: Promise.all(events.map((event) => this.processEvent(event))) }
     }

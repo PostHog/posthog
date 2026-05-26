@@ -700,6 +700,7 @@
     '__module__',
     '__str__',
     '_meta',
+    'activity_logging_on_delete',
     'created_at',
     'experiment_id',
     'get_next_by_created_at',
