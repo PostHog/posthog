@@ -291,11 +291,18 @@ export function BatchExportsEditFields({
 
                     <div className="flex gap-4">
                         <LemonField name="aws_access_key_id" label="AWS Access Key ID" className="flex-1">
-                            <LemonInput placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'} />
+                            <LemonInput
+                                placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
+                                autoComplete="off"
+                            />
                         </LemonField>
 
                         <LemonField name="aws_secret_access_key" label="AWS Secret Access Key" className="flex-1">
-                            <LemonInput placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'} type="password" />
+                            <LemonInput
+                                placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
+                                type="password"
+                                autoComplete="new-password"
+                            />
                         </LemonField>
 
                         {batchExportConfigForm.encryption == 'aws:kms' && (
@@ -580,7 +587,10 @@ export function BatchExportsEditFields({
                                     label="AWS Access Key ID"
                                     className="flex-1"
                                 >
-                                    <LemonInput placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'} />
+                                    <LemonInput
+                                        placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
+                                        autoComplete="off"
+                                    />
                                 </LemonField>
 
                                 <LemonField
@@ -591,6 +601,7 @@ export function BatchExportsEditFields({
                                     <LemonInput
                                         placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
                                         type="password"
+                                        autoComplete="new-password"
                                     />
                                 </LemonField>
                             </div>
@@ -631,6 +642,7 @@ export function BatchExportsEditFields({
                                     >
                                         <LemonInput
                                             placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
+                                            autoComplete="off"
                                         />
                                     </LemonField>
 
@@ -642,6 +654,7 @@ export function BatchExportsEditFields({
                                         <LemonInput
                                             placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
                                             type="password"
+                                            autoComplete="new-password"
                                         />
                                     </LemonField>
                                 </div>

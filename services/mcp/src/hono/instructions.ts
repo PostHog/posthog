@@ -21,7 +21,9 @@ export class InstructionsBuilder {
 
     async build(props: RequestProperties, state: ResolvedState): Promise<string> {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        if (!supportsInstructions) {return ''}
+        if (!supportsInstructions) {
+            return ''
+        }
 
         const { projectId } = props
         const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))

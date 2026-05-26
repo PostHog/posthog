@@ -17,11 +17,11 @@ from posthog.types import InsightQueryNode
 class QueryContext(ABC):
     query: InsightQueryNode
     team: Team
+    user: Optional[User]
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     hogql_context: HogQLContext
-    user: User | None
     now: datetime
 
     def __init__(
@@ -31,7 +31,7 @@ class QueryContext(ABC):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-        user: User | None = None,
+        user: Optional[User] = None,
         now: Optional[datetime] = None,
     ):
         self.query = query

@@ -1,7 +1,7 @@
 import os
 import re
 from collections.abc import Callable
-from hashlib import sha1
+from hashlib import sha256
 from typing import Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
@@ -51,7 +51,7 @@ def build_postgres_test_db_name(base_name: str, *, suffix: str = "") -> str:
     if len(candidate) <= POSTGRES_IDENTIFIER_MAX_LENGTH:
         return candidate
 
-    digest = sha1(candidate.encode("utf-8")).hexdigest()[:10]
+    digest = sha256(candidate.encode("utf-8")).hexdigest()[:10]
     available_base_chars = POSTGRES_IDENTIFIER_MAX_LENGTH - len("test__") - len(digest) - len(suffix)
     if available_base_chars < 1:
         raise ValueError(f"Suffix '{suffix}' is too long for database name generation")
