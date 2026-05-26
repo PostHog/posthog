@@ -66,10 +66,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         assert response["results"][0]["person"] is None
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2&include_person=true").json()
+        with self.assertNumQueries(10):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2&include_person=true").json()
         assert response["results"][0]["person"] == {
             "distinct_ids": ["2"],
             "is_identified": True,
@@ -101,8 +103,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # instance setting check, person and distinct id
-        with self.assertNumQueries(10):
+        # instance setting check
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -128,8 +130,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # access control, instance settings (poe, rate limit), person and distinct id
-        expected_queries = 11
+        # access control, instance settings (poe, rate limit)
+        expected_queries = 10
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -870,13 +872,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         assert response.status_code == status.HTTP_200_OK
         response_json = response.json()
         assert response_json["event"] == "event"
         assert response_json["person"] is None
 
-        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
+        with self.assertNumQueries(10):
+            with_person_response = self.client.get(
+                f"/api/projects/{self.team.id}/events/{event_id}?include_person=true"
+            )
         assert with_person_response.status_code == status.HTTP_200_OK
         with_person_response_json = with_person_response.json()
         assert with_person_response_json["event"] == "event"
