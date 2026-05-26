@@ -1,4 +1,4 @@
-import { TeamManager } from '../../utils/team-manager'
+import { TeamManagerHandle } from '../../utils/team-manager'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from '../common/common-ingestion-consumer'
 import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -20,12 +20,12 @@ describe('createClientWarningsConsumer', () => {
 
     function makeDeps(): {
         outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput>
-        teamManager: TeamManager
+        teamManager: TeamManagerHandle
     } {
         const outputs = {
             checkTopics: jest.fn().mockResolvedValue([]),
         } as unknown as IngestionOutputs<IngestionWarningsOutput | DlqOutput>
-        const teamManager = {} as TeamManager
+        const teamManager = {} as TeamManagerHandle
         return { outputs, teamManager }
     }
 
