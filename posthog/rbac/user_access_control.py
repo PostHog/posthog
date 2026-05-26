@@ -879,36 +879,32 @@ class UserAccessControl:
         Per-resource object IDs the user is denied access to. Empty for org admins.
         Explicit (member/role) rules win over defaults. Mirrors filter_queryset_by_access_level.
         Used by the HogQL printer guard and the HogQL cache-key fingerprint.
+        One query: pulls every per-object row this user is subject to across all resources.
         """
         org_membership = self._organization_membership
         if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
             return {}
+        if not EE_AVAILABLE or not self._team:
+            return {}
 
-        result: dict[APIScopeObject, set[str]] = {}
-        for resource in ACCESS_CONTROL_RESOURCES:
-            blocked = self._compute_blocked_resource_ids(resource)
-            if blocked:
-                result[resource] = blocked
-        return result
+        rows = list(
+            AccessControl.objects.filter(self._filter_options({"team_id": self._team.id, "resource_id__isnull": False}))
+        )
+        if not rows:
+            return {}
 
-    def _compute_blocked_resource_ids(self, resource: APIScopeObject) -> set[str]:
+        by_key: dict[tuple[APIScopeObject, str], list[_AccessControl]] = defaultdict(list)
+        for ac in rows:
+            by_key[(ac.resource, ac.resource_id)].append(ac)
+
         # TODO: refactor filter_queryset_by_access_level to share the same logic
-        filters = self.access_controls_filters_for_queryset(resource)
-        access_controls = self.get_access_controls(filters)
-
-        by_resource_id: dict[str, list[_AccessControl]] = defaultdict(list)
-        for ac in access_controls:
-            if ac.resource_id:
-                by_resource_id[ac.resource_id].append(ac)
-
-        blocked: set[str] = set()
-        for resource_id, acs in by_resource_id.items():
+        result: dict[APIScopeObject, set[str]] = defaultdict(set)
+        for (resource, resource_id), acs in by_key.items():
             explicit = [ac for ac in acs if ac.role_id or ac.organization_member_id]
             winning_tier = explicit or acs
             if all(ac.access_level == NO_ACCESS_LEVEL for ac in winning_tier):
-                blocked.add(resource_id)
-
-        return blocked
+                result[resource].add(resource_id)
+        return dict(result)
 
     def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access

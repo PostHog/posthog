@@ -1844,7 +1844,7 @@ class TestAccessControlMissingEE(BaseTest):
     @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
     def test_get_access_controls_returns_empty(self):
         filters = {"team_id": self.team.id, "resource": "dashboard", "resource_id": None}
-        assert self.uac._get_access_controls(filters) == []
+        assert self.uac.get_access_controls(filters) == []
 
     @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
     def test_preload_access_levels_does_not_crash(self):

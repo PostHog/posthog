@@ -1846,6 +1846,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
+        # Same for object-level restrictions on system.* tables — without this, a
+        # restricted user could read another user's unfiltered cached result.
+        restricted_objects = self._get_object_access_restrictions()
+        if restricted_objects:
+            payload["restricted_objects"] = restricted_objects
+
         return payload
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
@@ -1861,6 +1867,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not restricted:
             return None
         return sorted(restricted)
+
+    def _get_object_access_restrictions(self) -> dict[str, list[str]] | None:
+        """Returns a sorted {resource: [ids]} mapping of restricted resource IDs for the current user, or None if no restrictions.
+
+        The underlying ``UserAccessControl.blocked_resource_ids_by_scope`` runs one
+        bulk Postgres query against ``ee_accesscontrol`` regardless of how many
+        resources are restricted.
+        """
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        if self.user is None:
+            return None
+        uac = UserAccessControl(user=self.user, team=self.team)
+        blocked = uac.blocked_resource_ids_by_scope
+        if not blocked:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")

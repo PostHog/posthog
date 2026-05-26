@@ -326,6 +326,44 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
 
+    def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+
+        assert "restricted_objects" not in runner.get_cache_payload()
+
+    def test_cache_key_differs_when_user_is_restricted_from_object(self):
+        """
+        Cache-poisoning guard: an unrestricted user's cached result must not be
+        served to a user who is denied access to one of the rows in it.
+        """
+        from posthog.constants import AvailableFeature
+        from posthog.models import OrganizationMembership
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+        baseline_key = runner.get_cache_key()
+        assert "restricted_objects" not in runner.get_cache_payload()
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="42", access_level="none")
+
+        restricted_runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+        restricted_payload = restricted_runner.get_cache_payload()
+
+        assert restricted_payload["restricted_objects"] == {"dashboard": ["42"]}
+        assert restricted_runner.get_cache_key() != baseline_key
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()
