@@ -25,8 +25,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
+import { KafkaProducerRegistryLifecycle } from '../ingestion/common/outputs/registry'
 import { newLifecycleBuilder } from '../ingestion/common/service-registry'
 import {
     DatabaseConnectionConfig,
@@ -41,7 +40,6 @@ import {
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
@@ -103,7 +101,6 @@ export class IngestionGeneralServer implements NodeServer {
     private config: IngestionGeneralServerConfig
 
     private postgres?: PostgresRouter
-    private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private cookielessRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
@@ -152,14 +149,23 @@ export class IngestionGeneralServer implements NodeServer {
                     poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                 })
             )
+            .register(
+                'producerRegistry',
+                new KafkaProducerRegistryLifecycle(this.config.KAFKA_CLIENT_RACK, this.config)
+            )
             .build('shared-infra')
 
         // `teamManager` is built inside the chain via its Manager so it
         // picks up `postgres` from the started infra lifecycle's services
         // and is owned by the lifecycle. The server extracts it from the
         // started services map to pass on to CDP services etc.
+        const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         const sharedServicesLifecycle = sharedInfraLifecycle.chain('shared', (services, builder) =>
-            builder.register('teamManager', new TeamManagerLifecycle(services.postgres))
+            builder
+                .register('teamManager', new TeamManagerLifecycle(services.postgres))
+                .register('staticDropEventTokens', {
+                    start: () => Promise.resolve({ service: staticDropEventTokens, stop: () => Promise.resolve() }),
+                })
         )
 
         const sharedServices = await sharedServicesLifecycle.start()
@@ -235,13 +241,12 @@ export class IngestionGeneralServer implements NodeServer {
                 return consumer.service
             })
         } else {
-            // Build producer registry — producer creation blocks until the broker
-            // is reachable (rdkafka retries indefinitely), so the server will hang
-            // here if a broker is down and the pod never becomes healthy.
-            this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
-                this.config
-            )
-            const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+            // Producer registry is owned by `sharedInfraLifecycle`; the
+            // server reads it back from the started services. Outputs is
+            // a typed view over it — built once here for analytics, and
+            // separately by each consumer factory as needed.
+            const ingestionProducerRegistry = sharedServices.services.producerRegistry
+            const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
             const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
             const hogTransformerDeps: HogTransformerServiceDeps = {
@@ -276,13 +281,10 @@ export class IngestionGeneralServer implements NodeServer {
                               INGESTION_CONSUMER_GROUP_ID: override.groupId,
                           }
                         : this.config
-                    const consumer = createClientWarningsConsumer(consumerConfig, {
-                        outputs: ingestionOutputs,
-                        sharedLifecycle: sharedServicesLifecycle,
-                        staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(
-                            (x) => !!x
-                        ),
-                    })
+                    const consumer = createClientWarningsConsumer(
+                        { ...this.config, ...consumerConfig },
+                        sharedServicesLifecycle
+                    )
                     await consumer.start()
                     return consumer.service
                 })
@@ -339,7 +341,6 @@ export class IngestionGeneralServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                await this.ingestionProducerRegistry?.disconnectAll()
                 this.cookielessManager?.shutdown()
                 if (this.stopSharedServices) {
                     await this.stopSharedServices()

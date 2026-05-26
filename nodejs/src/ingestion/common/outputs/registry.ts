@@ -1,5 +1,6 @@
-import { DEFAULT_PRODUCER, INGESTION_PRODUCER, WARPSTREAM_PRODUCER } from '.'
+import { DEFAULT_PRODUCER, INGESTION_PRODUCER, ProducerName, WARPSTREAM_PRODUCER } from '.'
 
+import { KafkaProducerRegistry } from '../../outputs/kafka-producer-registry'
 import { KafkaProducerRegistryBuilder } from '../../outputs/kafka-producer-registry-builder'
 import { DEFAULT_PRODUCER_CONFIG_MAP, INGESTION_PRODUCER_CONFIG_MAP, WARPSTREAM_PRODUCER_CONFIG_MAP } from '../config'
 
@@ -9,4 +10,25 @@ export function createProducerRegistry(kafkaClientRack: string | undefined) {
         .register(DEFAULT_PRODUCER, DEFAULT_PRODUCER_CONFIG_MAP)
         .register(WARPSTREAM_PRODUCER, WARPSTREAM_PRODUCER_CONFIG_MAP)
         .register(INGESTION_PRODUCER, INGESTION_PRODUCER_CONFIG_MAP)
+}
+
+type ProducerRegistryConfig = Parameters<ReturnType<typeof createProducerRegistry>['build']>[0]
+
+/**
+ * Lifecycle owner for the shared Kafka producer registry. `start()`
+ * connects all registered producers; `stop()` disconnects them.
+ */
+export class KafkaProducerRegistryLifecycle {
+    constructor(
+        private readonly kafkaClientRack: string | undefined,
+        private readonly config: ProducerRegistryConfig
+    ) {}
+
+    async start(): Promise<{ service: KafkaProducerRegistry<ProducerName>; stop: () => Promise<void> }> {
+        const registry = await createProducerRegistry(this.kafkaClientRack).build(this.config)
+        return {
+            service: registry,
+            stop: () => registry.disconnectAll(),
+        }
+    }
 }

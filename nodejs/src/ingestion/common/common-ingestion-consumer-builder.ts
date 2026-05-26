@@ -1,23 +1,27 @@
 import { HealthCheckResult } from '../../types'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
-import { CommonIngestionConsumer, CommonIngestionConsumerConfig, PipelineFactory } from './common-ingestion-consumer'
+import {
+    CommonIngestionConsumer,
+    CommonIngestionConsumerConfig,
+    PipelineFactory,
+    ServicesWithOutputs,
+} from './common-ingestion-consumer'
 import { Lifecycle } from './service-registry'
 
-export interface CreateCommonIngestionConsumerArgs<S extends Record<string, object>, O extends string> {
+export interface CreateCommonIngestionConsumerArgs<S extends ServicesWithOutputs<O>, O extends string> {
     config: CommonIngestionConsumerConfig
     /**
      * Pre-built (not started) Lifecycle holding the consumer-owned services.
-     * The consumer brings it up on `start()`, hands the started services
-     * to the pipeline factory, and stops it on `stop()`.
+     * Must expose `outputs` in its services map — the consumer reads it
+     * for topic verification and threads it through to the pipeline
+     * factory.
      */
     lifecycle: Lifecycle<S>
-    outputs: IngestionOutputs<O>
     pipeline: PipelineFactory<S, O>
     healthcheck?: () => Promise<HealthCheckResult>
 }
 
-export function createCommonIngestionConsumer<S extends Record<string, object>, O extends string>(
+export function createCommonIngestionConsumer<S extends ServicesWithOutputs<O>, O extends string>(
     args: CreateCommonIngestionConsumerArgs<S, O>
 ): CommonIngestionConsumer<S, O> {
-    return new CommonIngestionConsumer<S, O>(args.config, args.lifecycle, args.outputs, args.pipeline, args.healthcheck)
+    return new CommonIngestionConsumer<S, O>(args.config, args.lifecycle, args.pipeline, args.healthcheck)
 }

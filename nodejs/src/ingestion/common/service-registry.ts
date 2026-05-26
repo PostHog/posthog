@@ -1,3 +1,5 @@
+import { logger } from '../../utils/logger'
+
 /**
  * Owns a service's lifecycle. `start()` produces the service instance plus
  * a `stop` callback that tears it down. Anyone holding the service only
@@ -41,7 +43,7 @@ export class LifecycleBuilder<S extends Record<string, object> = Record<never, o
     }
 
     build(name: string): Lifecycle<S> {
-        const runner = new ManagerRunner(this.managers)
+        const runner = new ManagerRunner(name, this.managers)
         return new Lifecycle<S>(name, () => runner.getServices() as S, runner)
     }
 }
@@ -103,27 +105,38 @@ class ManagerRunner implements Runner {
     private started: Array<{ name: string; service: object; stop: () => Promise<void> }> = []
     private servicesCache?: Record<string, object>
 
-    constructor(private readonly entries: ReadonlyArray<RegisteredManager>) {}
+    constructor(
+        private readonly lifecycleName: string,
+        private readonly entries: ReadonlyArray<RegisteredManager>
+    ) {}
 
     async start(): Promise<void> {
         const started: Array<{ name: string; service: object; stop: () => Promise<void> }> = []
-        try {
-            for (const entry of this.entries) {
+        for (const entry of this.entries) {
+            logger.info(`Lifecycle[${this.lifecycleName}]: starting ${entry.name}`)
+            try {
                 const { service, stop } = await entry.manager.start()
                 started.push({ name: entry.name, service: service as object, stop })
-            }
-            this.started = started
-            this.servicesCache = Object.fromEntries(started.map((s) => [s.name, s.service]))
-        } catch (err) {
-            for (let i = started.length - 1; i >= 0; i--) {
-                try {
-                    await started[i].stop()
-                } catch {
-                    // best-effort cleanup; propagate the original start error
+            } catch (err) {
+                logger.error(
+                    `Lifecycle[${this.lifecycleName}]: ${entry.name} start failed, rolling back ${started.length} started service(s)`,
+                    { error: err }
+                )
+                for (let i = started.length - 1; i >= 0; i--) {
+                    try {
+                        await started[i].stop()
+                    } catch (rollbackErr) {
+                        logger.error(
+                            `Lifecycle[${this.lifecycleName}]: ${started[i].name} stop failed during rollback`,
+                            { error: rollbackErr }
+                        )
+                    }
                 }
+                throw err
             }
-            throw err
         }
+        this.started = started
+        this.servicesCache = Object.fromEntries(started.map((s) => [s.name, s.service]))
     }
 
     async stop(): Promise<void> {
@@ -131,7 +144,13 @@ class ManagerRunner implements Runner {
         this.started = []
         this.servicesCache = undefined
         for (let i = svcs.length - 1; i >= 0; i--) {
-            await svcs[i].stop()
+            logger.info(`Lifecycle[${this.lifecycleName}]: stopping ${svcs[i].name}`)
+            try {
+                await svcs[i].stop()
+            } catch (err) {
+                logger.error(`Lifecycle[${this.lifecycleName}]: ${svcs[i].name} stop failed`, { error: err })
+                throw err
+            }
         }
     }
 
@@ -165,6 +184,7 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
     ) {}
 
     async start(): Promise<void> {
+        logger.info(`Lifecycle[${this.childName}]: acquiring parent ${this.parent.name}`)
         const parentHandle = await this.parent.start()
         try {
             const childLifecycle = this.configure(parentHandle.services, LifecycleBuilder.empty()).build(this.childName)
@@ -173,10 +193,15 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
             this.childHandle = childHandle
             this.servicesCache = { ...parentHandle.services, ...childHandle.services }
         } catch (err) {
+            logger.error(`Lifecycle[${this.childName}]: chain start failed, releasing parent ${this.parent.name}`, {
+                error: err,
+            })
             try {
                 await parentHandle.stop()
-            } catch {
-                // best-effort; propagate the original child error
+            } catch (parentStopErr) {
+                logger.error(`Lifecycle[${this.childName}]: parent ${this.parent.name} stop failed during rollback`, {
+                    error: parentStopErr,
+                })
             }
             throw err
         }
@@ -194,6 +219,7 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
             }
         } finally {
             if (parentHandle) {
+                logger.info(`Lifecycle[${this.childName}]: releasing parent ${this.parent.name}`)
                 await parentHandle.stop()
             }
         }
@@ -397,12 +423,15 @@ export class Lifecycle<S extends Record<string, object> = Record<never, object>>
 
     async start(): Promise<StartedLifecycle<S>> {
         const release = this.callers.register()
+        logger.info(`Lifecycle[${this.name}]: start requested (callers=${this.callers.size()})`)
         try {
             await this.machine.start(this.ctx)
         } catch (err) {
             release()
+            logger.error(`Lifecycle[${this.name}]: start failed`, { error: err })
             throw err
         }
+        logger.info(`Lifecycle[${this.name}]: started`)
         return this.makeHandle(release)
     }
 
@@ -432,7 +461,14 @@ export class Lifecycle<S extends Record<string, object> = Record<never, object>>
                 if (!release()) {
                     return
                 }
-                await this.machine.stop(this.ctx)
+                logger.info(`Lifecycle[${this.name}]: stop requested (callers=${this.callers.size()})`)
+                try {
+                    await this.machine.stop(this.ctx)
+                } catch (err) {
+                    logger.error(`Lifecycle[${this.name}]: stop failed`, { error: err })
+                    throw err
+                }
+                logger.info(`Lifecycle[${this.name}]: stopped`)
             },
         }
     }

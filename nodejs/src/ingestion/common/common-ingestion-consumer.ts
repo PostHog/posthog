@@ -32,6 +32,13 @@ export type PipelineFactory<S extends Record<string, object>, O extends string> 
     ctx: PipelineFactoryContext<S, O>
 ) => IngestionBatchingPipeline
 
+/**
+ * Constraint on a lifecycle's services map: must expose an `outputs`
+ * service. Common consumers read `services.outputs` to call `checkTopics`
+ * and to thread the outputs through to the pipeline factory.
+ */
+export type ServicesWithOutputs<O extends string> = Record<string, object> & { outputs: IngestionOutputs<O> }
+
 export type CommonIngestionConsumerConfig = Pick<
     IngestionConsumerConfig,
     | 'INGESTION_CONSUMER_GROUP_ID'
@@ -56,10 +63,7 @@ const latestOffsetTimestampGauge = new Gauge({
  * On `stop()`: disconnects Kafka, tears the lifecycle down in reverse, and
  * drains the background promise scheduler.
  */
-export class CommonIngestionConsumer<
-    S extends Record<string, object> = Record<never, object>,
-    O extends string = string,
-> {
+export class CommonIngestionConsumer<S extends ServicesWithOutputs<O>, O extends string = string> {
     private name: string
     private groupId: string
     private topic: string
@@ -73,7 +77,6 @@ export class CommonIngestionConsumer<
     constructor(
         private config: CommonIngestionConsumerConfig,
         private lifecycle: Lifecycle<S>,
-        private outputs: IngestionOutputs<O>,
         private pipelineFactory: PipelineFactory<S, O>,
         private healthcheckFn?: () => Promise<HealthCheckResult>
     ) {
@@ -98,13 +101,9 @@ export class CommonIngestionConsumer<
     async start(): Promise<void> {
         this.startedLifecycle = await this.lifecycle.start()
         try {
-            const failures = await this.outputs.checkTopics()
-            if (failures.length > 0) {
-                throw new Error(`Output topic verification failed for: ${failures.join(', ')}`)
-            }
             this.pipeline = this.pipelineFactory({
                 services: this.startedLifecycle.services,
-                outputs: this.outputs,
+                outputs: this.startedLifecycle.services.outputs,
                 promiseScheduler: this.promiseScheduler,
             })
         } catch (err) {

@@ -1,12 +1,20 @@
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from './common-ingestion-consumer'
 import { createCommonIngestionConsumer } from './common-ingestion-consumer-builder'
-import { newLifecycleBuilder } from './service-registry'
+import { Lifecycle, newLifecycleBuilder } from './service-registry'
 
 function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     return {
         checkTopics: jest.fn().mockResolvedValue(failures),
     } as unknown as IngestionOutputs<string>
+}
+
+function makeLifecycle(): Lifecycle<{ outputs: IngestionOutputs<string> }> {
+    return newLifecycleBuilder()
+        .register('outputs', {
+            start: () => Promise.resolve({ service: makeOutputs(), stop: () => Promise.resolve() }),
+        })
+        .build('consumer')
 }
 
 function makeConfig(overrides: Partial<CommonIngestionConsumerConfig> = {}): CommonIngestionConsumerConfig {
@@ -24,8 +32,7 @@ describe('createCommonIngestionConsumer', () => {
     it('returns a CommonIngestionConsumer wired to the supplied lifecycle and pipeline factory', () => {
         const consumer = createCommonIngestionConsumer({
             config: makeConfig(),
-            lifecycle: newLifecycleBuilder().build('consumer'),
-            outputs: makeOutputs(),
+            lifecycle: makeLifecycle(),
             pipeline: () => ({ feed: jest.fn(), next: jest.fn() }),
         })
 
@@ -37,8 +44,7 @@ describe('createCommonIngestionConsumer', () => {
 
         createCommonIngestionConsumer({
             config: makeConfig(),
-            lifecycle: newLifecycleBuilder().build('consumer'),
-            outputs: makeOutputs(),
+            lifecycle: makeLifecycle(),
             pipeline: factory,
         })
 
