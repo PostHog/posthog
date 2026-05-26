@@ -298,7 +298,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             self.bump()?;
             seen_any_kw = true;
             // Each modifier keyword may appear at most once. cpp's
-            // ANTLR alts (`HogQLParser.g4:127–134`) each reference each
+            // ANTLR `joinOp` alts each reference each
             // keyword at most once; rust was silently OR-ing duplicates
             // into the boolean state, so `INNER INNER JOIN` /
             // `LEFT OUTER LEFT JOIN` slipped through.
@@ -337,8 +337,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             return Ok(None);
         }
 
-        // Grammar validation. The three `joinOp` alts (see
-        // `HogQLParser.g4:127–134`) partition the keyword set:
+        // Grammar validation. The three `joinOp` alts partition the
+        // keyword set:
         //   JoinOpInner   ⇒ INNER + at most one of ALL/ANY/ASOF; or
         //                   ANTI; or SEMI; or ASOF (ANTI|SEMI). No
         //                   LEFT/RIGHT/FULL/OUTER.
@@ -364,7 +364,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if outer && !(left || right || full) {
             return Err(self.err("OUTER requires LEFT/RIGHT/FULL"));
         }
-        // Within-category arity per `HogQLParser.g4:127–134`:
+        // Within-category arity per the `joinOp` alts:
         //   - At most one of ALL/ANY/ASOF in any alt (the grammar
         //     references the group as `(ALL|ANY|ASOF)?`, never twice).
         //   - ANTI and SEMI never together — inner-style admits `ANTI`,

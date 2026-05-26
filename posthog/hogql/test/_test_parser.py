@@ -5890,7 +5890,7 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @no_memory_leak_check
         def test_join_op_grammar_alts_validation(self):
-            # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
+            # `joinOp` has three disjoint alts:
             # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
             # at most once per alt, and the three alts don't share INNER /
             # LEFT / RIGHT / FULL. Rust's source-order loop set booleans
