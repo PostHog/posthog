@@ -2,10 +2,9 @@ import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
-import { RateLimitToOverflowStepInput } from './rate-limit-to-overflow-step'
+import { OverflowLaneTTLRefreshStepInput, createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
 
-const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
+const createMockEvent = (token: string, distinctId: string, now?: Date): OverflowLaneTTLRefreshStepInput => ({
     headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
     event: createTestPipelineEvent({ distinct_id: distinctId }),
 })
