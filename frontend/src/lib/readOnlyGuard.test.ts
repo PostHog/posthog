@@ -99,6 +99,16 @@ describe('readOnlyGuard', () => {
                 ['AI conversation queue clear', 'POST', '/api/environments/2/conversations/abc-123/queue/clear'],
                 ['AI conversation append message', 'POST', '/api/environments/2/conversations/abc-123/append_message'],
                 ['AI conversation cancel', 'PATCH', '/api/environments/2/conversations/abc-123/cancel/'],
+                [
+                    'user interview generate_links (fired by topic page afterMount)',
+                    'POST',
+                    '/api/environments/2/user_interview_topics/abc-123/generate_links/',
+                ],
+                [
+                    'user interview generate_links (no trailing slash)',
+                    'POST',
+                    '/api/environments/2/user_interview_topics/abc-123/generate_links',
+                ],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -129,6 +139,26 @@ describe('readOnlyGuard', () => {
                     '/api/environments/2/conversations/tickets/',
                 ],
                 ['conversations-like prefix blocked', 'POST', '/api/environments/2/conversationsfoo/'],
+                [
+                    'user interview links_csv blocked (fired by explicit user click)',
+                    'POST',
+                    '/api/environments/2/user_interview_topics/abc-123/links_csv/',
+                ],
+                [
+                    'user interview topic create blocked',
+                    'POST',
+                    '/api/environments/2/user_interview_topics/',
+                ],
+                [
+                    'user interview topic patch blocked',
+                    'PATCH',
+                    '/api/environments/2/user_interview_topics/abc-123/',
+                ],
+                [
+                    'user interview remove_interviewee blocked',
+                    'POST',
+                    '/api/environments/2/user_interview_topics/abc-123/remove_interviewee/',
+                ],
             ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })

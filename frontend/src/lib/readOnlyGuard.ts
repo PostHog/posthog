@@ -63,6 +63,7 @@ const READ_ONLY_ALLOWED_PATTERNS = [
     /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
     /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
     /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
+    /\/user_interview_topics\/[^/]+\/generate_links(?:\/|$|\?)/, // /api/.../user_interview_topics/:id/generate_links — fired automatically by userInterviewLogic afterMount; server-side materialization is idempotent (existing IntervieweeContext rows are preserved)
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {
