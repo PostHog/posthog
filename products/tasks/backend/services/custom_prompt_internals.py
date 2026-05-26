@@ -85,8 +85,6 @@ async def create_task_and_trigger(
         posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
-        sandbox_environment_id=context.sandbox_environment_id,
-        posthog_mcp_scopes=context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full",
         internal=internal,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
