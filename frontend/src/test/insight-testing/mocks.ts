@@ -88,6 +88,32 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
     } as TrendsQueryResponse
 }
 
+/** Stickiness shares the TrendResult shape with trends, but uses integer-day labels
+ *  ("1 day", "2 days", …) and numeric `days` (1, 2, …). The mock reuses the canned
+ *  trends series for value diversity and re-keys the x-axis to stickiness form. */
+function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
+    return {
+        results: series.map((s, i) => {
+            const buckets = s.data.length
+            return {
+                action: {
+                    id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                    type: 'events',
+                    name: s.label,
+                    order: i,
+                },
+                label: s.label,
+                count: s.data.reduce((a, b) => a + b, 0),
+                aggregated_value: s.data.reduce((a, b) => a + b, 0),
+                data: s.data,
+                labels: Array.from({ length: buckets }, (_, j) => `${j + 1} day${j === 0 ? '' : 's'}`),
+                days: Array.from({ length: buckets }, (_, j) => j + 1),
+                breakdown_value: s.breakdown_value,
+            }
+        }),
+    } as TrendsQueryResponse
+}
+
 /** Pull the bits of an ActorsQuery we use to look up canned actors. */
 interface ActorsQueryBodyShape {
     source?: {
@@ -190,6 +216,10 @@ export function setupInsightMocks({
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
             response: (query) => buildTrendsResponse(resolveSeriesData(query)),
+        },
+        {
+            match: (query) => query.kind === NodeKind.StickinessQuery,
+            response: (query) => buildStickinessResponse(resolveSeriesData(query)),
         },
         {
             match: (query) => query.kind === NodeKind.FunnelsQuery,

@@ -3832,6 +3832,39 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["count"], 1)
         self.assertEqual(result[2]["count"], 1)
 
+    def test_hogql_aggregation_by_numeric_property(self):
+        # A Numeric property used as the HogQL aggregation key is coerced to Float64
+        # by the property-types transform; the aggregation-target non-empty filter
+        # must not compare it directly to an empty string.
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="bid_id",
+            defaults={"property_type": "Numeric"},
+        )
+        _create_person(distinct_ids=["user"], team_id=self.team.pk)
+        self._signup_event(distinct_id="user", properties={"bid_id": 5})
+        self._add_to_cart_event(distinct_id="user", properties={"bid_id": 5})
+        self._checkout_event(distinct_id="user", properties={"bid_id": 5})
+
+        results = (
+            self._basic_funnel(
+                query=FunnelsQuery(
+                    funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.bid_id"),
+                    series=[
+                        EventsNode(event="user signed up", name="user signed up"),
+                        EventsNode(event="added to cart", name="added to cart"),
+                        EventsNode(event="checked out", name="checked out"),
+                    ],
+                )
+            )
+            .calculate()
+            .results
+        )
+        self.assertEqual(results[0]["count"], 1)
+        self.assertEqual(results[1]["count"], 1)
+        self.assertEqual(results[2]["count"], 1)
+
     def test_funnel_all_events_with_properties(self):
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
         self._signup_event(distinct_id="user")

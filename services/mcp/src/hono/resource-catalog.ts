@@ -1,7 +1,20 @@
 import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
-import type { GetPromptResult, ListPromptsResult, ListResourcesResult, Prompt, ReadResourceResult, Resource, TextResourceContents } from '@modelcontextprotocol/sdk/types.js'
+import type {
+    GetPromptResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    Prompt,
+    ReadResourceResult,
+    Resource,
+    TextResourceContents,
+} from '@modelcontextprotocol/sdk/types.js'
 
-import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } from '@/resources/internals'
+import {
+    fetchContextMillResources,
+    filterValidEntries,
+    loadManifestFromArchive,
+    clearResourceCache,
+} from '@/resources/internals'
 import { getPromptsFromManifest } from '@/resources'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import { buildAppStubHtml } from '@/resources/ui-apps'
@@ -109,7 +122,9 @@ export class ResourceCatalog {
 
     private async warmupUiApps(): Promise<void> {
         const baseUrl = this.env.MCP_APPS_BASE_URL
-        if (!baseUrl) {return}
+        if (!baseUrl) {
+            return
+        }
 
         const analyticsBaseUrl = this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
 

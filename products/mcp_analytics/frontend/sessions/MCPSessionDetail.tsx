@@ -76,13 +76,8 @@ export function MCPSessionDetail(): JSX.Element {
                     <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
                     <Tooltip
                         title={
-                            <div className="flex flex-col gap-1 max-w-xs">
-                                <span className="font-mono break-all">{selectedSession.session_id}</span>
-                                <span>
-                                    Streamable-HTTP transport session id, minted by the MCP server and sent on each
-                                    request via the <span className="font-mono">Mcp-Session-Id</span> header. Used to
-                                    group every tool call from one client connection.
-                                </span>
+                            <div className="max-w-xs break-all">
+                                Session ID: <span className="font-mono">{selectedSession.session_id}</span>
                             </div>
                         }
                     >
@@ -101,7 +96,7 @@ export function MCPSessionDetail(): JSX.Element {
             </header>
 
             <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
-                {toolCallsLoading && toolCalls.length === 0 ? (
+                {toolCallsLoading ? (
                     <div className="flex flex-col gap-2">
                         {[0, 1, 2].map((i) => (
                             <LemonSkeleton key={i} className="h-16 w-full" />
