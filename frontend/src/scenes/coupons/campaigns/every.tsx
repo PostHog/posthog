@@ -7,7 +7,7 @@ import { CampaignConfig } from './types'
 const EVERY_LOGO_BLACK = 'https://res.cloudinary.com/dmukukwp6/image/upload/every_black_d4ba0c3a4d.svg'
 const EVERY_LOGO_WHITE = 'https://res.cloudinary.com/dmukukwp6/image/upload/every_white_438ee9fa45.svg'
 // TODO: Keep this date in sync with EveryGoodieBagStrategy.INVOICE_CUTOFF_DATE in billing.
-const EVERY_CREDIT_ELIGIBILITY_CUTOFF = 'May 1, 2026'
+const EVERY_CREDIT_ELIGIBILITY_CUTOFF = 'July 14, 2026'
 
 const EveryHero: React.FC = () => {
     return (
