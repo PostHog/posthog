@@ -2,6 +2,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -201,6 +202,7 @@ class TestSanitizeForPrompt(BaseTest):
         assert result == "abc"
 
 
+@freeze_time("2025-06-15")
 class TestFormatTimestampForLlm(BaseTest):
     @parameterized.expand(
         [
@@ -293,6 +295,7 @@ class TestResolveLookbackDays(BaseTest):
         assert result == 90
 
 
+@freeze_time("2025-06-15")
 class TestFormatDiagnosticForLlm(BaseTest):
     def _make_minimal_response(self, *, overall_status="healthy", summary="All good"):
         return MarketingDiagnosticResponse(
@@ -463,6 +466,7 @@ class TestFormatGoalLine(BaseTest):
         assert "non_integrated=50" in result
 
 
+@freeze_time("2025-06-15")
 class TestFormatDataSourcesForLlm(BaseTest):
     def test_not_connected_shows_in_output(self):
         entry = _make_data_source_entry(
