@@ -524,9 +524,12 @@ class BasePrinter(Visitor[str]):
         self,
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
-    ):
-        if self.dialect != "hogql":
-            raise NotImplementedError("HogQLPrinter._ensure_access_control_where_clause not overridden")
+    ) -> ast.Expr | None:
+        # HogQL-as-output doesn't inject SQL access-control guards. SQL dialects (clickhouse,
+        # postgres, ...) must override; we fail closed if they don't.
+        if self.DIALECT_NAME != "hogql":
+            raise NotImplementedError(f"{type(self).__name__} must override _ensure_access_control_where_clause")
+        return None
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
