@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Optional, Union, cast
@@ -39,14 +40,30 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    can_use_lazy_precompute as can_use_frustration_lazy_precompute,
+    execute_lazy_precomputed_read as execute_frustration_lazy_precomputed_read,
+)
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
     LazyStatsResult,
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
 )
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_paths_lazy_precompute,
+    execute_lazy_precomputed_read as execute_paths_lazy_precomputed_read,
+)
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
+
+
+def _none_if_nan(value):
+    """avgMergeIf returns NaN for empty windows; replace with None so the
+    response stays valid JSON and downstream comparators handle it uniformly."""
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    return value
 
 
 @dataclass(frozen=True)
@@ -395,7 +412,188 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             offset=self.paginator.offset,
         )
 
+    def _maybe_calculate_via_lazy_precompute(self) -> Optional[WebStatsTableQueryResponse]:
+        """Short-circuit through the PATHS lazy precompute table when eligible.
+
+        Returns None when ineligible or on any failure, in which case the caller
+        falls through to the v2/raw HogQL path.
+        """
+        if not can_use_paths_lazy_precompute(self):
+            return None
+        sort_column, sort_direction = self._resolve_sort_field()
+        limit = self.paginator.limit
+        offset = self.paginator.offset or 0
+        # `limit + 1` lookahead lets us detect `hasMore` without a separate count
+        # query — same trick the paginator uses on the raw path.
+        rows = execute_paths_lazy_precomputed_read(
+            self,
+            sort_column=sort_column,
+            sort_direction=sort_direction,
+            limit=limit + 1,
+            offset=offset,
+        )
+        if rows is None:
+            return None
+        self.used_preaggregated_tables = True
+        return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
+
+    def _maybe_calculate_via_frustration_lazy_precompute(self) -> Optional[WebStatsTableQueryResponse]:
+        """Short-circuit through the FRUSTRATION lazy precompute table when eligible.
+
+        Returns None when ineligible or on any failure, in which case the caller
+        falls through to the live HogQL path.
+        """
+        if not can_use_frustration_lazy_precompute(self):
+            return None
+        limit = self.paginator.limit
+        offset = self.paginator.offset or 0
+        rows = execute_frustration_lazy_precomputed_read(self, limit=limit + 1, offset=offset)
+        if rows is None:
+            return None
+        self.used_preaggregated_tables = True
+        return self._build_frustration_response_from_lazy_rows(rows, limit=limit, offset=offset)
+
+    def _build_frustration_response_from_lazy_rows(
+        self, rows: list[tuple], *, limit: int, offset: int
+    ) -> WebStatsTableQueryResponse:
+        """Materialise the SQL-paginated frustration rows into the wire shape.
+        Pivots the flat columns (breakdown, rage_c, rage_p, dead_c, dead_p,
+        errors_c, errors_p) back into the runner's tuple-of-(current, previous)
+        shape, matching the live `FrustrationMetricsStrategy.build_query()`
+        response."""
+        include_previous = bool(self.query_compare_to_date_range)
+        has_more = len(rows) > limit
+        page = rows[:limit]
+
+        results = []
+        for row in page:
+            (
+                breakdown_value,
+                rage_clicks,
+                prev_rage_clicks,
+                dead_clicks,
+                prev_dead_clicks,
+                errors,
+                prev_errors,
+            ) = row
+            results.append(
+                [
+                    breakdown_value,
+                    (rage_clicks, prev_rage_clicks if include_previous else None),
+                    (dead_clicks, prev_dead_clicks if include_previous else None),
+                    (errors, prev_errors if include_previous else None),
+                    "",  # cross_sell placeholder
+                ]
+            )
+
+        return WebStatsTableQueryResponse(
+            columns=[
+                "context.columns.breakdown_value",
+                "context.columns.rage_clicks",
+                "context.columns.dead_clicks",
+                "context.columns.errors",
+                "context.columns.cross_sell",
+            ],
+            results=results,
+            modifiers=self.modifiers,
+            usedPreAggregatedTables=True,
+            usedLazyPrecompute=True,
+            hasMore=has_more,
+            limit=limit,
+            offset=offset,
+        )
+
+    def _build_response_from_lazy_rows(
+        self, rows: list[tuple], *, limit: int, offset: int
+    ) -> WebStatsTableQueryResponse:
+        """Materialise the SQL-paginated rows into the wire shape. Sort,
+        pagination, and fill-fraction are all already applied in SQL —
+        this just renames fields and applies the `limit + 1` → `hasMore`
+        truncation."""
+        include_previous = bool(self.query_compare_to_date_range)
+        has_more = len(rows) > limit
+        page = rows[:limit]
+
+        results = []
+        for row in page:
+            (
+                breakdown_value,
+                visitors,
+                prev_visitors,
+                views,
+                prev_views,
+                bounce_rate,
+                prev_bounce_rate,
+                fill_fraction,
+            ) = row
+            # `bounce_rate` already comes back as `NULL` from `if(isNaN(...), NULL, ...)`
+            # so it surfaces as Python `None` for JSON. Belt-and-braces NaN guard
+            # in case a future schema change reintroduces a NaN path.
+            bounce_rate = _none_if_nan(bounce_rate)
+            prev_bounce_rate = _none_if_nan(prev_bounce_rate)
+            results.append(
+                [
+                    breakdown_value,
+                    (visitors, prev_visitors if include_previous else None),
+                    (views, prev_views if include_previous else None),
+                    (bounce_rate, prev_bounce_rate if include_previous else None),
+                    float(fill_fraction) if fill_fraction is not None else 0.0,
+                    "",  # cross_sell placeholder
+                ]
+            )
+
+        columns = [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.views",
+            "context.columns.bounce_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ]
+
+        return WebStatsTableQueryResponse(
+            columns=columns,
+            results=results,
+            modifiers=self.modifiers,
+            usedPreAggregatedTables=True,
+            usedLazyPrecompute=True,
+            hasMore=has_more,
+            limit=limit,
+            offset=offset,
+        )
+
+    def _resolve_sort_field(self) -> tuple[str, Literal["ASC", "DESC"]]:
+        """Map `query.orderBy` onto the lazy read's SQL column + direction.
+
+        Defaults to `visitors DESC` (matching the v2 raw path's fallthrough).
+        Unsupported sort fields are gated out by `_check_eligible` before we
+        get here, so the fallback is defence-in-depth."""
+        direction: Literal["ASC", "DESC"] = "DESC"
+        field = "visitors"
+        if self.query.orderBy:
+            order_field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
+            order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+            direction = cast(Literal["ASC", "DESC"], order_dir.value)
+            if order_field == WebAnalyticsOrderByFields.VISITORS:
+                field = "visitors"
+            elif order_field == WebAnalyticsOrderByFields.VIEWS:
+                field = "views"
+            elif order_field == WebAnalyticsOrderByFields.BOUNCE_RATE:
+                field = "bounce_rate"
+        return field, direction
+
     def _calculate(self):
+        # Try each lazy precompute path in turn. Each `can_use_*` check short-
+        # circuits on the wrong `breakdownBy`, so the order only matters for
+        # rejection reason attribution in logs/metrics.
+        lazy_response = self._maybe_calculate_via_lazy_precompute()
+        if lazy_response is not None:
+            return lazy_response
+
+        lazy_response = self._maybe_calculate_via_frustration_lazy_precompute()
+        if lazy_response is not None:
+            return lazy_response
+
         lazy_result = self.get_lazy_precomputed_result()
         if lazy_result is not None:
             return self._build_response_from_lazy(lazy_result)

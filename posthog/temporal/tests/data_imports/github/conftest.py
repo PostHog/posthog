@@ -6,7 +6,8 @@ import pytest
 
 from dateutil import parser as dateutil_parser
 
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS
+from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
+from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS, WORKFLOW_RUNS
 
 
 class MockGithubAPI:
@@ -26,6 +27,15 @@ class MockGithubAPI:
         "pulls": PULL_REQUESTS,
         "commits": COMMITS,
         "stargazers": STARGAZERS,
+        "runs": WORKFLOW_RUNS,
+    }
+
+    # Derived from the production endpoint config so the mock and source stay
+    # in sync on which endpoints return enveloped responses.
+    ENVELOPE_KEYS: dict[str, str] = {
+        config.path.rsplit("/", 1)[-1]: config.response_data_path
+        for config in GITHUB_ENDPOINTS.values()
+        if config.response_data_path
     }
 
     def __init__(self, requests_mock):
@@ -47,7 +57,7 @@ class MockGithubAPI:
             date_str = item.get("commit", {}).get("author", {}).get("date")
         return date_str
 
-    def get_resources(self, request: Any, context: Any) -> list[dict[str, Any]]:
+    def get_resources(self, request: Any, context: Any) -> Any:
         path = urlparse(request.url).path
         resource = path.split("/")[-1]
 
@@ -84,13 +94,20 @@ class MockGithubAPI:
                 key=lambda x: x.get(sort_key) or self._get_item_date(x) or "",
                 reverse=(direction == "desc"),
             )
+        elif resource == "runs":
+            # Workflow runs API always returns newest-first by created_at.
+            data = sorted(data, key=lambda x: x.get("created_at") or "", reverse=True)
+
+        # total_count is the filtered count before pagination, matching GitHub's
+        # enveloped endpoints (the count does not shrink page to page).
+        total_count = len(data)
 
         per_page = int(query.get("per_page", ["100"])[0])
         page = int(query.get("page", ["1"])[0])
         start = (page - 1) * per_page
         end = start + per_page
 
-        has_more = end < len(data)
+        has_more = end < total_count
         data = data[start:end]
 
         if has_more:
@@ -98,6 +115,9 @@ class MockGithubAPI:
             next_page = page + 1
             context.headers["Link"] = f'<{base_url}?page={next_page}&per_page={per_page}>; rel="next"'
 
+        envelope_key = self.ENVELOPE_KEYS.get(resource)
+        if envelope_key:
+            return {"total_count": total_count, envelope_key: data}
         return data
 
     def get_all_api_calls(self) -> list:

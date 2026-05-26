@@ -101,6 +101,7 @@ APIScopeObject = Literal[
     "warehouse_view",
     "web_analytics",
     "webhook",
+    "wizard_session",
 ]
 
 APIScopeActions = Literal[
@@ -125,7 +126,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_t
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_scanner"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_scanner", "wizard_session"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 

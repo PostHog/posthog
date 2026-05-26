@@ -41,6 +41,7 @@ import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
@@ -114,7 +115,11 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
-from products.replay_vision.backend.api import ReplayObservationViewSet, ReplayScannerViewSet
+from products.replay_vision.backend.api import (
+    ReplayObservationViewSet,
+    ReplayScannerViewSet,
+    SessionReplayObservationViewSet,
+)
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.presentation.views import (
@@ -331,6 +336,12 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+projects_router.register(
+    r"wizard/sessions",
+    wizard_sessions.WizardSessionViewSet,
+    "project_wizard_sessions",
+    ["project_id"],
+)
 # Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
 # Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
 # /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
@@ -438,11 +449,18 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
+environment_accounts_router = environments_router.register(
     r"accounts",
     customer_analytics.AccountViewSet,
     "environment_accounts",
     ["team_id"],
+)
+
+environment_accounts_router.register(
+    r"notebooks",
+    customer_analytics.AccountNotebookViewSet,
+    "environment_account_notebooks",
+    ["team_id", "account_id"],
 )
 
 projects_router.register(
@@ -1622,6 +1640,12 @@ environment_vision_scanners_router.register(
     ReplayObservationViewSet,
     "environment_vision_scanner_observations",
     ["team_id", "scanner_id"],
+)
+environments_router.register(
+    r"vision/observations",
+    SessionReplayObservationViewSet,
+    "environment_vision_observations",
+    ["team_id"],
 )
 
 environments_router.register(

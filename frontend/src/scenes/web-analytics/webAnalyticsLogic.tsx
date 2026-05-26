@@ -1160,6 +1160,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Apply the per-team opt-in here so every stats-table tab (Path,
+                                // Entry path, End path, channel breakdowns, etc.) consistently
+                                // reaches the lazy precompute gate. The backend gate decides
+                                // per-breakdown which combinations are actually served from the
+                                // precompute. `source` overrides can still pin this off for a
+                                // specific tab if ever needed.
                                 useWebAnalyticsPrecompute,
                                 ...source,
                             },
@@ -1247,6 +1253,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
                                 ],
+                                useWebAnalyticsPrecompute,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(
@@ -1411,6 +1418,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                               includeAvgTimeOnPage:
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
+                                              useWebAnalyticsPrecompute,
                                           },
                                           {
                                               ...pathTabExtras,
@@ -1527,6 +1535,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
+                                                  doPathCleaning: isPathCleaningEnabled,
                                               },
                                               embedded: false,
                                               showActions: true,
@@ -2044,6 +2053,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
+                                        // Web overview attributes session metrics to the session's start hour;
+                                        // mirror that here so visitor counts line up across the dashboard.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
+                                        },
                                     },
                                 },
                                 docs: {
@@ -2170,6 +2184,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // Backend gate decides whether this query is actually served
+                                      // from the precomputed table; we just pass the per-team opt-in.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2279,6 +2296,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // The backend frustration lazy precompute gate decides whether
+                                      // this query is actually served from the precomputed table; we
+                                      // just pass the per-team opt-in through so it's eligible.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,

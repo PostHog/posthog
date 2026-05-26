@@ -179,7 +179,7 @@ export const getMcpAnalyticsSessionsListUrl = (projectId: string, params?: McpAn
 }
 
 /**
- * List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by most recent activity first by default.
+ * List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.
  */
 export const mcpAnalyticsSessionsList = async (
     projectId: string,
