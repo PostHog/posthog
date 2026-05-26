@@ -33,12 +33,15 @@ const unsortedActions: ActionType[] = [
 ]
 const apiJson = { results: unsortedActions }
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
+const mockSuccess = (): Response =>
+    ({
         ok: true,
+        status: 200,
         json: () => Promise.resolve(apiJson),
-    } as any as Response)
-)
+    }) as any as Response
+
+const mockFetch = jest.fn<Promise<Response>, [any?, any?]>(() => Promise.resolve(mockSuccess()))
+global.fetch = mockFetch as any
 
 describe('toolbar actionsLogic', () => {
     let logic: ReturnType<typeof actionsLogic.build>
@@ -48,6 +51,8 @@ describe('toolbar actionsLogic', () => {
         toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'test-token' }).mount()
         logic = actionsLogic()
         logic.mount()
+        mockFetch.mockReset()
+        mockFetch.mockImplementation(() => Promise.resolve(mockSuccess()))
     })
 
     it('has expected defaults', () => {
@@ -94,6 +99,48 @@ describe('toolbar actionsLogic', () => {
                 actionCount: 3,
                 allActions: apiJson.results,
             })
+    })
+
+    it('throws an error including the HTTP status on a non-2xx, non-403 response', async () => {
+        mockFetch.mockImplementation(() =>
+            Promise.resolve({
+                ok: false,
+                status: 500,
+                text: () => Promise.resolve('Internal Server Error'),
+                json: () => Promise.resolve({}),
+            } as any as Response)
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.getActions()
+        })
+            .delay(0)
+            .toMatchValues({
+                allActions: [],
+            })
+
+        expect(logic.values.allActionsLoading).toBe(false)
+    })
+
+    it('throws a shape-specific error when the response is OK but not a paginated array', async () => {
+        mockFetch.mockImplementation(() =>
+            Promise.resolve({
+                ok: true,
+                status: 200,
+                text: () => Promise.resolve(''),
+                json: () => Promise.resolve({ detail: 'something else' }),
+            } as any as Response)
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.getActions()
+        })
+            .delay(0)
+            .toMatchValues({
+                allActions: [],
+            })
+
+        expect(logic.values.allActionsLoading).toBe(false)
     })
 
     it('can filter the actions', async () => {
