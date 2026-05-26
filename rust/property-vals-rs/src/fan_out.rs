@@ -153,7 +153,12 @@ mod tests {
     }
 
     fn excluded(keys: &[&str]) -> ExcludedPropertyKeys {
-        keys.iter().copied().collect::<Vec<_>>().join(",").parse().unwrap()
+        keys.iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .join(",")
+            .parse()
+            .unwrap()
     }
 
     fn check_tuple_invariants(t: &TupleKey, expected_team: i64) {
@@ -292,7 +297,8 @@ mod tests {
 
     #[test]
     fn excluded_event_property_keys_are_skipped() {
-        let blob = r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1"}"#;
+        let blob =
+            r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1"}"#;
         let exclusions = excluded(&["$insert_id", "distinct_id", "$session_id"]);
         let tuples = fan_out(&event(blob), &exclusions);
         assert_eq!(tuples.len(), 1, "only $browser should survive exclusion");
