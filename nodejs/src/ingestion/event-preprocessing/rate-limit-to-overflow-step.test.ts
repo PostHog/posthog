@@ -281,6 +281,61 @@ describe('createRateLimitToOverflowStep', () => {
     })
 })
 
+const createCookielessVariantInput = (
+    headerDistinctId: string,
+    eventDistinctId: string,
+    token: string = 'token1',
+    now?: Date
+): OnlyCookielessRateLimitToOverflowStepInput => ({
+    headers: createTestEventHeaders({ token, distinct_id: headerDistinctId, now: now ?? new Date() }),
+    event: createTestPipelineEvent({ distinct_id: eventDistinctId }),
+})
+
+// Properties that should hold for both cookieless variants. Each variant defines what
+// "out of scope" means (events it ignores), but the resulting behavior is the same:
+// pass through as OK, and don't bother calling the service.
+describe.each([
+    {
+        name: 'createSkipCookielessRateLimitToOverflowStep',
+        createStep: createSkipCookielessRateLimitToOverflowStep,
+        outOfScopeInputs: (): OnlyCookielessRateLimitToOverflowStepInput[] => [
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed1'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed2', 'token2'),
+        ],
+    },
+    {
+        name: 'createOnlyCookielessRateLimitToOverflowStep',
+        createStep: createOnlyCookielessRateLimitToOverflowStep,
+        outOfScopeInputs: (): OnlyCookielessRateLimitToOverflowStepInput[] => [
+            createCookielessVariantInput('user1', 'user1'),
+            createCookielessVariantInput('user2', 'user2', 'token2'),
+        ],
+    },
+])('$name (shared behavior)', ({ createStep, outOfScopeInputs }) => {
+    it('returns ok for all events when service is not provided', async () => {
+        const step = createStep(true, undefined)
+
+        const events = [
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed1'),
+            createCookielessVariantInput('user1', 'user1'),
+        ]
+
+        const results = await step(events)
+
+        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
+    })
+
+    it('does not call service when batch has nothing in scope', async () => {
+        const service = createMockOverflowRedirectService()
+        const step = createStep(true, service)
+
+        const results = await step(outOfScopeInputs())
+
+        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
+        expect(service.handleEventBatch).not.toHaveBeenCalled()
+    })
+})
+
 describe('createSkipCookielessRateLimitToOverflowStep', () => {
     const createHeaderOnlyInput = (
         token: string,
@@ -288,19 +343,6 @@ describe('createSkipCookielessRateLimitToOverflowStep', () => {
         now?: Date
     ): SkipCookielessRateLimitToOverflowStepInput => ({
         headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
-    })
-
-    it('returns ok for all events when service is not provided', async () => {
-        const step = createSkipCookielessRateLimitToOverflowStep(true, undefined)
-
-        const events = [
-            createHeaderOnlyInput('token1', 'user1'),
-            createHeaderOnlyInput('token1', COOKIELESS_SENTINEL_VALUE),
-        ]
-
-        const results = await step(events)
-
-        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
     })
 
     it('skips cookieless events and keys non-cookieless on headers.distinct_id', async () => {
@@ -354,52 +396,17 @@ describe('createSkipCookielessRateLimitToOverflowStep', () => {
         expect(results[1].type).toBe(PipelineResultType.OK)
         expect(results[2].type).toBe(PipelineResultType.OK)
     })
-
-    it('does not call service when batch is all cookieless', async () => {
-        const service = createMockOverflowRedirectService()
-        const step = createSkipCookielessRateLimitToOverflowStep(true, service)
-
-        const events = [
-            createHeaderOnlyInput('token1', COOKIELESS_SENTINEL_VALUE),
-            createHeaderOnlyInput('token2', COOKIELESS_SENTINEL_VALUE),
-        ]
-
-        const results = await step(events)
-
-        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
-        expect(service.handleEventBatch).not.toHaveBeenCalled()
-    })
 })
 
 describe('createOnlyCookielessRateLimitToOverflowStep', () => {
-    const createInput = (
-        headerDistinctId: string,
-        eventDistinctId: string,
-        token: string = 'token1',
-        now?: Date
-    ): OnlyCookielessRateLimitToOverflowStepInput => ({
-        headers: createTestEventHeaders({ token, distinct_id: headerDistinctId, now: now ?? new Date() }),
-        event: createTestPipelineEvent({ distinct_id: eventDistinctId }),
-    })
-
-    it('returns ok for all events when service is not provided', async () => {
-        const step = createOnlyCookielessRateLimitToOverflowStep(true, undefined)
-
-        const events = [createInput(COOKIELESS_SENTINEL_VALUE, 'hashed1'), createInput('user1', 'user1')]
-
-        const results = await step(events)
-
-        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
-    })
-
     it('keys cookieless events on event.distinct_id (post-rewrite hashed id)', async () => {
         const service = createMockOverflowRedirectService()
         const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
 
         const events = [
-            createInput(COOKIELESS_SENTINEL_VALUE, 'hashed-a'),
-            createInput(COOKIELESS_SENTINEL_VALUE, 'hashed-b'),
-            createInput('user1', 'user1'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-a'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-b'),
+            createCookielessVariantInput('user1', 'user1'),
         ]
 
         await step(events)
@@ -418,7 +425,7 @@ describe('createOnlyCookielessRateLimitToOverflowStep', () => {
         const service = createMockOverflowRedirectService(new Set(['token1:user1']))
         const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
 
-        const events = [createInput('user1', 'user1')]
+        const events = [createCookielessVariantInput('user1', 'user1')]
 
         const results = await step(events)
 
@@ -431,9 +438,9 @@ describe('createOnlyCookielessRateLimitToOverflowStep', () => {
         const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
 
         const events = [
-            createInput(COOKIELESS_SENTINEL_VALUE, 'hashed-a'),
-            createInput(COOKIELESS_SENTINEL_VALUE, 'hashed-b'),
-            createInput('user1', 'user1'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-a'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-b'),
+            createCookielessVariantInput('user1', 'user1'),
         ]
 
         const results = await step(events)
@@ -441,17 +448,5 @@ describe('createOnlyCookielessRateLimitToOverflowStep', () => {
         expect(results[0].type).toBe(PipelineResultType.REDIRECT)
         expect(results[1].type).toBe(PipelineResultType.OK)
         expect(results[2].type).toBe(PipelineResultType.OK)
-    })
-
-    it('does not call service when batch has no cookieless events', async () => {
-        const service = createMockOverflowRedirectService()
-        const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
-
-        const events = [createInput('user1', 'user1'), createInput('user2', 'user2')]
-
-        const results = await step(events)
-
-        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
-        expect(service.handleEventBatch).not.toHaveBeenCalled()
     })
 })
