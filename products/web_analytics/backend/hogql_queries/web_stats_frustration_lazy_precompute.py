@@ -276,24 +276,44 @@ HAVING or(
 def _resolve_sort(runner: "WebStatsTableQueryRunner") -> tuple[str, str]:
     """Return `(column, direction)` for the lazy read's ORDER BY.
 
-    Defaults to (errors, DESC) to match the live strategy's primary sort. The
-    secondary/tertiary sort keys aren't replicated — the live strategy only
-    uses them as deterministic tiebreakers and the volume of frustration rows
-    per team is small enough that further tiebreaking adds little value.
+    Defaults to (errors, DESC) to match the live strategy's primary sort.
+    If `runner.query.orderBy` carries a field this module doesn't know how to
+    serve, raise rather than silently falling back — the eligibility gate is
+    the single source of truth for supported sort fields and the two should
+    not drift.
     """
     if runner.query.orderBy:
         field, direction = runner.query.orderBy
-        column = _ORDER_BY_TO_COLUMN.get(field, "errors")
-        return column, direction.value if hasattr(direction, "value") else str(direction)
+        if field not in _ORDER_BY_TO_COLUMN:
+            # Defensive: `_check_eligible` already rejects unsupported fields
+            # via `SUPPORTED_ORDER_BY_FIELDS`, so reaching here means the gate
+            # and `_ORDER_BY_TO_COLUMN` have drifted.
+            raise AssertionError(f"unsupported lazy frustration orderBy field={field!r}")
+        return _ORDER_BY_TO_COLUMN[field], direction.value if hasattr(direction, "value") else str(direction)
     return "errors", "DESC"
 
 
+# The live `FrustrationMetricsStrategy._order_by()` is hard-coded to
+# `(errors DESC, rage_clicks DESC, dead_clicks DESC)`. We mirror those as
+# tiebreakers after the user's primary sort so paginated results are stable
+# across the lazy and live paths: rows tied on the primary metric resolve to
+# the same order on both engines, which means page N has the same rows
+# regardless of which path served it.
+_TIEBREAKER_CHAIN = ["errors", "rage_clicks", "dead_clicks"]
+
+
 def _build_order_by(sort_column: str, sort_direction: str) -> list[ast.OrderExpr]:
-    """Sort by the user's pick, then by breakdown for a stable tiebreaker."""
-    return [
+    """Sort by the user's pick, then by the live strategy's tiebreaker chain
+    (errors DESC, rage_clicks DESC, dead_clicks DESC), then by breakdown for
+    a final deterministic tiebreaker."""
+    order: list[ast.OrderExpr] = [
         ast.OrderExpr(expr=ast.Field(chain=[sort_column]), order=sort_direction),  # type: ignore[arg-type]
-        ast.OrderExpr(expr=ast.Field(chain=["breakdown"]), order="ASC"),
     ]
+    for column in _TIEBREAKER_CHAIN:
+        if column != sort_column:
+            order.append(ast.OrderExpr(expr=ast.Field(chain=[column]), order="DESC"))
+    order.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown"]), order="ASC"))
+    return order
 
 
 def execute_read_query(
