@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -10,14 +12,26 @@ from llm_gateway.dependencies import get_authenticated_user
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanResolver, resolve_plan_info
+from llm_gateway.services.plan_resolver import (
+    POSTHOG_CODE_PRODUCT,
+    PlanResolver,
+    is_pro_plan,
+    parse_iso_utc,
+    resolve_plan_info,
+)
+
+logger = structlog.get_logger(__name__)
 
 usage_router = APIRouter(prefix="/v1/usage", tags=["Usage"])
 
 
 class CostLimitStatus(BaseModel):
     used_percent: float
+    # Kept on the wire for older PostHog Code clients whose zod schema still
+    # requires it. Newer clients anchor to `reset_at`; drop in a follow-up once
+    # the long tail of pinned clients has rolled forward.
     resets_in_seconds: int
+    reset_at: datetime
     exceeded: bool
 
 
@@ -27,9 +41,11 @@ class UsageResponse(BaseModel):
     burst: CostLimitStatus
     sustained: CostLimitStatus
     is_rate_limited: bool
+    is_pro: bool
+    billing_period_end: datetime | None = None
 
 
-def _to_cost_limit_status(status: CostStatus) -> CostLimitStatus:
+def _to_cost_limit_status(status: CostStatus, now: datetime) -> CostLimitStatus:
     if status.limit_usd > 0:
         used_percent = min(100.0, (status.used_usd / status.limit_usd) * 100)
     else:
@@ -37,6 +53,7 @@ def _to_cost_limit_status(status: CostStatus) -> CostLimitStatus:
     return CostLimitStatus(
         used_percent=round(used_percent, 1),
         resets_in_seconds=status.resets_in_seconds,
+        reset_at=now + timedelta(seconds=status.resets_in_seconds),
         exceeded=status.exceeded,
     )
 
@@ -49,6 +66,7 @@ async def get_usage(
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
     plan_info = await resolve_plan_info(request, user.user_id, product)
+    now = datetime.now(tz=UTC)
 
     context = ThrottleContext(
         user=user,
@@ -64,14 +82,36 @@ async def get_usage(
 
     for throttle in runner.throttles:
         if isinstance(throttle, UserCostBurstThrottle):
-            burst_status = _to_cost_limit_status(await throttle.get_status(context))
+            burst_status = _to_cost_limit_status(await throttle.get_status(context), now=now)
         elif isinstance(throttle, UserCostSustainedThrottle):
-            sustained_status = _to_cost_limit_status(await throttle.get_status(context))
+            sustained_status = _to_cost_limit_status(await throttle.get_status(context), now=now)
+        if burst_status is not None and sustained_status is not None:
+            break
 
-    if burst_status is None:
-        burst_status = CostLimitStatus(used_percent=0, resets_in_seconds=0, exceeded=False)
-    if sustained_status is None:
-        sustained_status = CostLimitStatus(used_percent=0, resets_in_seconds=0, exceeded=False)
+    if burst_status is None or sustained_status is None:
+        # `limit_usd=1` is a sentinel so `_to_cost_limit_status` reports 0% used
+        # rather than tripping its no-throttle branch (which would surface 100%
+        # used + not rate-limited).
+        empty = CostStatus(used_usd=0, limit_usd=1, remaining_usd=1, resets_in_seconds=0, exceeded=False)
+        if burst_status is None:
+            burst_status = _to_cost_limit_status(empty, now=now)
+        if sustained_status is None:
+            sustained_status = _to_cost_limit_status(empty, now=now)
+
+    billing_period_end: datetime | None = None
+    if plan_info.billing_period:
+        raw_period_end = plan_info.billing_period.current_period_end
+        try:
+            billing_period_end = parse_iso_utc(raw_period_end)
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "usage.billing_period_end_unparseable",
+                user_id=user.user_id,
+                product=product,
+                raw=raw_period_end,
+                error=str(exc),
+            )
+            billing_period_end = None
 
     return UsageResponse(
         product=product,
@@ -79,6 +119,8 @@ async def get_usage(
         burst=burst_status,
         sustained=sustained_status,
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded,
+        is_pro=is_pro_plan(plan_info.plan_key),
+        billing_period_end=billing_period_end,
     )
 
 

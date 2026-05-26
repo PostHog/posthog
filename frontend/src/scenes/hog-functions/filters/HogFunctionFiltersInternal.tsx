@@ -53,6 +53,10 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     label: 'Log alert auto-disabled',
                     value: '$logs_alert_auto_disabled',
                 },
+                {
+                    label: 'Log alert errored',
+                    value: '$logs_alert_errored',
+                },
             ]
         case 'discussion-mention':
             return [
@@ -137,6 +141,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.Events]
         } else if (contextId === 'activity-log') {
             return [TaxonomicFilterGroupType.ActivityLogProperties]
+        } else if (contextId === 'logs-alerting') {
+            return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
     }, [contextId])

@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
+from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
@@ -49,6 +50,21 @@ logger = structlog.get_logger(__name__)
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
+
+# Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
+# per install, so tenants who connected the Slack integration before the full scope set
+# was requested in prod (2026-05-04, #57177) must reconnect before mentions can work.
+POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
+    {
+        "app_mentions:read",
+        "users:read",
+        "users:read.email",
+        "chat:write",
+        "channels:history",
+        "groups:history",
+        "reactions:write",
+    }
+)
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -116,16 +132,8 @@ class SlackUserContext:
 
 
 @dataclass
-class RepoDecision:
-    mode: Literal["auto", "picker"]
-    repository: str | None
-    reason: str
-    llm_found_match: bool
-
-
-@dataclass
 class RulesCommand:
-    action: Literal["list", "add", "remove", "help", "default_set", "default_show", "default_clear"]
+    action: Literal["list", "add", "remove", "help", "deprecated_default_repo"]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
@@ -133,6 +141,10 @@ class RulesCommand:
 
 def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
     return f"posthog_code_slack_user_info:{integration_id}:{slack_user_id}"
+
+
+def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str) -> str:
+    return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
 
 
 def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
@@ -213,6 +225,78 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
         cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return user_info
     return {}
+
+
+def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
+    from products.slack_app.backend.models import SlackUserProfileCache
+
+    try:
+        profile = SlackUserProfileCache.objects.filter(
+            integration_id=integration.id,
+            email__iexact=normalized_email,
+        ).first()
+    except DatabaseError:
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        return None
+    return profile.slack_user_id if profile else None
+
+
+def lookup_slack_user_id_by_email(
+    slack: SlackIntegration,
+    integration: Integration,
+    email: str,
+) -> str | None:
+    """Resolve a Slack user ID from a PostHog user email.
+
+    Uses ``SlackUserProfileCache`` (populated by ``resolve_slack_user`` and prior lookups),
+    then ``users.lookupByEmail``. Results are cached per integration + email.
+    """
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+
+    cache_key = _slack_user_id_by_email_cache_key(integration.id, normalized_email)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    slack_user_id = _get_slack_user_id_by_email_from_db(integration, normalized_email)
+    if slack_user_id:
+        cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return slack_user_id
+
+    try:
+        user_info = _normalize_slack_response(slack.client.users_lookupByEmail(email=email))
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        if error_code != "users_not_found":
+            logger.warning(
+                "slack_user_id_by_email_lookup_failed",
+                integration_id=integration.id,
+                email=email,
+                error=error_code,
+            )
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    if not user_info.get("ok"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    user = user_info.get("user")
+    if not isinstance(user, dict) or not user.get("id"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    slack_user_id = str(user["id"])
+    _persist_slack_user_info(integration, slack_user_id, user_info)
+    cache.set(
+        _slack_user_info_cache_key(integration.id, slack_user_id),
+        user_info,
+        timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
+    )
+    cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+    return slack_user_id
 
 
 def _post_slack_user_feedback(
@@ -443,22 +527,13 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
         if numbers:
             return RulesCommand(action="remove", rule_numbers=numbers)
 
-    default_set_match = re.fullmatch(
-        r"default\s+repo\s+set\s+([\w.-]+/[\w.-]+)",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    if default_set_match:
-        return RulesCommand(action="default_set", repository=default_set_match.group(1))
-
-    if re.fullmatch(r"default\s+repo\s+show", cleaned, flags=re.IGNORECASE):
-        return RulesCommand(action="default_show")
-
-    if re.fullmatch(r"default\s+repo\s+clear", cleaned, flags=re.IGNORECASE):
-        return RulesCommand(action="default_clear")
-
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
+
+    # Intercept legacy `default repo` verbs so `default repo set org/repo` doesn't
+    # fall through into the explicit-repo cascade and spawn a junk task.
+    if re.fullmatch(r"default\s+repo\s+(set|show|clear)(\s+.*)?", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="deprecated_default_repo")
 
     return None
 
@@ -734,43 +809,6 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
     return result
 
 
-def select_repository(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-    integration: Integration,
-    all_repos: list[str],
-    user_id: int | None = None,
-    channel: str = "",
-) -> RepoDecision:
-    if not all_repos:
-        return RepoDecision(mode="picker", repository=None, reason="no_repos", llm_found_match=False)
-
-    if len(all_repos) == 1:
-        return RepoDecision(mode="auto", repository=all_repos[0], reason="single_repo", llm_found_match=False)
-
-    explicit_repo = _extract_explicit_repo(event_text, all_repos)
-    if explicit_repo:
-        return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_found_match=False)
-
-    if user_id and channel:
-        from posthog.models.user_repo_preference import UserRepoPreference
-
-        default = UserRepoPreference.get_default(
-            team_id=integration.team_id,
-            user_id=user_id,
-            scope_type="slack_channel",
-            scope_id=channel,
-        )
-        if default and default in all_repos:
-            return RepoDecision(mode="auto", repository=default, reason="user_default", llm_found_match=False)
-
-    matched = _match_repo_rule(event_text, thread_messages, integration.team_id, all_repos)
-    if matched:
-        return RepoDecision(mode="auto", repository=matched, reason="rule_match", llm_found_match=True)
-
-    return RepoDecision(mode="picker", repository=None, reason="no_rule_match", llm_found_match=False)
-
-
 def _replace_repo_picker_message_with_selection(
     *,
     integration_id: int,
@@ -781,7 +819,9 @@ def _replace_repo_picker_message_with_selection(
 ) -> None:
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
         slack.client.chat_update(
@@ -813,7 +853,9 @@ def _replace_repo_picker_message_with_no_repo(
 ) -> None:
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
         slack = SlackIntegration(integration)
         text = "Continuing without a repository."
         slack.client.chat_update(
@@ -919,79 +961,6 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
         repository=selected_repo,
     )
     return True
-
-
-def _match_repo_rule(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-    team_id: int,
-    all_repos: list[str],
-) -> str | None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
-    rules = list(RepoRoutingRule.objects.filter(team_id=team_id).order_by("priority", "id"))
-    if not rules:
-        logger.info("posthog_code_rule_match_no_rules", team_id=team_id)
-        return None
-
-    _MAX_RULES_FOR_LLM = 20
-
-    connected_set = {r.lower() for r in all_repos}
-    eligible_rules = [r for r in rules if r.repository.lower() in connected_set][:_MAX_RULES_FOR_LLM]
-    if not eligible_rules:
-        logger.info(
-            "posthog_code_rule_match_no_eligible_rules",
-            team_id=team_id,
-            rule_repos=[r.repository for r in rules],
-            connected_repos=all_repos,
-        )
-        return None
-
-    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-    rules_block = "\n".join(f"{i}: {r.rule_text} -> {r.repository}" for i, r in enumerate(eligible_rules))
-
-    prompt = (
-        "You are a routing classifier. Given a Slack conversation and a numbered list of rules, "
-        'return the JSON object {"rule_index": <int>} for the best-matching rule, '
-        'or {"rule_index": null} if none match.\n\n'
-        f"Rules:\n{rules_block}\n\n"
-        f"Conversation:\n{conversation}\n\n"
-        f"Latest message: {event_text}\n\n"
-        "Respond with ONLY the JSON object, no other text."
-    )
-
-    try:
-        client = get_llm_client("slack-posthog-code")
-        response = client.chat.completions.create(
-            model="claude-haiku-4-5-20251001",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=64,
-            temperature=0,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        # Strip markdown code fences if the LLM wrapped the response
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        logger.info("posthog_code_rule_match_llm_response", content=content, team_id=team_id)
-        parsed = json.loads(content)
-        idx = parsed.get("rule_index")
-        if idx is None:
-            logger.info("posthog_code_rule_match_llm_returned_null", team_id=team_id)
-            return None
-        if not isinstance(idx, int) or idx < 0 or idx >= len(eligible_rules):
-            logger.warning("posthog_code_rule_match_invalid_index", index=idx, rule_count=len(eligible_rules))
-            return None
-
-        matched_repo = eligible_rules[idx].repository
-        canonical = next((r for r in all_repos if r.lower() == matched_repo.lower()), None)
-        if not canonical:
-            logger.warning("posthog_code_rule_match_repo_not_connected", repo=matched_repo)
-            return None
-        logger.info("posthog_code_rule_match_success", repo=canonical, rule_index=idx, team_id=team_id)
-        return canonical
-    except Exception:
-        logger.exception("posthog_code_rule_match_failed", team_id=team_id)
-        return None
 
 
 def classify_task_needs_repo(
@@ -1139,34 +1108,83 @@ def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
         return False
 
 
+def _notify_missing_slack_scopes(
+    slack: SlackIntegration,
+    event: dict,
+    missing: frozenset[str],
+) -> None:
+    """Tell the user the install is missing scopes and how to fix it.
+
+    `chat:write` has been part of the base Slack scope set since the integration existed,
+    so the feedback post itself is safe to attempt even when other scopes are absent.
+    """
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts") or event.get("ts", "")
+    slack_user_id = event.get("user", "")
+    integration = slack.integration
+
+    logger.warning(
+        "posthog_code_slack_missing_scopes",
+        integration_id=integration.id,
+        team_id=integration.team_id,
+        missing=sorted(missing),
+    )
+
+    if not channel or not thread_ts or not slack_user_id:
+        return
+
+    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    text = (
+        ":warning: PostHog can't reply because the Slack integration is missing required "
+        f"permissions: `{', '.join(sorted(missing))}`.\n"
+        f"A project admin needs to reconnect Slack from project settings: {settings_url}"
+    )
+
+    _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
     slack_team_id: str,
     event_id: str | None = None,
 ) -> str:
-    # The webhook serves the regular slack integration; app_mention activation is gated
-    # by the posthog-code-slack-availability feature flag rather than a separate kind.
-    local_match = (
+    # One webhook endpoint serves both the notifications integration (kind="slack") and the
+    # coding-agent integration (kind="slack-posthog-code"). What counts as a "local match" has
+    # to depend on event type: app_mention needs the coding-agent integration specifically,
+    # while link_shared (unfurl) works with either kind. Without this, a region that has only a
+    # notifications install for a workspace would silently swallow mentions instead of
+    # proxying to the region that holds the coding-agent install.
+    integrations = list(
         Integration.objects.filter(
-            kind="slack",
+            kind__in=["slack", "slack-posthog-code"],
             integration_id=slack_team_id,
         )
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
-        .first()
     )
+    coding_agent_integration = next((i for i in integrations if i.kind == "slack-posthog-code"), None)
+    any_integration = integrations[0] if integrations else None
 
     event_type = event.get("type")
+    if event_type == "app_mention":
+        local_match = coding_agent_integration
+    else:
+        local_match = any_integration
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
             if not _posthog_code_enabled_for_integration(local_match):
                 logger.info(
-                    "slack_app_mention_flag_disabled",
+                    "posthog_code_event_flag_off",
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
                 )
+                return ROUTE_HANDLED_LOCALLY
+            slack = SlackIntegration(local_match)
+            missing_scopes = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
+            if missing_scopes:
+                _notify_missing_slack_scopes(slack, event, missing_scopes)
                 return ROUTE_HANDLED_LOCALLY
             if _resolve_pending_repo_picker_from_followup(event, local_match):
                 return ROUTE_HANDLED_LOCALLY
@@ -1195,7 +1213,7 @@ def route_posthog_code_event_to_relevant_region(
         success = proxy_slack_event_to_secondary_region(request)
         return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
     else:
-        logger.warning("slack_app_integration_not_found", slack_team_id=slack_team_id)
+        logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
         return ROUTE_NO_INTEGRATION
 
 
@@ -1236,15 +1254,15 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("slack_event_invalid_request", error=str(e))
+        logger.warning("posthog_code_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.info("slack_event_retry", retry_num=retry_num)
+        logger.info("posthog_code_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
@@ -1373,7 +1391,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         team_id = payload.get("team", {}).get("id")
         if team_id:
             fallback_integration = (
-                Integration.objects.filter(kind="slack", integration_id=team_id).order_by("id").first()
+                Integration.objects.filter(kind="slack-posthog-code", integration_id=team_id).order_by("id").first()
             )
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
@@ -1407,7 +1425,9 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         if not integration_id:
             raise Integration.DoesNotExist
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
     except Integration.DoesNotExist:
         logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
@@ -1484,7 +1504,9 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
 
         try:
             # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-            integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
+            integration = Integration.objects.get(
+                id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            )
             SlackIntegration(integration).client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
@@ -1622,10 +1644,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("slack_interactivity_invalid_request", error=str(e))
+        logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     try:
@@ -1655,19 +1677,19 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if slack_team_id and ctx_integration_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
 

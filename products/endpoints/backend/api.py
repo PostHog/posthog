@@ -2652,6 +2652,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         )
 
     @extend_schema(
+        # url_path="openapi.json" would otherwise produce `..._openapi.json_retrieve` —
+        # the `.` is rejected by lint_spec_consistency_hook + the MCP YAML scaffolder.
+        operation_id="endpoints_openapi_spec_retrieve",
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
         parameters=[
             OpenApiParameter(

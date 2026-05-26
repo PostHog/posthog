@@ -33,8 +33,9 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties,
-                   properties_last_updated_at, properties_last_operation,
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -64,8 +65,9 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties,
-                   properties_last_updated_at, properties_last_operation,
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -104,8 +106,9 @@ impl PersonLookup for PostgresStorage {
         let rows = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties,
-                   properties_last_updated_at, properties_last_operation,
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -153,8 +156,9 @@ impl PersonLookup for PostgresStorage {
         let rows = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties,
-                   properties_last_updated_at, properties_last_operation,
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -200,8 +204,9 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties,
-                   p.properties_last_updated_at, p.properties_last_operation,
+            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties!",
+                   p.properties_last_updated_at::text as "properties_last_updated_at?",
+                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
@@ -244,8 +249,9 @@ impl PersonLookup for PostgresStorage {
         let rows = sqlx::query!(
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-                   p.properties as "properties!",
-                   p.properties_last_updated_at, p.properties_last_operation,
+                   p.properties::text as "properties!",
+                   p.properties_last_updated_at::text as "properties_last_updated_at?",
+                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
@@ -272,7 +278,7 @@ impl PersonLookup for PostgresStorage {
             rows.len() as f64,
         );
 
-        let found: HashMap<String, Person> = rows
+        let mut found: HashMap<String, Person> = rows
             .into_iter()
             .map(|row| {
                 let person = Person {
@@ -294,7 +300,7 @@ impl PersonLookup for PostgresStorage {
 
         Ok(distinct_ids
             .iter()
-            .map(|did| (did.clone(), found.get(did).cloned()))
+            .map(|did| (did.clone(), found.remove(did)))
             .collect())
     }
 
@@ -493,8 +499,9 @@ impl PersonLookup for PostgresStorage {
         let rows = sqlx::query!(
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-                   p.properties as "properties!",
-                   p.properties_last_updated_at, p.properties_last_operation,
+                   p.properties::text as "properties!",
+                   p.properties_last_updated_at::text as "properties_last_updated_at?",
+                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
@@ -522,7 +529,7 @@ impl PersonLookup for PostgresStorage {
             rows.len() as f64,
         );
 
-        let found: HashMap<(i64, String), Person> = rows
+        let mut found: HashMap<(i64, String), Person> = rows
             .into_iter()
             .map(|row| {
                 let key = (row.team_id, row.distinct_id.clone());
@@ -547,7 +554,7 @@ impl PersonLookup for PostgresStorage {
             .iter()
             .map(|(team_id, did)| {
                 let key = (*team_id, did.clone());
-                (key.clone(), found.get(&key).cloned())
+                (key.clone(), found.remove(&key))
             })
             .collect())
     }

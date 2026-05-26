@@ -318,130 +318,137 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             disableKeyboardInput?.(open)
         }
 
-        let button = (
+        const contextMenuContent = itemContextMenu?.(item)
+
+        const linkEl = (
+            <Link
+                data-id={item.id}
+                data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                onClick={(e) => {
+                    if (item.disabledReason) {
+                        e.preventDefault()
+                    } else {
+                        handleClick(item, false, e)
+                    }
+                }}
+                disabled={isDragging}
+                role="treeitem"
+                buttonProps={{
+                    active: getItemActiveState(item),
+                    menuItem: true,
+                    hasSideActionRight: size === 'default',
+                    iconOnly: size === 'narrow',
+                    disabled: isEmptyFolder,
+                    className: cn(
+                        'group/lemon-tree-button gap-[5px] min-w-0 pr-0',
+                        'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 -outline-offset-2',
+                        {
+                            'bg-fill-button-tertiary-hover':
+                                ((selectMode === 'folder-only' || selectMode === 'all') &&
+                                    selectedId === item.id &&
+                                    !isEmptyFolder) ||
+                                isContextMenuOpenForItem === item.id,
+                            'bg-fill-button-tertiary-active': getItemActiveState(item),
+                            'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
+                                !isEmptyFolder,
+                            'hover:bg-transparent opacity-50 cursor-default':
+                                (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
+                            'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
+                            'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
+                                size !== 'narrow',
+                        }
+                    ),
+                }}
+                tabIndex={isEmptyFolder ? -1 : 0}
+                aria-level={depth + 1}
+                aria-setsize={ariaSetSize}
+                aria-posinset={ariaPosInSet}
+                aria-selected={selectedId === item.id}
+                aria-disabled={!!item.disabledReason}
+                aria-haspopup={!!contextMenuContent}
+                aria-roledescription="tree item"
+                aria-label={ariaLabel}
+                tooltip={isDragging || isEmptyFolder ? undefined : renderItemTooltip?.(item)}
+                tooltipPlacement="right"
+            >
+                {size === 'default' && (
+                    <span
+                        className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            width: `${firstColumnOffset}px`,
+                        }}
+                    />
+                )}
+
+                {renderItemIcon ? (
+                    renderItemIcon?.(item)
+                ) : (
+                    <TreeNodeDisplayIcon
+                        item={item}
+                        expandedItemIds={expandedItemIds ?? []}
+                        defaultNodeIcon={defaultNodeIcon}
+                        size={size}
+                    />
+                )}
+
+                {size === 'default' && (
+                    <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
+                        {renderItem ? (
+                            renderItem(
+                                item,
+                                <span
+                                    className={cn({
+                                        'font-semibold text-secondary group-hover/lemon-tree-button:text-primary':
+                                            isFolder && !isEmptyFolder,
+                                    })}
+                                >
+                                    {displayName}
+                                </span>
+                            )
+                        ) : (
+                            <span
+                                className={cn('truncate', {
+                                    'font-semibold': isFolder && !isEmptyFolder,
+                                })}
+                            >
+                                {displayName}
+                            </span>
+                        )}
+
+                        {item.record?.loading && <Spinner className="ml-1" />}
+                        {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
+                    </span>
+                )}
+            </Link>
+        )
+
+        const folderLine = depth !== 0 && size !== 'narrow' && (
+            <div
+                className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: `${folderLinesOffset}px` }}
+            />
+        )
+
+        let button = contextMenuContent ? (
             <ContextMenu
                 onOpenChange={(open) => {
                     handleContextMenuOpen(open, item.id)
                 }}
             >
-                {depth !== 0 && size !== 'narrow' && (
-                    <div
-                        className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${folderLinesOffset}px` }}
-                    />
-                )}
-
-                <ContextMenuTrigger asChild>
-                    <Link
-                        data-id={item.id}
-                        data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
-                        to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
-                        onClick={(e) => {
-                            if (item.disabledReason) {
-                                e.preventDefault()
-                            } else {
-                                handleClick(item, false, e)
-                            }
-                        }}
-                        disabled={isDragging}
-                        role="treeitem"
-                        buttonProps={{
-                            active: getItemActiveState(item),
-                            menuItem: true,
-                            hasSideActionRight: size === 'default',
-                            iconOnly: size === 'narrow',
-                            disabled: isEmptyFolder,
-                            className: cn(
-                                'group/lemon-tree-button gap-[5px] min-w-0 pr-0',
-                                'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 -outline-offset-2',
-                                {
-                                    'bg-fill-button-tertiary-hover':
-                                        ((selectMode === 'folder-only' || selectMode === 'all') &&
-                                            selectedId === item.id &&
-                                            !isEmptyFolder) ||
-                                        isContextMenuOpenForItem === item.id,
-                                    'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                    'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
-                                        !isEmptyFolder,
-                                    'hover:bg-transparent opacity-50 cursor-default':
-                                        (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
-                                    'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
-                                    'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
-                                        size !== 'narrow',
-                                }
-                            ),
-                        }}
-                        tabIndex={isEmptyFolder ? -1 : 0}
-                        aria-level={depth + 1}
-                        aria-setsize={ariaSetSize}
-                        aria-posinset={ariaPosInSet}
-                        aria-selected={selectedId === item.id}
-                        aria-disabled={!!item.disabledReason}
-                        aria-haspopup={!!itemContextMenu?.(item)}
-                        aria-roledescription="tree item"
-                        aria-label={ariaLabel}
-                        tooltip={isDragging || isEmptyFolder ? undefined : renderItemTooltip?.(item)}
-                        tooltipPlacement="right"
-                    >
-                        {size === 'default' && (
-                            <span
-                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${firstColumnOffset}px`,
-                                }}
-                            />
-                        )}
-
-                        {renderItemIcon ? (
-                            renderItemIcon?.(item)
-                        ) : (
-                            <TreeNodeDisplayIcon
-                                item={item}
-                                expandedItemIds={expandedItemIds ?? []}
-                                defaultNodeIcon={defaultNodeIcon}
-                                size={size}
-                            />
-                        )}
-
-                        {size === 'default' && (
-                            <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
-                                {renderItem ? (
-                                    renderItem(
-                                        item,
-                                        <span
-                                            className={cn({
-                                                'font-semibold text-secondary group-hover/lemon-tree-button:text-primary':
-                                                    isFolder && !isEmptyFolder,
-                                            })}
-                                        >
-                                            {displayName}
-                                        </span>
-                                    )
-                                ) : (
-                                    <span
-                                        className={cn('truncate', {
-                                            'font-semibold': isFolder && !isEmptyFolder,
-                                        })}
-                                    >
-                                        {displayName}
-                                    </span>
-                                )}
-
-                                {item.record?.loading && <Spinner className="ml-1" />}
-                                {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
-                            </span>
-                        )}
-                    </Link>
-                </ContextMenuTrigger>
-
-                {itemContextMenu?.(item) && (
-                    <ContextMenuContent loop className="max-w-[250px]">
-                        {itemContextMenu(item)}
-                    </ContextMenuContent>
-                )}
+                {folderLine}
+                <ContextMenuTrigger asChild>{linkEl}</ContextMenuTrigger>
+                <ContextMenuContent loop className="max-w-[250px]">
+                    {contextMenuContent}
+                </ContextMenuContent>
             </ContextMenu>
+        ) : (
+            <>
+                {folderLine}
+                {linkEl}
+            </>
         )
 
         if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {

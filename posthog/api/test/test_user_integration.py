@@ -134,7 +134,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_returns_install_url_when_no_team_github(self, _mock_settings):
@@ -165,7 +165,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_returns_install_url_even_when_team_has_github_integration(self, _mock_settings):
@@ -212,7 +212,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_posthog_code_skips_fast_path_when_already_linked(self, _mock_settings):
@@ -244,7 +244,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_rejects_when_all_installations_linked(self, _mock_settings, _mock_unlinked):
@@ -261,7 +261,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     def test_github_start_without_app_slug_returns_400(self):
         with patch(
-            "posthog.api.user_integration.get_instance_settings",
+            "posthog.api.github_callback.personal_state.get_instance_settings",
             return_value={"GITHUB_APP_SLUG": ""},
         ):
             response = self.client.post("/api/users/@me/integrations/github/start/")
@@ -384,7 +384,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     @patch("posthog.api.user_integration.requests.get")
