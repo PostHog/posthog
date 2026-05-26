@@ -128,6 +128,16 @@ The shape of the gate (sub-hour timezone, no v2 UUID sessions, ≤1 filter, ≤9
 
 The "compare period" column describes how each family handles the dashboard's compare-to-previous filter: **full** (precompute the previous window too, read both), **capped** (cap `prev_range_end` to avoid `job_id` collision, clear `previous_*` if the cap collapses the window), **budget-aware** (skip previous when `ensure_duration_ms` blows a per-request budget), **none** (the family doesn't support compare at all).
 
+### Session attribution and bucket alignment
+
+Every web-analytics lazy family that joins the sessions table — `web_overview`, `web_stats`, `web_stats_paths` — bucketizes by **session start** at **UTC-hour granularity**. The INSERT groups events by `session_id`, then attributes the resulting session row to a single bucket via `toStartOfHour(min(session.$start_timestamp))`. The outer `HAVING` clause keeps only sessions whose start hour falls inside the job's `[time_window_min, time_window_max)` window.
+
+The alternative — bucketing by `events.timestamp` — was rejected because session-shaped metrics (`$session_duration`, `$is_bounce`, per-session pageview counts) collapse cleanly only when every event of a session is summarised into one row. Bucketing by event timestamp would either split one session across multiple buckets (breaking the per-session aggregates) or require a session→hour join at read time (defeating the point of precomputing).
+
+UTC-hour granularity over team-tz hour is a deliberate trade-off: every team can share one set of materialised rows for the same window, since the read converts the team-local range to UTC before filtering bucket boundaries. The cost is a 30-minute alignment error for half-hour-offset timezones, which the eligibility gate refuses outright via `is_integer_timezone`. The vitals_paths family bucketizes by team-tz day instead — see its section for the trade-off rationale — because it has no session join and only consumes day-aligned date ranges.
+
+Sessions that straddle a bucket boundary are handled by the **24h forward pad** on the event-scan window (`SESSION_FORWARD_PAD_MINUTES`); see the [overview family's dedicated subsection](#sessions-that-straddle-bucket-boundaries) below for the full derivation.
+
 ## Lazy computation for web overview
 
 `WebOverviewQueryRunner._calculate` runs three checks in order:
