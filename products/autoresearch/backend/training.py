@@ -270,7 +270,7 @@ def build_agent_description(
 def run_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
-    user_id: int,
+    user_id: int | None,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
