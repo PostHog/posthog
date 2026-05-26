@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { RedisCache, type RedisLike } from '@/hono/cache/RedisCache'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 type TestState = {
     region: string | undefined
     projectId: string | undefined
@@ -40,6 +42,7 @@ function createMockRedis(): MockRedis {
             })
             return ['0', matching] as [string, string[]]
         }),
+        ...makeRedisRateLimitStubs(),
         _store: store,
     }
 }
@@ -57,19 +60,19 @@ describe('RedisCache', () => {
         it('should return undefined for missing keys', async () => {
             const result = await cache.get('region')
             expect(result).toBeUndefined()
-            expect(mockRedis.get).toHaveBeenCalledWith('mcp:user:test-user-hash:region')
+            expect(mockRedis.get).toHaveBeenCalledWith('mcp:token:test-user-hash:region')
         })
 
         it('should return parsed JSON values', async () => {
-            mockRedis._store.set('mcp:user:test-user-hash:region', '"us"')
+            mockRedis._store.set('mcp:token:test-user-hash:region', '"us"')
             expect(await cache.get('region')).toBe('us')
         })
 
         it('should not read another user keys', async () => {
             const cacheA = new RedisCache<TestState>('user-a', mockRedis)
             const cacheB = new RedisCache<TestState>('user-b', mockRedis)
-            mockRedis._store.set('mcp:user:user-a:region', '"us"')
-            mockRedis._store.set('mcp:user:user-b:region', '"eu"')
+            mockRedis._store.set('mcp:token:user-a:region', '"us"')
+            mockRedis._store.set('mcp:token:user-b:region', '"eu"')
 
             expect(await cacheA.get('region')).toBe('us')
             expect(await cacheB.get('region')).toBe('eu')
@@ -79,7 +82,7 @@ describe('RedisCache', () => {
     describe('set', () => {
         it('should store JSON-serialized values with scoped key', async () => {
             await cache.set('region', 'eu')
-            expect(mockRedis.set).toHaveBeenCalledWith('mcp:user:test-user-hash:region', '"eu"', 'EX', 7 * 24 * 60 * 60)
+            expect(mockRedis.set).toHaveBeenCalledWith('mcp:token:test-user-hash:region', '"eu"', 'EX', 7 * 24 * 60 * 60)
         })
 
         it('should isolate different users', async () => {
@@ -88,17 +91,17 @@ describe('RedisCache', () => {
             await cacheA.set('projectId', '111')
             await cacheB.set('projectId', '222')
 
-            expect(mockRedis._store.get('mcp:user:user-a:projectId')).toBe('"111"')
-            expect(mockRedis._store.get('mcp:user:user-b:projectId')).toBe('"222"')
+            expect(mockRedis._store.get('mcp:token:user-a:projectId')).toBe('"111"')
+            expect(mockRedis._store.get('mcp:token:user-b:projectId')).toBe('"222"')
         })
     })
 
     describe('delete', () => {
         it('should only delete the targeted user key', async () => {
-            mockRedis._store.set('mcp:user:test-user-hash:region', '"us"')
-            mockRedis._store.set('mcp:user:other-user:region', '"eu"')
+            mockRedis._store.set('mcp:token:test-user-hash:region', '"us"')
+            mockRedis._store.set('mcp:token:other-user:region', '"eu"')
             await cache.delete('region')
-            expect(mockRedis._store.has('mcp:user:other-user:region')).toBe(true)
+            expect(mockRedis._store.has('mcp:token:other-user:region')).toBe(true)
         })
     })
 
@@ -148,17 +151,17 @@ describe('RedisCache', () => {
 
     describe('clear', () => {
         it('should only clear keys for the scoped user', async () => {
-            mockRedis._store.set('mcp:user:test-user-hash:region', '"us"')
-            mockRedis._store.set('mcp:user:test-user-hash:projectId', '"123"')
-            mockRedis._store.set('mcp:user:other-user:region', '"eu"')
+            mockRedis._store.set('mcp:token:test-user-hash:region', '"us"')
+            mockRedis._store.set('mcp:token:test-user-hash:projectId', '"123"')
+            mockRedis._store.set('mcp:token:other-user:region', '"eu"')
 
             await cache.clear()
 
             expect(mockRedis.del).toHaveBeenCalledWith(
-                'mcp:user:test-user-hash:region',
-                'mcp:user:test-user-hash:projectId'
+                'mcp:token:test-user-hash:region',
+                'mcp:token:test-user-hash:projectId'
             )
-            expect(mockRedis._store.has('mcp:user:other-user:region')).toBe(true)
+            expect(mockRedis._store.has('mcp:token:other-user:region')).toBe(true)
         })
     })
 })

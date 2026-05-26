@@ -20,7 +20,7 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source.source, self.team, self.timings, self.limit_context)
+        return get_query_runner(self.query.source.source, self.team, self.timings, self.limit_context, user=self.user)
 
     def validate(self) -> None:
         super().validate()

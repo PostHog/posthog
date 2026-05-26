@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useCallback, useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import {
@@ -12,7 +11,8 @@ import {
     ValueLabels,
 } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { percentage } from 'lib/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -27,11 +27,12 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
-import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -48,15 +49,6 @@ interface TrendsBarChartProps {
 const EMPTY_LABELS: string[] = []
 const TIME_SERIES_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
-
-const buildBarMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
-    action: r.action,
-    breakdown_value: r.breakdown_value,
-    compare_label: r.compare_label,
-    days: r.days,
-    order: r.action?.order ?? r.id,
-    filter: r.filter,
-})
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -77,12 +69,7 @@ const resolveGroupTypeLabel = (
     return aggregationLabel(labelGroupType).plural
 }
 
-const handleChartError = (error: Error, info: ErrorInfo): void => {
-    posthog.captureException(error, {
-        feature: 'trends-bar-chart',
-        componentStack: info.componentStack ?? undefined,
-    })
-}
+const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
 export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
@@ -131,19 +118,26 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
-                buildMeta: buildBarMeta,
+                buildMeta: buildTrendsSeriesMeta,
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
             getColor: getTrendsColor,
             getHidden: getTrendsHidden,
-            buildMeta: buildBarMeta,
+            buildMeta: buildTrendsSeriesMeta,
         })
         return { series: timeSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
 
     const valueLabelFormatter = useCallback(
-        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        (value: number) => {
+            // In percent layout the chart computes each segment's share of its band and passes
+            // a 0..1 fraction here, so we render it directly as a percentage.
+            if (isPercentStackView) {
+                return percentage(value, 1)
+            }
+            return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+        },
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 

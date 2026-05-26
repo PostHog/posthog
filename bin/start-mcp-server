@@ -3,13 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../services/mcp"
 
-RUNTIME="${MCP_RUNTIME:-cloudflare}"
+RUNTIME="${MCP_RUNTIME:-hono}"
 
 pnpm install --frozen-lockfile
 
 if [ "$RUNTIME" = "hono" ]; then
     export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
-    export PORT="${PORT:-3030}"
+    export PORT="${PORT:-8787}"
     exec pnpm run dev:hono
 else
     if [ ! -f .dev.vars ]; then

@@ -37,6 +37,26 @@ describe('messageSignature', () => {
             a: { role: 'tool', content: 'ok', tool_call_id: 'call_a' },
             b: { role: 'tool', content: 'ok', tool_call_id: 'call_b' },
         },
+        {
+            // Pins attachment-aware dedup: same text, different image URL must
+            // produce different signatures so the second image isn't silently
+            // collapsed into the first.
+            name: 'image URLs in mixed text+image content',
+            a: {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'Look at this' },
+                    { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+                ],
+            },
+            b: {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'Look at this' },
+                    { type: 'image_url', image_url: { url: 'https://example.com/b.png' } },
+                ],
+            },
+        },
     ]
 
     it.each(distinctCases)('distinguishes by $name', ({ a, b }) => {
