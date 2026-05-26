@@ -10,6 +10,19 @@ from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 
+def _sorted_uuid7s(n: int) -> list[str]:
+    """Generate ``n`` uuid7 strings sorted lexicographically.
+
+    Back-to-back ``uuid7()`` values share their millisecond prefix and carry
+    62 random bits each, so the relative order of consecutive values is
+    effectively a coin flip. Tests that rely on the ``session_id ASC``
+    tiebreaker for a stable order on tied sort keys (e.g. equal
+    ``session_end``) should pre-sort the IDs so the tiebreaker decides
+    deterministically.
+    """
+    return sorted(str(uuid7()) for _ in range(n))
+
+
 class TestMCPAnalyticsFacade(APIBaseTest):
     def test_create_feedback_submission(self) -> None:
         submission = api.create_feedback_submission(
@@ -201,9 +214,11 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         assert search("zzzz") == set()
 
     def test_order_by_whitelist(self) -> None:
-        old_id = str(uuid7())
-        new_id = str(uuid7())
-        big_id = str(uuid7())
+        # new_id and big_id share a session_end below, so the
+        # order("session_end") assertion relies on the session_id ASC tiebreaker
+        # to put new_id before big_id. Use the pre-sorted helper so that
+        # invariant doesn't depend on luck from uuid7()'s 62 random bits.
+        old_id, new_id, big_id = _sorted_uuid7s(3)
         now = datetime.now(tz=UTC)
 
         # tool_call_count == number of events; counts chosen so big > old > new.
@@ -221,16 +236,13 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         )
         # big_id starts in the middle but ends most recently (a long-running session), so
         # session_start order differs from session_end order — that's what proves the
-        # default sorts by session_start, not session_end. Its session_end is strictly
-        # later than new_id's so the session_end ASC assertion is order-deterministic
-        # without relying on the session_id tiebreaker: ``uuid7()`` values generated
-        # back-to-back carry 62 random bits, so the relative order of new_id and big_id
-        # is unpredictable and the tied-session_end case used to flake.
+        # default sorts by session_start, not session_end. session_end matches new_id's
+        # on purpose: the assertion below exercises the session_id ASC tiebreaker.
         self._seed_session(
             big_id,
             ["insight_get"] * 5,
             session_start=now - timedelta(minutes=60),
-            session_end=now - timedelta(minutes=5),
+            session_end=now - timedelta(minutes=10),
         )
 
         # Restrict to the three we just created so other rows don't interfere.
@@ -256,8 +268,9 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
     def test_has_next_signals_more_pages(self) -> None:
         # Identical session_end across all three so only the session_id tiebreaker
         # gives a stable order — the assertion below would flake without it.
+        # IDs are pre-sorted so the tiebreaker resolves deterministically.
         ts = datetime.now(tz=UTC) - timedelta(minutes=5)
-        ids = [str(uuid7()) for _ in range(3)]
+        ids = _sorted_uuid7s(3)
         for session_id in ids:
             self._seed_session(session_id, ["query_run"], session_start=ts, session_end=ts)
 
@@ -271,6 +284,7 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         assert len(second.results) == 1
         assert second.has_next is False
 
-        # Total order → the two pages cover every session exactly once (no skips/dupes).
+        # With sorted IDs and the session_id ASC tiebreaker, pagination is a total
+        # order — the two pages cover every session in id-ASC order, no skips/dupes.
         paged = [s.session_id for s in first.results] + [s.session_id for s in second.results]
-        assert sorted(paged) == sorted(ids)
+        assert paged == ids
