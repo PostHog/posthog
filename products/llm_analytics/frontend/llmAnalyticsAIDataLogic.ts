@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
 import type { llmAnalyticsAIDataLogicType } from './llmAnalyticsAIDataLogicType'
+import { readAiInput, readAiOutput } from './utils'
 
 export interface AIData {
     input: unknown
@@ -64,8 +65,8 @@ async function loadAIDataAsync(params: LoadAIDataParams): Promise<AIData> {
         }
         const props = event.properties ?? {}
         return {
-            input: props.$ai_input ?? props.$ai_input_state ?? input,
-            output: props.$ai_output_choices ?? props.$ai_output_state ?? output,
+            input: readAiInput(props) ?? input,
+            output: readAiOutput(props) ?? output,
             tools: props.$ai_tools ?? tools,
         }
     } catch (error) {

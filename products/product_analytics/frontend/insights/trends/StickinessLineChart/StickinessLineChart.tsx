@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useCallback, useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
+import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from 'lib/hog-charts'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -13,47 +12,31 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { makeChartErrorHandler } from '../shared/chartErrorHandler'
+import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
     buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessSeries,
+    buildStickinessTooltipTitle,
     stickinessPercentFormatter,
+    STICKINESS_TOOLTIP_CONFIG,
 } from './stickinessChartTransforms'
 
 interface StickinessLineChartProps {
     context?: QueryContext<InsightVizNode>
 }
 
-const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
-
-const handleChartError = (error: Error, info: ErrorInfo): void => {
-    posthog.captureException(error, {
-        feature: 'stickiness-line-chart',
-        componentStack: info.componentStack ?? undefined,
-    })
-}
-
-/** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
- *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
- *  format it as a calendar date (which would land on 1970-01-01). */
-function buildStickinessAltTitle(interval: string | null | undefined): (seriesData: SeriesDatum[]) => string {
-    return (seriesData) => {
-        const day = seriesData[0]?.date_label ?? ''
-        return `stickiness on ${interval || 'day'} ${day}`
-    }
-}
+const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
 
     const {
@@ -91,14 +74,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
-                buildMeta: (rr) => ({
-                    action: rr.action,
-                    breakdown_value: rr.breakdown_value,
-                    compare_label: rr.compare_label,
-                    days: rr.days,
-                    order: rr.action?.order ?? rr.id,
-                    filter: rr.filter,
-                }),
+                buildMeta: buildTrendsSeriesMeta,
             }),
         [indexedResults, getTrendsColor, getTrendsHidden, showMultipleYAxes]
     )
@@ -109,7 +85,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
-                tooltip: TOOLTIP_CONFIG,
+                tooltip: STICKINESS_TOOLTIP_CONFIG,
             }),
         [yAxisScaleType, showValuesOnSeries]
     )
@@ -135,7 +111,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [clickDeps]
     )
 
-    const altTitle = useMemo(() => buildStickinessAltTitle(interval), [interval])
+    const altTitle = useMemo(() => buildStickinessTooltipTitle(interval), [interval])
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {

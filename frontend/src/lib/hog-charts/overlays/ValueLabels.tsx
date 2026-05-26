@@ -32,9 +32,8 @@ interface Candidate {
     width: number
     color: string
     above: boolean
-    /** Anchor the label centered on `(x, y)` instead of offset by `above`. Used for percent-stack
-     *  segments so the topmost label doesn't render above the chart top. */
-    centered: boolean
+    /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
+    centerAnchor: boolean
 }
 
 function defaultLocaleFormatter(v: number): string {
@@ -63,7 +62,7 @@ function pushCandidate(
     categoricalCoord: number,
     valueCoord: number,
     above: boolean,
-    centered: boolean = false
+    centerAnchor: boolean = false
 ): void {
     const textWidth = ctx ? ctx.measureText(text).width : text.length * 6
     const width = textWidth + LABEL_HORIZONTAL_CHROME
@@ -76,7 +75,7 @@ function pushCandidate(
         width,
         color,
         above,
-        centered,
+        centerAnchor,
     })
 }
 
@@ -180,31 +179,26 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             }
 
             let displayValue = rawValue
-            let positionValue = yValue
-            let above = yValue >= 0
-            let centered = false
+            // In percent layout we center the label across the segment's stacked top (see
+            // `centerAnchor` below), so `above` is unused — keep it false to be explicit.
+            let above = isPercent ? false : yValue >= 0
 
             if (isPercent) {
                 const total = bandTotal(visibleForTotal, dIdx)
                 if (total == null || total === 0) {
                     continue
                 }
-                const fraction = rawValue / total
                 // Pass the fraction (0..1) so consumers can use the same percentage formatter
                 // (`percentage_scaled`, BarChart's default tick formatter, etc.) they already use
                 // for the value axis.
-                displayValue = fraction
-                // `yValue` here is the stacked top in 0..1 space; subtract half the segment's
-                // height to land at the segment center.
-                positionValue = yValue - fraction / 2
-                centered = true
+                displayValue = rawValue / total
             }
 
             // Pass `s.key` so grouped bar charts (compare-against-previous) anchor each
             // label on its own bar rather than the band center between bars. Other chart
             // types ignore the second arg and fall back to the band/point center.
             const categoricalCoord = scales.x(labels[dIdx], s.key)
-            const valueCoord = yScale(positionValue)
+            const valueCoord = yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
@@ -219,7 +213,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 categoricalCoord,
                 valueCoord,
                 above,
-                centered
+                isPercent
             )
         }
     }
@@ -236,12 +230,21 @@ interface Rect {
 function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     if (isHorizontal) {
         const halfH = LABEL_HEIGHT / 2
-        const halfW = c.width / 2
-        const left = c.centered ? c.x - halfW : c.above ? c.x : c.x - c.width
+        let left: number
+        if (c.centerAnchor) {
+            left = c.x - c.width / 2
+        } else {
+            left = c.above ? c.x : c.x - c.width
+        }
         return { left, right: left + c.width, top: c.y - halfH, bottom: c.y + halfH }
     }
     const halfW = c.width / 2
-    const top = c.centered ? c.y - LABEL_HEIGHT / 2 : c.above ? c.y - LABEL_HEIGHT : c.y
+    let top: number
+    if (c.centerAnchor) {
+        top = c.y - LABEL_HEIGHT / 2
+    } else {
+        top = c.above ? c.y - LABEL_HEIGHT : c.y
+    }
     return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
 }
 
@@ -315,7 +318,7 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
 }
 
 function transformFor(c: Candidate, isHorizontal: boolean): string {
-    if (c.centered) {
+    if (c.centerAnchor) {
         return 'translate(-50%, -50%)'
     }
     if (isHorizontal) {

@@ -1,5 +1,6 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from 'lib/hog-charts'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -12,6 +13,11 @@ export interface StickinessResultLike {
     breakdown_value?: unknown
     filter?: unknown
 }
+
+/** Stickiness y-axis scale options. Upstream (`trendsDataLogic`) exposes this as a
+ *  loose `string | undefined`, so we keep that shape at the API boundary; only the
+ *  literal `'log10'` is branched on inside `buildStickinessYAxisConfig`. */
+export type StickinessYAxisScaleType = string | null | undefined
 
 export interface BuildStickinessSeriesOpts<R extends StickinessResultLike, M = unknown> {
     showMultipleYAxes?: boolean
@@ -69,8 +75,36 @@ export function stickinessPercentFormatter(value: number): string {
     return `${value.toFixed(1)}%`
 }
 
+/** Stickiness adapters pin their tooltip to the top with pinnable rows. Shared so the
+ *  line and bar ports stay consistent. */
+export const STICKINESS_TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
+
+/** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
+ *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
+ *  format it as a calendar date (which would land on 1970-01-01). */
+export function buildStickinessTooltipTitle(
+    interval: string | null | undefined
+): (seriesData: SeriesDatum[]) => string {
+    return (seriesData) => {
+        const day = seriesData[0]?.date_label ?? ''
+        return `stickiness on ${interval || 'day'} ${day}`
+    }
+}
+
+/** Shared stickiness y-axis: percent tick formatter + linear/log scale toggle. */
+export function buildStickinessYAxisConfig(opts: {
+    yAxisScaleType?: StickinessYAxisScaleType
+    showGrid?: boolean
+}): YAxisConfig {
+    return {
+        scale: opts.yAxisScaleType === 'log10' ? 'log' : 'linear',
+        showGrid: opts.showGrid ?? true,
+        tickFormatter: stickinessPercentFormatter,
+    }
+}
+
 export interface BuildStickinessLineTimeSeriesConfigOpts {
-    yAxisScaleType?: string | null
+    yAxisScaleType?: StickinessYAxisScaleType
     showGrid?: boolean
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
     showCrosshair?: boolean
@@ -80,14 +114,9 @@ export interface BuildStickinessLineTimeSeriesConfigOpts {
 export function buildStickinessLineTimeSeriesConfig(
     opts: BuildStickinessLineTimeSeriesConfigOpts
 ): TimeSeriesLineChartConfig {
-    const yAxis: YAxisConfig = {
-        scale: opts.yAxisScaleType === 'log10' ? 'log' : 'linear',
-        showGrid: opts.showGrid ?? true,
-        tickFormatter: stickinessPercentFormatter,
-    }
     return {
         // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
-        yAxis,
+        yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
         valueLabels: opts.valueLabels,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,

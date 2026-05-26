@@ -67,6 +67,12 @@ class MCPSession:
 
 
 @dataclass(frozen=True)
+class MCPSessionsPage:
+    results: list[MCPSession]
+    has_next: bool
+
+
+@dataclass(frozen=True)
 class MCPToolCall:
     event_id: str
     timestamp: datetime

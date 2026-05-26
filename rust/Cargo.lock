@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.71"
+version = "1.3.75"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -4152,6 +4152,7 @@ dependencies = [
 name = "hogvm"
 version = "0.1.0"
 dependencies = [
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
@@ -6729,6 +6730,7 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics-exporter-prometheus",
  "personhog-common",
@@ -10427,6 +10429,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
+ "flate2",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
