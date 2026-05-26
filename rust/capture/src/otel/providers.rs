@@ -74,6 +74,24 @@ const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     classify: |_| "$ai_span",
 };
 
+/// Generic OpenLLMetry-style `llm.*` spans that carry no SDK-specific namespace
+/// or operation key — e.g. proxies/gateways like Plano, which emit `llm.model`,
+/// `llm.usage.*`, etc. (plus their own enrichments such as `signals.*`). There
+/// is no standard operation key here, so we infer: a model name or token usage
+/// marks an LLM call (`$ai_generation`); anything else is a generic `$ai_span`.
+/// Must be matched LAST so the more specific providers above (notably Traceloop,
+/// which keys on `llm.request.type`) win first.
+const LLM_GENERIC: SupportedProvider = SupportedProvider {
+    prefixes: &["llm."],
+    classify: |attrs| {
+        if attrs.keys().any(|k| k.starts_with("llm.usage.")) || attrs.contains_key("llm.model") {
+            "$ai_generation"
+        } else {
+            "$ai_span"
+        }
+    },
+};
+
 /// Providers are matched in order — first prefix match wins. More specific
 /// matchers must come before less specific ones to avoid shadowing. For example,
 /// Vercel AI spans carry both `ai.*` and `gen_ai.*` attributes; if GEN_AI were
@@ -87,6 +105,9 @@ const SUPPORTED_PROVIDERS: &[SupportedProvider] = &[
     TRACELOOP,
     // 3. Generic catch-all — standard OpenTelemetry semantic conventions (gen_ai.*)
     GEN_AI,
+    // 4. Broadest catch-all — bare `llm.*` spans (e.g. Plano). Must stay last so
+    //    `llm.request.type` still routes to Traceloop above.
+    LLM_GENERIC,
 ];
 
 /// Returns the matching provider for raw protobuf attributes, based on prefix
@@ -236,6 +257,37 @@ mod tests {
             get_event_name(&attrs_with("llm.request.type", "chat")),
             Some("$ai_generation")
         );
+        assert_eq!(
+            get_event_name(&attrs_with("llm.request.type", "embedding")),
+            Some("$ai_embedding")
+        );
+    }
+
+    #[test]
+    fn test_generic_llm_namespace_classifies_plano_style_spans() {
+        // Plano (and other OpenLLMetry-style emitters) use the bare `llm.*`
+        // namespace with no gen_ai.*/ai.* key and no `llm.request.type`. A model
+        // name or token usage marks an LLM call; anything else is a generic span.
+        assert_eq!(
+            get_event_name(&attrs_with("llm.model", "openai/gpt-5.1-codex-mini")),
+            Some("$ai_generation")
+        );
+        assert_eq!(
+            get_event_name(&attrs_with("llm.usage.prompt_tokens", "1243")),
+            Some("$ai_generation")
+        );
+        // No model/usage signal — accepted but classified as a plain span.
+        assert_eq!(
+            get_event_name(&attrs_with("llm.tools", "search_for_images")),
+            Some("$ai_span")
+        );
+    }
+
+    #[test]
+    fn test_traceloop_takes_precedence_over_generic_llm() {
+        // A Traceloop span keyed on `llm.request.type` must classify via
+        // Traceloop, not fall through to the broader LLM_GENERIC provider
+        // (which, lacking model/usage here, would mislabel it as `$ai_span`).
         assert_eq!(
             get_event_name(&attrs_with("llm.request.type", "embedding")),
             Some("$ai_embedding")
