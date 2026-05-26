@@ -1,3 +1,5 @@
+import type { ServicePrincipal } from '@repo/ass-server/types'
+
 import { EncryptedFields } from '../encryption'
 import { logger } from '../logger'
 import { PosthogDbClient } from './client'
@@ -70,18 +72,22 @@ export class ApplicationsRepository {
     }
 
     /**
-     * Verify a bearer token against the team's shared-secret tokens. PostHog's
-     * `Team` model carries `secret_api_token` and `secret_api_token_backup` —
-     * either one is a valid client credential. Backup exists for rotation: you
-     * mint a new primary, leave the old one as backup, and rotate clients over
-     * before clearing it.
+     * Verify a bearer token against the team's shared-secret tokens and
+     * return the `ServicePrincipal` it resolves to. PostHog's `Team` model
+     * carries `secret_api_token` and `secret_api_token_backup` — either is a
+     * valid client credential (backup exists for rotation).
      *
-     * Returns `true` on match. Constant-time comparison avoids leaking timing
-     * info about which slot matched.
+     * Returns `null` for an invalid token. On match, returns a service
+     * principal scoped to the team. **Today's token is a *team* shared
+     * secret — there's no per-user identity on it**, so `caller` is the
+     * literal `"team-secret"`. When PostHog PAT auth or the JWT path (see
+     * agent-stack/docs/auth-and-identity.md phase 6) lands, this method
+     * widens to carry the human / OAuth client behind the token; the
+     * `(teamId, token)` shape doesn't change.
      */
-    async verifyTeamSecret(teamId: number, token: string): Promise<boolean> {
+    async verifyTokenIdentity(teamId: number, token: string): Promise<ServicePrincipal | null> {
         if (!token) {
-            return false
+            return null
         }
         const { rows } = await this.options.db.pool.query<{
             secret_api_token: string | null
@@ -93,11 +99,14 @@ export class ApplicationsRepository {
             [teamId]
         )
         if (rows.length === 0) {
-            return false
+            return null
         }
         const primary = rows[0].secret_api_token ?? ''
         const backup = rows[0].secret_api_token_backup ?? ''
-        return constantTimeEquals(token, primary) || constantTimeEquals(token, backup)
+        if (!constantTimeEquals(token, primary) && !constantTimeEquals(token, backup)) {
+            return null
+        }
+        return { kind: 'service', orgId: String(teamId), caller: 'team-secret' }
     }
 
     /**

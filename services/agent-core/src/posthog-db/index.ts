@@ -2,6 +2,8 @@ export { PosthogDbClient } from './client'
 export type { PosthogDbConfig } from './client'
 export { ApplicationsRepository } from './applications'
 export type { ApplicationsRepositoryOptions } from './applications'
+export { IdentitiesRepository, IdentitySpaceNotFoundError } from './identities'
+export type { IdentitiesRepositoryOptions, ResolvedAgentUser } from './identities'
 export { SandboxInstancesRepository } from './sandbox-instances'
 export type {
     SandboxInstancesRepositoryOptions,

@@ -32,14 +32,25 @@ describe('agent-ingress /listen SSE flow', () => {
         } as unknown as RevisionResolver
         const repository = {
             decryptEnv: async () => ({}),
-            verifyTeamSecret: async () => true,
+            verifyTokenIdentity: async (teamId: number) => ({
+                kind: 'service' as const,
+                orgId: String(teamId),
+                caller: 'team-secret',
+            }),
         } as unknown as ApplicationsRepository
 
         const deps: ServerDeps = {
-            queue: {} as unknown as SessionQueueManager,
+            queue: {
+                getPrincipal: async () => null,
+            } as unknown as SessionQueueManager,
             bus,
             resolver,
             repository,
+            identities: {
+                resolveIdentity: async () => {
+                    throw new Error('IdentitiesRepository not stubbed in this test')
+                },
+            } as unknown as import('@posthog/agent-core').IdentitiesRepository,
             domainSuffix: '.agents.posthog.com',
             routingMode: 'domain',
         }

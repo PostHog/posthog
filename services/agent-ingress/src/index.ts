@@ -1,6 +1,7 @@
 import {
     ApplicationsRepository,
     EncryptedFields,
+    IdentitiesRepository,
     InMemorySessionBus,
     PosthogDbClient,
     RedisSessionBus,
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const repository = new ApplicationsRepository({ db: posthogDb, encryption })
+    const identities = new IdentitiesRepository({ db: posthogDb })
 
     const resolver = new RevisionResolver({
         repository,
@@ -43,6 +45,7 @@ async function main(): Promise<void> {
         bus,
         resolver,
         repository,
+        identities,
         domainSuffix: config.domainSuffix,
         routingMode: config.routingMode,
     })

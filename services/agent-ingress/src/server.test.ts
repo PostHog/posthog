@@ -1,7 +1,13 @@
 import supertest from 'supertest'
 import type { Express } from 'ultimate-express'
 
-import { ApplicationsRepository, InMemorySessionBus, ResolvedRevision, SessionInputMessage } from '@posthog/agent-core'
+import {
+    ApplicationsRepository,
+    IdentitiesRepository,
+    InMemorySessionBus,
+    ResolvedRevision,
+    SessionInputMessage,
+} from '@posthog/agent-core'
 
 import { RevisionResolver } from './resolver'
 import { ServerDeps, buildServer } from './server'
@@ -9,10 +15,16 @@ import { ServerDeps, buildServer } from './server'
 class FakeQueue {
     public created: Array<Record<string, unknown>> = []
     private idCounter = 0
+    /** Returns the principal `createJob` was called with for that id, or `null` for unknown ids. */
     async createJob(input: Record<string, unknown>): Promise<string> {
         this.created.push(input)
         this.idCounter += 1
         return `session-${this.idCounter}`
+    }
+    async getPrincipal(_sessionId: string): Promise<null> {
+        // Public-by-default test agents stamp no principal — return null so
+        // strict-match treats existing sessions as principal-less and ungated.
+        return null
     }
 }
 
@@ -46,8 +58,23 @@ function makeRepository(env: Record<string, string> = {}): ApplicationsRepositor
         resolveByDomain: async () => null,
         resolveBySlug: async () => null,
         resolveById: async () => null,
-        verifyTeamSecret: async () => true,
+        verifyTokenIdentity: async (teamId: number) => ({
+            kind: 'service' as const,
+            orgId: String(teamId),
+            caller: 'team-secret',
+        }),
     } as unknown as ApplicationsRepository
+}
+
+function makeIdentities(): IdentitiesRepository {
+    // Test fixture — agents without `identity:` blocks never invoke this.
+    // The few tests that exercise an identity-declaring agent override the
+    // `resolveIdentity` callback on `ServerDeps` directly.
+    return {
+        resolveIdentity: async () => {
+            throw new Error('IdentitiesRepository not stubbed in this test')
+        },
+    } as unknown as IdentitiesRepository
 }
 
 interface TestHarness {
@@ -67,6 +94,7 @@ async function startServer(overrides: Partial<ServerDeps> = {}): Promise<TestHar
         bus,
         resolver,
         repository,
+        identities: makeIdentities(),
         domainSuffix: '.agents.posthog.com',
         routingMode: 'domain',
         ...overrides,
@@ -164,7 +192,7 @@ describe('agent-ingress server', () => {
         harness = await startServer({
             authenticatePat: async (teamId, token) => {
                 calls.push({ teamId, token })
-                return true
+                return { kind: 'service', orgId: String(teamId), caller: 'team-secret' }
             },
         })
         const res = await supertest(harness.app)

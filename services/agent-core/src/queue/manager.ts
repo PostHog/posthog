@@ -1,3 +1,4 @@
+import type { Principal } from '@repo/ass-server/types'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -37,15 +38,18 @@ export class SessionQueueManager {
         const id = job.id ?? uuidv7()
         const now = new Date()
         const stateByteSize = job.state ? job.state.byteLength : null
+        // Stringify here rather than relying on pg's JSON serialization so
+        // an explicit `null` lands as SQL NULL (not the JSON literal `null`).
+        const principalJson = input.principal ? JSON.stringify(input.principal) : null
 
         await this.pool.query(
             `INSERT INTO agent_sessions
              (id, team_id, application_id, revision_id, queue_name, status, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              state, state_byte_size)
+              state, state_byte_size, principal)
              VALUES ($1, $2, $3, $4, $5, 'available', $6, $7,
                      NULL, NULL, 0, 0, $7,
-                     $8, $9)`,
+                     $8, $9, $10::jsonb)`,
             [
                 id,
                 job.teamId,
@@ -56,9 +60,29 @@ export class SessionQueueManager {
                 now,
                 job.state ?? null,
                 stateByteSize,
+                principalJson,
             ]
         )
         return id
+    }
+
+    /**
+     * Read the principal stamped on a session at creation, if any. Used by
+     * agent-ingress on `/listen` / `/send` / `/cancel` to strict-match the
+     * re-resolved caller. Returns `null` for a session created without one
+     * (e.g. an `auth: public` agent), or `undefined` if the session id
+     * doesn't exist — callers distinguish "no principal" from "no session"
+     * via this trit.
+     */
+    async getPrincipal(sessionId: string): Promise<Principal | null | undefined> {
+        const { rows } = await this.pool.query<{ principal: Principal | null }>(
+            `SELECT principal FROM agent_sessions WHERE id = $1`,
+            [sessionId]
+        )
+        if (rows.length === 0) {
+            return undefined
+        }
+        return rows[0].principal
     }
 
     async disconnect(): Promise<void> {

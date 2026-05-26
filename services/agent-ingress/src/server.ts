@@ -1,8 +1,10 @@
 import { type IncomingRequest, type RouteDeps, type RouteResult, route } from '@repo/ass-server'
+import type { Principal, ResolveIdentityInputDep, ServicePrincipal } from '@repo/ass-server/types'
 import express, { Express, NextFunction, Request, Response } from 'ultimate-express'
 
 import {
     ApplicationsRepository,
+    IdentitiesRepository,
     SessionEvent,
     SessionQueueManager,
     collectDefaults,
@@ -21,6 +23,14 @@ export interface ServerDeps {
     bus: import('@posthog/agent-core').SessionBus
     resolver: RevisionResolver
     repository: ApplicationsRepository
+    /**
+     * Identity-space + AgentUser store (Layer 3 of agent-stack's
+     * docs/auth-and-identity.md). Used by agents declaring an `identity:`
+     * block to find-or-create the AgentUser a provider-asserted identity
+     * maps to. Required even though many agents don't use it — passing it
+     * unconditionally avoids forgetting to wire it for agents that do.
+     */
+    identities: IdentitiesRepository
     domainSuffix: string
     /**
      * How tenants are identified on inbound requests. See `config.ts`. The
@@ -30,12 +40,44 @@ export interface ServerDeps {
      */
     routingMode: RoutingMode
     /**
-     * Validate a bearer token for an agent that declares `auth: pat`. The
-     * default implementation looks the token up against the resolved revision's
-     * team `secret_api_token` / `secret_api_token_backup` columns via
-     * `ApplicationsRepository.verifyTeamSecret`. Tests can override.
+     * Validate a bearer token for an agent that declares `auth: pat` and
+     * return the `ServicePrincipal` it resolves to (or `null` for invalid).
+     * The default looks the token up against the resolved revision's team
+     * `secret_api_token` / `secret_api_token_backup` via
+     * `ApplicationsRepository.verifyTokenIdentity`. Tests can override.
+     *
+     * Note the team-scoped (`teamId, token`) signature: ingress binds
+     * `teamId` to the resolved revision's owning team per-request via
+     * closure, so a valid token for team A presented to team B's agent
+     * still fails. See agent-stack/docs/auth-and-identity.md.
      */
-    authenticatePat?: (teamId: number, token: string) => Promise<boolean>
+    authenticatePat?: (teamId: number, token: string) => Promise<ServicePrincipal | null>
+
+    /**
+     * Verify a request originates inside PostHog (k8s mesh / network
+     * policy) and return the service principal to associate with it. For
+     * agents declaring `auth: posthog_internal`. Returning `null` rejects.
+     * No default — agents that use this policy must supply the callback or
+     * get a 500.
+     */
+    verifyPostHogInternal?: (req: IncomingRequest) => Promise<ServicePrincipal | null>
+
+    /**
+     * Find-or-create the AgentUser an asserted provider identity maps to,
+     * inside the named identity space. Required when any mounted agent
+     * declares an `identity:` block; agents without one don't need it.
+     *
+     * Default = `deps.identities.resolveIdentity` with the resolved
+     * revision's `teamId` bound by closure. Override for tests.
+     */
+    resolveIdentity?: (input: ResolveIdentityInputDep) => Promise<{ spaceId: string; userId: string }>
+
+    /**
+     * Override the default env-var resolver. By default, secrets are
+     * lazy-decrypted from the application's `encrypted_env`; tests can
+     * substitute a fixed map to avoid encrypting test fixtures.
+     */
+    loadSecret?: (name: string) => Promise<string | null>
 }
 
 export function buildServer(deps: ServerDeps): Express {
@@ -114,20 +156,34 @@ async function handleAgentRequest(req: Request, res: Response, deps: ServerDeps)
     // Lazy-decrypt the encrypted env at most once per request. Slack signature
     // verification needs one entry from it; nothing else here cares yet.
     let envPromise: Promise<Record<string, string>> | null = null
-    const loadSecret = async (name: string): Promise<string | null> => {
-        envPromise = envPromise ?? deps.repository.decryptEnv(revision.applicationId)
-        const env = await envPromise
-        return env[name] ?? null
-    }
+    const loadSecret =
+        deps.loadSecret ??
+        (async (name: string): Promise<string | null> => {
+            envPromise = envPromise ?? deps.repository.decryptEnv(revision.applicationId)
+            const env = await envPromise
+            return env[name] ?? null
+        })
 
     // Bind the team context — every PAT check is scoped to the team that
     // owns the resolved revision so a valid secret for team A can't be used
-    // to talk to team B's agent.
-    const verifyTeamSecret =
-        deps.authenticatePat ?? ((teamId, token) => deps.repository.verifyTeamSecret(teamId, token))
+    // to talk to team B's agent. The closure also turns the team-scoped
+    // (teamId, token) signature of `authenticatePat` on `ServerDeps` into
+    // the token-only signature ass-server's `AuthDeps` expects.
+    const verifyTokenIdentity =
+        deps.authenticatePat ?? ((teamId, token) => deps.repository.verifyTokenIdentity(teamId, token))
+    // Same closure pattern as authenticatePat: ass-server's resolveIdentity
+    // contract is `(spaceName, identity) → {spaceId, userId}` — agnostic to
+    // which team owns the space. The owning team is the resolved revision's,
+    // and binding it here per-request means a misconfigured `identity:`
+    // pointing at another team's space-name just doesn't resolve.
+    const resolveIdentityForTeam =
+        deps.resolveIdentity ??
+        (async (input) => deps.identities.resolveIdentity(revision.teamId, input.spaceName, input.identity))
     const routeDeps: RouteDeps = {
         loadSecret,
-        authenticatePat: (token: string) => verifyTeamSecret(revision.teamId, token),
+        authenticatePat: (token: string) => verifyTokenIdentity(revision.teamId, token),
+        verifyPostHogInternal: deps.verifyPostHogInternal,
+        resolveIdentity: resolveIdentityForTeam,
     }
 
     let result: RouteResult
@@ -203,6 +259,7 @@ async function dispatchRouteResult(
                     revisionId: revision.revisionId,
                     queueName: 'default',
                     state: Buffer.from(JSON.stringify(initialState), 'utf8'),
+                    principal: result.principal ?? null,
                 })
                 res.status(202).json({ sessionId, trigger: result.trigger })
             } catch (err) {
@@ -211,7 +268,24 @@ async function dispatchRouteResult(
             }
             return
 
-        case 'control':
+        case 'control': {
+            // Strict principal-match — Layer 1+2 of agent-stack/docs/auth-and-identity.md.
+            // The re-resolved caller principal from `route()` must equal the
+            // principal that was stamped on the session at creation. A 403
+            // here is the deliberate cost of "/send by a different user is
+            // forbidden" (see open question in the auth-and-identity doc).
+            // ASS_DEV_BYPASS_PRINCIPAL_MATCH=1 disables it for debugging.
+            if (process.env.ASS_DEV_BYPASS_PRINCIPAL_MATCH !== '1') {
+                const stamped = await deps.queue.getPrincipal(result.sessionId)
+                if (stamped === undefined) {
+                    res.status(404).json({ error: 'unknown session' })
+                    return
+                }
+                if (!principalsEqual(stamped, result.principal ?? null)) {
+                    res.status(403).json({ error: 'principal does not match session' })
+                    return
+                }
+            }
             if (result.operation === 'listen') {
                 await openSSE(req, res, deps, result.sessionId)
                 return
@@ -245,7 +319,30 @@ async function dispatchRouteResult(
                 res.status(503).json({ error: 'send failed' })
             }
             return
+        }
     }
+}
+
+/**
+ * Discriminated-union equality for `Principal`. Both `null` (anonymous
+ * session, anonymous caller) is a match; everything else compares all
+ * identifying fields. Mirrors the dev server's helper in
+ * agent-stack/packages/ass-server/src/server.ts.
+ */
+function principalsEqual(a: Principal | null, b: Principal | null): boolean {
+    if (a === null || b === null) {
+        return a === b
+    }
+    if (a.kind !== b.kind) {
+        return false
+    }
+    if (a.kind === 'service' && b.kind === 'service') {
+        return a.orgId === b.orgId && a.caller === b.caller
+    }
+    if (a.kind === 'user' && b.kind === 'user') {
+        return a.spaceId === b.spaceId && a.userId === b.userId
+    }
+    return false
 }
 
 async function openSSE(req: Request, res: Response, deps: ServerDeps, sessionId: string): Promise<void> {

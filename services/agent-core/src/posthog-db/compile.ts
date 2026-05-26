@@ -29,7 +29,11 @@ export function compileAgent(revision: ResolvedRevision): AgentDefinition {
     const tools = readStringIds(manifest.tools)
     const skills = readStringIds(manifest.skills)
     const prompt = typeof manifest.prompt === 'string' ? manifest.prompt : ''
-    const auth = translateAuth(revision.auth, revision.applicationSlug)
+    // Prefer the agent.yaml-shape auth on the manifest (`{type, ...}`); fall
+    // back to the legacy ResolvedRevision.auth (`{mode, ...}`) for old revisions
+    // whose top_level_config was emitted before pat / posthog_internal landed.
+    const auth = readManifestAuth(manifest.auth) ?? translateLegacyAuth(revision.auth, revision.applicationSlug)
+    const identity = readIdentity(manifest.identity)
 
     return {
         name: revision.applicationSlug,
@@ -39,7 +43,49 @@ export function compileAgent(revision: ResolvedRevision): AgentDefinition {
         skills,
         triggers,
         auth,
+        identity,
         visibility: auth?.type === 'public' ? 'public' : 'private',
+    }
+}
+
+/**
+ * Read the canonical agent.yaml-shape auth block (`{type: 'pat' | 'posthog_internal' | …, ...}`)
+ * straight off the manifest. Returns `undefined` (not `null`) when absent so
+ * the caller falls back to the legacy `ResolvedRevision.auth`. Loose typing —
+ * the canonical zod validation lives in ass-config; this just narrows the
+ * union for `route()` consumers.
+ */
+function readManifestAuth(raw: unknown): AgentDefinition['auth'] | undefined {
+    if (!raw || typeof raw !== 'object') {
+        return undefined
+    }
+    const obj = raw as { type?: unknown; [k: string]: unknown }
+    if (typeof obj.type !== 'string') {
+        return undefined
+    }
+    return obj as { type: string; [k: string]: unknown }
+}
+
+/**
+ * Read the `identity:` block, loose-typed for the same reason as `auth`.
+ * `space` is required; `source.provider` is the only piece the Slack trigger
+ * narrows on at runtime. Everything else passes through unmodified.
+ */
+function readIdentity(raw: unknown): AgentDefinition['identity'] {
+    if (!raw || typeof raw !== 'object') {
+        return undefined
+    }
+    const obj = raw as { space?: unknown; source?: unknown }
+    if (typeof obj.space !== 'string' || !obj.source || typeof obj.source !== 'object') {
+        return undefined
+    }
+    const src = obj.source as { provider?: unknown; [k: string]: unknown }
+    if (typeof src.provider !== 'string') {
+        return undefined
+    }
+    return {
+        space: obj.space,
+        source: src as { provider: string; [k: string]: unknown },
     }
 }
 
@@ -109,7 +155,7 @@ function readStringIds(raw: unknown): string[] {
     return out
 }
 
-function translateAuth(revisionAuth: ResolvedRevision['auth'], slug: string): AgentDefinition['auth'] {
+function translateLegacyAuth(revisionAuth: ResolvedRevision['auth'], slug: string): AgentDefinition['auth'] {
     switch (revisionAuth.mode) {
         case 'public':
             return { type: 'public' }
@@ -123,9 +169,11 @@ function translateAuth(revisionAuth: ResolvedRevision['auth'], slug: string): Ag
             }
             return { type: 'webhook_signature', provider: 'slack' }
         case 'shared_secret':
-            // Schema trim dropped shared_secret; falling back to public until
-            // legacy revisions are migrated to `pat` or `webhook_signature`.
-            logger.warn('compileAgent: shared_secret auth no longer supported, falling back to public', { slug })
+            // Schema trim dropped legacy `shared_secret` (the one with a
+            // raw token field on ResolvedRevision). The new `shared_secret`
+            // policy uses `secret_name` + a custom header and comes through
+            // `readManifestAuth` above. Fall back to public for old rows.
+            logger.warn('compileAgent: legacy shared_secret auth no longer supported, falling back to public', { slug })
             return { type: 'public' }
     }
 }

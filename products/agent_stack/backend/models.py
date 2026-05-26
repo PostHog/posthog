@@ -99,6 +99,94 @@ class AgentApplicationRevision(UUIDModel):
         return f"{self.application_id}:{self.id} ({self.state})"
 
 
+class IdentitySpace(UUIDModel):
+    """A directory of end-user records (`AgentUser`) attached to one or more
+    agents. Stateful — lifecycle is independent of any stack, so `ass deploy`
+    creating one then later being removed never destroys the space or its
+    users. Team-scoped; agents in any stack within the same team can attach
+    by name. See agent-stack/docs/auth-and-identity.md Layer 3.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=63)
+
+    deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            # Name is the local alias agents reference in `identity.space`.
+            # Partial uniqueness lets a soft-deleted space's name be reclaimed.
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(deleted=False),
+                name="agent_stack_identityspace_unique_active_name",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "deleted"], name="agent_stack_idspace_team"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.team_id}:{self.name}"
+
+
+class AgentUser(UUIDModel):
+    """The stable internal identifier for an end-user inside an `IdentitySpace`.
+    v1 stores no PII — just the bare `(id, space)` mapping. Provider-asserted
+    profile data flows through `ResolvedIdentity.profile` on the interface
+    but is intentionally not persisted (see the PII / GDPR open question in
+    auth-and-identity.md).
+    """
+
+    space = models.ForeignKey(IdentitySpace, on_delete=models.CASCADE, related_name="users")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["space", "-last_seen_at"], name="agent_stack_user_seen"),
+        ]
+
+    def __str__(self) -> str:
+        return f"user:{self.id}"
+
+
+class UserIdentity(UUIDModel):
+    """Mapping from a provider-asserted `(provider, account, subject)` tuple
+    to an `AgentUser`. A single user can hold many identities (Slack today, a
+    native account tomorrow) — that's how the deferred native-auth merge
+    stays additive. See auth-and-identity.md.
+    """
+
+    space = models.ForeignKey(IdentitySpace, on_delete=models.CASCADE, related_name="identities")
+    user = models.ForeignKey(AgentUser, on_delete=models.CASCADE, related_name="identities")
+
+    provider = models.CharField(max_length=63)
+    provider_account_id = models.CharField(max_length=255)
+    provider_subject = models.CharField(max_length=255)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            # `(provider, account, subject)` is the permanent identity key
+            # within a space — see "Settled decisions" in auth-and-identity.md.
+            models.UniqueConstraint(
+                fields=["space", "provider", "provider_account_id", "provider_subject"],
+                name="agent_stack_useridentity_unique_tuple",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.provider_account_id}:{self.provider_subject}"
+
+
 class AgentApplicationSandboxInstance(UUIDModel):
     """Modal sandbox tracker for (application, revision).
 
