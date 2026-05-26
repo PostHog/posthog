@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { isObject } from 'lib/utils'
+import { isObject, isString } from 'lib/utils'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -35,6 +35,7 @@ import {
     OpenAIResponsesFunctionCallOutput,
     OpenAIResponsesReasoning,
     OpenAIToolCall,
+    StringContentObject,
     TextContentItem,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
@@ -230,7 +231,34 @@ export function formatTokens(tokens: number): string {
  * string by convention but the runtime data could vary.
  */
 export function asString(value: unknown): string | undefined {
-    return typeof value === 'string' ? value : undefined
+    return isString(value) ? value : undefined
+}
+
+/**
+ * Reads the input payload from an event's properties.
+ * - `$ai_input`: emitted by every SDK integration on `$ai_generation`
+ *   (OpenAI, Anthropic, Gemini, and the framework wrappers).
+ * - `$ai_input_state`: emitted by framework wrappers (LangChain, OpenAI Agents,
+ *   Claude Agent SDK) on `$ai_span` events that wrap a non-generation step.
+ */
+export function readAiInput(properties: Record<string, any>): unknown {
+    return properties.$ai_input ?? properties.$ai_input_state
+}
+
+/**
+ * Reads the output payload from an event's properties.
+ * - `$ai_output_choices`: emitted by every SDK integration on `$ai_generation`.
+ * - `$ai_output_state`: emitted by framework wrappers (LangChain, OpenAI Agents,
+ *   Claude Agent SDK) on `$ai_span` events.
+ * - `$ai_output`: kept as a defensive fallback for events that the ingestion
+ *   pipeline treats as containing a heavy output payload
+ */
+export function readAiOutput(properties: Record<string, any>): unknown {
+    return properties.$ai_output_choices ?? properties.$ai_output_state ?? properties.$ai_output
+}
+
+export function eventLabel(event: LLMTraceEvent): string {
+    return asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
 }
 
 export function formatAiErrorForDisplay(value: unknown): string {
@@ -406,8 +434,25 @@ export function isAnthropicTextMessage(output: unknown): output is AnthropicText
     return isTextContentItem(output)
 }
 
-export function hasStringContentField(value: unknown): value is { content: string } {
-    return typeof value === 'object' && value !== null && 'content' in value && typeof value.content === 'string'
+export function hasStringContentField(value: unknown): value is StringContentObject {
+    return typeof value === 'object' && value !== null && 'content' in value && isString(value.content)
+}
+
+// Returns the user-visible string from a content part
+export function extractTextContent(item: unknown): string | undefined {
+    if (typeof item === 'string') {
+        return item
+    }
+    if (isTextContentItem(item)) {
+        return item.text
+    }
+    if (isVercelSDKTextMessage(item)) {
+        return item.content
+    }
+    if (isVercelSDKInputTextMessage(item)) {
+        return item.text
+    }
+    return undefined
 }
 
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {

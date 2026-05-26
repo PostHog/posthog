@@ -2,7 +2,15 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
-import { asString, formatAiErrorForDisplay, getToolNamesCalled, normalizeMessage, normalizeMessages } from './utils'
+import {
+    eventLabel,
+    formatAiErrorForDisplay,
+    getToolNamesCalled,
+    normalizeMessage,
+    normalizeMessages,
+    readAiInput,
+    readAiOutput,
+} from './utils'
 
 // Heuristic mirrors the LLMA skill script `print_summary.py` at
 // `products/llm_analytics/skills/exploring-llm-traces/scripts/` — keep in sync.
@@ -118,7 +126,7 @@ function collectDistinctErrors(events: LLMTraceEvent[]): SessionTurnError[] {
         if (!isError) {
             continue
         }
-        const label = asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
+        const label = eventLabel(event)
         const rawError = event.properties.$ai_error
         const message =
             typeof rawError === 'object' &&
@@ -173,8 +181,8 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
             }
         }
         const { properties } = userVisibleTurn
-        const rawInput = properties.$ai_input ?? properties.$ai_input_state
-        const rawOutput = properties.$ai_output_choices ?? properties.$ai_output_state ?? properties.$ai_output
+        const rawInput = readAiInput(properties)
+        const rawOutput = readAiOutput(properties)
         const aiTools = properties.$ai_tools
 
         const inputMessages = normalizeMessages(rawInput, 'user', aiTools)

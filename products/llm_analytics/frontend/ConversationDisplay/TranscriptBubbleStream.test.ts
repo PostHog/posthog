@@ -18,6 +18,23 @@ describe('hasNonTextContent', () => {
         ['returns false for an empty array', [], false],
         ['returns false for content with only text items', [{ type: 'text', text: 'Hi' }], false],
         [
+            'returns false for Vercel SDK text parts (`{ type: "text", content }`)',
+            [{ type: 'text', content: 'Hi from Vercel SDK' }] as unknown as CompatMessage['content'],
+            false,
+        ],
+        [
+            'returns false for Vercel SDK input_text parts',
+            [{ type: 'input_text', text: 'Hi' }] as unknown as CompatMessage['content'],
+            false,
+        ],
+        [
+            'returns true for a thinking part — reasoning is routed to "Show steps", not the bubble',
+            [
+                { type: 'thinking', thinking: 'let me work through this', signature: 'sig' },
+            ] as unknown as CompatMessage['content'],
+            true,
+        ],
+        [
             'returns false for content with only tool-step items (steps panel covers them)',
             [
                 { type: 'function', function: { name: 'get_weather' } },

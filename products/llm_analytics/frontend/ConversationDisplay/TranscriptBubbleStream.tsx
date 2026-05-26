@@ -5,7 +5,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 
 import { CompatMessage } from '../types'
-import { AVAILABLE_TOOLS_ROLE, hasStringContentField, isTextContentItem, isToolStepItem } from '../utils'
+import { AVAILABLE_TOOLS_ROLE, extractTextContent, hasStringContentField, isToolStepItem } from '../utils'
 
 // Roles that carry no user-visible content in a chat-app view. System prompts
 // and the synthetic "available tools" message are noise here; their effects are
@@ -21,12 +21,9 @@ function extractText(message: CompatMessage): string {
     if (Array.isArray(content)) {
         const parts: string[] = []
         for (const part of content) {
-            if (typeof part === 'string') {
-                parts.push(part)
-                continue
-            }
-            if (isTextContentItem(part)) {
-                parts.push(part.text)
+            const text = extractTextContent(part)
+            if (text !== undefined) {
+                parts.push(text)
             }
         }
         return parts.join('\n')
@@ -37,12 +34,16 @@ function extractText(message: CompatMessage): string {
     return ''
 }
 
+function isUnrenderableContentItem(item: unknown): boolean {
+    return extractTextContent(item) === undefined && !isToolStepItem(item)
+}
+
 export function hasNonTextContent(message: CompatMessage): boolean {
     const content = message.content
     if (!Array.isArray(content)) {
         return false
     }
-    return content.some((item) => typeof item !== 'string' && !isTextContentItem(item) && !isToolStepItem(item))
+    return content.some(isUnrenderableContentItem)
 }
 
 // Item kinds for the analytics capture, so we can pivot by what we failed to render.
@@ -52,7 +53,7 @@ export function unrenderableContentKinds(message: CompatMessage): string[] {
         return []
     }
     const kinds = content
-        .filter((item) => typeof item !== 'string' && !isTextContentItem(item) && !isToolStepItem(item))
+        .filter(isUnrenderableContentItem)
         .map((item) => (typeof item === 'object' && item !== null && 'type' in item ? String(item.type) : typeof item))
     return Array.from(new Set(kinds)).sort()
 }
@@ -60,7 +61,13 @@ export function unrenderableContentKinds(message: CompatMessage): string[] {
 // Content-hash so the analytics capture dedups across kea selector recomputes
 // (a sibling turn's `loadFullTrace` invalidates every turn's `newInputs` reference).
 function unrenderableKey(message: CompatMessage): string {
-    return `${message.role}::${JSON.stringify(message.content)}`
+    let serialized: string
+    try {
+        serialized = JSON.stringify(message.content)
+    } catch {
+        serialized = String(message.content)
+    }
+    return `${message.role}::${serialized}`
 }
 
 export function captureUnrenderableMessageOnce(message: CompatMessage, seen: Set<string>): void {
