@@ -25,6 +25,13 @@ class HogQLPrinter(BasePrinter):
     ):
         return
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        return None
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         return table_type.table.to_printed_hogql()
 

@@ -1432,6 +1432,38 @@ class ClickHousePrinter(BasePrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Inject the object-level AC guard for `system.*` PostgresTable references.
+
+        Skipped for: non-PostgresTable, tables not in the `system` schema (e.g. the printer's
+        own private `_access_controls_table` which references `ee_accesscontrol` directly),
+        tables without a primary key (composite PK), and contexts without a `Database` or user.
+        Further bypass logic (org admin, project admin, flag off, EE disabled) lives in
+        `build_access_control_guard`.
+        """
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if self.context.database is None or self.context.database.user_access_control is None:
+            return None
+
+        system_node = self.context.database.tables.children.get("system")
+        if system_node is None or table_type.table.name not in system_node.children:
+            return None  # Includes the printer's private `_access_controls_table` — recursion stops here.
+
+        if table_type.table.primary_key is None:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
 

@@ -79,6 +79,11 @@ class HogQLContext:
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
+    # Per-query memoization for the `hogql-object-access-control` feature flag check.
+    # `None` = not yet evaluated for this query, True/False = cached result.
+    # Lives on context (not on Database) because the flag gates printer-time behavior
+    # and may be checked once per joined system table during a single query.
+    _object_acl_flag_resolved: Optional[bool] = None
 
     def __post_init__(self):
         if self.team:
