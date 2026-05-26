@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+import pyarrow as pa
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.sql.identifiers import (
@@ -17,8 +18,24 @@ from posthog.temporal.data_imports.sources.common.sql.projection import (
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     format_projected_select_clause,
+    project_arrow_columns,
     prune_enabled_columns,
 )
+from posthog.temporal.data_imports.sources.common.sql.types import Column, Table
+
+
+class _FakeColumn(Column):
+    """Minimal `Column` implementation for tests — `to_arrow_field` returns a string field."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def to_arrow_field(self) -> pa.Field[pa.DataType]:
+        return pa.field(self.name, pa.string())
+
+
+def _table_with(*column_names: str) -> Table[_FakeColumn]:
+    return Table(name="t", parents=("s",), columns=[_FakeColumn(c) for c in column_names])
 
 
 class TestComputeProjectedColumns:
@@ -157,3 +174,39 @@ class TestPruneEnabledColumns:
     def test_preserves_caller_order(self) -> None:
         kept, _ = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
         assert kept == ["email", "id", "name"]
+
+
+class TestProjectArrowColumns:
+    def test_none_retained_passes_through(self) -> None:
+        table = _table_with("id", "email", "name")
+        result = project_arrow_columns(table, None)
+        assert result is table
+
+    def test_subset_returns_new_table_with_only_listed_columns(self) -> None:
+        table = _table_with("id", "email", "name", "secret")
+        result = project_arrow_columns(table, ["id", "email"])
+        assert [c.name for c in result.columns] == ["id", "email"]
+        # Preserves table identity metadata so downstream consumers see the same logical name.
+        assert result.name == table.name
+        assert result.parents == table.parents
+
+    def test_preserves_source_order_not_retained_order(self) -> None:
+        # Retained list order should not flip the source-discovered order — `cursor.description`
+        # comes back in source order, and the Arrow schema must match it row-for-row.
+        table = _table_with("id", "email", "name")
+        result = project_arrow_columns(table, ["name", "id"])
+        assert [c.name for c in result.columns] == ["id", "name"]
+
+    def test_all_missing_columns_falls_back_to_full_table(self) -> None:
+        # If a driver passes a `retained` list that mentions nothing in the table (drift
+        # between discovery and sync), fall back to the full table rather than emit an empty
+        # Arrow schema that would tip the writer into shape mismatch errors.
+        table = _table_with("id", "email")
+        result = project_arrow_columns(table, ["ghost", "phantom"])
+        assert result is table
+
+    def test_partial_overlap_keeps_only_matching_columns(self) -> None:
+        # Mixed case: one column exists in the table, one doesn't.
+        table = _table_with("id", "email", "name")
+        result = project_arrow_columns(table, ["email", "ghost"])
+        assert [c.name for c in result.columns] == ["email"]

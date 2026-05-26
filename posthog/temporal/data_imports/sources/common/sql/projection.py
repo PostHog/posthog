@@ -51,23 +51,17 @@ def compute_projected_columns(
     if enabled_columns is None:
         return None
 
-    retained: set[str] = set(enabled_columns)
-    for pk in primary_keys or []:
-        retained.add(pk)
-    if incremental_field:
-        retained.add(incremental_field)
-
     seen: set[str] = set()
     ordered: list[str] = []
     for column in enabled_columns:
-        if column in retained and column not in seen:
+        if column not in seen:
             seen.add(column)
             ordered.append(column)
     for column in primary_keys or []:
-        if column in retained and column not in seen:
+        if column not in seen:
             seen.add(column)
             ordered.append(column)
-    if incremental_field and incremental_field in retained and incremental_field not in seen:
+    if incremental_field and incremental_field not in seen:
         ordered.append(incremental_field)
 
     if not ordered:
