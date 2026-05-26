@@ -103,6 +103,8 @@ class MarketingAnalyticsConfig:
     attribution_window_days: int = 90
     attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH
 
+    conversion_goal_precomputation_enabled: bool = False
+
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
         """Create config instance with team-specific attribution settings"""
@@ -111,6 +113,14 @@ class MarketingAnalyticsConfig:
             ma_config = team.marketing_analytics_config
             config.attribution_window_days = ma_config.attribution_window_days
             config.attribution_mode = AttributionMode(ma_config.attribution_mode)
+
+        # Gate precomputation behind feature flag
+        config.conversion_goal_precomputation_enabled = posthoganalytics.feature_enabled(
+            "marketing-analytics-precomputation",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
 
         # Gate multi-touch attribution behind feature flag
         if config.attribution_mode in MULTI_TOUCH_MODES:

@@ -73,6 +73,66 @@ tools:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
+        mcp_version: 1
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-create:
+        operation: accounts_notebooks_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create account notebook
+        description: >
+            Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes,
+            and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure).
+            The notebook is created with internal visibility so it does not appear in the global notebooks list.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-destroy:
+        operation: accounts_notebooks_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete account notebook
+        description: |
+            Permanently delete an account notebook by its `short_id`.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-list:
+        operation: accounts_notebooks_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account notebooks
+        description: >
+            List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result
+            includes the notebook `short_id`, `title`, `content`, and authorship metadata.
+        mcp_version: 1
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-retrieve:
+        operation: accounts_notebooks_retrieve
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get account notebook
+        description: >
+            Fetch a single account notebook by its `short_id`. Returns the full notebook including `content`
+            (ProseMirror JSON document structure) and authorship metadata.
+        mcp_version: 1
         feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
@@ -113,6 +173,7 @@ tools:
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id external identifiers) and `tags`.
+        mcp_version: 1
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update

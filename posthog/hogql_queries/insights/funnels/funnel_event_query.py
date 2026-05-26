@@ -440,6 +440,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "group":
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
+        elif breakdownType == "session":
+            return get_breakdown_expr(breakdown, "session")
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
             exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
@@ -567,7 +569,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if self._aggregation_target_expr() == ast.Field(chain=["person_id"]):
             return None
 
-        return parse_expr("aggregation_target != '' and aggregation_target != null")
+        # toString() guards against numeric-typed aggregation keys: comparing a
+        # Float64 directly to '' makes ClickHouse try to parse '' as a number.
+        return parse_expr("toString(aggregation_target) != '' and aggregation_target != null")
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query

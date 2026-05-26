@@ -4,7 +4,8 @@ import { useCallback, useMemo } from 'react'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { percentage } from 'lib/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -22,7 +23,7 @@ import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
@@ -72,13 +73,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const { aggregationLabel } = useValues(groupsModel)
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
-    const resolvedGroupTypeLabel =
-        context?.groupTypeLabel ??
-        (labelGroupType === 'people'
-            ? 'people'
-            : labelGroupType === 'none'
-              ? ''
-              : aggregationLabel(labelGroupType).plural)
+    const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
     const labels = currentPeriodResult?.labels ?? []
 
@@ -110,7 +105,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const valueLabelFormatter = useCallback(
-        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        (value: number) => {
+            // In percent layout the chart computes each segment's share of its band and passes
+            // a 0..1 fraction here, so we render it directly as a percentage.
+            if (isPercentStackView) {
+                return percentage(value, 1)
+            }
+            return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+        },
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
