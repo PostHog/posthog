@@ -233,8 +233,11 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
     serializer_class = AutoresearchModelSerializer
     queryset = AutoresearchModel.objects.all()
 
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
     def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("pipeline_pk")
+        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
         qs = queryset.filter(pipeline__team=self.team).select_related("pipeline")
         if pipeline_id:
             qs = qs.filter(pipeline_id=pipeline_id)
@@ -251,8 +254,11 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     serializer_class = AutoresearchRunSerializer
     queryset = AutoresearchRun.objects.all()
 
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
     def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("pipeline_pk")
+        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
         qs = queryset.filter(pipeline__team=self.team).select_related("pipeline", "model")
         if pipeline_id:
             qs = qs.filter(pipeline_id=pipeline_id)
@@ -269,8 +275,11 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMo
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = AutoresearchTrainingRun.objects.all()
 
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
     def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("pipeline_pk")
+        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
         qs = queryset.filter(pipeline__team=self.team).select_related("pipeline")
         if pipeline_id:
             qs = qs.filter(pipeline_id=pipeline_id)

@@ -88,12 +88,12 @@ def _run_validation(
     lookback_days = max(horizon_days * 4, 30)
 
     count_query = HogQLQuery(
-        query=f"""
+        query="""
             SELECT
-                countDistinctIf(person_id, event = %(target)s) AS positives,
+                countDistinctIf(person_id, event = {target}) AS positives,
                 countDistinct(person_id) AS total_users
             FROM events
-            WHERE timestamp >= now() - toIntervalDay(%(lookback)s)
+            WHERE timestamp >= now() - toIntervalDay({lookback})
               AND timestamp < now()
         """,
         values={"target": target_event, "lookback": lookback_days},
