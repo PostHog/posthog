@@ -78,6 +78,15 @@ export interface ServerDeps {
      * substitute a fixed map to avoid encrypting test fixtures.
      */
     loadSecret?: (name: string) => Promise<string | null>
+
+    /**
+     * Queue name to enqueue sessions onto. Default `'default'`. Tests
+     * override this so the harness's runner exclusively dequeues these
+     * jobs — without it, a co-running `hogli start` agent-runner (also
+     * polling `'default'`) would race the harness for them and trip on
+     * fake fixture bundles.
+     */
+    queueName?: string
 }
 
 export function buildServer(deps: ServerDeps): Express {
@@ -257,7 +266,7 @@ async function dispatchRouteResult(
                     teamId: revision.teamId,
                     applicationId: revision.applicationId,
                     revisionId: revision.revisionId,
-                    queueName: 'default',
+                    queueName: deps.queueName ?? 'default',
                     state: Buffer.from(JSON.stringify(initialState), 'utf8'),
                     principal: result.principal ?? null,
                 })

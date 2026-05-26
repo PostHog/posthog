@@ -97,6 +97,7 @@ export class RunnerWorker {
                     applicationId: job.applicationId,
                     revisionId: job.revisionId,
                     secrets,
+                    principal: job.principal,
                 },
             })
 
@@ -106,6 +107,18 @@ export class RunnerWorker {
                 case 'completed':
                     state.messages.push(outcome.message)
                     state.turnCount += 1
+                    // Surface the executor's assistant message on the bus +
+                    // log_entries before the terminal session_completed event.
+                    // Without this, the model's final reply only ever lives
+                    // inside SessionState (a runner-internal blob) — clients
+                    // listening on /listen and the log_entries downstream
+                    // never see what the agent actually said.
+                    await this.publish(job.id, sessionLogger, {
+                        type: 'message',
+                        at: outcome.message.at ?? new Date().toISOString(),
+                        role: outcome.message.role,
+                        content: outcome.message.content,
+                    })
                     await this.publish(job.id, sessionLogger, {
                         type: 'session_completed',
                         at: new Date().toISOString(),

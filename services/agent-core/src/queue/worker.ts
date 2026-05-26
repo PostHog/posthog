@@ -1,3 +1,4 @@
+import type { Principal } from '@repo/ass-server/types'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
@@ -17,6 +18,8 @@ interface RawSessionRow {
     transition_count: number
     state: Buffer | null
     lock_id: string
+    /** JSONB column; pg deserializes to a structured object. NULL when the agent is public. */
+    principal: Principal | null
 }
 
 export type SessionJobHandler = (job: DequeuedSessionJob) => Promise<void>
@@ -188,7 +191,8 @@ export class SessionQueueWorker {
                 agent_sessions.created,
                 agent_sessions.transition_count,
                 agent_sessions.state,
-                agent_sessions.lock_id`,
+                agent_sessions.lock_id,
+                agent_sessions.principal`,
             [this.config.queueName, limit, lockId]
         )
         return result.rows.sort((a, b) => new Date(a.scheduled).getTime() - new Date(b.scheduled).getTime())
@@ -216,6 +220,7 @@ export class SessionQueueWorker {
             created: DateTime.fromISO(row.created, { zone: 'utc' }),
             transitionCount: row.transition_count,
             state: row.state,
+            principal: row.principal ?? null,
 
             async ack(): Promise<void> {
                 releaseGuard('ack')

@@ -1,3 +1,5 @@
+import type { Principal } from '@repo/ass-server/types'
+
 import { SessionMessage, SessionState } from './state'
 import { ToolCall } from './tools/types'
 
@@ -24,6 +26,14 @@ export interface ExecutorJobContext {
     readonly revisionId: string | null
     /** Decrypted application env. Used by the executor to load bundles, resolve secrets, etc. */
     readonly secrets: Record<string, string>
+    /**
+     * Caller principal stamped at ingress, loaded by the worker from
+     * `agent_sessions.principal`. `null` for public agents (no identity to
+     * attribute the run to). Executors that want to inject who-is-calling
+     * into the model context — system prompt prefix, meta-tool result, etc.
+     * — read it here. See agent-stack/docs/auth-and-identity.md.
+     */
+    readonly principal: Principal | null
 }
 
 export interface ExecutorTurnInput {

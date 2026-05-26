@@ -10,9 +10,14 @@ const ConfigSchema = z.object({
     redisUrl: z.string().optional(),
     kafkaBrokers: z.string().min(1),
     kafkaLogEntriesTopic: z.string().default('log_entries'),
-    anthropicApiKey: z.string().min(1, {
-        message: 'ANTHROPIC_API_KEY is required (set it in your shell or repo-root .env)',
-    }),
+    /**
+     * Optional in the schema so the runner can boot under test substitutes
+     * (e.g. `EchoExecutor`) without an Anthropic credential. `AssServerExecutor`
+     * still reads `ANTHROPIC_API_KEY` from `process.env` directly at run time
+     * and will fail there if missing — the bin can opt in to fail-fast at boot
+     * by checking this field after `loadConfig()`.
+     */
+    anthropicApiKey: z.string().optional(),
     /** Max concurrent session jobs this worker process will hold. */
     concurrency: z.coerce.number().int().min(1).default(8),
 })

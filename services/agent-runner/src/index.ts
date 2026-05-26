@@ -1,3 +1,9 @@
+/**
+ * agent-runner bin entrypoint. Thin wrapper around `createRunner` from
+ * `./lib`: load env, hand defaults to the factory, swap in the real
+ * Claude-Agent-SDK executor (`AssServerExecutor`), wire SIGTERM / SIGINT,
+ * call `start()`. Everything heavier lives in the factory.
+ */
 import { reapOrphanedSandboxes } from '@repo/ass-sandbox'
 
 import {
@@ -9,7 +15,7 @@ import {
     PosthogDbClient,
     RedisSessionBus,
     SandboxInstancesRepository,
-    SessionBus,
+    type SessionBus,
     bundleStoreConfigFromEnv,
     loadDevEnv,
     logger,
@@ -17,8 +23,8 @@ import {
 
 import { AssServerExecutor } from './ass-server-executor'
 import { loadConfig } from './config'
+import { createRunner } from './lib'
 import { selectToolSandboxKind } from './tool-sandbox'
-import { RunnerWorker } from './worker'
 
 loadDevEnv()
 
@@ -43,15 +49,26 @@ async function main(): Promise<void> {
         logger.warn({ err }, 'orphaned-sandbox reap skipped')
     }
 
+    // The SDK executor pulls in @anthropic-ai/claude-agent-sdk (ESM,
+    // awkward to load via ts-jest), so the factory doesn't pre-wire it —
+    // the bin constructs the shared deps, the executor, and hands the
+    // bundle to the factory.
+    //
+    // ANTHROPIC_API_KEY is optional in the config schema so the runner can
+    // boot under a test executor (EchoExecutor / PrincipalEchoExecutor)
+    // without a credential. The bin enforces it here, before constructing
+    // AssServerExecutor — fail fast in prod, stay loose for tests.
+    if (!config.anthropicApiKey) {
+        throw new Error(
+            'ANTHROPIC_API_KEY is required to run the SDK executor — set it in your shell or repo-root .env'
+        )
+    }
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const repository = new ApplicationsRepository({ db: posthogDb, encryption })
-    // Durable lifecycle log for tool sandboxes — the janitor reaps sandboxes
-    // whose worker died mid-session by walking these rows.
     const sandboxInstances = new SandboxInstancesRepository({ db: posthogDb })
 
     const bus: SessionBus = config.redisUrl ? new RedisSessionBus({ url: config.redisUrl }) : new InMemorySessionBus()
-
     if (!config.redisUrl) {
         logger.warn('REDIS_URL not set; using in-memory bus (single-process only — not safe for production)')
     }
@@ -69,36 +86,27 @@ async function main(): Promise<void> {
 
     const executor = new AssServerExecutor({ bundleStore, repository, sandboxInstances, bus, logProducer })
 
-    const worker = new RunnerWorker({
-        pool: { dbUrl: config.queueDbUrl },
-        queueName: config.queueName,
-        concurrency: config.concurrency,
-        executor,
+    const runner = await createRunner({
+        posthogDb,
+        repository,
         bus,
         logProducer,
-        loadSecrets: async (applicationId) => {
-            if (!applicationId) {
-                return {}
-            }
-            // Pulls the application's encrypted `.env` blob from the main posthog DB and
-            // decrypts it locally via fernet. Tools see secrets through ToolContext.secrets.
-            return await repository.decryptEnv(applicationId)
-        },
+        executor,
     })
 
-    await worker.start()
+    await runner.start()
     logger.info('agent-runner started', { queueName: config.queueName, kafkaTopic: config.kafkaLogEntriesTopic })
 
     const shutdown = async (signal: string): Promise<void> => {
         logger.info('agent-runner shutting down', { signal })
-        await worker.stop()
+        await runner.stop()
+        // Bin-owned resources the factory left alone.
         await bus.disconnect()
         await logProducer.disconnect()
         await posthogDb.disconnect()
         bundleStore.destroy()
         process.exit(0)
     }
-
     process.on('SIGTERM', () => void shutdown('SIGTERM'))
     process.on('SIGINT', () => void shutdown('SIGINT'))
 }

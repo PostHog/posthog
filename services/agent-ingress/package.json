@@ -6,7 +6,11 @@
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
     "repository": "https://github.com/PostHog/posthog",
-    "main": "dist/index.js",
+    "main": "dist/lib.js",
+    "exports": {
+        ".": "./dist/lib.js",
+        "./bin": "./dist/index.js"
+    },
     "scripts": {
         "build": "pnpm clean && tsc -b",
         "clean": "rm -rf dist",

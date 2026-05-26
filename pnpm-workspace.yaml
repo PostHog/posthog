@@ -20,6 +20,7 @@ packages:
     - services/agent-ingress
     - services/agent-janitor
     - services/agent-runner
+    - services/agent-tests
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app

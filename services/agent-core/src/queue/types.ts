@@ -55,6 +55,13 @@ export interface DequeuedSessionJob {
     readonly created: DateTime
     readonly transitionCount: number
     readonly state: Buffer | null
+    /**
+     * Caller principal stamped at ingress (Layer 1+2 of agent-stack's
+     * docs/auth-and-identity.md). Returned by the dequeue path so the worker
+     * can thread it into the executor's job context — the executor / model
+     * / tools can then see who the request is acting on behalf of.
+     */
+    readonly principal: Principal | null
 
     ack(): Promise<void>
     fail(): Promise<void>

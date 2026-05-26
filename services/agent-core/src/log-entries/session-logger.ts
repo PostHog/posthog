@@ -44,6 +44,32 @@ export interface SessionLogger {
 export function createSessionLogger(opts: SessionLoggerOptions): SessionLogger {
     const now = opts.now ?? (() => new Date())
     const applicationId = opts.applicationId
+
+    // Per-session monotonic microsecond bump. `log_entries` is a ReplicatedReplacingMergeTree
+    // ordered by `(team_id, log_source, log_source_id, instance_id, timestamp)`,
+    // so two rows for the same session with the same timestamp collapse on
+    // merge. The wall clock is millisecond-precision (`new Date()`) and
+    // `toMicrosecondISO` just zero-pads the µs slot to `000`, so events
+    // emitted in rapid succession (the runner publishes 4 in <1ms in the
+    // happy path) all share an ORDER BY key and get deduped to one row.
+    //
+    // Fix: bump a per-session counter so successive writes within the same
+    // millisecond differ in their µs field. Counter resets every ms so it
+    // never drifts more than 1ms ahead of wall-clock.
+    let lastMs = 0
+    let bump = 0
+    const stampForNow = (): string => {
+        const d = now()
+        const ms = d.getTime()
+        if (ms === lastMs) {
+            bump += 1
+        } else {
+            lastMs = ms
+            bump = 0
+        }
+        return toMicrosecondISO(d, bump)
+    }
+
     const write = (level: LogLevel, message: string, at?: string): void => {
         if (!applicationId) {
             return // orphan job — drop the row rather than emit with a null log_source_id
@@ -53,7 +79,7 @@ export function createSessionLogger(opts: SessionLoggerOptions): SessionLogger {
             log_source: AGENT_SESSION_LOG_SOURCE,
             log_source_id: applicationId,
             instance_id: opts.sessionId,
-            timestamp: at ?? toMicrosecondISO(now()),
+            timestamp: at ?? stampForNow(),
             level,
             message,
         }
@@ -67,7 +93,12 @@ export function createSessionLogger(opts: SessionLoggerOptions): SessionLogger {
                 return
             }
             const [level, message] = formatEvent(event)
-            write(level, message, toClickhouseTimestamp(event.at))
+            // `event.at` is the producer-supplied wall-clock time (ms precision).
+            // Replace `toClickhouseTimestamp(event.at)` with `stampForNow()` so
+            // the µs-bump still applies and the row survives CH dedup —
+            // otherwise two events with the same `at` string land on the
+            // same ORDER BY key and one is dropped.
+            write(level, message, stampForNow())
         },
         appendLog({ level = 'INFO', message }): void {
             const prefix = level === 'ERROR' ? '[error]' : '[meta]'
@@ -144,13 +175,22 @@ function truncate(s: string, max: number): string {
  * (it has `kafka_skip_broken_messages = 100`). JS Dates are ms-resolution;
  * pad three zeros for the microsecond field.
  */
-function toMicrosecondISO(d: Date): string {
-    return toClickhouseTimestamp(d.toISOString())
-}
-
-function toClickhouseTimestamp(input: string): string {
-    return input
+/**
+ * Render a `Date` (millisecond precision) as a ClickHouse-friendly
+ * `DateTime64(6, 'UTC')` literal. The `microBump` slot bumps the µs field
+ * so successive events within the same ms still produce distinct
+ * timestamps — see the `stampForNow` doc on `createSessionLogger`.
+ *
+ * `microBump` is clamped to `[0, 999]`; callers that hit 1000+ events in a
+ * single ms (extremely unlikely for session logging) will start aliasing
+ * again, but that's a pathological case the dedup can absorb.
+ */
+function toMicrosecondISO(d: Date, microBump: number = 0): string {
+    const bump = Math.max(0, Math.min(999, Math.floor(microBump)))
+    const micro = bump.toString().padStart(3, '0')
+    return d
+        .toISOString()
         .replace('T', ' ')
-        .replace(/\.(\d{3})Z$/, '.$1000')
+        .replace(/\.(\d{3})Z$/, `.$1${micro}`)
         .replace(/Z$/, '')
 }
