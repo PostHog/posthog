@@ -128,6 +128,25 @@ def build_agent_description(
         - **Iteration budget**: {iteration_budget}{pop_clause}
         - **Today's date**: {today_iso}
 
+        ## Step 0 — Load live pipeline context (do this first, before any SQL)
+
+        Your pipeline ID is available as `$POSTHOG_AUTORESEARCH_PIPELINE_ID` in the shell,
+        and must be passed as the `pipeline_id` argument to any autoresearch MCP tool.
+
+        1. **Find the champion model**: call `autoresearch-models-list` with your pipeline ID.
+           Look for an entry with `role = "champion"`. Note its `id` and `holdout_score`.
+
+        2. **Load the champion recipe** (if a champion exists): call `autoresearch-models-retrieve`
+           with the champion `id`. Read `model_recipe.feature_sql` — this is the current best
+           feature set. Your primary goal is to produce a recipe that beats `holdout_score`.
+           Start from a meaningfully different hypothesis, not a trivial variant.
+
+        3. **Review training history**: call `autoresearch-training-runs-list` with your pipeline ID.
+           Check `best_holdout_score` and `iteration_count` from prior runs to avoid repeating
+           approaches that were already tried and discarded.
+
+        If no champion exists you are establishing the baseline — aim for AUC > 0.6.
+
         ## Research loop (perform at least {min_iters} iterations)
 
         ### Step 1 — Explore the data
@@ -270,11 +289,16 @@ def run_training(
         if not task_run:
             raise RuntimeError("Task.create_and_run() did not produce a TaskRun")
 
-        # Embed the training_run_id in the TaskRun state so the completion
-        # signal handler can look it up without an extra DB query.
+        # Embed IDs in TaskRun state:
+        # - autoresearch_training_run_id: looked up by the completion signal handler
+        # - autoresearch_pipeline_id: provision_sandbox.py injects this as
+        #   POSTHOG_AUTORESEARCH_PIPELINE_ID so the agent can scope MCP tool calls
         TaskRun.update_state_atomic(
             run_id=task_run.id,
-            updates={"autoresearch_training_run_id": str(training_run.id)},
+            updates={
+                "autoresearch_training_run_id": str(training_run.id),
+                "autoresearch_pipeline_id": str(pipeline.pk),
+            },
         )
 
         training_run.task_run_id = task_run.id
