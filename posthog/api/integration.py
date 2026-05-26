@@ -624,6 +624,23 @@ class IntegrationViewSet(
             except Exception as e:
                 capture_exception(e)
 
+        if instance.kind == "github" and instance.integration_id:
+            # Only uninstall the GitHub App when this is the last PostHog team
+            # row referencing the same installation_id — multiple teams in the
+            # same org can share one installation, and uninstalling would break
+            # the others. The GitHub call is best-effort; the local row is
+            # always deleted so the user can re-install cleanly.
+            shared_with_other_teams = (
+                Integration.objects.filter(kind="github", integration_id=instance.integration_id)
+                .exclude(id=instance.id)
+                .exists()
+            )
+            if not shared_with_other_teams:
+                try:
+                    GitHubIntegration(instance).uninstall()
+                except Exception as e:
+                    capture_exception(e)
+
         super().perform_destroy(instance)
 
     @action(methods=["GET"], detail=False)

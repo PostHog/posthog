@@ -2345,6 +2345,36 @@ class GitHubInstallationAccess:
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
+    def uninstall(self) -> None:
+        """Uninstall the GitHub App from the user's account on GitHub.
+
+        Calls ``DELETE /app/installations/{installation_id}`` so the installation
+        no longer appears under the user's GitHub apps. Treats 204 and 404 as
+        success (404 = already uninstalled on GitHub's side). Any other failure
+        is logged but not raised — callers are expected to delete the local row
+        regardless so the user is never stuck unable to disconnect.
+        """
+        installation_id = self.integration.integration_id
+        if not installation_id:
+            return
+        try:
+            response = self.client_request(f"installations/{installation_id}", method="DELETE")
+        except Exception:
+            logger.exception(
+                "GitHubIntegration: uninstall request failed",
+                integration_id=self.integration.id,
+                installation_id=installation_id,
+            )
+            return
+        if response.status_code not in (204, 404):
+            logger.warning(
+                "GitHubIntegration: uninstall returned unexpected status",
+                integration_id=self.integration.id,
+                installation_id=installation_id,
+                status_code=response.status_code,
+                body=response.text[:500],
+            )
+
     @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None

@@ -3127,3 +3127,119 @@ class TestAnthropicIntegration:
         body = response.json()
         assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
         assert body["has_more"] is False
+
+
+class TestGitHubIntegrationDisconnect:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.organization = Organization.objects.create(name="GH Org")
+        self.team = Team.objects.create(organization=self.organization, name="Team A")
+        self.other_team = Team.objects.create(organization=self.organization, name="Team B")
+        self.user = User.objects.create_and_join(
+            self.organization, "gh@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_github_integration(self, team: Team, installation_id: str = "12345") -> Integration:
+        return Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id=installation_id,
+            config={"installation_id": installation_id, "account": {"name": "acme"}},
+            sensitive_config={"access_token": "ghs_test"},
+            created_by=self.user,
+        )
+
+    @patch("posthog.api.integration.GitHubIntegration")
+    def test_destroy_calls_uninstall_when_last_team(self, MockGitHubIntegration, client: HttpClient):
+        integration = self._create_github_integration(self.team)
+        mock_instance = MagicMock()
+        MockGitHubIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockGitHubIntegration.assert_called_once_with(integration)
+        mock_instance.uninstall.assert_called_once()
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    @patch("posthog.api.integration.GitHubIntegration")
+    def test_destroy_skips_uninstall_when_installation_shared(
+        self, MockGitHubIntegration, client: HttpClient
+    ):
+        integration_a = self._create_github_integration(self.team, "12345")
+        integration_b = self._create_github_integration(self.other_team, "12345")
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration_a.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockGitHubIntegration.assert_not_called()
+        assert not Integration.objects.filter(id=integration_a.id).exists()
+        # Other team's row is untouched so its installation keeps working
+        assert Integration.objects.filter(id=integration_b.id).exists()
+
+    @patch("posthog.api.integration.GitHubIntegration")
+    def test_destroy_still_deletes_when_uninstall_fails(
+        self, MockGitHubIntegration, client: HttpClient
+    ):
+        integration = self._create_github_integration(self.team)
+        mock_instance = MagicMock()
+        mock_instance.uninstall.side_effect = Exception("GitHub API down")
+        MockGitHubIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_instance.uninstall.assert_called_once()
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    @patch("posthog.models.integration.GitHubIntegrationBase.client_request")
+    def test_uninstall_treats_404_as_success(self, mock_client_request, client: HttpClient):
+        integration = self._create_github_integration(self.team)
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = "Not Found"
+        mock_client_request.return_value = mock_response
+
+        GitHubIntegration(integration).uninstall()
+
+        mock_client_request.assert_called_once_with("installations/12345", method="DELETE")
+
+    @patch("posthog.models.integration.GitHubIntegrationBase.client_request")
+    def test_uninstall_treats_204_as_success(self, mock_client_request, client: HttpClient):
+        integration = self._create_github_integration(self.team)
+        mock_response = MagicMock()
+        mock_response.status_code = 204
+        mock_response.text = ""
+        mock_client_request.return_value = mock_response
+
+        GitHubIntegration(integration).uninstall()
+
+        mock_client_request.assert_called_once_with("installations/12345", method="DELETE")
+
+    @patch("posthog.models.integration.GitHubIntegrationBase.client_request")
+    def test_uninstall_swallows_network_exception(self, mock_client_request, client: HttpClient):
+        integration = self._create_github_integration(self.team)
+        mock_client_request.side_effect = Exception("connection reset")
+
+        # Must not raise — perform_destroy depends on uninstall being best-effort
+        GitHubIntegration(integration).uninstall()
+
+    def test_destroy_non_github_does_not_call_uninstall(self, client: HttpClient):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "U123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+            created_by=self.user,
+        )
+
+        client.force_login(self.user)
+        with patch("posthog.api.integration.GitHubIntegration") as MockGitHubIntegration:
+            response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockGitHubIntegration.assert_not_called()
+        assert not Integration.objects.filter(id=integration.id).exists()
