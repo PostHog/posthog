@@ -162,6 +162,19 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # contribute to any of the three metrics, plus `$pageview` / `$screen` so the
 # session-start anchoring is correct. The forward pad lets sessions that span
 # a UTC-day boundary aggregate cleanly — same reasoning as overview/paths.
+#
+# Inner HAVING drops sessions where *no* frustration event happened on the
+# breakdown_value. Without this filter we'd emit one row per
+# (session, breakdown_value) for every pageview session — even sessions
+# where rage/dead/error counts are all zero — and the read query would just
+# discard them via its own `HAVING or(rage > 0, ...)`. Storing pure-zero
+# rows is pure waste: for the dogfooding team the existing paths precompute
+# (which DOES emit one row per touched URL because every URL visit is
+# meaningful for paths) has 4.87M unique breakdown_values, ~88% singletons.
+# Frustration's user-visible value is restricted to URLs with at least one
+# rage/dead/error event, so filtering at INSERT loses nothing the read
+# would have surfaced — an order-of-magnitude row-count reduction by
+# matching INSERT scope to read scope.
 INSERT_QUERY_TEMPLATE = """
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
@@ -189,6 +202,7 @@ FROM (
     GROUP BY session_id, breakdown_value
     HAVING and(
         breakdown_value IS NOT NULL,
+        or(rage_clicks_count > 0, dead_clicks_count > 0, errors_count > 0),
         toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
         toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
     )
