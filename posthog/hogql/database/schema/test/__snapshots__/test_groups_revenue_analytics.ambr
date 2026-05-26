@@ -9,7 +9,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(key, 'lolol0:xxx'))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   LEFT JOIN
@@ -474,7 +474,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(key, 'lolol0:xxx'))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   LEFT JOIN
@@ -2312,7 +2312,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(key, 'lolol0:xxx'))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   LEFT JOIN
@@ -2421,7 +2421,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(key, 'lolol0:xxx'))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   LEFT JOIN

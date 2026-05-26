@@ -1,6 +1,6 @@
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.argmax import argmax_select, pushdown_predicates_to_argmax_subquery
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -18,6 +18,12 @@ from posthog.hogql.database.schema.groups_revenue_analytics import (
     join_with_groups_revenue_analytics_table,
 )
 from posthog.hogql.errors import ResolutionError
+
+# GROUP BY keys of the argmax subquery built by `select_from_groups_table`. Filters
+# on these keys can be pushed into the inner subquery because they map to raw
+# columns (not argMax aggregates), so pre-aggregation filtering yields the same
+# rows while letting argMax skip groups the caller doesn't want.
+GROUPS_PUSHDOWN_FIELDS: frozenset[str] = frozenset({"index", "key"})
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "index": IntegerDatabaseField(name="group_type_index", nullable=False),
@@ -92,7 +98,14 @@ class GroupsTable(LazyTable):
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        return select_from_groups_table(table_to_add.fields_accessed)
+        select = select_from_groups_table(table_to_add.fields_accessed)
+        pushdown_predicates_to_argmax_subquery(
+            subquery=select,
+            outer_where=node.where if node is not None else None,
+            lazy_table=self,
+            pushdown_field_names=set(GROUPS_PUSHDOWN_FIELDS),
+        )
+        return select
 
     def to_printed_clickhouse(self, context):
         return "groups"
