@@ -188,6 +188,13 @@ class BatchQueue:
         ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
         (attempt is floored at 1 so that a zero-attempt row still waits at least one
         base period).
+
+        Head-of-line gating per run: a batch is excluded if any earlier
+        ``batch_index`` in the same ``run_uuid`` is currently ``executing`` or
+        in ``waiting_retry`` whose backoff window has not yet elapsed. Earlier
+        batches that are unprocessed (NULL status) or ``waiting_retry`` with
+        backoff met are treated as siblings that will be returned alongside
+        in the same poll and processed sequentially by the consumer.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -213,6 +220,23 @@ class BatchQueue:
                                     secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
                                 )
                             )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_prev
+                            LEFT JOIN {STATUS_VIEW} s_prev ON b_prev.id = s_prev.batch_id
+                            WHERE b_prev.run_uuid = b.run_uuid
+                                AND b_prev.batch_index < b.batch_index
+                                AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND (
+                                    s_prev.job_state = 'executing'
+                                    OR (
+                                        s_prev.job_state = 'waiting_retry'
+                                        AND s_prev.created_at > now() - make_interval(
+                                            secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
+                                        )
+                                    )
+                                )
                         )
                         AND b.run_uuid NOT IN (
                             SELECT DISTINCT b2.run_uuid

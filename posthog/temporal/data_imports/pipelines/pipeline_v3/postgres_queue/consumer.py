@@ -62,7 +62,7 @@ class ConsumerConfig:
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
-            self.recovery_grace_seconds = int(self.recovery_interval_seconds * 2)
+            self.recovery_grace_seconds = int(self.recovery_interval_seconds)
 
 
 class BatchConsumer:
@@ -172,13 +172,24 @@ class BatchConsumer:
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
-                await self._process_single(batch)
+                succeeded = await self._process_single(batch)
+                if not succeeded:
+                    # Stop processing sibling batches in this group
+                    logger.info(
+                        "group_halted_by_non_success",
+                        team_id=team_id,
+                        schema_id=schema_id,
+                        run_uuid=batch.run_uuid,
+                        batch_index=batch.batch_index,
+                        remaining=len(batches) - batches.index(batch) - 1,
+                    )
+                    break
         finally:
             self._semaphore.release()
             assert self._conn is not None
             await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
-    async def _process_single(self, batch: PendingBatch) -> None:
+    async def _process_single(self, batch: PendingBatch) -> bool:
         """Increment attempt, check max retries, then process the batch."""
         assert self._conn is not None
 
@@ -195,7 +206,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
-            return
+            return False
 
         # Pre-increment: if we OOM here, recovery sees attempt=N+1
         # and knows this attempt was consumed.
@@ -220,6 +231,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            return True
         except Exception as e:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(e).__name__).inc()
@@ -246,6 +258,7 @@ class BatchConsumer:
                     attempt=attempt,
                     error_response={"error": str(e)[:1000]},
                 )
+            return False
 
     async def _fail_run(
         self,
