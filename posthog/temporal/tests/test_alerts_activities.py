@@ -183,8 +183,9 @@ def _timeliness_inputs(
 @pytest.mark.asyncio
 class TestEmitAlertTimelinessSlo:
     @freeze_time("2024-06-03T10:00:01Z")
+    @patch("posthog.temporal.alerts.activities.get_instance_region", return_value="US")
     @patch("posthog.slo.events.posthoganalytics")
-    async def test_emits_failure_when_check_starts_after_threshold(self, mock_slo_analytics) -> None:
+    async def test_emits_failure_when_check_starts_after_threshold(self, mock_slo_analytics, _mock_region) -> None:
         env = ActivityEnvironment()
         await env.run(emit_alert_timeliness_slo, _timeliness_inputs())
 
