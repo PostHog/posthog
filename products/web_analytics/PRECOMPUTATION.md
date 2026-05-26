@@ -19,7 +19,7 @@ The newer general-purpose framework at `products/analytics_platform/backend/lazy
 
 - **Owned by**: web analytics team, riding on the analytics_platform framework
 - **Population**: synchronous, on first read miss; subsequent reads hit the cache
-- **Coverage** (today): `web_overview_query` only — see `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py`
+- **Coverage** (today): `web_overview_query` and the PATHS (`WebStatsBreakdown.PAGE` + `includeBounceRate`) tile of `web_stats_table_query`. See `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` and `web_stats_paths_lazy_precompute.py`
 - **Adoption** (as of 2026-05): freshly enabled, org feature flag gates further rollout
 
 ## When to use which
@@ -67,9 +67,9 @@ The framework chunks the precompute span into **daily UTC jobs**. Each job's INS
 
 A session that starts at 23:30 UTC with an event at 00:15 UTC the next day spans two daily jobs. Without help, the first job would only see the 23:30 event and miscount that session's pageviews.
 
-To fix this, the INSERT widens the event scan by `SESSION_BOUNDARY_PAD_MINUTES` (currently 60 min) on each side of the job's `[time_window_min, time_window_max)` window. The `HAVING` clause keeps each session attributed to its actual start hour — so over-scan adds INSERT cost but cannot produce duplicate rows in any bucket.
+To fix this, the INSERT widens the event scan forward by `SESSION_FORWARD_PAD_MINUTES` (currently 24 h) past the job's `[time_window_min, time_window_max)` window. The `HAVING` clause keeps each session attributed to its actual start hour — over-scan adds INSERT cost but cannot produce duplicate rows in any bucket. Forward-only is sufficient because the HAVING keeps only sessions whose `min(session.$start_timestamp)` falls inside the window; every event of such a session has `timestamp >= time_window_min`, so backward scanning never picks anything that survives HAVING.
 
-The pad value is the maximum realistic session duration. PostHog sessions cap at ~30 min of inactivity, so 60 min is a 2x safety margin while keeping over-scan tiny (~5%, vs. the 200% cost of a full ±1 day pad).
+The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effectively 100% of population sessions (measured p99 ≈ 79 min, with a long tail). Sessions exceeding 24 h are documented as undercounted on cross-boundary days. The long-term fix is to drive the INSERT from `raw_sessions` (bounded by the embedded UUIDv7 timestamp), which removes the pad entirely.
 
 ### Eligibility gate
 
@@ -82,7 +82,7 @@ The pad value is the maximum realistic session duration. PostHog sessions cap at
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
 - `query.properties` contains more than one filter
 - The single filter is not `EventPropertyFilter(key="$host", operator="exact", value=<non-empty string>)`
-- Date range exceeds `MAX_PRECOMPUTE_DAYS` (180)
+- Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
 - Either date_from or date_to is None
 
 When the gate returns False the runner silently falls through to v2 / raw. **Today there is no telemetry on gate rejections** — operators tuning the rollout have to read the source to know why a team isn't seeing the lazy path. A `web_overview_lazy_gate_rejected_total{reason}` counter would close that gap (open issue).
@@ -147,12 +147,49 @@ Roughly:
 8. **Tests** — round-trip (lazy == raw) parameterized over team timezones, gate fallthrough for each disqualifying condition, half-hour-offset fallthrough, cache hit (second call doesn't create new jobs).
 9. **Cache warmer** — add the new `query_type` to the warmer DAG's allowlist in `products/web_analytics/dags/cache_warming.py`.
 
-Roadmap order in `~/notes/work/posthog/web-analytics/investigations/2026-05-19-lazy-computation-candidates.md`: `web_overview_query` (shipped, this doc), `stats_table_main_query` (next), `stats_table_path_bounce_query` (after that), then `web_goals_query` deferred for custom-goal-definition complexity.
+Roadmap order in `~/notes/work/posthog/web-analytics/investigations/2026-05-19-lazy-computation-candidates.md`: `web_overview_query` (shipped), `stats_table_path_bounce_query` (shipped — this PR), `stats_table_main_query` (next), then `web_goals_query` deferred for custom-goal-definition complexity.
+
+## Lazy computation for the PATHS tile
+
+`WebStatsTableQueryRunner._calculate` adds a fourth check: lazy precompute first for the `WebStatsBreakdown.PAGE` + `includeBounceRate` combination only. Other breakdowns and other column combinations fall through to the existing v2/raw paths.
+
+### Schema
+
+`web_stats_paths_preaggregated` (sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`, ReplacingMergeTree with `computed_at` as the version column). One row per `(team_id, job_id, time_window_start, breakdown_value)`:
+
+- `breakdown_value String` — pathname, optionally prefixed with `$host` when the query has `includeHost`.
+- `uniq_users_state AggregateFunction(uniq, UUID)` — persons that touched this pathname.
+- `sum_pageviews_state AggregateFunction(sum, Int64)` — pageview/screen events on this pathname.
+- `avg_bounce_state AggregateFunction(avg, Nullable(Float64))` — `if(pathname == entry_pathname, is_bounce, NULL)` averaged across rows. `avg`'s null-skip semantics make this equivalent to "bounce rate of sessions that entered on this pathname" — matching the v2 `PATH_BOUNCE_QUERY` join semantic without a JOIN at read time.
+
+The state is `Nullable(Float64)` so the `if(..., NULL)` expression in the INSERT round-trips into the column without an explicit `toNullable` coercion.
+
+### Eligibility gate
+
+`can_use_lazy_precompute(runner)` in `web_stats_paths_lazy_precompute.py`. Shares the common gate (`web_lazy_precompute_common.py`) with web overview — same org flag, same timezone / sampling / UUID-mode / filter rules. Adds PATHS-specific refusals:
+
+- `query.breakdownBy != WebStatsBreakdown.PAGE`
+- `query.includeBounceRate` is False (the lazy table is purpose-built for bounce-augmented paths)
+- `query.includeAvgTimeOnPage` is True (not yet wired)
+- `query.includeScrollDepth` is True (not yet wired)
+
+### Read path
+
+Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / `sumMergeIf` / `avgMergeIf` covering both current and previous periods. The runner builds the standard `WebStatsTableQueryResponse` (breakdown_value + visitor/views/bounce-rate tuples + ui_fill_fraction + cross_sell). Sorting, paging, and fill-fraction are computed in Python over the materialized result set, matching `PathBounceStrategy` defaults (visitors DESC, then breakdown_value ASC; `WebAnalyticsOrderByFields` overrides honored for VISITORS / VIEWS / BOUNCE_RATE).
+
+### Known follow-ups
+
+- INITIAL_PAGE + bounce (entry-pathname tab) is a different SQL shape — separate precompute table or shared one with an entry-only state column.
+- `usedLazyPrecompute` is set on the response; the frontend's `PreAggregatedBadge` already keys off `usedPreAggregatedTables` so users see the badge without further wiring. Distinguishing lazy from v2 in the UI is a separate follow-up.
 
 ## Related code
 
 - `posthog/hogql_queries/web_analytics/web_overview.py` — runner
-- `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` — lazy path implementation
-- `posthog/hogql_queries/web_analytics/web_overview_pre_aggregated.py` — v2 path
-- `posthog/clickhouse/preaggregation/web_overview_preaggregated_sql.py` — schema
+- `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` — overview lazy path
+- `posthog/hogql_queries/web_analytics/web_overview_pre_aggregated.py` — overview v2 path
+- `posthog/hogql_queries/web_analytics/stats_table.py` — stats table runner
+- `posthog/hogql_queries/web_analytics/web_stats_paths_lazy_precompute.py` — PATHS lazy path
+- `posthog/hogql_queries/web_analytics/web_lazy_precompute_common.py` — shared eligibility gate + helpers
+- `posthog/clickhouse/preaggregation/web_overview_preaggregated_sql.py` — overview schema
+- `posthog/clickhouse/preaggregation/web_stats_paths_preaggregated_sql.py` — PATHS schema
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README

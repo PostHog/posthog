@@ -30,7 +30,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_r
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
-from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
@@ -72,7 +72,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
         return cast(
             InsightActorsQueryRunner,
-            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
+            get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
+            ),
         )
 
     def validate(self) -> None:
@@ -478,17 +480,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 distinct_ids = list({event[person_idx] for event in self.paginator.results})
 
                 distinct_to_person: dict[str, Person] = {}
-                # Process distinct_ids in batches to avoid overwhelming PostgreSQL
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
-                    requested_batch = set(batch_distinct_ids)
-                    persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    for person in persons:
-                        if person:
-                            for person_distinct_id in person.distinct_ids:
-                                if person_distinct_id in requested_batch:
-                                    distinct_to_person[person_distinct_id] = person
+                    distinct_to_person.update(get_persons_mapped_by_distinct_id(self.team.pk, batch_distinct_ids))
 
                 # Load restricted person properties to strip from the side-channel result
                 from products.access_control.backend.property_access_control import (
@@ -629,6 +624,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         response = execute_hogql_query(
             query=session_check_query,
             team=self.team,
+            user=self.user,
             query_type="EventsQuerySessionRecordingsCheck",
             timings=self.timings,
             modifiers=self.modifiers,

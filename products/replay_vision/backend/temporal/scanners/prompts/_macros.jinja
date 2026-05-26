@@ -1,0 +1,4 @@
+{# Citation policy that scanners can opt into. Call as `{{ cite_in('reasoning') }}` or `{{ cite_in('summary') }}`. #}
+{%- macro cite_in(field_name) -%}
+Inside `{{ field_name }}`, cite key events as `(event_id <hex-hash>)`, e.g. `(event_id 030df0f4f45a4d7a)`. One event per parens; max 1–2 citations per paragraph. Cite only turning points, blockers, and climaxes — skip routine navigation. Never cite by ordinal, position, or any identifier other than the hex hash.
+{%- endmacro -%}

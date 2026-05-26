@@ -7,10 +7,18 @@ from parameterized import parameterized
 
 from posthog.schema import WebStatsBreakdown
 
+from posthog.clickhouse.query_tagging import create_base_tags, get_query_tag_value, query_tags, tag_queries
+
 from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_COUNTER,
     WEB_ANALYTICS_QUERY_DURATION,
     WEB_ANALYTICS_QUERY_ERRORS,
+)
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
+    can_use_lazy_precompute,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 
@@ -77,6 +85,9 @@ class TestWebAnalyticsMetrics(TestCase):
         WEB_ANALYTICS_QUERY_COUNTER._metrics.clear()
         WEB_ANALYTICS_QUERY_DURATION._metrics.clear()
         WEB_ANALYTICS_QUERY_ERRORS._metrics.clear()
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED._metrics.clear()
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK._metrics.clear()
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS._metrics.clear()
 
     @parameterized.expand(
         [
@@ -290,6 +301,123 @@ class TestWebAnalyticsMetrics(TestCase):
             )
             == 1.0
         )
+
+    @parameterized.expand(
+        [
+            ("web_overview", "web_overview"),
+            ("web_stats", "web_stats"),
+        ]
+    )
+    def test_lazy_precompute_gate_rejection_increments_counter(self, _name, family):
+        runner = MagicMock()
+        runner.team = MagicMock(pk=42, uuid="00000000-0000-0000-0000-000000000000", organization_id=7, id=42)
+        runner.query = MagicMock(useWebAnalyticsPrecompute=True)
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix=family) is False
+
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED,
+                {"family": family, "reason": "OrgFeatureFlagDisabled"},
+            )
+            == 1.0
+        )
+
+    @parameterized.expand(
+        [
+            ("web_overview", "web_overview"),
+            ("web_stats", "web_stats"),
+        ]
+    )
+    def test_lazy_precompute_per_query_opt_in_not_set_rejection(self, _name, family):
+        runner = MagicMock()
+        runner.team = MagicMock(pk=42, uuid="00000000-0000-0000-0000-000000000000", organization_id=7, id=42)
+        runner.query = MagicMock(useWebAnalyticsPrecompute=False)
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix=family) is False
+
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED,
+                {"family": family, "reason": "PerQueryOptInNotSet"},
+            )
+            == 1.0
+        )
+
+    @parameterized.expand(
+        [
+            ("empty_range",),
+            ("no_job_ids",),
+            ("current_not_ready",),
+            ("previous_not_ready",),
+        ]
+    )
+    def test_lazy_precompute_fallback_counter_label_space(self, reason):
+        # Verifies the metric accepts each `reason` value the lazy modules emit.
+        # Integration coverage of the actual call sites lives in the per-runner
+        # lazy precompute tests; this test is a fast guard against label drift.
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family="web_overview", reason=reason).inc()
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family="web_stats", reason=reason).inc()
+
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+                {"family": "web_overview", "reason": reason},
+            )
+            == 1.0
+        )
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+                {"family": "web_stats", "reason": reason},
+            )
+            == 1.0
+        )
+
+    @parameterized.expand([("web_overview",), ("web_stats",)])
+    def test_lazy_precompute_success_counter_label_space(self, family):
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=family).inc()
+        assert _get_counter_value(WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS, {"family": family}) == 1.0
+
+    @parameterized.expand(
+        [
+            ("no_prior_tag", None),
+            (
+                "overwrites_wrapper_payload",
+                {"kind": "InsightVizNode", "source": {"kind": "WebOverviewQuery"}},
+            ),
+            (
+                "overwrites_prior_runner_payload",
+                {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-30d"}},
+            ),
+        ]
+    )
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
+    def test_calculate_tags_inner_query_payload(self, _name, prior_tag, _mock_tag):
+        query_tags.set(create_base_tags())
+        if prior_tag is not None:
+            tag_queries(query=prior_tag)
+
+        runner = _make_runner(query_kind="WebOverviewQuery", breakdown=None)
+        expected_payload = {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d", "date_to": None}}
+        cast(MagicMock, runner.query.model_dump).return_value = expected_payload
+
+        fake_response = MagicMock()
+        fake_response.usedPreAggregatedTables = False
+        with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
+            WebAnalyticsQueryRunner.calculate(runner)
+
+        self.assertEqual(get_query_tag_value("query"), expected_payload)
 
     @patch(
         "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None

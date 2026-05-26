@@ -35,6 +35,7 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 
@@ -67,8 +68,9 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ) -> None:
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
     def __post_init__(self) -> None:
         self.update_hogql_modifiers()
@@ -314,6 +316,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 query_type="StickinessQuery",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

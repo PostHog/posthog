@@ -28,6 +28,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -1304,6 +1305,61 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+# How long a single beacon keeps a device "present" before the row is treated as stale.
+# Clients beacon every ~30s; expiring after 60s gives them one missed POST of slack.
+TASK_PRESENCE_TTL_SECONDS = 60
+
+
+class TaskPresence(TeamScopedRootMixin):
+    """Per-device 'this user is actively watching this task' beacon.
+
+    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    task screen is foregrounded. The push fanout consults this table to skip
+    devices that are demonstrably already watching the task, so we don't fire
+    phantom notifications at a phone while the user is mid-conversation with
+    the agent on their laptop.
+
+    Rows are ephemeral (expire after ``TASK_PRESENCE_TTL_SECONDS``). Cleanup is
+    lazy: every push fanout filters on ``expires_at > now``, so stale rows are
+    ignored automatically. We can layer a periodic sweep on top later if the
+    row count ever becomes a problem; for now there's nothing to maintain.
+    """
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # `related_name="+"` on every FK so Django doesn't add reverse accessors
+    # (`user.task_presences`, etc.). Presence is always queried forward — by
+    # (task, user) or by push_token id — and skipping the reverse manager
+    # keeps frameworks that walk all reverse relations on related models
+    # (notably the User activity-logger) from tripping on this model's
+    # fail-closed manager when no team context is set.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    # Identifies the device that's watching. Push fanout joins on this FK to
+    # decide which tokens to suppress, and CASCADE means unregistering the push
+    # token automatically clears the presence too.
+    push_token = models.ForeignKey(
+        "posthog.UserPushToken",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    last_seen_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "posthog_task_presence"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "push_token"],
+                name="task_presence_task_push_token_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
 
 
 @receiver(post_save, sender=TaskRun)

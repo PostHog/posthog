@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from products.replay_vision.backend.temporal.activities import (
-    call_lens_provider_activity,
+    call_scanner_provider_activity,
     cleanup_gemini_file_activity,
     create_observation_activity,
     embed_indexer_observation_activity,
@@ -15,9 +15,9 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_succeeded_activity,
     upload_video_to_gemini_activity,
 )
-from products.replay_vision.backend.temporal.workflow import ApplyLensWorkflow
+from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
-WORKFLOWS = [ApplyLensWorkflow]
+WORKFLOWS = [ApplyScannerWorkflow]
 ACTIVITIES: list[Callable[..., Any]] = [
     create_observation_activity,
     mark_observation_running_activity,
@@ -26,7 +26,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     fetch_session_events_activity,
     ensure_session_asset_activity,
     upload_video_to_gemini_activity,
-    call_lens_provider_activity,
+    call_scanner_provider_activity,
     embed_indexer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
@@ -36,8 +36,8 @@ ACTIVITIES: list[Callable[..., Any]] = [
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
-    "ApplyLensWorkflow",
-    "call_lens_provider_activity",
+    "ApplyScannerWorkflow",
+    "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
     "create_observation_activity",
     "embed_indexer_observation_activity",
