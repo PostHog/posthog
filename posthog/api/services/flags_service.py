@@ -25,6 +25,7 @@ def get_flags_from_service(
     flag_keys: list[str] | None = None,
     internal_request_token: str | None = None,
     override_flags_definitions: dict[str, dict[str, Any]] | None = None,
+    evaluation_runtime: str | None = None,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -39,6 +40,8 @@ def get_flags_from_service(
         flag_keys: Optional list of specific flag keys to evaluate (default: None, evaluates all flags)
         internal_request_token: Optional token to mark request as internal (non-billable) (default: None)
         override_flags_definitions: Optional dict of flag key -> flag definition to override database flags (default: None)
+        evaluation_runtime: Optional override for runtime filtering: "all" | "client" | "server".
+            When None, the Rust service auto-detects from request headers (User-Agent, origin, sec-fetch-*).
 
     Returns:
         The full response from the flags service as a dict, typically containing:
@@ -79,6 +82,9 @@ def get_flags_from_service(
 
     if override_flags_definitions:
         payload["override_flags_definitions"] = override_flags_definitions
+
+    if evaluation_runtime:
+        payload["evaluation_runtime"] = evaluation_runtime
 
     params: dict[str, str] = {"v": "2"}
 

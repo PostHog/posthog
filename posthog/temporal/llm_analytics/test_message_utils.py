@@ -297,6 +297,43 @@ class TestExtractTextFromMessages:
         result = extract_text_from_messages(message)
         assert "send_email" in result
 
+    def test_structured_output_bare_dict_is_json_stringified(self):
+        # A manually-captured `$ai_output_choices` set to a bare structured-output
+        # payload (no `role`/`content`) used to render as an empty string, which
+        # caused the LLM judge to grade against `Output:` with nothing after it.
+        # The fallback JSON-stringifies the payload so the judge sees the actual
+        # model response.
+        message = {"entities": [{"name": "Google Ads", "type": "product"}]}
+        result = extract_text_from_messages(message)
+        assert '"entities"' in result
+        assert "Google Ads" in result
+
+    def test_structured_output_list_of_bare_dicts_is_json_stringified(self):
+        messages = [
+            {"entities": [{"name": "Google Ads"}]},
+            {"entities": [{"name": "Meta Ads"}]},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "Google Ads" in result
+        assert "Meta Ads" in result
+        assert result.count("\n") == 1
+
+    def test_structured_output_inside_list_alongside_messages(self):
+        messages = [
+            {"role": "user", "content": "Extract brands."},
+            {"some_structured_payload": {"brands": ["Google Ads"]}},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "user: Extract brands." in result
+        assert "Google Ads" in result
+
+    def test_empty_dict_is_still_skipped(self):
+        # The JSON-stringify fallback must not regress the empty-dict skip path
+        # used by `test_completely_empty_message_is_skipped` — `{}` carries no
+        # information and should not produce a `"{}"` line in the rendered output.
+        assert extract_text_from_messages({}) == ""
+        assert extract_text_from_messages([{}, {}]) == ""
+
 
 class TestFormatToolDefinitions:
     @pytest.mark.parametrize(

@@ -12,18 +12,16 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
-from rest_framework import serializers
-from rest_framework.exceptions import ErrorDetail
 
-from posthog.batch_exports.models import BatchExportRun
+from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
+from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
-from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import validate_display_name, validate_message_body
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -227,44 +225,40 @@ def send_invite(invite_id: str) -> None:
         # Invite can be deleted (cancelled/accepted) before the worker picks up the task.
         # Treat as terminal no-op instead of retrying.
         return
-    inviter_name_for_validation = invite.created_by.first_name if invite.created_by else "someone"
-    try:
-        validate_display_name(inviter_name_for_validation)
-        validate_display_name(invite.organization.name)
-        validate_display_name(invite.first_name)
-        validate_message_body(invite.message)
-    except serializers.ValidationError as err:
-        detail = cast(list[ErrorDetail], err.detail)
-        error_code = detail[0].code if detail else "invalid"
-        logger.warning(
-            "send_invite.blocked",
-            invite_id=invite_id,
-            organization_id=str(invite.organization_id),
-            created_by_id=invite.created_by_id,
-            error_code=error_code,
-        )
-        capture_exception(
-            err,
-            additional_properties={
-                "task": "send_invite",
-                "invite_id": invite_id,
-                "organization_id": str(invite.organization_id),
-                "error_code": error_code,
-            },
-        )
-        return
-    # Guard against whitespace-only first_name (.strip() returning "" leaves the subject blank).
-    inviter_name = (
-        invite.created_by.first_name.strip()
-        if invite.created_by and invite.created_by.first_name and invite.created_by.first_name.strip()
-        else "Someone"
+    # If a display value fails validation (e.g. a legacy organisation name that
+    # happens to look like a URL), substitute a generic fallback rather than
+    # dropping the email entirely. The recipient still gets a usable invite.
+    log_context = {
+        "invite_id": invite_id,
+        "organization_id": str(invite.organization_id),
+        "created_by_id": invite.created_by_id,
+    }
+    inviter_name = sanitize_display_name(
+        invite.created_by.first_name if invite.created_by else None,
+        fallback="Someone",
+        context={"task": "send_invite", "field": "inviter_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        invite.organization.name,
+        fallback="their organization",
+        context={"task": "send_invite", "field": "organization_name", **log_context},
+    )
+    invitee_first_name = sanitize_display_name(
+        invite.first_name,
+        fallback="",
+        context={"task": "send_invite", "field": "invitee_first_name", **log_context},
+    )
+    invite_message = sanitize_message_body(
+        invite.message,
+        fallback="",
+        context={"task": "send_invite", "field": "message", **log_context},
     )
     is_delegation = bool(invite.is_setup_delegation)
     template_name = "delegation_invite" if is_delegation else "invite"
     if is_delegation:
-        subject = f"{inviter_name} asked you to finish setting up PostHog for {invite.organization.name}"
+        subject = f"{inviter_name} asked you to finish setting up PostHog for {org_name}"
     else:
-        subject = f"{inviter_name} invited you to join {invite.organization.name} on PostHog"
+        subject = f"{inviter_name} invited you to join {org_name} on PostHog"
     message = EmailMessage(
         use_http=True,
         campaign_key=campaign_key,
@@ -277,7 +271,9 @@ def send_invite(invite_id: str) -> None:
             ),
             "inviter_first_name": inviter_name,
             "inviter_email": invite.created_by.email if invite.created_by and invite.created_by.email else "",
-            "org_name": invite.organization.name,
+            "org_name": org_name,
+            "invitee_first_name": invitee_first_name,
+            "invite_message": invite_message,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
@@ -346,40 +342,29 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     if len(members_to_email) == 0:
         return
 
-    try:
-        validate_display_name(invitee.first_name)
-        validate_display_name(organization.name)
-    except serializers.ValidationError as err:
-        detail = cast(list[ErrorDetail], err.detail)
-        error_code = detail[0].code if detail else "invalid"
-        logger.warning(
-            "send_member_join.blocked",
-            invitee_uuid=invitee_uuid,
-            organization_id=organization_id,
-            error_code=error_code,
-        )
-        capture_exception(
-            err,
-            additional_properties={
-                "task": "send_member_join",
-                "invitee_uuid": invitee_uuid,
-                "organization_id": organization_id,
-                "error_code": error_code,
-            },
-        )
-        return
+    log_context = {"invitee_uuid": invitee_uuid, "organization_id": organization_id}
+    invitee_first_name = sanitize_display_name(
+        invitee.first_name,
+        fallback="A new teammate",
+        context={"task": "send_member_join", "field": "invitee_first_name", **log_context},
+    )
+    organization_name = sanitize_display_name(
+        organization.name,
+        fallback="your organization",
+        context={"task": "send_member_join", "field": "organization_name", **log_context},
+    )
 
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
         use_http=True,
         campaign_key=campaign_key,
-        subject=f"{invitee.first_name} joined you on PostHog",
+        subject=f"{invitee_first_name} joined you on PostHog",
         template_name="member_join",
         template_context={
             "invitee": invitee,
             "organization": organization,
-            "invitee_first_name": invitee.first_name,
-            "organization_name": organization.name,
+            "invitee_first_name": invitee_first_name,
+            "organization_name": organization_name,
         },
     )
     for user in members_to_email:
@@ -574,10 +559,11 @@ def send_batch_export_run_failure(
         logger.warning("Email service is not available")
         return None
 
-    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related("batch_export__team").get(
-        id=batch_export_run_id
-    )
-    team: Team = batch_export_run.batch_export.team
+    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related(
+        "batch_export__team", "batch_export_on_demand__team"
+    ).get(id=batch_export_run_id)
+    batch_export = batch_export_run.parent
+    team: Team = batch_export.team
 
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
     if not memberships_to_email:
@@ -588,19 +574,22 @@ def send_batch_export_run_failure(
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
-    campaign_key: str = (
-        f"batch_export_run_email_batch_export_{batch_export_run.batch_export.id}_last_updated_at_{last_updated_at_date}"
-    )
+    campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
+    subject = (
+        f"PostHog: {batch_export.name} batch export run failure"
+        if isinstance(batch_export, BatchExport)
+        else "PostHog: batch export on demand run failure"
+    )
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"PostHog: {batch_export_run.batch_export.name} batch export run failure",
+        subject=subject,
         template_name="batch_export_run_failure",
         template_context={
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
-            "id": batch_export_run.batch_export.id,
-            "name": batch_export_run.batch_export.name,
+            "id": batch_export.id,
+            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
@@ -613,7 +602,8 @@ def send_batch_export_run_failure(
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -681,7 +671,8 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -779,25 +770,16 @@ def send_canary_email(user_email: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
-    try:
-        validate_display_name(user_name)
-    except serializers.ValidationError as err:
-        detail = cast(list[ErrorDetail], err.detail)
-        error_code = detail[0].code if detail else "invalid"
-        logger.warning(
-            "send_email_change_emails.blocked",
-            old_address=old_address,
-            new_address=new_address,
-            error_code=error_code,
-        )
-        capture_exception(
-            err,
-            additional_properties={
-                "task": "send_email_change_emails",
-                "error_code": error_code,
-            },
-        )
-        return
+    user_name = sanitize_display_name(
+        user_name,
+        fallback="there",
+        context={
+            "task": "send_email_change_emails",
+            "field": "user_name",
+            "old_address": old_address,
+            "new_address": new_address,
+        },
+    )
     message_old_address = EmailMessage(
         use_http=True,
         campaign_key=f"email_change_old_address_{now_iso}",
@@ -960,7 +942,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
             "user_name": user.first_name,
             "user_email": user.email,
             "url": reset_link,
-            "expiration_hours": 1,
+            "expiration_hours": TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS,
             "site_url": settings.SITE_URL,
         },
     )
@@ -1591,7 +1573,7 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
     customer_name = traits.get("name")
     customer_email = traits.get("email")
 
-    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/conversations/tickets/{ticket.id}"
+    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/support/tickets/{ticket.ticket_number}"
 
     campaign_key = f"new_conversation_ticket_{ticket.id}"
     message = EmailMessage(

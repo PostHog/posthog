@@ -14,6 +14,7 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    create_task_and_trigger,
     poll_for_turn,
 )
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
@@ -332,3 +333,90 @@ class TestMultiTurnSessionStartBranch:
         # held in memory by the in-process Task object.
         persisted = await sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
         assert persisted.branch == branch
+
+
+class TestMultiTurnSessionStartCleanup:
+    """Regression: if MultiTurnSession.start raises after create_task_and_trigger
+    has already started the workflow (e.g. poll_for_turn fails), the failure path
+    must signal completion so the orphaned workflow doesn't run until its
+    inactivity timeout."""
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_when_initial_poll_fails(self):
+        fake_task = MagicMock()
+        fake_task.id = "task-id"
+        fake_run = MagicMock()
+        fake_run.id = "run-id"
+
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_client = MagicMock(get_workflow_handle=MagicMock(return_value=mock_handle))
+
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
+                new=AsyncMock(return_value=(fake_task, fake_run)),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=mock_client),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=AsyncMock(side_effect=RuntimeError("storage explode")),
+            ),
+            pytest.raises(RuntimeError, match="storage explode"),
+        ):
+            await MultiTurnSession.start(
+                prompt="test",
+                context=CustomPromptSandboxContext(team_id=1, user_id=2),
+                model=_Resp,
+            )
+
+        # session.end() must have signalled the workflow exactly once on the cleanup path.
+        mock_handle.signal.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCreateTaskAndTriggerForwardsContext:
+    """Regression: CustomPromptSandboxContext.sandbox_environment_id and
+    posthog_mcp_scopes were silently dropped by create_task_and_trigger, so
+    least-privilege configs at call sites (e.g. Signals' GitHub-only sandbox,
+    repo-selection's read_only MCP scope) had no effect downstream."""
+
+    @staticmethod
+    def _setup_team_and_user() -> tuple[Team, User]:
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create(email="ctx-fwd@example.com")
+        return team, user
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "ctx_env, ctx_scopes, expected_env, expected_scopes",
+        [
+            ("env-uuid-abc", "read_only", "env-uuid-abc", "read_only"),
+            (None, None, None, "full"),
+        ],
+    )
+    async def test_forwards_sandbox_env_and_scopes(self, ctx_env, ctx_scopes, expected_env, expected_scopes):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(
+            team_id=team.id,
+            user_id=user.id,
+            repository="posthog/posthog",
+            sandbox_environment_id=ctx_env,
+            posthog_mcp_scopes=ctx_scopes,
+        )
+
+        mock_task = MagicMock()
+        mock_task.latest_run = MagicMock()
+        with patch(
+            "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+            return_value=mock_task,
+        ) as mock_create:
+            await create_task_and_trigger("prompt", context)
+
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["sandbox_environment_id"] == expected_env
+        assert kwargs["posthog_mcp_scopes"] == expected_scopes

@@ -3,7 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar, cast
 
 import structlog
 
@@ -20,8 +20,12 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.marketing_analytics.backend.hogql_queries.constants import DRILL_DOWN_LEVEL_CONFIG, MATCH_KEY_FIELD
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    DRILL_DOWN_LEVEL_CONFIG,
+    MATCH_KEY_FIELD,
+    UNSYNCED_HIERARCHY_LABEL,
+)
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -46,73 +50,61 @@ class ExternalConfig(BaseMarketingConfig):
 
 
 @dataclass
-class GoogleAdsConfig(BaseMarketingConfig):
-    """Configuration for Google Ads marketing sources"""
+class HierarchicalNativeAdsConfig(BaseMarketingConfig):
+    """Shared config for native ads sources organized as campaign → ad-group → ad.
+
+    Ad-group and ad tables are optional — left None when the user hasn't synced them.
+    """
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-
-
-@dataclass
-class LinkedinAdsConfig(BaseMarketingConfig):
-    """Configuration for LinkedIn Ads marketing sources"""
-
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
-
-
-@dataclass
-class RedditAdsConfig(BaseMarketingConfig):
-    """Configuration for Reddit Ads marketing sources"""
-
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
-
-
-@dataclass
-class MetaAdsConfig(BaseMarketingConfig):
-    """Configuration for Meta Ads marketing sources"""
-
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
-    # Ad-group (adset) and ad tables are optional — only present when the user has
-    # those schemas marked for sync in their data warehouse.
     adset_table: Optional[DataWarehouseTable] = None
     adset_stats_table: Optional[DataWarehouseTable] = None
     ad_table: Optional[DataWarehouseTable] = None
     ad_stats_table: Optional[DataWarehouseTable] = None
 
 
+# Per-source configs are kept as named subclasses so each adapter can declare
+# `MarketingSourceAdapter[XxxAdsConfig]` for type-checking, even though the field
+# layout is identical across them.
 @dataclass
-class TikTokAdsConfig(BaseMarketingConfig):
-    """Configuration for TikTok Ads marketing sources"""
-
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
-
-
-@dataclass
-class BingAdsConfig(BaseMarketingConfig):
-    """Configuration for Bing Ads marketing sources"""
-
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
+class GoogleAdsConfig(HierarchicalNativeAdsConfig):
+    pass
 
 
 @dataclass
-class SnapchatAdsConfig(BaseMarketingConfig):
-    """Configuration for Snapchat Ads marketing sources"""
-
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
+class LinkedinAdsConfig(HierarchicalNativeAdsConfig):
+    pass
 
 
 @dataclass
-class PinterestAdsConfig(BaseMarketingConfig):
-    """Configuration for Pinterest Ads marketing sources"""
+class RedditAdsConfig(HierarchicalNativeAdsConfig):
+    pass
 
-    campaign_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
+
+@dataclass
+class MetaAdsConfig(HierarchicalNativeAdsConfig):
+    pass
+
+
+@dataclass
+class TikTokAdsConfig(HierarchicalNativeAdsConfig):
+    pass
+
+
+@dataclass
+class BingAdsConfig(HierarchicalNativeAdsConfig):
+    pass
+
+
+@dataclass
+class SnapchatAdsConfig(HierarchicalNativeAdsConfig):
+    pass
+
+
+@dataclass
+class PinterestAdsConfig(HierarchicalNativeAdsConfig):
+    pass
 
 
 @dataclass
@@ -124,6 +116,22 @@ class ValidationResult:
 
 
 @dataclass
+class HierarchicalLevelTables:
+    """Bundle of tables + join column names for a given drill-down level.
+
+    Returned by `MarketingSourceAdapter._level_tables()` so the shared FROM/GROUP BY
+    builders don't need to know which level we're at — they just consume the bundle.
+    """
+
+    entity_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+    entity_id_column: str  # PK on entity_table — joined with stats_entity_id_column
+    stats_entity_id_column: str  # FK on stats_table → entity_table.entity_id_column
+    entity_name_column: str
+    entity_id_output_column: str  # column on entity_table representing the platform ID
+
+
+@dataclass
 class QueryContext:
     """Context needed for query building"""
 
@@ -131,9 +139,7 @@ class QueryContext:
     team: Team
     global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY
-    # Drill-down level controls which platform tables the adapter pulls from.
-    # CAMPAIGN (default) and below query campaign-level stats. AD_GROUP / AD switch
-    # to ad-group / ad-level tables when the adapter supports them.
+    # AD_GROUP / AD pull from ad-group / ad-level tables; CAMPAIGN and below stay at campaign stats.
     drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
 
@@ -167,7 +173,6 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @staticmethod
     def _is_simple_column_name(value: str) -> bool:
-        # Handle single character case first
         if len(value) == 1:
             return value.isalnum() or value == "_"
         return (
@@ -219,10 +224,8 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         self.config: ConfigType = config
         self.logger = logger.bind(source_type=self.get_source_type(), team_id=self.team.pk if self.team else None)
         self.context = context
-        # Cache for `_table_has_column` lookups. Keyed by (id(table), column_name) so we
-        # don't re-introspect the warehouse table on each currency-conversion call (at AD
-        # level the same stats table is hit 3 times per query for cost / conversions /
-        # conversion_value).
+        # Cache for `_table_has_column` lookups, keyed by (id(table), column_name) —
+        # the same stats table is introspected several times per query.
         self._table_column_cache: dict[tuple[int, str], bool] = {}
 
     @abstractmethod
@@ -245,16 +248,55 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """
         pass
 
-    @abstractmethod
     def _get_campaign_name_field(self) -> ast.Expr:
-        """Get the campaign name field expression"""
+        """Default: at AD_GROUP / AD, return the parent campaign name from the LEFT JOIN
+        (with orphan fallback). At CAMPAIGN, the entity name from the FROM table directly.
+        In unified mode (Bing reports), read the embedded `_unified_campaign_name_column`
+        from the entity table since there's no separate campaigns join.
+        Hierarchical adapters get this for free; non-hierarchical ones must override."""
+        if not self._has_hierarchical_config():
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must override _get_campaign_name_field() — "
+                "base default only works for hierarchical native ads configs."
+            )
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        level = self.context.drill_down_level
+        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
+            if self._uses_unified_entity_stats:
+                tables = self._level_tables()
+                return ast.Call(
+                    name="toString",
+                    args=[ast.Field(chain=[tables.entity_table.name, self._unified_campaign_name_column])],
+                )
+            return self._string_field_with_orphan_fallback(
+                config.campaign_table.name, self._campaign_name_column, "Unknown campaign"
+            )
+        tables = self._level_tables()
+        return ast.Call(name="toString", args=[ast.Field(chain=[tables.entity_table.name, tables.entity_name_column])])
 
-        pass
-
-    @abstractmethod
     def _get_campaign_id_field(self) -> ast.Expr:
-        """Get the campaign ID field expression"""
-        pass
+        """Default mirror of `_get_campaign_name_field` for the ID column."""
+        if not self._has_hierarchical_config():
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must override _get_campaign_id_field() — "
+                "base default only works for hierarchical native ads configs."
+            )
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        level = self.context.drill_down_level
+        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
+            if self._uses_unified_entity_stats:
+                tables = self._level_tables()
+                return ast.Call(
+                    name="toString",
+                    args=[ast.Field(chain=[tables.entity_table.name, self._unified_campaign_pk_column])],
+                )
+            return self._string_field_with_orphan_fallback(
+                config.campaign_table.name, self._campaign_pk_column, "unknown"
+            )
+        tables = self._level_tables()
+        return ast.Call(
+            name="toString", args=[ast.Field(chain=[tables.entity_table.name, tables.entity_id_output_column])]
+        )
 
     def _get_source_name_field(self) -> ast.Expr:
         """
@@ -299,22 +341,67 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         pass
 
     def _get_ad_group_name_field(self) -> ast.Expr:
-        """Get the ad group name field expression. Default NULL — adapters that support
-        ad-group granularity override this when the query is at AD_GROUP or AD level."""
+        """Ad group name for hierarchical adapters. At AD the adsets are reached via
+        LEFT JOIN, so an orphan fallback labels deleted-parent rows; unified-report
+        sources read ad-group columns straight off the entity table. NULL otherwise.
+        """
+        if not self._has_hierarchical_config():
+            return ast.Constant(value=None)
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        level = self.context.drill_down_level
+        if self._uses_unified_entity_stats and level == MarketingAnalyticsDrillDownLevel.AD:
+            tables = self._level_tables()
+            return ast.Call(
+                name="toString", args=[ast.Field(chain=[tables.entity_table.name, self._adset_name_column])]
+            )
+        if not config.adset_table:
+            if level == MarketingAnalyticsDrillDownLevel.AD:
+                return ast.Constant(value=UNSYNCED_HIERARCHY_LABEL)
+            return ast.Constant(value=None)
+        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            return ast.Call(name="toString", args=[ast.Field(chain=[config.adset_table.name, self._adset_name_column])])
+        if level == MarketingAnalyticsDrillDownLevel.AD:
+            return self._string_field_with_orphan_fallback(
+                config.adset_table.name, self._adset_name_column, "Unknown ad group"
+            )
         return ast.Constant(value=None)
 
     def _get_ad_group_id_field(self) -> ast.Expr:
-        """Get the ad group ID field expression. Default NULL."""
+        """Same shape as `_get_ad_group_name_field` for the ID column."""
+        if not self._has_hierarchical_config():
+            return ast.Constant(value=None)
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        level = self.context.drill_down_level
+        if self._uses_unified_entity_stats and level == MarketingAnalyticsDrillDownLevel.AD:
+            tables = self._level_tables()
+            return ast.Call(name="toString", args=[ast.Field(chain=[tables.entity_table.name, self._adset_pk_column])])
+        if not config.adset_table:
+            if level == MarketingAnalyticsDrillDownLevel.AD:
+                return ast.Constant(value=UNSYNCED_HIERARCHY_LABEL)
+            return ast.Constant(value=None)
+        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            return ast.Call(name="toString", args=[ast.Field(chain=[config.adset_table.name, self._adset_pk_column])])
+        if level == MarketingAnalyticsDrillDownLevel.AD:
+            return self._string_field_with_orphan_fallback(config.adset_table.name, self._adset_pk_column, "unknown")
         return ast.Constant(value=None)
 
     def _get_ad_name_field(self) -> ast.Expr:
-        """Get the ad name field expression. Default NULL — adapters that support
-        ad granularity override this when the query is at AD level."""
-        return ast.Constant(value=None)
+        """Ad name — only emitted at AD level (where ad table IS the FROM table)."""
+        if not self._has_hierarchical_config():
+            return ast.Constant(value=None)
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        return self._string_field_when_level(
+            (MarketingAnalyticsDrillDownLevel.AD,), config.ad_table, self._ad_name_column
+        )
 
     def _get_ad_id_field(self) -> ast.Expr:
-        """Get the ad ID field expression. Default NULL."""
-        return ast.Constant(value=None)
+        """Ad ID — only emitted at AD level."""
+        if not self._has_hierarchical_config():
+            return ast.Constant(value=None)
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        return self._string_field_when_level(
+            (MarketingAnalyticsDrillDownLevel.AD,), config.ad_table, self._ad_pk_column
+        )
 
     def _string_field_when_level(
         self,
@@ -325,34 +412,263 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Helper for adapters implementing hierarchy fields. Returns
         toString(table.column) when the current drill-down level is in `levels`
         and the table is configured; otherwise NULL.
-
-        Used to keep `_get_ad_group_*_field` / `_get_ad_*_field` overrides one-liners
-        across the 8 adapter implementations (Meta done, others to follow).
         """
         if table is not None and self.context.drill_down_level in levels:
             return ast.Call(name="toString", args=[ast.Field(chain=[table.name, column])])
         return ast.Constant(value=None)
 
+    @staticmethod
+    def _string_field_with_orphan_fallback(table_name: str, column: str, fallback: str) -> ast.Expr:
+        """Wrap toString(table.column) with coalesce against `fallback`. Used when the
+        table is reached via LEFT JOIN — orphan rows (e.g. ads.adset_id pointing to a
+        deleted adset) would otherwise produce NULLs that all collapse into a single
+        unlabelled row in GROUP BY.
+        """
+        return ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=[table_name, column])]),
+                ast.Constant(value=fallback),
+            ],
+        )
+
+    # Hierarchy infrastructure: native adapters override the column-name attributes
+    # below so the shared FROM/GROUP BY/WHERE builders know how to join across levels.
+    # Same shape per source, different column names; defaults match `id` / `name`.
+
+    # Stats table date column used for the WHERE date range. Override per source.
+    _stats_date_column: str = "date_stop"
+
+    # When True, the source's adset/ad "tables" are performance reports that embed
+    # entity + parent columns directly — no separate entity table to join (Bing).
+    # The default builders then skip the entity→stats and parent-campaign joins and
+    # read campaign columns off the report via `_unified_campaign_*_column`.
+    _uses_unified_entity_stats: bool = False
+    # Column names on a unified report that hold parent campaign info. Only consulted
+    # when `_uses_unified_entity_stats` is True. Default to snake_case since most
+    # warehouse imports lowercase the platform's CamelCase fields.
+    _unified_campaign_pk_column: str = "campaign_id"
+    _unified_campaign_name_column: str = "campaign_name"
+
+    # Campaign-level metadata (from CampaignTable / CampaignStats)
+    _campaign_pk_column: str = "id"
+    _campaign_name_column: str = "name"
+    _campaign_stats_fk_column: str = "campaign_id"
+
+    # Adset / ad-group level metadata (only consulted when adset_table present)
+    _adset_pk_column: str = "id"
+    _adset_name_column: str = "name"
+    _adset_campaign_fk_column: str = "campaign_id"
+    _adset_stats_fk_column: str = "adset_id"
+
+    # Ad level metadata (only consulted when ad_table present)
+    _ad_pk_column: str = "id"
+    _ad_name_column: str = "name"
+    _ad_adset_fk_column: str = "adset_id"
+    _ad_campaign_fk_column: str = "campaign_id"
+    _ad_stats_fk_column: str = "ad_id"
+
+    def _has_hierarchical_config(self) -> bool:
+        """Whether `self.config` is a HierarchicalNativeAdsConfig — only those carry
+        the optional adset / ad tables. Non-native (External, self-managed) configs
+        return False, so they fall through the `supports_level` default."""
+        return isinstance(self.config, HierarchicalNativeAdsConfig)
+
     def supports_level(self, level: MarketingAnalyticsDrillDownLevel) -> bool:
         """Whether this adapter can return data for the given drill-down level.
-        Default: supports campaign-level and below (channel, source, campaign, utm levels).
-        Override in adapters that implement AD_GROUP / AD level tables."""
-        return level not in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+        For hierarchical native ads: AD_GROUP needs adset_table+adset_stats, AD needs
+        ad_table+ad_stats. Other configs (External, self-managed) only support
+        campaign-level and below."""
+        if not self._has_hierarchical_config():
+            return level not in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            return config.adset_table is not None and config.adset_stats_table is not None
+        if level == MarketingAnalyticsDrillDownLevel.AD:
+            return config.ad_table is not None and config.ad_stats_table is not None
+        return True
 
-    @abstractmethod
+    def _level_tables(self) -> HierarchicalLevelTables:
+        """Return the entity + stats tables for the current drill-down level.
+
+        Adapters that aren't hierarchical (External, self-managed) shouldn't reach
+        this — they implement their own `_get_from` / `_get_where_conditions`.
+        """
+        if not self._has_hierarchical_config():
+            raise NotImplementedError(
+                f"{self.__class__.__name__} uses a non-hierarchical config; either override "
+                "_level_tables() or implement _get_from / _get_where_conditions / _get_group_by directly."
+            )
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        level = self.context.drill_down_level
+        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            if not (config.adset_table and config.adset_stats_table):
+                raise ValueError(
+                    f"{self.__class__.__name__} reached _level_tables at AD_GROUP without adset tables — "
+                    "MarketingSourceFactory must skip via supports_level(AD_GROUP)."
+                )
+            return HierarchicalLevelTables(
+                entity_table=config.adset_table,
+                stats_table=config.adset_stats_table,
+                entity_id_column=self._adset_pk_column,
+                stats_entity_id_column=self._adset_stats_fk_column,
+                entity_name_column=self._adset_name_column,
+                entity_id_output_column=self._adset_pk_column,
+            )
+        if level == MarketingAnalyticsDrillDownLevel.AD:
+            if not (config.ad_table and config.ad_stats_table):
+                raise ValueError(
+                    f"{self.__class__.__name__} reached _level_tables at AD without ad tables — "
+                    "MarketingSourceFactory must skip via supports_level(AD)."
+                )
+            return HierarchicalLevelTables(
+                entity_table=config.ad_table,
+                stats_table=config.ad_stats_table,
+                entity_id_column=self._ad_pk_column,
+                stats_entity_id_column=self._ad_stats_fk_column,
+                entity_name_column=self._ad_name_column,
+                entity_id_output_column=self._ad_pk_column,
+            )
+        return HierarchicalLevelTables(
+            entity_table=config.campaign_table,
+            stats_table=config.stats_table,
+            entity_id_column=self._campaign_pk_column,
+            stats_entity_id_column=self._campaign_stats_fk_column,
+            entity_name_column=self._campaign_name_column,
+            entity_id_output_column=self._campaign_pk_column,
+        )
+
     def _get_where_conditions(self) -> list[ast.Expr]:
-        """Get WHERE condition expressions"""
-        pass
+        """Default: filter the current level's stats table by `date_range` against the
+        `_stats_date_column` column. Adapters with a non-standard WHERE override this."""
+        conditions: list[ast.Expr] = []
+        if not self.context.date_range:
+            return conditions
+        stats_table_name = self._level_tables().stats_table.name
+        date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+        from_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)])
+        to_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
+        conditions.append(ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.GtEq, right=from_date))
+        conditions.append(ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.LtEq, right=to_date))
+        return conditions
 
-    @abstractmethod
     def _get_from(self) -> ast.JoinExpr:
-        """Get the FROM clause"""
-        pass
+        """Default FROM clause for hierarchical native ads adapters.
 
-    @abstractmethod
+        Builds: entity LEFT JOIN stats [LEFT JOIN parent adset (at AD)] [LEFT JOIN campaigns
+        (at AD_GROUP/AD)]. Non-hierarchical adapters override this entirely.
+        """
+        if not self._has_hierarchical_config():
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must override _get_from() — base default only handles "
+                "hierarchical native ads configs."
+            )
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        tables = self._level_tables()
+        entity_table_name = tables.entity_table.name
+        stats_table_name = tables.stats_table.name
+        level = self.context.drill_down_level
+        is_unified = self._uses_unified_entity_stats and level in (
+            MarketingAnalyticsDrillDownLevel.AD_GROUP,
+            MarketingAnalyticsDrillDownLevel.AD,
+        )
+
+        # entity LEFT JOIN stats ON entity.<pk> = stats.<fk> — skipped in unified mode
+        # because entity_table === stats_table (a single performance report).
+        stats_join: ast.JoinExpr | None = None
+        if not is_unified:
+            stats_join = ast.JoinExpr(
+                table=ast.Field(chain=[stats_table_name]),
+                join_type="LEFT JOIN",
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        left=ast.Field(chain=[entity_table_name, tables.entity_id_column]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Field(chain=[stats_table_name, tables.stats_entity_id_column]),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+
+        parent_joins: list[ast.JoinExpr] = []
+        # In unified mode the report already exposes campaign / ad-group context as
+        # columns, so skip parent joins entirely. `_get_campaign_*` / `_get_ad_group_*`
+        # below read those directly from the entity table.
+        if is_unified:
+            return ast.JoinExpr(table=ast.Field(chain=[entity_table_name]))
+        # At AD level with adsets synced, chain ads → adsets → campaigns. Going through
+        # adsets matters: not every source carries `campaign_id` directly on the ads table
+        # (or ships it consistently), but adsets always have `campaign_id` since adsets
+        # belong to a campaign. We only fall back to ads.<campaign_fk> → campaigns when
+        # adsets aren't synced.
+        if level == MarketingAnalyticsDrillDownLevel.AD and config.adset_table:
+            parent_joins.append(
+                ast.JoinExpr(
+                    table=ast.Field(chain=[config.adset_table.name]),
+                    join_type="LEFT JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=[entity_table_name, self._ad_adset_fk_column]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[config.adset_table.name, self._adset_pk_column]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                )
+            )
+        # At AD_GROUP / AD, LEFT JOIN campaigns to surface campaign name/id.
+        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
+            # Source side of the campaign join: at AD_GROUP the FROM table is adsets;
+            # at AD prefer adsets (when synced) since the campaign FK is reliably on
+            # adsets, only falling back to ads when adsets aren't available.
+            if level == MarketingAnalyticsDrillDownLevel.AD and config.adset_table:
+                campaign_join_table = config.adset_table.name
+                campaign_fk = self._adset_campaign_fk_column
+            elif level == MarketingAnalyticsDrillDownLevel.AD:
+                campaign_join_table = entity_table_name
+                campaign_fk = self._ad_campaign_fk_column
+            else:
+                campaign_join_table = entity_table_name
+                campaign_fk = self._adset_campaign_fk_column
+            parent_joins.append(
+                ast.JoinExpr(
+                    table=ast.Field(chain=[config.campaign_table.name]),
+                    join_type="LEFT JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=[campaign_join_table, campaign_fk]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[config.campaign_table.name, self._campaign_pk_column]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                )
+            )
+
+        # `stats_join` is only None in unified mode, which returns earlier above.
+        assert stats_join is not None
+        join_chain = stats_join
+        for join in parent_joins:
+            current = join_chain
+            while current.next_join is not None:
+                current = current.next_join
+            current.next_join = join
+
+        return ast.JoinExpr(
+            table=ast.Field(chain=[entity_table_name]),
+            next_join=join_chain,
+        )
+
     def _get_group_by(self) -> list[ast.Expr]:
-        """Get GROUP BY expressions"""
-        pass
+        """Default GROUP BY for hierarchical adapters: campaign columns at every level,
+        plus ad-group columns at AD_GROUP/AD, plus ad columns at AD."""
+        level = self.context.drill_down_level
+        group_by: list[ast.Expr] = [self._get_campaign_name_field(), self._get_campaign_id_field()]
+        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
+            group_by.extend([self._get_ad_group_name_field(), self._get_ad_group_id_field()])
+        if level == MarketingAnalyticsDrillDownLevel.AD:
+            group_by.extend([self._get_ad_name_field(), self._get_ad_id_field()])
+        return group_by
 
     def _get_campaign_field_preference(self) -> str:
         """
@@ -383,14 +699,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         return self._get_campaign_name_field()
 
     def _get_match_key_expr(self) -> ast.Expr:
-        """Expression emitted as the `match_key` column. The runner JOINs adapter output
-        against unified_conversion_goals on this column — but at levels where that JOIN
-        is skipped (currently AD_GROUP / AD; gated by `excludes_conversion_goals`), the
-        match value is unused and emitting `campaign_name` is just a confusing duplicate
-        of the campaign column. Empty constant communicates intent and saves wire bytes.
-
-        Tied to DRILL_DOWN_LEVEL_CONFIG so any future level that flips
-        `excludes_conversion_goals` automatically inherits this behavior.
+        """Expression for the `match_key` column (JOINed against unified_conversion_goals).
+        At levels that exclude conversion goals the JOIN is skipped, so emit an empty
+        constant instead of a confusing duplicate of `campaign_name`.
         """
         level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.context.drill_down_level)
         if level_config and level_config.get("excludes_conversion_goals"):
@@ -486,31 +797,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         return columns
 
     def build_query(self) -> Optional[ast.SelectQuery]:
-        """
-        Build SelectQuery that returns marketing data in standardized format.
+        """Build the standardized SelectQuery for this source.
 
-        Column count varies by drill-down level (the campaign_costs CTE consumer expects
-        the same shape from every adapter at a given level):
-
-        - At CHANNEL / SOURCE / CAMPAIGN / MEDIUM / CONTENT / TERM: 9 columns
-        - At AD_GROUP / AD: 13 columns (ad_group_name/id + ad_name/id inserted after
-          source_name)
-
-        Column order at AD_GROUP / AD:
-        - match_key (string): Campaign match field for joining with conversion goals
-        - campaign_name (string): Campaign identifier (human-readable name)
-        - campaign_id (string): Campaign identifier (platform ID)
-        - source_name (string): Source identifier
-        - ad_group_name (string | null): Ad group name (null when source doesn't support it)
-        - ad_group_id (string | null): Ad group platform ID
-        - ad_name (string | null): Ad name (null at AD_GROUP level or unsupported)
-        - ad_id (string | null): Ad platform ID
-        - impressions (float): Number of impressions
-        - clicks (float): Number of clicks
-        - cost (float): Total cost in base currency
-        - reported_conversion (float): Number of reported conversions
-        - reported_conversion_value (float): Monetary value of reported conversions
-
+        The campaign_costs CTE expects the same column shape from every adapter at a
+        given level: 9 columns at CHANNEL/SOURCE/CAMPAIGN/MEDIUM/CONTENT/TERM, 13 at
+        AD_GROUP/AD (ad_group_name/id + ad_name/id inserted after source_name).
         Returns None if this source cannot provide data for the given context.
         """
         try:

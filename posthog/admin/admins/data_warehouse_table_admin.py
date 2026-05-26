@@ -6,9 +6,11 @@ from posthog.admin.admins.external_data_schema_admin import queue_compact_for_sc
 from posthog.temporal.common.client import sync_connect
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
+@admin.register(DataWarehouseTable)
 class DataWarehouseTableAdmin(admin.ModelAdmin):
     list_display = (
         "id",

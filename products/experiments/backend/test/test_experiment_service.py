@@ -9,17 +9,20 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import pydantic
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.schema import EventsNode, ExperimentMetric
+
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -438,6 +441,381 @@ class TestExperimentService(APIBaseTest):
 
         assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
 
+    @parameterized.expand(
+        [
+            (
+                "not_a_dict",
+                "not-a-dict",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_empty_list",
+                [],
+                "exposure_criteria must be an object, got list",
+            ),
+            (
+                "falsy_empty_string",
+                "",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_false",
+                False,
+                "exposure_criteria must be an object, got bool",
+            ),
+            (
+                "filter_test_accounts_string",
+                {"filterTestAccounts": "true"},
+                "exposure_criteria.filterTestAccounts must be a boolean, got str: 'true'",
+            ),
+            (
+                "filter_test_accounts_int",
+                {"filterTestAccounts": 1},
+                "exposure_criteria.filterTestAccounts must be a boolean, got int: 1",
+            ),
+            (
+                "exposure_config_not_a_dict",
+                {"exposure_config": "ActionsNode"},
+                "exposure_criteria.exposure_config must be an object, got str",
+            ),
+            (
+                "exposure_config_unknown_kind",
+                {"exposure_config": {"kind": "EventsNode", "event": "$pageview"}},
+                "exposure_criteria.exposure_config.kind must be one of "
+                "['ExperimentEventExposureConfig', 'ActionsNode'], got 'EventsNode'",
+            ),
+            (
+                "exposure_config_event_kind_missing_event",
+                {"exposure_config": {"kind": "ExperimentEventExposureConfig", "properties": []}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentEventExposureConfig')",
+            ),
+            (
+                "exposure_config_actions_kind_missing_id",
+                {"exposure_config": {"kind": "ActionsNode"}},
+                "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
+        self, _: str, exposure_criteria: object, expected_error_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+
+        assert expected_error_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_error_fragment!r} in error: {ctx.exception}"
+        )
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty_dict", {}),
+            (
+                "event_payload",
+                {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    },
+                },
+            ),
+            (
+                "action_payload",
+                {
+                    "filterTestAccounts": False,
+                    "exposure_config": {"kind": "ActionsNode", "id": 1},
+                },
+            ),
+            (
+                "event_payload_without_explicit_kind",
+                {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_accepts_valid_payloads(
+        self, _: str, exposure_criteria: object
+    ) -> None:
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+
+    def test_validate_experiment_exposure_criteria_hint_is_actionable(self) -> None:
+        """The error hint should name both supported kinds so the LLM can self-correct."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria({"exposure_config": {"kind": "FunnelsQuery"}})
+        message = str(ctx.exception)
+        assert "ExperimentEventExposureConfig" in message
+        assert "ActionsNode" in message
+
+    def test_validate_experiment_exposure_criteria_truncates_large_user_values(self) -> None:
+        """A large user-supplied value must not bloat the error message reflected back."""
+        huge_kind = "x" * 10_000
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria({"exposure_config": {"kind": huge_kind}})
+        message = str(ctx.exception)
+        assert "...(truncated)" in message
+        assert len(message) < 1_000, f"Error message length was {len(message)}, expected to be bounded"
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — preserves existing rejection contract
+    # ------------------------------------------------------------------
+
+    def test_validate_experiment_metrics_accepts_none(self) -> None:
+        ExperimentService.validate_experiment_metrics(None)
+
+    def test_validate_experiment_metrics_accepts_empty_list(self) -> None:
+        ExperimentService.validate_experiment_metrics([])
+
+    @parameterized.expand(
+        [
+            (
+                "valid_mean_with_event",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ),
+            (
+                "valid_mean_with_action",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ActionsNode", "id": 1},
+                },
+            ),
+            (
+                "valid_funnel_with_one_step",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            ),
+            (
+                "valid_ratio",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "event": "purchase"},
+                    "denominator": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ),
+            (
+                "valid_retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+            ),
+        ]
+    )
+    def test_validate_experiment_metrics_accepts_valid_payloads(self, _: str, metric: dict) -> None:
+        ExperimentService.validate_experiment_metrics([metric])
+
+    @parameterized.expand(
+        [
+            ("not_a_list", "not-a-list", "Metrics must be a list"),
+            ("metric_not_a_dict", ["not-a-dict"], "Invalid metric at index 0: must be a dict"),
+            (
+                "legacy_kind",
+                [{"kind": "ExperimentTrendsQuery"}],
+                "legacy metric kind 'ExperimentTrendsQuery' is no longer supported",
+            ),
+            (
+                "wrong_kind",
+                [{"kind": "FunnelsQuery"}],
+                "metric kind must be 'ExperimentMetric'",
+            ),
+            (
+                "funnel_with_no_series",
+                [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
+                "funnel metrics require at least one step",
+            ),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_invalid_payloads(
+        self, _: str, metrics: object, expected_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(metrics)  # type: ignore[arg-type]
+        assert expected_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
+        )
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — improved pydantic error messages
+    # ------------------------------------------------------------------
+
+    _INVALID_METRIC_EVENTS_NODE_ID = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
+    }
+
+    def test_validate_experiment_metrics_does_not_leak_user_input_into_message(self) -> None:
+        """User-supplied data must not be echoed back into error messages reflected to the caller."""
+        sensitive_value = "secret-payload-12345-do-not-leak"
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "EventsNode",
+                "event": "$pageview",
+                "id": sensitive_value,
+            },
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([metric])
+        message = str(ctx.exception)
+        assert sensitive_value not in message, f"Sensitive user value leaked into error message: {message}"
+
+    def test_validate_experiment_metrics_strips_pydantic_url_field(self) -> None:
+        """Pydantic URLs like https://errors.pydantic.dev/... add noise — strip them."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        message = str(ctx.exception)
+        assert "errors.pydantic.dev" not in message
+        assert "'url':" not in message
+
+    def test_validate_experiment_metrics_preserves_loc_and_type_in_message(self) -> None:
+        """Field location and error type stay so callers can self-correct."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        message = str(ctx.exception)
+        assert "extra_forbidden" in message
+        assert "id" in message
+
+    def test_validate_experiment_metrics_preserves_index_prefix(self) -> None:
+        """The 'Invalid metric at index <i>:' prefix identifies which metric failed."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        assert "Invalid metric at index 0:" in str(ctx.exception)
+
+    def test_metric_type_to_class_mapping_matches_schema(self) -> None:
+        """Drift guard: every variant of the ExperimentMetric union must have an entry in
+        _METRIC_TYPE_TO_CLASS. If a new metric_type is added to the schema, this fails so
+        the mapping (used to filter pydantic errors to the matching variant) stays accurate."""
+        root_annotation = ExperimentMetric.model_fields["root"].annotation
+        assert root_annotation is not None, "ExperimentMetric.root has no annotation — schema is malformed"
+        union_variants = root_annotation.__args__
+        schema_pairs = {}
+        for variant in union_variants:
+            metric_type_annotation = variant.model_fields["metric_type"].annotation
+            assert metric_type_annotation is not None, (
+                f"{variant.__name__}.metric_type has no annotation — schema is malformed"
+            )
+            schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
+        assert ExperimentService._METRIC_TYPE_TO_CLASS == schema_pairs, (
+            "ExperimentMetric union changed — update ExperimentService._METRIC_TYPE_TO_CLASS. "
+            f"Expected {schema_pairs}, got {ExperimentService._METRIC_TYPE_TO_CLASS}"
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "matches_events_node_id",
+                {"type": "extra_forbidden", "loc": ("ExperimentMeanMetric", "source", "EventsNode", "id")},
+                True,
+            ),
+            (
+                "ignores_wrong_error_type",
+                {"type": "missing", "loc": ("ExperimentMeanMetric", "source", "EventsNode", "id")},
+                False,
+            ),
+            (
+                "ignores_extra_forbidden_on_other_field",
+                {"type": "extra_forbidden", "loc": ("ExperimentMeanMetric", "source", "EventsNode", "foo")},
+                False,
+            ),
+            (
+                "ignores_extra_forbidden_not_on_events_node",
+                {"type": "extra_forbidden", "loc": ("ExperimentMeanMetric", "source", "ActionsNode", "event")},
+                False,
+            ),
+            ("ignores_empty_loc", {"type": "extra_forbidden", "loc": ()}, False),
+            ("ignores_missing_loc", {"type": "extra_forbidden"}, False),
+        ]
+    )
+    def test_is_events_node_actions_node_confusion_predicate(self, _: str, err: dict, expected: bool) -> None:
+        assert ExperimentService._is_events_node_actions_node_confusion(err) is expected
+
+    def test_pydantic_extra_forbidden_error_code_is_still_in_use(self) -> None:
+        """Canary: the EventsNode.id hint matches on the pydantic error type slug
+        'extra_forbidden'. Pydantic publishes these slugs as stable public API, but they
+        live in an external dependency — fail loudly if a future pydantic upgrade renames
+        the slug so the hint stops silently matching."""
+        try:
+            EventsNode.model_validate({"event": "x", "totally_made_up_field_does_not_exist": 1})
+        except pydantic.ValidationError as e:
+            error_types = {err["type"] for err in e.errors()}
+            assert "extra_forbidden" in error_types, (
+                f"pydantic no longer emits 'extra_forbidden' for unknown fields — "
+                f"got {error_types}. Update ExperimentService._build_metric_validation_hint."
+            )
+        else:
+            raise AssertionError("pydantic did not reject an unknown field on EventsNode")
+
+    def test_validate_experiment_metrics_events_node_id_hint(self) -> None:
+        """Passing `id` on an EventsNode yields a hint mentioning both EventsNode and ActionsNode."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        message = str(ctx.exception)
+        assert "EventsNode" in message
+        assert "ActionsNode" in message
+
+    def test_validate_experiment_metrics_does_not_echo_large_user_values(self) -> None:
+        """A large user-supplied value (e.g. enormous event name) must not bloat the message."""
+        huge_value = "x" * 10_000
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview", "id": huge_value},
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([metric])
+        message = str(ctx.exception)
+        assert huge_value not in message
+        # The message size must scale with the metric schema (bounded), not with user input.
+        # Even with a 10KB user value, the message stays small relative to the input.
+        assert len(message) < len(huge_value), (
+            f"Error message length {len(message)} must not grow with user input ({len(huge_value)})"
+        )
+
+    def test_validate_experiment_metrics_caps_reported_errors_for_huge_payloads(self) -> None:
+        """A funnel with many bad steps must not produce an unbounded error list."""
+        # 100 invalid funnel steps — each one will trigger union-variant errors.
+        bad_step = {"kind": "EventsNode", "event": "$pageview", "id": None}
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "funnel",
+            "series": [bad_step] * 100,
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([metric])
+        message = str(ctx.exception)
+        # The truncation marker key from the implementation should appear when the cap is hit.
+        assert "truncated" in message
+        # And the message size remains bounded even with 100 bad steps.
+        assert len(message) < 10_000, f"Error message length {len(message)} exceeded bound"
+
+    def test_validate_experiment_metrics_reports_index_for_second_metric(self) -> None:
+        """Multi-metric payloads must report which index failed."""
+        valid = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([valid, self._INVALID_METRIC_EVENTS_NODE_ID])
+        assert "Invalid metric at index 1:" in str(ctx.exception)
+
     # ------------------------------------------------------------------
     # Service contract fields
     # ------------------------------------------------------------------
@@ -827,6 +1205,32 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, {"filters": {"properties": [{"key": "country", "value": "US"}]}})
 
         assert "global filter properties" in str(ctx.exception)
+
+    @parameterized.expand([("regex",), ("not_regex",)])
+    def test_update_experiment_allows_existing_invalid_regex_in_flag_filters(self, operator):
+        experiment = self._create_draft_experiment()
+        flag = experiment.feature_flag
+        flag.filters["groups"][0]["properties"] = [
+            {"key": "email", "value": "[unclosed", "operator": operator, "type": "person"}
+        ]
+        flag.save(update_fields=["filters"])
+
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                },
+            },
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == "[unclosed"
+        assert flag.filters["groups"][0]["properties"][0]["operator"] == operator
 
     def test_update_experiment_syncs_feature_flag_variants_for_draft(self):
         experiment = self._create_draft_experiment()
@@ -2171,7 +2575,7 @@ class TestExperimentService(APIBaseTest):
     # Ship variant
     # ------------------------------------------------------------------
 
-    def test_ship_variant_running_experiment(self):
+    def test_ship_variant_running_experiment_default_preserves_groups(self):
         experiment = self._create_running_experiment(name="Ship Running", feature_flag_key="ship-running-flag")
 
         assert experiment.is_running
@@ -2189,17 +2593,112 @@ class TestExperimentService(APIBaseTest):
         assert shipped.end_date is not None
         assert shipped.conclusion == "won"
 
-        # Verify flag filter transformation
+        # Verify variant distribution flipped
         variants = shipped.feature_flag.filters["multivariate"]["variants"]
         assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
         assert any(v["key"] == "control" and v["rollout_percentage"] == 0 for v in variants)
 
-        # Verify catch-all group prepended and original groups preserved
+        # Default mode: existing groups preserved untouched, no catch-all prepended
+        assert shipped.feature_flag.filters["groups"] == original_groups
+
+    def test_ship_variant_running_experiment_release_to_everyone_prepends_catch_all(self):
+        experiment = self._create_running_experiment(
+            name="Ship Running Everyone", feature_flag_key="ship-running-everyone-flag"
+        )
+
+        assert experiment.is_running
+        original_groups = experiment.feature_flag.filters.get("groups", [])
+
+        shipped = self._service().ship_variant(
+            experiment,
+            variant_key="test",
+            release_to_everyone=True,
+            conclusion="won",
+            request=self._make_request(),
+        )
+
+        shipped.refresh_from_db()
+        shipped.feature_flag.refresh_from_db()
+
+        assert shipped.is_stopped
+        assert shipped.conclusion == "won"
+
+        variants = shipped.feature_flag.filters["multivariate"]["variants"]
+        assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
+        assert any(v["key"] == "control" and v["rollout_percentage"] == 0 for v in variants)
+
+        # release_to_everyone: catch-all prepended; original groups preserved after it
         groups = shipped.feature_flag.filters["groups"]
         assert groups[0]["properties"] == []
         assert groups[0]["rollout_percentage"] == 100
         assert "Added automatically" in groups[0].get("description", "")
         assert groups[1:] == original_groups
+
+    def test_ship_variant_default_preserves_scoped_release_condition(self):
+        experiment = self._create_running_experiment(name="Ship Scoped", feature_flag_key="ship-scoped-flag")
+
+        # Replace flag groups with a scoped release condition (e.g. only EU users)
+        flag = experiment.feature_flag
+        scoped_group = {
+            "properties": [{"key": "country", "value": "EU", "operator": "exact", "type": "person"}],
+            "rollout_percentage": 100,
+        }
+        updated_filters = {**flag.filters, "groups": [scoped_group]}
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={
+                "request": self._make_request(),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+        original_groups = flag.filters["groups"]
+
+        shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+        shipped.feature_flag.refresh_from_db()
+
+        # Scoping is preserved exactly — no catch-all destroys it
+        assert shipped.feature_flag.filters["groups"] == original_groups
+
+    def test_ship_variant_default_preserves_variant_override(self):
+        experiment = self._create_running_experiment(name="Ship Override", feature_flag_key="ship-override-flag")
+
+        # Add a release condition with a variant override (force a cohort to "control")
+        flag = experiment.feature_flag
+        override_group = {
+            "properties": [{"key": "email", "value": "qa@example.com", "operator": "exact", "type": "person"}],
+            "rollout_percentage": 100,
+            "variant": "control",
+        }
+        existing_groups = flag.filters.get("groups", [])
+        updated_filters = {**flag.filters, "groups": [override_group, *existing_groups]}
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={
+                "request": self._make_request(),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+        original_groups = flag.filters["groups"]
+
+        # Ship "test" without release_to_everyone — the QA override to "control" must survive
+        shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+        shipped.feature_flag.refresh_from_db()
+
+        groups = shipped.feature_flag.filters["groups"]
+        assert groups == original_groups
+        assert groups[0]["variant"] == "control"
 
     def test_ship_variant_already_stopped_experiment(self):
         experiment = self._create_ended_experiment(name="Ship Stopped", feature_flag_key="ship-stopped-flag")
@@ -2316,11 +2815,28 @@ class TestExperimentService(APIBaseTest):
         assert "experiment completed" in event_names
         assert "experiment stopped" in event_names
 
-        # Verify variant_key in shipped event metadata
+        # Verify variant_key and release_to_everyone in shipped event metadata
         shipped_call = next(
             call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
         )
         assert shipped_call.args[2]["variant_key"] == "test"
+        # Default behavior: release_to_everyone is False
+        assert shipped_call.args[2]["release_to_everyone"] is False
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_release_to_everyone_recorded_in_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="Ship Analytics Everyone", feature_flag_key="ship-analytics-everyone-flag"
+        )
+
+        self._service().ship_variant(
+            experiment, variant_key="test", release_to_everyone=True, request=self._make_request()
+        )
+
+        shipped_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
+        )
+        assert shipped_call.args[2]["release_to_everyone"] is True
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_ship_variant_stopped_reports_only_shipped_event(self, mock_report_user_action):
@@ -2340,7 +2856,7 @@ class TestExperimentService(APIBaseTest):
     # Transform filters for winning variant
     # ------------------------------------------------------------------
 
-    def test_transform_filters_for_winning_variant(self):
+    def test_transform_filters_default_preserves_groups(self):
         current_filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "payloads": {},
@@ -2355,6 +2871,33 @@ class TestExperimentService(APIBaseTest):
 
         result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
 
+        # Variant distribution flipped
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
+        ]
+        # Groups preserved exactly — no catch-all prepended in default mode
+        assert result["groups"] == current_filters["groups"]
+        assert result["payloads"] == {}
+        assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_release_to_everyone_prepends_catch_all(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+        }
+
+        result = ExperimentService._transform_filters_for_winning_variant(
+            current_filters, "test", release_to_everyone=True
+        )
+
         assert result["multivariate"]["variants"] == [
             {"key": "control", "name": "Control Group", "rollout_percentage": 0},
             {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
@@ -2367,6 +2910,27 @@ class TestExperimentService(APIBaseTest):
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == {}
         assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_default_does_not_mutate_input(self):
+        """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
+        original_groups = [{"properties": [], "rollout_percentage": 50}]
+        current_filters = {
+            "groups": original_groups,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        }
+
+        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
+
+        # Caller's list reference is untouched
+        assert current_filters["groups"] is original_groups
+        # Result's groups equals original by value but is a distinct list object
+        assert result["groups"] == original_groups
+        assert result["groups"] is not original_groups
 
     def test_transform_filters_multiple_variants_with_payloads(self):
         current_filters = {
@@ -2388,7 +2952,9 @@ class TestExperimentService(APIBaseTest):
             "aggregation_group_type_index": 1,
         }
 
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "control")
+        result = ExperimentService._transform_filters_for_winning_variant(
+            current_filters, "control", release_to_everyone=True
+        )
 
         assert result["multivariate"]["variants"] == [
             {"key": "control", "name": "This is control", "rollout_percentage": 100},
@@ -2516,6 +3082,74 @@ class TestExperimentService(APIBaseTest):
 
         assert result["status"] == "completed"
         assert result["computed_at"] is not None
+
+    def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):
+        self._create_flag(key="ts-strip")
+        service = self._service()
+        now = timezone.now()
+        start_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        end_midnight = start_midnight + timedelta(days=1)
+        experiment = service.create_experiment(
+            name="Strip",
+            feature_flag_key="ts-strip",
+            start_date=start_midnight,
+            end_date=end_midnight,
+        )
+
+        session = {"event_uuid": "u", "person_id": "p", "session_id": "s", "timestamp": "t"}
+        stored_payload = {
+            "baseline": {
+                "key": "control",
+                "number_of_samples": 100,
+                "sum": 5,
+                "sum_squares": 5,
+                "step_sessions": [[session]],
+            },
+            "variant_results": [
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 110,
+                    "sum": 8,
+                    "sum_squares": 8,
+                    "chance_to_win": 0.9,
+                    "credible_interval": [0.01, 0.05],
+                    "significant": True,
+                    "step_sessions": [[session, session]],
+                }
+            ],
+        }
+        for day_offset in range(2):
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="m1",
+                fingerprint="fp1",
+                query_from=start_midnight + timedelta(days=day_offset),
+                query_to=start_midnight + timedelta(days=day_offset + 1),
+                status="completed",
+                result=stored_payload,
+                completed_at=now,
+            )
+
+        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+
+        for day_payload in result["timeseries"].values():
+            if day_payload is None:
+                continue
+            assert "step_sessions" not in day_payload["baseline"]
+            for variant in day_payload["variant_results"]:
+                assert "step_sessions" not in variant
+
+        # Stored row is untouched — stripping happens on read.
+        stored = ExperimentMetricResult.objects.first()
+        assert stored is not None
+        assert stored.result is not None
+        assert "step_sessions" in stored.result["baseline"]
+
+        formatted = result["formatted_results"]
+        assert "Method: bayesian" in formatted
+        assert "Variants: control (baseline), test" in formatted
+        assert "step_sessions" not in formatted
 
     # ------------------------------------------------------------------
     # Timeseries recalculation
@@ -3148,55 +3782,74 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.id is not None
 
-    def test_duplicate_metric_uuids_raises_validation_error(self):
-        """Metrics with duplicate UUIDs should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Dup UUIDs",
-                feature_flag_key="dup-uuid-flag",
-                allow_unknown_events=True,
-                metrics=[
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "$pageview"},
-                    },
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "other_event"},
-                    },
-                ],
-            )
+    def test_duplicate_metric_uuids_within_list_are_regenerated(self):
+        """Duplicate metric UUIDs within one list should be silently regenerated.
 
-    def test_duplicate_metric_uuids_across_primary_and_secondary_raises(self):
-        """Duplicate UUIDs across primary and secondary metrics should also be rejected."""
+        First occurrence keeps the supplied uuid; later occurrences get fresh ones,
+        and the ordering array is rewritten to match.
+        """
+        shared_uuid = "11bfb66a-51f5-48d0-a87e-bde2b4c958a6"
         service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Dup UUIDs Cross",
-                feature_flag_key="dup-uuid-cross-flag",
-                allow_unknown_events=True,
-                metrics=[
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "$pageview"},
-                    },
-                ],
-                metrics_secondary=[
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "other_event"},
-                    },
-                ],
-            )
+        experiment = service.create_experiment(
+            name="Dup UUIDs",
+            feature_flag_key="dup-uuid-flag",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        uuid_0 = experiment.metrics[0]["uuid"]
+        uuid_1 = experiment.metrics[1]["uuid"]
+        assert uuid_0 == shared_uuid
+        assert uuid_1 != shared_uuid
+        UUID(uuid_1)
+        assert experiment.primary_metrics_ordered_uuids is not None
+        assert set(experiment.primary_metrics_ordered_uuids) == {uuid_0, uuid_1}
+
+    def test_duplicate_metric_uuids_across_primary_and_secondary_are_regenerated(self):
+        """Cross-list collisions are deduped — secondary gets a fresh uuid."""
+        shared_uuid = "11bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Dup UUIDs Cross",
+            feature_flag_key="dup-uuid-cross-flag",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+            metrics_secondary=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert experiment.metrics_secondary is not None
+        primary_uuid = experiment.metrics[0]["uuid"]
+        secondary_uuid = experiment.metrics_secondary[0]["uuid"]
+        assert primary_uuid == shared_uuid
+        assert secondary_uuid != shared_uuid
+        UUID(secondary_uuid)
 
     def test_metrics_without_uuids_get_auto_assigned(self):
         """Metrics with no UUID should get unique auto-generated UUIDs on create."""
@@ -3282,6 +3935,275 @@ class TestExperimentService(APIBaseTest):
         UUID(uuid_0)  # raises ValueError if not a valid UUID
         UUID(uuid_1)
         assert uuid_0 != uuid_1
+
+    def test_update_dedupes_metric_uuids_on_input(self):
+        """Updating an experiment with duplicate uuids in the payload should regenerate the dups."""
+        self._create_flag(key="dup-update-flag")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="To dedupe",
+            feature_flag_key="dup-update-flag",
+            allow_unknown_events=True,
+        )
+        shared_uuid = "11bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        updated = service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": shared_uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": shared_uuid,
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            },
+            allow_unknown_events=True,
+        )
+        assert updated.metrics is not None
+        uuid_0 = updated.metrics[0]["uuid"]
+        uuid_1 = updated.metrics[1]["uuid"]
+        assert uuid_0 == shared_uuid
+        assert uuid_1 != shared_uuid
+        UUID(uuid_1)
+
+    def test_soft_delete_succeeds_when_stored_metrics_had_duplicate_uuids(self):
+        """An experiment with corrupt (duplicated) uuids in storage should still be soft-deletable.
+
+        Pre-migration data could have two metrics sharing one uuid in the DB. The
+        post-migration code path should not block a soft-delete PATCH on that row.
+        """
+        self._create_flag(key="corrupt-soft-delete")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Corrupt",
+            feature_flag_key="corrupt-soft-delete",
+            allow_unknown_events=True,
+        )
+        # Bypass the service to plant corrupt data, mirroring what legacy rows look like.
+        shared_uuid = "22bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        Experiment.objects.filter(id=experiment.id).update(
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+            primary_metrics_ordered_uuids=[shared_uuid, shared_uuid],
+        )
+        experiment.refresh_from_db()
+
+        updated = service.update_experiment(experiment, {"deleted": True}, allow_unknown_events=True)
+        assert updated.deleted is True
+
+    def test_clone_regenerates_metric_uuids(self):
+        """Cloning an experiment must produce metrics with fresh uuids — never shared with the source."""
+        self._create_flag(key="clone-fresh-uuids")
+        service = self._service()
+        source = service.create_experiment(
+            name="Source",
+            feature_flag_key="clone-fresh-uuids",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+            metrics_secondary=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert source.metrics is not None
+        assert source.metrics_secondary is not None
+        source_primary_uuid = source.metrics[0]["uuid"]
+        source_secondary_uuid = source.metrics_secondary[0]["uuid"]
+
+        dup = service.duplicate_experiment(source)
+
+        assert dup.metrics is not None
+        assert dup.metrics_secondary is not None
+        dup_primary_uuid = dup.metrics[0]["uuid"]
+        dup_secondary_uuid = dup.metrics_secondary[0]["uuid"]
+        assert dup_primary_uuid != source_primary_uuid
+        assert dup_secondary_uuid != source_secondary_uuid
+        UUID(dup_primary_uuid)
+        UUID(dup_secondary_uuid)
+        # Ordering arrays should reference the new uuids, not the source ones.
+        assert dup.primary_metrics_ordered_uuids == [dup_primary_uuid]
+        assert dup.secondary_metrics_ordered_uuids == [dup_secondary_uuid]
+
+    def test_dedup_regenerates_inline_uuids_that_collide_with_saved_metric_uuid(self):
+        """When an inline metric reuses a saved-metric's uuid, dedup must regenerate
+        the inline copy so each ordering entry resolves to exactly one thing.
+
+        The saved-metric link is independent of the inline metrics array, but its
+        uuid lives alongside inline-metric uuids in primary_metrics_ordered_uuids.
+        An inline metric reusing the saved-metric uuid would make ordering ambiguous.
+        """
+        self._create_flag(key="dedup-with-saved")
+        saved_metric_uuid = "33bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM with dup uuid",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="With Saved + Dup",
+            feature_flag_key="dedup-with-saved",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+        )
+        # Sanity: the saved-metric uuid is in the ordering.
+        assert experiment.primary_metrics_ordered_uuids == [saved_metric_uuid]
+
+        # Now the user sends an update with two inline metrics, both reusing the
+        # saved-metric's uuid (the case where an LLM/frontend has inlined the
+        # shared metric twice).
+        updated = service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": saved_metric_uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": saved_metric_uuid,
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            },
+            allow_unknown_events=True,
+        )
+        # Both inline metrics get fresh uuids — neither shares the saved-metric uuid.
+        assert updated.metrics is not None
+        uuid_0 = updated.metrics[0]["uuid"]
+        uuid_1 = updated.metrics[1]["uuid"]
+        assert uuid_0 != saved_metric_uuid
+        assert uuid_1 != saved_metric_uuid
+        assert uuid_0 != uuid_1
+        UUID(uuid_0)
+        UUID(uuid_1)
+        # The saved-metric uuid is still in ordering, plus both new inline uuids.
+        assert updated.primary_metrics_ordered_uuids is not None
+        assert saved_metric_uuid in updated.primary_metrics_ordered_uuids
+        assert uuid_0 in updated.primary_metrics_ordered_uuids
+        assert uuid_1 in updated.primary_metrics_ordered_uuids
+        # The saved-metric link itself is untouched.
+        assert list(updated.experimenttosavedmetric_set.values_list("saved_metric_id", flat=True)) == [sm.id]
+
+    def test_create_regenerates_inline_uuid_that_collides_with_saved_metric_uuid(self):
+        """Same protection on create: inline metric reusing a saved-metric uuid gets regenerated."""
+        self._create_flag(key="create-dedup-with-saved")
+        saved_metric_uuid = "55bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Create Dedup with Saved",
+            feature_flag_key="create-dedup-with-saved",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": saved_metric_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        inline_uuid = experiment.metrics[0]["uuid"]
+        assert inline_uuid != saved_metric_uuid
+        UUID(inline_uuid)
+        assert experiment.primary_metrics_ordered_uuids is not None
+        assert saved_metric_uuid in experiment.primary_metrics_ordered_uuids
+        assert inline_uuid in experiment.primary_metrics_ordered_uuids
+
+    def test_clone_regenerates_uuids_even_when_source_uuid_matches_saved_metric(self):
+        """Cloning regenerates inline metric uuids so they no longer collide with the
+        saved metric's uuid carried by the cloned saved-metric link."""
+        self._create_flag(key="clone-saved-collision")
+        saved_metric_uuid = "44bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        source = service.create_experiment(
+            name="With Saved + Inline Same UUID",
+            feature_flag_key="clone-saved-collision",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert source.metrics is not None
+        source_inline_uuid = source.metrics[0]["uuid"]
+
+        dup = service.duplicate_experiment(source)
+
+        # Clone's inline metric has a fresh uuid.
+        assert dup.metrics is not None
+        dup_inline_uuid = dup.metrics[0]["uuid"]
+        assert dup_inline_uuid != source_inline_uuid
+        UUID(dup_inline_uuid)
+        # Saved metric uuid (carried via the link in the clone) must still be in ordering.
+        assert dup.primary_metrics_ordered_uuids is not None
+        assert saved_metric_uuid in dup.primary_metrics_ordered_uuids
+        assert dup_inline_uuid in dup.primary_metrics_ordered_uuids
+        # Cloned saved-metric link points to the same saved metric (same team).
+        assert list(dup.experimenttosavedmetric_set.values_list("saved_metric_id", flat=True)) == [sm.id]
 
     def _base_queryset(self):
         return Experiment.objects.filter(team=self.team)

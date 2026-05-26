@@ -38,7 +38,13 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             joinsLogic,
             ['loadJoins'],
             sourcesDataLogic,
-            ['loadSources', 'loadSourcesSuccess', 'updateSource', 'updateSourceRevenueAnalyticsConfig'],
+            [
+                'loadSources',
+                'loadSourcesSuccess',
+                'loadSourcesFailure',
+                'updateSource',
+                'updateSourceRevenueAnalyticsConfig',
+            ],
         ],
     })),
     actions({

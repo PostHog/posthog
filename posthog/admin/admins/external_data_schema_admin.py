@@ -24,8 +24,8 @@ from products.data_warehouse.backend.data_load.service import (
     pause_external_data_schedule,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 # Source of truth lives in pipeline.typings.PartitionFormat. Re-deriving here keeps
 # the dropdown in sync if a new format is ever added.
@@ -62,6 +62,7 @@ def _change_url(schema_id) -> str:
     return reverse("admin:data_warehouse_externaldataschema_change", args=[schema_id])
 
 
+@admin.register(ExternalDataSchema)
 class ExternalDataSchemaAdmin(admin.ModelAdmin):
     list_display = (
         "id",

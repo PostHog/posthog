@@ -103,8 +103,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT JOIN
                             (SELECT group_key,
@@ -385,8 +385,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -523,8 +523,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -662,8 +662,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -801,8 +801,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -940,8 +940,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -1088,8 +1088,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT JOIN
                             (SELECT group_key,
@@ -1370,8 +1370,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -1490,8 +1490,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -1607,8 +1607,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -1724,8 +1724,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -1841,8 +1841,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -1985,8 +1985,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT JOIN
                             (SELECT group_key,
@@ -2267,8 +2267,8 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop,
-                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop_attribution,
+                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
                             (SELECT distinct_id,
@@ -2431,8 +2431,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -2495,8 +2495,8 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -2559,8 +2559,8 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -2724,8 +2724,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -2788,8 +2788,8 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -2852,8 +2852,8 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -3017,8 +3017,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -3081,8 +3081,8 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -3145,8 +3145,8 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -3310,8 +3310,8 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -3374,8 +3374,8 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -3438,8 +3438,8 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,

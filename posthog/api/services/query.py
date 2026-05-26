@@ -34,7 +34,7 @@ from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode,
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -177,7 +177,7 @@ def process_query_model(
             joins=join_models,
         )
 
-    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context)
+    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context, user=user)
     if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(

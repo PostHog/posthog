@@ -5,6 +5,7 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
@@ -161,6 +162,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 if (!props.id) {
                     // Mark task complete when creating a new action
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.DefineActions)
+                    tryShowMCPHint('actions.create')
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string

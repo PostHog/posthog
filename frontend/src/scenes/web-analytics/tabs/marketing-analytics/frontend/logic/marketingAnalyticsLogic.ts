@@ -40,11 +40,27 @@ import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLog
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
+    NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
     validColumnsForTiles,
 } from './utils'
+
+/** Per-source AD_GROUP / AD sync status — drives the empty-state banner. */
+export type NativeSourceHierarchyStatus = {
+    sourceId: string
+    sourceType: NativeMarketingSource
+    supportsAdGroup: boolean
+    supportsAd: boolean
+    /** Not-yet-synced schemas needed for the level; empty when `*Unsupported`. */
+    missingForAdGroup: string[]
+    missingForAd: string[]
+    /** Level can't be reached by syncing more — the data import pipeline itself
+     * doesn't declare the schemas yet (e.g. LinkedIn creatives at AD). */
+    adGroupUnsupported: boolean
+    adUnsupported: boolean
+}
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
@@ -207,7 +223,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         actions: [
             sourceManagementLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadDatabase'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'loadDatabase'],
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
@@ -518,18 +534,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         nativeSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources): ExternalDataSource[] => {
-                const nativeSources =
-                    dataWarehouseSources?.results.filter((source) =>
-                        VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
-                    ) ?? []
-                nativeSources.forEach((source) => {
-                    const neededFieldsWithSync =
-                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
-                    source.schemas = source.schemas.filter((schema) => neededFieldsWithSync.includes(schema.name))
-                })
-                return nativeSources
-            },
+            (dataWarehouseSources): ExternalDataSource[] =>
+                dataWarehouseSources?.results.filter((source) =>
+                    VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
+                ) ?? [],
         ],
         validNativeSources: [
             (s) => [s.nativeSources, s.dataWarehouseTables],
@@ -567,6 +575,46 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
                 return generateUniqueName(baseName, existingNames)
             },
+        ],
+        nativeSourcesHierarchyStatus: [
+            (s) => [s.validNativeSources],
+            (validNativeSources: NativeSource[]): NativeSourceHierarchyStatus[] =>
+                // Mirrors the backend `supports_level(AD_GROUP/AD)` check: a level is
+                // supported only when both its entity + stats schemas sync. `*Unsupported`
+                // flags sources whose schema config doesn't define the slots at all.
+                validNativeSources.map(({ source }): NativeSourceHierarchyStatus => {
+                    const sourceType = source.source_type as NativeMarketingSource
+                    const hierarchy = NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES[sourceType] ?? {}
+
+                    const isSyncing = (schemaName: string): boolean =>
+                        findSchemaByFieldName(source.schemas, schemaName, source.source_type)?.should_sync ?? false
+
+                    // `new Set` dedupes the unified-report case (Bing names entity + stats the same).
+                    const levelStatus = (
+                        entity?: string,
+                        stats?: string
+                    ): { supported: boolean; missing: string[]; unsupported: boolean } => {
+                        if (!entity || !stats) {
+                            return { supported: false, missing: [], unsupported: true }
+                        }
+                        const missing = [...new Set([entity, stats])].filter((schema) => !isSyncing(schema))
+                        return { supported: missing.length === 0, missing, unsupported: false }
+                    }
+
+                    const adGroup = levelStatus(hierarchy.adset, hierarchy.adsetStats)
+                    const ad = levelStatus(hierarchy.ad, hierarchy.adStats)
+
+                    return {
+                        sourceId: source.id,
+                        sourceType,
+                        supportsAdGroup: adGroup.supported,
+                        supportsAd: ad.supported,
+                        missingForAdGroup: adGroup.missing,
+                        missingForAd: ad.missing,
+                        adGroupUnsupported: adGroup.unsupported,
+                        adUnsupported: ad.unsupported,
+                    }
+                }),
         ],
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
@@ -922,10 +970,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                 }
 
-                // Refresh warehouse tables so newly added source tables are picked up
+                // Refresh warehouse tables to pick up new source tables, then reload queries.
                 actions.loadDatabase()
-
-                // Reload all queries to reflect the updated sources
                 actions.reloadAll()
 
                 // Mark as initialized after initial data load to enable interaction tracking

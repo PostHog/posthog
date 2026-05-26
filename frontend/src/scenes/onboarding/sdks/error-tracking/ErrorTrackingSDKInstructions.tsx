@@ -2,7 +2,10 @@ import {
     APIInstallation,
     AndroidInstallation,
     AngularInstallation,
+    DotNetInstallation,
+    ElixirInstallation,
     FlutterInstallation,
+    GoInstallation,
     IOSInstallation,
     HonoInstallation,
     WebInstallation,
@@ -10,6 +13,7 @@ import {
     NodeJSInstallation,
     Nuxt36Installation,
     Nuxt37Installation,
+    PHPInstallation,
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
@@ -101,6 +105,18 @@ const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
 })
+const ErrorTrackingGoInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoInstallation,
+})
+const ErrorTrackingPHPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PHPInstallation,
+})
+const ErrorTrackingElixirInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ElixirInstallation,
+})
+const ErrorTrackingDotNetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DotNetInstallation,
+})
 const ErrorTrackingReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     wizardIntegrationName: 'React Native',
@@ -125,6 +141,10 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.HONO]: ErrorTrackingHonoInstructionsWrapper,
     [SDKKey.ANDROID]: ErrorTrackingAndroidInstructionsWrapper,
     [SDKKey.FLUTTER]: ErrorTrackingFlutterInstructionsWrapper,
+    [SDKKey.GO]: ErrorTrackingGoInstructionsWrapper,
+    [SDKKey.PHP]: ErrorTrackingPHPInstructionsWrapper,
+    [SDKKey.ELIXIR]: ErrorTrackingElixirInstructionsWrapper,
+    [SDKKey.DOTNET]: ErrorTrackingDotNetInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ErrorTrackingReactNativeInstructionsWrapper,
     [SDKKey.IOS]: ErrorTrackingIOSInstructionsWrapper,
     [SDKKey.API]: ErrorTrackingAPIInstructionsWrapper,

@@ -93,6 +93,11 @@ pub const FLAG_BODY_READ_FAILED_COUNTER: &str = "flags_body_read_failed_total";
 // errors. Pod-level: no `team_id` label.
 pub const FLAG_BODY_READ_TOO_LARGE_COUNTER: &str = "flags_body_read_too_large_total";
 
+// Counter for requests rejected because the gzip-*decompressed* body exceeded
+// `MAX_FLAGS_DECOMPRESSED_BYTES`. Distinct from `FLAG_BODY_READ_TOO_LARGE_COUNTER`,
+// which fires on the *compressed* size before decompression.
+pub const FLAG_GZIP_OUTPUT_EXCEEDED_COUNTER: &str = "flags_gzip_output_exceeded_total";
+
 // Per-phase wall-clock duration inside `process_request_inner`. Phases
 // match handler-level state transitions:
 // `auth → billing_check → cookieless → fetch_and_filter → evaluate →
@@ -287,6 +292,18 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
+
+// Counter for /flags requests classified as bot traffic. Fires regardless
+// of whether the request was actually short-circuited, so dashboards can
+// plot the "would-have-rejected" rate during the log-only rollout phase
+// alongside the actual enforce-mode reject rate.
+// Labels: `bot_category` (google, ai, seo, uptime, social, headless,
+// crawler, other), `bot_source` (user_agent, ip), and
+// `mode` (`log_only` — classified but not blocked; `enforced` — classified
+// and short-circuited). No `team_id` because classification fires before
+// token extraction; per-team analysis lives in the canonical log line via
+// Loki.
+pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";

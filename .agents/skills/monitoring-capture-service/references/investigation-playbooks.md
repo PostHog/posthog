@@ -11,13 +11,13 @@ Start by pulling up the main dashboard:
 
 Then verify these signals in order:
 
-1. **HTTP error rate** — `http_requests_duration_seconds_count` by `status`, role-scoped.
+1. **HTTP error rate** — `http_requests_duration_seconds_count` by `status`, scoped by `namespace`.
    Any sustained 5xx spike is the top-priority signal.
 2. **Kafka connectivity** — `capture_kafka_any_brokers_down`. Value of 1 on any pod is critical.
 3. **Event acceptance ratio** — `rate(capture_events_ingested_total)` / `rate(capture_events_received_total)`.
    Sustained drop below ~0.95 warrants investigation.
 4. **Envoy backend health** — `envoy_cluster_membership_healthy` vs `envoy_cluster_membership_total`
-   for `envoy_cluster_name=~"posthog_capture.*"`. Ratio < 1.0 outside of deploys is a problem.
+   for `envoy_cluster_name=~"posthog_capture-.*"`. Ratio < 1.0 outside of deploys is a problem.
 5. **Event restrictions staleness** — `capture_event_restrictions_stale` gauge.
    Value of 1 means restrictions aren't being refreshed from Redis.
 6. **Billing limits loaded** — `capture_billing_limits_loaded_tokens` by `cache_key`.
@@ -50,13 +50,13 @@ The event funnel: received -> ingested -> dropped/rerouted.
 Diagnose layer by layer, outside-in:
 
 1. **Envoy layer** — `envoy_cluster_upstream_rq_time_bucket` histogram for
-   `envoy_cluster_name=~"posthog_capture.*"`.
+   `envoy_cluster_name=~"posthog_capture-.*"`.
    Compute p99 with `histogram_quantile(0.99, ...)`.
    If Envoy latency is high but HTTP handler latency is normal, the issue is between Envoy and the pod (networking, connection pool).
 
-2. **HTTP handler** — `http_requests_duration_seconds_bucket` scoped by `role`.
+2. **HTTP handler** — `http_requests_duration_seconds_bucket` scoped by `namespace`.
    This is the end-to-end request latency inside the capture binary.
-   Compare p99 across roles to isolate which pipeline is slow.
+   Compare p99 across namespaces to isolate which pipeline is slow.
 
 3. **Kafka produce RTT** — `capture_kafka_produce_rtt_latency_us` by `broker` and `quantile`.
    p99 > 100ms sustained = broker overload or network issues.
@@ -106,9 +106,8 @@ Multiple layers of rate limiting can affect capture. Check in this order:
      `redirect_to_topic` = reroute to custom topic, `skip_person_processing` = pass through but skip person
 
 3. **Global rate limiter** (per-token+distinct_id, Redis-backed)
-   - Code defines `global_rate_limiter_*` metrics but they may not be active.
-     Check `list_prometheus_metric_names` regex `"global_rate_limiter.*"` first.
-   - Proxy signal: `capture_events_rerouted_overflow{reason="rate_limited"}` rate.
+   - `global_rate_limiter_*` metrics for direct limiter decisions.
+   - `capture_events_rerouted_overflow{reason="rate_limited"}` rate — proxy signal from the overflow path.
    - Config: `GLOBAL_RATE_LIMIT_ENABLED`, `GLOBAL_RATE_LIMIT_TOKEN_DISTINCTID_THRESHOLD`
 
 4. **Overflow routing** (the combined effect)
@@ -154,7 +153,7 @@ Then check infrastructure health:
 
 ## 7. "Comparing prod-us vs prod-eu" — cross-environment
 
-Most capture app metrics use the `role` label but **no environment label** —
+Most capture app metrics use `namespace`/`container` labels but **no environment label** —
 the environment is implicit in which Grafana instance you're connected to.
 
 For cross-environment comparison:
@@ -165,5 +164,8 @@ For cross-environment comparison:
    in the query.
 3. **Dashboard variables** — some dashboards have an `environment` variable.
    Check with `get_dashboard_by_uid` and look at template variables.
-4. **Kafka topic names** are the same across environments — the topic label works
-   for comparing produce patterns.
+4. **Kafka topic names differ by partition count** — `ingestion-analytics-main-1024` (US)
+   vs `ingestion-analytics-main-512` (EU). The `topic` label works for comparing produce
+   patterns but values won't match across envs.
+5. **Both envs have a dedicated ingestion MSK cluster** — capture-analytics and capture-ai
+   produce to `msk-ingestion`, not the events cluster (prod-us: c21; prod-eu: `posthog-prod-eu-ingestion-*`).

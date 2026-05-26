@@ -1,0 +1,747 @@
+from datetime import date, datetime, timedelta
+from json import JSONDecodeError, loads
+from typing import Any, List, Literal, cast  # noqa: UP035
+
+from django.core.exceptions import FieldError
+from django.db.models import Q
+from django.http import HttpResponse
+
+from rest_framework import request, response, serializers, status, viewsets
+
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
+
+from posthog.hogql import ast
+from posthog.hogql.ast import Constant
+from posthog.hogql.base import Expr
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.filters import replace_filters
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
+from posthog.auth import ExportRendererAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
+from posthog.security.url_validation import is_url_allowed
+from posthog.utils import relative_date_parse_with_delta_mapping
+
+from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS
+from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
+
+STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
+
+DEFAULT_QUERY = """
+            select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
+            from (
+                     select
+                        distinct_id,
+                        pointer_target_fixed,
+                        round((x / viewport_width), 2) as pointer_relative_x,
+                        y * scale_factor as client_y
+                     from heatmaps
+                     where {predicates}
+                )
+            group by `pointer_target_fixed`, pointer_relative_x, client_y
+            """
+
+SCROLL_DEPTH_QUERY = """
+SELECT
+    bucket,
+    cnt as bucket_count,
+    sum(cnt) OVER (ORDER BY bucket DESC) AS cumulative_count
+FROM (
+    SELECT
+        intDiv(scroll_y, 100) * 100 as bucket,
+        {aggregation_count} as cnt
+    FROM (
+        SELECT
+           distinct_id, (y + viewport_height) * scale_factor as scroll_y
+        FROM heatmaps
+        WHERE {predicates}
+    )
+    GROUP BY bucket
+)
+ORDER BY bucket
+"""
+
+EVENTS_QUERY = """
+SELECT
+    session_id,
+    distinct_id,
+    timestamp,
+    round((x / viewport_width), 2) as pointer_relative_x,
+    y * scale_factor as pointer_y,
+    current_url,
+    type
+FROM heatmaps
+WHERE {predicates}
+ORDER BY timestamp DESC
+LIMIT {limit}
+OFFSET {offset}
+"""
+
+
+class HeatmapsRequestSerializer(serializers.Serializer):
+    viewport_width_min = serializers.IntegerField(required=False)
+    viewport_width_max = serializers.IntegerField(required=False)
+    type = serializers.CharField(required=False, default="click")
+    date_from = serializers.CharField(required=False, default="-7d")
+    date_to = serializers.CharField(required=False)
+    url_exact = serializers.CharField(required=False)
+    url_pattern = serializers.CharField(required=False)
+    aggregation = serializers.ChoiceField(
+        required=False,
+        choices=["unique_visitors", "total_count"],
+        help_text="How to aggregate the response",
+        default="total_count",
+    )
+    filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
+    hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
+
+    def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
+        try:
+            if isinstance(value, str):
+                parsed_date, _, _ = relative_date_parse_with_delta_mapping(value, self.context["team"].timezone_info)
+                return parsed_date.date()
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+            else:
+                raise serializers.ValidationError(f"Invalid {label} provided: {value}")
+        except Exception:
+            raise serializers.ValidationError(f"Error parsing provided {label}: {value}")
+
+    def validate_date_from(self, value) -> date:
+        return self.validate_date(value, "date_from")
+
+    def validate_date_to(self, value) -> date:
+        return self.validate_date(value, "date_to")
+
+    def validate_url_pattern(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        validated_value = value
+
+        # we insist on the pattern being anchored
+        if not value.startswith("^"):
+            validated_value = f"^{value}"
+        if not value.endswith("$"):
+            validated_value = f"{validated_value}$"
+
+        # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
+        # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
+        # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
+        # KLUDGE: but you could send a+ and it would match aaaaa
+        validated_value = "".join(
+            [
+                f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c
+                for i, c in enumerate(validated_value)
+            ]
+        )
+
+        return validated_value
+
+    def validate(self, values) -> dict:
+        url_exact = values.get("url_exact", None)
+        url_pattern = values.get("url_pattern", None)
+        if isinstance(url_exact, str) and isinstance(url_pattern, str):
+            if url_exact == url_pattern:
+                values.pop("url_pattern")
+            else:
+                values.pop("url_exact")
+
+        if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
+            raise serializers.ValidationError("filter_test_accounts must be a boolean")
+
+        return values
+
+
+class HeatmapResponseItemSerializer(serializers.Serializer):
+    count = serializers.IntegerField(required=True)
+    pointer_y = serializers.IntegerField(required=True)
+    pointer_relative_x = serializers.FloatField(required=True)
+    pointer_target_fixed = serializers.BooleanField(required=True)
+
+
+class HeatmapsResponseSerializer(serializers.Serializer):
+    results = HeatmapResponseItemSerializer(many=True)
+
+
+class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
+    cumulative_count = serializers.IntegerField(required=True)
+    bucket_count = serializers.IntegerField(required=True)
+    scroll_depth_bucket = serializers.IntegerField(required=True)
+
+
+class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
+    results = HeatmapScrollDepthResponseItemSerializer(many=True)
+
+
+class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
+    # JSON string of coordinate points: [{"x": 0.5, "y": 100}, ...]
+    points = serializers.CharField(required=True)
+    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+
+    def validate_points(self, value: str) -> list[dict]:
+        try:
+            points = loads(value)
+            if not isinstance(points, list) or len(points) == 0:
+                raise serializers.ValidationError("points must be a non-empty array")
+            for point in points:
+                if not isinstance(point, dict) or "x" not in point or "y" not in point:
+                    raise serializers.ValidationError("each point must have x and y")
+            return points
+        except JSONDecodeError:
+            raise serializers.ValidationError("points must be valid JSON")
+
+
+class HeatmapEventItemSerializer(serializers.Serializer):
+    session_id = serializers.CharField(required=False, allow_null=True)
+    distinct_id = serializers.CharField(required=True)
+    timestamp = serializers.DateTimeField(required=True)
+    pointer_relative_x = serializers.FloatField(required=True)
+    pointer_y = serializers.IntegerField(required=True)
+    current_url = serializers.CharField(required=True)
+    type = serializers.CharField(required=True)
+
+
+class HeatmapEventsResponseSerializer(serializers.Serializer):
+    results = HeatmapEventItemSerializer(many=True)
+    total_count = serializers.IntegerField(required=True)
+    has_more = serializers.BooleanField(required=True)
+
+
+class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = [ExportRendererAuthentication]
+    scope_object = "heatmap"
+    scope_object_read_actions = ["list", "retrieve", "events"]
+
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapsResponseSerializer
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
+        request_serializer.is_valid(raise_exception=True)
+
+        aggregation = request_serializer.validated_data.pop("aggregation")
+        hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
+        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
+        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+        is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
+
+        raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
+
+        aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
+        exprs = self._predicate_expressions(placeholders)
+
+        if hide_zero_coordinates and not is_scrolldepth_query:
+            exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
+
+        if request_serializer.validated_data.get("filter_test_accounts") is True:
+            date_from: date = request_serializer.validated_data["date_from"]
+            date_to: date | None = request_serializer.validated_data.get("date_to", None)
+            exprs.append(self._build_test_accounts_filter(date_from, date_to))
+
+        stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
+        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
+        results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
+
+        if is_scrolldepth_query:
+            return self._return_scroll_depth_response(results)
+        else:
+            return self._return_heatmap_coordinates_response(results)
+
+    def _choose_aggregation(self, aggregation, is_scrolldepth_query):
+        aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
+        if is_scrolldepth_query:
+            aggregation_value = "count(*)" if aggregation == "total_count" else "count(distinct distinct_id)"
+        aggregation_count = parse_expr(aggregation_value)
+        return aggregation_count
+
+    def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+        # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
+        # HogQLFilters instead emits a strict `timestamp < date_to`, so when date_from and date_to land on the same
+        # day this events subquery collapses to an impossible range and returns no sessions. Add a day so the
+        # events subquery covers the same date window as the main heatmap query.
+        events_date_to = (date_to or date.today()) + timedelta(days=1)
+        events_select = replace_filters(
+            parse_select(
+                "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
+            ),
+            HogQLFilters(
+                filterTestAccounts=True,
+                dateRange=DateRange(
+                    date_from=date_from.strftime("%Y-%m-%d"),
+                    date_to=events_date_to.strftime("%Y-%m-%d"),
+                ),
+            ),
+            self.team,
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=events_select,
+        )
+
+    @staticmethod
+    def _predicate_expressions(placeholders: dict[str, Expr]) -> List[ast.Expr]:  # noqa: UP006
+        predicate_expressions: list[ast.Expr] = []
+
+        predicate_mapping: dict[str, str] = {
+            # should always have values
+            "date_from": "timestamp >= {date_from}",
+            "type": "`type` = {type}",
+            # optional
+            "date_to": "timestamp <= {date_to} + interval 1 day",
+            "viewport_width_min": "viewport_width >= round({viewport_width_min} / 16)",
+            "viewport_width_max": "viewport_width <= round({viewport_width_max} / 16)",
+            "url_exact": "trimRight(current_url, '/') = trimRight({url_exact}, '/')",
+            "url_pattern": "match(current_url, {url_pattern})",
+        }
+
+        for predicate_key in placeholders.keys():
+            # we e.g. don't want to add the filter_test_accounts predicate here
+            if predicate_key in predicate_mapping:
+                predicate_expressions.append(
+                    parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
+                )
+
+        if len(predicate_expressions) == 0:
+            raise serializers.ValidationError("must always generate some filter conditions")
+
+        return predicate_expressions
+
+    @staticmethod
+    def _return_heatmap_coordinates_response(query_response: HogQLQueryResponse) -> response.Response:
+        data = [
+            {
+                "pointer_target_fixed": item[0],
+                "pointer_relative_x": item[1],
+                "pointer_y": item[2],
+                "count": item[3],
+            }
+            for item in query_response.results or []
+        ]
+
+        response_serializer = HeatmapsResponseSerializer(data={"results": data})
+        response_serializer.is_valid(raise_exception=True)
+
+        resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
+        resp["Cache-Control"] = "max-age=30"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
+        return resp
+
+    @staticmethod
+    def _return_scroll_depth_response(query_response: HogQLQueryResponse) -> response.Response:
+        data = [
+            {
+                "scroll_depth_bucket": item[0],
+                "bucket_count": item[1],
+                "cumulative_count": item[2],
+            }
+            for item in query_response.results or []
+        ]
+
+        response_serializer = HeatmapsScrollDepthResponseSerializer(data={"results": data})
+        response_serializer.is_valid(raise_exception=True)
+
+        resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
+        resp["Cache-Control"] = "max-age=30"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
+        return resp
+
+    @action(methods=["GET"], detail=False)
+    def events(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_serializer = HeatmapEventsRequestSerializer(data=request.query_params, context={"team": self.team})
+        request_serializer.is_valid(raise_exception=True)
+
+        validated_data = request_serializer.validated_data
+        limit = validated_data.pop("limit")
+        offset = validated_data.pop("offset")
+        points = validated_data.pop("points")
+        validated_data.pop("aggregation", None)
+        validated_data.pop("hide_zero_coordinates", None)
+
+        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
+        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+
+        exprs = self._predicate_expressions(placeholders)
+
+        # Build OR condition for each exact point
+        # Each point must match the exact aggregation grouping used in DEFAULT_QUERY
+        point_conditions: list[ast.Expr] = []
+        for point in points:
+            x_rounded = round(float(point["x"]), 2)
+            y_int = int(point["y"])
+            target_fixed = bool(point.get("target_fixed", False))
+            point_expr = ast.And(
+                exprs=[
+                    parse_expr("round((x / viewport_width), 2) = {x}", {"x": Constant(value=x_rounded)}),
+                    parse_expr("y * scale_factor = {y}", {"y": Constant(value=y_int)}),
+                    parse_expr("pointer_target_fixed = {fixed}", {"fixed": Constant(value=target_fixed)}),
+                ]
+            )
+            point_conditions.append(point_expr)
+
+        # Combine all point conditions with OR
+        if len(point_conditions) == 1:
+            exprs.append(point_conditions[0])
+        else:
+            exprs.append(ast.Or(exprs=point_conditions))
+
+        if validated_data.get("filter_test_accounts") is True:
+            date_from: date = validated_data["date_from"]
+            date_to: date | None = validated_data.get("date_to", None)
+            exprs.append(self._build_test_accounts_filter(date_from, date_to))
+
+        # First get total count
+        count_stmt = parse_select(
+            "SELECT count() FROM heatmaps WHERE {predicates}",
+            {"predicates": ast.And(exprs=exprs)},
+        )
+        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
+        count_result = execute_hogql_query(
+            query=count_stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
+        )
+        total_count = count_result.results[0][0] if count_result.results else 0
+
+        # Then get events with limit and offset
+        stmt = parse_select(
+            EVENTS_QUERY,
+            {"predicates": ast.And(exprs=exprs), "limit": Constant(value=limit), "offset": Constant(value=offset)},
+        )
+        results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
+
+        data = [
+            {
+                "session_id": item[0] if item[0] else None,
+                "distinct_id": item[1],
+                "timestamp": item[2],
+                "pointer_relative_x": item[3],
+                "pointer_y": item[4],
+                "current_url": item[5],
+                "type": item[6],
+            }
+            for item in results.results or []
+        ]
+
+        response_serializer = HeatmapEventsResponseSerializer(
+            data={"results": data, "total_count": total_count, "has_more": total_count > offset + limit}
+        )
+        response_serializer.is_valid(raise_exception=True)
+
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class LegacyHeatmapViewSet(HeatmapViewSet):
+    param_derived_from_user_current_team = "team_id"
+
+
+# Heatmap Screenshot functionality
+
+
+class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    snapshots = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SavedHeatmap
+        fields = [
+            "id",
+            "short_id",
+            "name",
+            "url",
+            "data_url",
+            "target_widths",
+            "type",
+            "status",
+            "has_content",
+            "snapshots",
+            "deleted",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "exception",
+        ]
+        read_only_fields = [
+            "id",
+            "short_id",
+            "status",
+            "has_content",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "exception",
+        ]
+
+    def get_snapshots(self, obj: SavedHeatmap) -> list[dict]:
+        # Expose metadata of generated snapshots (width + readiness)
+        snaps = []
+        for snap in obj.snapshots.all():
+            snaps.append(
+                {
+                    "width": snap.width,
+                    "has_content": bool(snap.content or snap.content_location),
+                }
+            )
+        snaps.sort(key=lambda s: s["width"])
+        return snaps
+
+
+class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    # Screenshot exports render the heatmap in a headless browser, which authenticates
+    # via an EXPORT_RENDERER JWT. Without opting into ExportRendererAuthentication here,
+    # the exporter's `fetch(heatmap_url, Authorization: Bearer ...)` call in
+    # frontend/src/exporter/exporterViewLogic.ts:50-52 gets rejected, the background
+    # image never loads, and the exported PNG renders an `<img alt="Heatmap">` placeholder.
+    authentication_classes = [ExportRendererAuthentication]
+    scope_object = "heatmap"
+    scope_object_read_actions = ["list", "retrieve", "content"]
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapScreenshotResponseSerializer
+    queryset = SavedHeatmap.objects.all()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    @action(methods=["GET"], detail=True)
+    def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        screenshot = self.get_object()
+        if screenshot.deleted:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
+
+        # Pick requested width or default
+        try:
+            requested_width = int(request.query_params.get("width", 1024))
+        except (ValueError, TypeError):
+            return response.Response(
+                {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Try exact match snapshot
+        snapshot = screenshot.snapshots.filter(width=requested_width).first()
+
+        # If not found, pick closest by absolute difference among available snapshots
+        if not snapshot:
+            all_snaps = list(screenshot.snapshots.all())
+            if all_snaps:
+                snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
+
+        if not snapshot:
+            # Nothing generated yet
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+        if snapshot.content:
+            http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
+            http_response["Content-Disposition"] = (
+                f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
+            )
+            return http_response
+        elif snapshot.content_location:
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(
+                {**response_serializer.data, "error": "Content location not implemented yet"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+        else:
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+
+_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
+
+
+class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
+    widths = serializers.ListField(
+        child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
+    )
+
+    def validate_url(self, value: str) -> str:
+        if any(c in _URL_PATTERN_CHARS for c in value):
+            raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
+        ok, err = is_url_allowed(value)
+        if not ok:
+            raise serializers.ValidationError(err or "URL not allowed")
+        return value
+
+    class Meta:
+        model = SavedHeatmap
+        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
+        extra_kwargs = {
+            "name": {"required": False, "allow_null": True},
+            "url": {"required": True},
+            "data_url": {"required": False, "allow_null": True},
+            "type": {"required": False, "default": SavedHeatmap.Type.SCREENSHOT},
+            "deleted": {"required": False},
+        }
+
+
+class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
+    scope_object = "heatmap"
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapScreenshotResponseSerializer
+    queryset = SavedHeatmap.objects.all()
+    lookup_field = "short_id"
+
+    def get_throttles(self):
+        if self.action == "create":
+            # More restrictive rate limiting for expensive screenshot generation
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        qs = (
+            self.safely_get_queryset(self.get_queryset())
+            .filter(deleted=False)
+            .select_related("created_by")
+            .order_by("-updated_at")
+        )
+
+        type_param = request.query_params.get("type")
+        status_param = request.query_params.get("status")
+        search = request.query_params.get("search")
+        created_by_param = request.query_params.get("created_by")
+        order = request.query_params.get("order")
+
+        if type_param:
+            qs = qs.filter(type=type_param)
+        if status_param:
+            qs = qs.filter(status=status_param)
+        if search:
+            qs = qs.filter(Q(url__icontains=search) | Q(name__icontains=search))
+        if created_by_param:
+            try:
+                qs = qs.filter(created_by_id=int(created_by_param))
+            except (ValueError, TypeError):
+                return response.Response(
+                    {"error": "Invalid created_by parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+                )
+        if order:
+            try:
+                qs = qs.order_by(order)
+            except FieldError:
+                return response.Response({"error": f"Invalid order field: {order}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        limit = int(request.query_params.get("limit", 100))
+        offset = int(request.query_params.get("offset", 0))
+        count = qs.count()
+        results = qs[offset : offset + limit]
+
+        data = HeatmapScreenshotResponseSerializer(results, many=True).data
+        return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = SavedHeatmapRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        name = serializer.validated_data.get("name")
+        url = serializer.validated_data["url"]
+        data_url = serializer.validated_data.get("data_url") or url
+        widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
+        heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
+
+        screenshot = SavedHeatmap.objects.create(
+            team=self.team,
+            name=name,
+            url=url,
+            data_url=data_url,
+            target_widths=widths,
+            type=heatmap_type,
+            created_by=cast(User, request.user),
+            status=SavedHeatmap.Status.PROCESSING
+            if heatmap_type == SavedHeatmap.Type.SCREENSHOT
+            else SavedHeatmap.Status.COMPLETED,
+        )
+
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=screenshot.short_id or str(screenshot.id),
+            scope="Heatmap",
+            activity="created",
+            detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
+            was_impersonated=getattr(request, "was_impersonated", False),
+        )
+
+        if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
+            generate_heatmap_screenshot.delay(screenshot.id)
+
+        return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+
+        if (
+            obj.type == SavedHeatmap.Type.SCREENSHOT
+            and obj.status == SavedHeatmap.Status.PROCESSING
+            and obj.updated_at < datetime.now(tz=obj.updated_at.tzinfo) - STALE_PROCESSING_THRESHOLD
+        ):
+            self._regenerate(obj)
+
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        if obj.type != SavedHeatmap.Type.SCREENSHOT:
+            return response.Response(
+                {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self._regenerate(obj)
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    def _regenerate(self, obj: SavedHeatmap) -> None:
+        obj.status = SavedHeatmap.Status.PROCESSING
+        obj.exception = None
+        obj.save(update_fields=["status", "exception", "updated_at"])
+        HeatmapSnapshot.objects.filter(heatmap=obj).delete()
+        generate_heatmap_screenshot.delay(obj.id)
+
+    def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        old_url = obj.url
+        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+            self._regenerate(updated)
+
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=updated.short_id or str(updated.id),
+            scope="Heatmap",
+            activity="updated",
+            detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
+            was_impersonated=getattr(request, "was_impersonated", False),
+        )
+        return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)

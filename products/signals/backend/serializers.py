@@ -30,6 +30,7 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
     (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): ("Linear", "issues"),
     (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): ("Zendesk", "tickets"),
+    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
 }
 
 
@@ -79,7 +80,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         schema = (
             ExternalDataSchema.objects.filter(
@@ -158,11 +159,39 @@ class _UserSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
     user = _UserSerializer(read_only=True)
+    slack_notification_integration_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.",
+    )
 
     class Meta:
         model = SignalUserAutonomyConfig
-        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "user",
+            "autostart_priority",
+            "slack_notification_integration_id",
+            "slack_notification_channel",
+            "slack_notification_min_priority",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "user", "created_at", "updated_at"]
+        extra_kwargs = {
+            "slack_notification_channel": {
+                "help_text": (
+                    "Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere "
+                    "(only the channel id is required). Null disables Slack notifications."
+                )
+            },
+            "slack_notification_min_priority": {
+                "help_text": (
+                    "Minimum report priority that triggers a Slack notification. P0 is highest. "
+                    "Null means notify on every priority (and reports without a priority judgment)."
+                )
+            },
+        }
 
 
 class SignalReportTaskSerializer(serializers.ModelSerializer):
@@ -174,6 +203,27 @@ class SignalReportTaskSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+    slack_notification_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary key of a Slack `Integration` row in one of the caller's teams. Pair with "
+            "`slack_notification_channel` to enable notifications; pass null on either to disable them."
+        ),
+    )
+    slack_notification_channel = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text="`channel_id|#channel-name` target — same convention used by Insight Alerts.",
+    )
+    slack_notification_min_priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        required=False,
+        allow_null=True,
+        help_text="P0 is highest. Null = notify for every priority.",
+    )
 
 
 class SignalReportSerializer(serializers.ModelSerializer):

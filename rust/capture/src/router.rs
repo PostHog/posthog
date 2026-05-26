@@ -43,6 +43,10 @@ pub struct State {
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    /// Restriction service scoped to all pipelines this capture deployment
+    /// produces to (e.g. `[Analytics, ErrorTracking]` for the events
+    /// deployment). Callers select the pipeline per event when looking up
+    /// restrictions — see `events::analytics::process_events`.
     pub event_restriction_service: Option<EventRestrictionService>,
     pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -77,7 +81,7 @@ pub struct State {
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct HistoricalConfig {
     pub enable_historical_rerouting: bool,
     pub historical_rerouting_threshold_days: i64,

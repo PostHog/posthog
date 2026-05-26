@@ -9,8 +9,30 @@
 
     .quill-progress__indicator {
         height: 100%;
-        background-color: var(--primary);
         transition: all 0.15s ease;
+    }
+
+    /* Variants — colour the indicator only; track stays neutral so the
+       variant reads as "what value does this represent" rather than tinting
+       the whole control. */
+    .quill-progress__indicator--variant-default {
+        background-color: var(--primary);
+    }
+
+    .quill-progress__indicator--variant-info {
+        background-color: var(--info-foreground);
+    }
+
+    .quill-progress__indicator--variant-success {
+        background-color: var(--success-foreground);
+    }
+
+    .quill-progress__indicator--variant-warning {
+        background-color: var(--warning-foreground);
+    }
+
+    .quill-progress__indicator--variant-destructive {
+        background-color: var(--destructive-foreground);
     }
 
     .quill-progress__label {

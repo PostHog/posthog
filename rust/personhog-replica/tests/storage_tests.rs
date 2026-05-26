@@ -159,7 +159,8 @@ async fn test_get_group() {
     let fetched = result.unwrap();
     assert_eq!(fetched.group_key, "company_123");
     assert_eq!(fetched.group_type_index, 0);
-    assert_eq!(fetched.group_properties, properties);
+    let fetched_props: serde_json::Value = serde_json::from_str(&fetched.group_properties).unwrap();
+    assert_eq!(fetched_props, properties);
 
     ctx.cleanup().await.ok();
 }
@@ -244,8 +245,9 @@ async fn test_person_properties() {
 
     assert!(result.is_some());
     let fetched = result.unwrap();
-    assert_eq!(fetched.properties["email"], "props_test@example.com");
-    assert_eq!(fetched.properties["plan"], "enterprise");
+    let props: serde_json::Value = serde_json::from_str(&fetched.properties).unwrap();
+    assert_eq!(props["email"], "props_test@example.com");
+    assert_eq!(props["plan"], "enterprise");
 
     ctx.cleanup().await.ok();
 }

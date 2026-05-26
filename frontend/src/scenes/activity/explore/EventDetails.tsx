@@ -19,6 +19,8 @@ import { PropertyDefinitionType } from '~/types'
 import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
 import { EvaluationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/EvaluationDisplay'
 
+import { MCPEventView } from './MCPEventView'
+
 interface EventDetailsProps {
     event: ErrorPropertyTabEvent
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
@@ -101,9 +103,14 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <SurveyResponseDisplay
                                     eventProperties={properties}
                                     eventUuid={'uuid' in event && event.uuid ? event.uuid : undefined}
+                                    distinctId={'distinct_id' in event ? event.distinct_id : undefined}
+                                    timestamp={'timestamp' in event ? event.timestamp : undefined}
+                                    personProperties={'person' in event ? event.person?.properties : undefined}
                                 />
                             </div>
                         )
+                    case 'mcp':
+                        return <MCPEventView properties={properties} />
                     case 'exception_properties':
                         return (
                             <div className="mx-3 -mt-4">
