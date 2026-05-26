@@ -5,15 +5,15 @@
 # keeps its strictness.
 # mypy: disable-error-code="arg-type, union-attr, attr-defined, assignment"
 
-import hashlib
-import math
 import re
+import math
+import hashlib
 from typing import Any, Optional, cast
 
+import pytest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 from unittest.mock import patch
 
-import pytest
 from parameterized import parameterized
 from syrupy.extensions.amber import AmberSnapshotExtension
 
@@ -101,7 +101,9 @@ def parser_test_factory(backend: HogQLParserBackend):
         snapshot: Any
         pytestmark = pytest.mark.usefixtures("unittest_snapshot")
 
-        def _assert_ast(self, src: str, rule: str = "select", placeholders: Optional[dict[str, ast.Expr]] = None) -> None:
+        def _assert_ast(
+            self, src: str, rule: str = "select", placeholders: Optional[dict[str, ast.Expr]] = None
+        ) -> None:
             # Parse `src` on this backend and check it against the shared cross-backend snapshot.
             # cpp-json / rust-json / rust-py assert the FULL positioned AST (one recorded `.ambr`
             # entry per source — positions verified, cpp regressions caught, no live self-compare).
@@ -4748,9 +4750,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 LIMIT 1+1 % OFFSET 3",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_assignment_lhs_is_any_expression(self):
             # `exprStmt: expression (COLONEQUALS expression)?` — `:=` LHS has no place-expression restriction.
@@ -4786,9 +4786,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "if (c) a := b ;; else d",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_trailing_limit_offset_compound_body(self):
             # `LIMIT`/`OFFSET` after `LIMIT BY` takes a full `columnExpr` body — lower-precedence tails must bind.
@@ -4798,9 +4796,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select x limit a by c limit 1 + 1",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_zero_arg_lambda_as_clause_body(self):
             # After `,`, a clause-keyword + `()->` is a lambda clause body; bare `()` makes the keyword a column.
@@ -4811,9 +4807,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1, limit ()",  # bare () — keyword is a column
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_set_level_offset_compound_body(self):
             # `offsetOnlyClause: OFFSET columnExpr` at selectSetStmt level takes a full columnExpr (lower-precedence tails bind).
@@ -4823,9 +4817,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(select 1) offset a ?? b",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_pivot_tuple_or_single_parenthesised_operand(self):
             # Per `columnExprTupleOrSingle`, a parenthesised PIVOT/UNPIVOT operand is always a `Tuple`, even for one element.
@@ -4834,9 +4826,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a pivot (s for (c) in (1))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_pivot_binds_to_last_joined_table(self):
             # `joinExpr PIVOT` binds to the immediately-preceding `joinExpr`; after a constraint or explicit parens it wraps the whole chain.
@@ -4847,9 +4837,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from (a join b) pivot (x for y in (z))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.
@@ -4864,9 +4852,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "columns('re')",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_columns_replace_item_name_is_the_as_keyword(self):
             # `columnsReplace: columnExpr AS identifier` — the replacement name can itself be the keyword `as`.
@@ -4878,9 +4864,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(* replace(a as b))",  # guard: ordinary name
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_clause_keyword_then_postfix_op_is_a_column(self):
             # Clause body can't start with a postfix op, so `qualify?.q` / `prewhere::q` keep the keyword as a column.
@@ -4929,9 +4913,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a unpivot (m for (n) in (p))",  # guard: bare paren stays a Tuple
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_window_frame_between_falls_back_to_field(self):
             # After ROWS/RANGE, `between` is ambiguous: `frameBetween` alt OR `frameStart` whose columnExpr is the `between` Field.
@@ -4940,9 +4922,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a window w as (range between 1 preceding and 2 following)",  # guard: real BETWEEN frame
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_pivot_operand_containing_in(self):
             # PIVOT operand is full `columnExpr`, so `for n in p in (r)` → operand `n in p` + structural `IN (r)`.
@@ -4953,9 +4933,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a pivot (m for n in (r))",  # guard: simple form
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_decoration_after_pivot(self):
             # `tableExpr PIVOT (…)` is itself a `tableExpr` — it can chain into alias, FINAL/SAMPLE, further PIVOT, or JOIN.
@@ -4970,9 +4948,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM t PIVOT (a FOR b IN (c)) JOIN u ON x",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_clause_keyword_as_last_group_by_key(self):
             # The last GROUP BY key can be a clause-keyword Field (e.g. `window`); the next clause then opens normally.
@@ -5012,9 +4988,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 r'"a\0b"',
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_reserved_keyword_alias_rejected(self):
             # `assertValidAlias` fires at all four alias sites (AS-infix, alias-before, implicit, table); quoted forms opt out.
@@ -5053,17 +5027,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT count() OVER (ROWS 2 PRECEDING) FROM t",  # guard: int still bare
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_boolean_keyword_as_call_name(self):
             # `true`/`false` are identifiers in the grammar (Bool Constants only as a bare columnIdentifier); as a call name they're `Call(name=...)`.
             # `null` differs — `NULL` is a real lexer keyword, so `null(1)` stays an `ExprCall` on Null Constant.
             for src in ("true(1)", "false(1)", "null(1)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # guard: bare true/false/null are still Constants
             for src, val in (("true", True), ("false", False), ("null", None)):
                 node = parse_expr(src, backend=backend)
@@ -5175,9 +5145,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as a(if((c), d, e)))",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_subquery_arg_call_then_second_call(self):
             # `f(select 1)()` — `(select 1)` is `ColumnExprCallSelect`, the trailing `()` is a separate `ColumnExprCall` postfix nesting on top.
@@ -5187,9 +5155,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "f(select 1)(x)(y)",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_between_not_lambda_lower_bound(self):
             # `BETWEEN <low>`'s AND-reservation must propagate through a `NOT`-wrapped lambda low bound so the lambda doesn't over-consume `…and c`.
@@ -5198,9 +5164,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a between not x -> y and z",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_chained_between_inner_end_position(self):
             # Left-recursive `between`: `a between L1 and H1 between L2 and H2` parses as `BetweenExpr(BetweenExpr(a, L1, H1), L2, H2)`.
@@ -5228,9 +5192,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select a, qualify * limit 1",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_placeholder_statement_then_postfix_call_or_property(self):
             # `{expr}` at statement start is a placeholder; trailing `(…)` or `.x` is a postfix on it (not a `block` statement).
@@ -5241,9 +5203,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "{ {1}() }",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_placeholder_as_alias_inside_call_args(self):
             # `f({placeholder} AS alias, …)` — the placeholder is a columnExpr admitting a trailing `AS alias`, just like any other expression.
@@ -5255,9 +5215,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "if(has({x} as _x, {y}), _x, [])",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_is_only_consumes_known_tails(self):
             # `IS` is only `IS [NOT] NULL` / `IS [NOT] DISTINCT FROM y` per cpp's grammar; in Hog program mode anything else falls back to per-token ExprStatements (e.g. `this is a string` parses as four bare identifier statements).
@@ -5272,9 +5230,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "x is not distinct from y",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_window_frame_bound_low_precedence_value(self):
             # Window frame bound is a full `columnExpr` — admits comparison / AND / OR (BETWEEN still splits on its own AND).
@@ -5284,9 +5240,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT count() OVER (ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t",  # guard: real BETWEEN
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_join_op_modifier_arity_validation(self):
             # Each `joinOp` alt allows at most one ALL/ANY/ASOF; ANTI/SEMI combine only with ASOF as `ASOF (ANTI|SEMI)`.
@@ -5310,9 +5264,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM a ASOF LEFT JOIN b ON 1",
                 "SELECT 1 FROM a SEMI LEFT JOIN b ON 1",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_group_by_all_falls_back_to_columns_on_postfix(self):
             # `ALL` is also in the `keyword` rule — any postfix after `ALL` makes it a `Field('ALL')` columnExpr, not the all-mode marker.
@@ -5323,13 +5275,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a FROM t GROUP BY ALL[1]",
                 "SELECT a FROM t GROUP BY ALL()",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guard: bare `ALL` (clause terminator follows) still hits the all-mode marker.
-            oracle = parse_select("SELECT a FROM t GROUP BY ALL", backend="cpp-json")
-            got = parse_select("SELECT a FROM t GROUP BY ALL", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast("SELECT a FROM t GROUP BY ALL", "select")
 
         def test_with_rollup_cube_totals_chain_grammar(self):
             # `groupByClause … (WITH (CUBE|ROLLUP))? (WITH TOTALS)?` — at most one CUBE/ROLLUP, then optional TOTALS, in order.
@@ -5351,9 +5299,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a FROM t GROUP BY a WITH ROLLUP WITH TOTALS",
                 "SELECT a FROM t GROUP BY a WITH CUBE WITH TOTALS",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_pivot_in_list_must_be_non_empty(self):
             # `pivotColumn`'s `IN ( columnExprList )` is non-empty.
@@ -5364,9 +5310,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="cpp-json")
             # Guard: populated list still parses.
             src = "SELECT 1 FROM t PIVOT (sum(x) FOR y IN (1, 2))"
-            oracle = parse_select(src, backend="cpp-json")
-            got = parse_select(src, backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast(src, "select")
 
         def test_trim_substring_must_be_string_literal(self):
             # `TRIM (LEADING|TRAILING|BOTH string FROM columnExpr)` — `string` is `STRING_LITERAL | templateString` only.
@@ -5382,9 +5326,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
             # Guards: string literal + template string still parse.
             for src in ("TRIM(BOTH 'x' FROM y)", "TRIM(LEADING f'x' FROM y)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_cte_list_paren_after_non_paren_cte(self):
             # `, (` after a CTE continues the list — paren-subquery or paren-expr as next CTE, not a SELECT-start under trailing-comma tolerance.
@@ -5396,9 +5338,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "WITH 1 AS a, (x -> x + 1) AS f SELECT f(a)",
                 "WITH count() AS c, (x -> x + 1) AS f SELECT f(c)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_group_by_cube_rollup_continues_list(self):
             # `CUBE(...)` / `ROLLUP(...)` followed by `, <more>` is a regular function call; the specialised mode commits only when no list continuation follows.
@@ -5408,17 +5348,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t GROUP BY ROLLUP(a), b",
                 "SELECT * FROM t GROUP BY a, CUBE(b)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Bare `GROUP BY CUBE(...)` (no trailing keys) still uses the mode.
             for src in (
                 "SELECT * FROM t GROUP BY CUBE(a)",
                 "SELECT * FROM t GROUP BY ROLLUP(a)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_trailing_comma_after_joined_table_chain(self):
             # A stray trailing comma after a constrained JOIN chain (`FROM a JOIN b ON 1,`) falls off the joinExpr without requiring a next table atom.
@@ -5427,16 +5363,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b USING (x),",
                 "SELECT * FROM a JOIN b ON 1 JOIN c ON 1,",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_unterminated_block_comment_lexes_as_div_asterisk(self):
             # `/* … */` only matches with a closing `*/`; unterminated `/*` falls back to `/ *` tokens that the grammar then evaluates normally.
             for src in ("1 /*", "1 /* "):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
             # Unterminated `/*` + ident lexes as `1 / * ident`; expression parse fails on the extraneous tokens.
 
@@ -5445,9 +5377,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
 
             # Guard: closed `/* … */` is still trivia.
-            oracle = parse_expr("1 /* ok */ + 2", backend="cpp-json")
-            got = parse_expr("1 /* ok */ + 2", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast("1 /* ok */ + 2", "expr")
 
         def test_interpolate_no_trailing_comma(self):
             # `INTERPOLATE (…)` body is `interpolateExpr (COMMA interpolateExpr)*` — no trailing comma.
@@ -5462,14 +5392,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             # `true.x` is `Field(['true','x'])` — bools act as identifiers in `columnIdentifier` chain position, not Bool Constant + `.x` postfix.
             cases = ("true.x", "false.x", "TRUE.x", "true.x.y", "false.foo.bar")
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guards: bare `true`/`false` stay Bool Constants; `true(1)` is an ident-path Call.
             for src in ("true", "false", "true(1)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_using_empty_parens_rejected(self):
             # `joinConstraintClause` requires a non-empty `columnExprList` in both `USING (…)` and `USING …` forms.
@@ -5480,21 +5406,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 parse_select("SELECT * FROM a JOIN b USING ()", backend="cpp-json")
             # Populated USING still parses.
             src = "SELECT * FROM a JOIN b USING (x)"
-            oracle = parse_select(src, backend="cpp-json")
-            got = parse_select(src, backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast(src, "select")
 
         def test_group_by_cube_rollup_empty_is_function_call(self):
             # Empty `CUBE()`/`ROLLUP()` are ordinary Calls in the GROUP BY position, not mode markers.
             for src in ("SELECT 1 GROUP BY CUBE()", "SELECT 1 GROUP BY ROLLUP()"):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Populated CUBE / ROLLUP still uses the mode marker.
             src = "SELECT 1 GROUP BY CUBE(a, b)"
-            oracle = parse_select(src, backend="cpp-json")
-            got = parse_select(src, backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+            self._assert_ast(src, "select")
 
         def test_quoted_identifier_backslash_escapes(self):
             # `QUOTED_IDENTIFIER` admits `\"`, `\\`, and `""` escapes inside `"…"`.
@@ -5505,9 +5425,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 '"a"',
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_reserved_keywords_rejected_as_identifiers(self):
             # `identifier` excludes NULL_SQL/INF/NAN_SQL/EXCEPT/INTERSECT and Hog-statement keywords (FN/FUN/LET/WHILE/THROW/TRY/CATCH/FINALLY).
@@ -5592,9 +5510,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(* EXCLUDE (a) REPLACE (b AS c))",
                 "* EXCLUDE (a)",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_filter_clause_invalid_before_within_group(self):
             # `ColumnExprFunctionWithinGroup` has no FILTER slot.
@@ -5606,9 +5522,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_expr(src, backend=backend)
             # WITHIN GROUP alone still parses.
-            oracle = parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend="cpp-json")
-            got = parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast("median(x) WITHIN GROUP (ORDER BY y)", "expr")
 
         def test_window_function_args_no_distinct_no_inline_order_by(self):
             # `ColumnExprWinFunction` takes a plain `columnExprList` — no DISTINCT, no in-args ORDER BY.
@@ -5622,9 +5536,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
             # Plain forms still parse.
             for src in ("foo(a) OVER ()", "foo(DISTINCT a)", "foo(a ORDER BY b)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_unary_plus_only_on_numeric_literal(self):
             # `numberLiteral`'s `+` is a sign prefix on number/INF/NAN, not a general unary op.
@@ -5633,13 +5545,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in invalid:
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_expr(src, backend=backend)
-            # Guards: numeric / INF / NAN parse (NaN can't be equality-compared; pin parse success + node type).
-            for src in ("+1", "+1.5", "+inf", "+nan"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertIsNotNone(got, msg=f"{backend}: {src!r}")
-                if src not in ("+nan",):
-                    self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+            # Guards: numeric / INF parse and pin the AST. NaN can't be equality-compared, so just assert it parses.
+            for src in ("+1", "+1.5", "+inf"):
+                self._assert_ast(src, "expr")
+            self.assertIsNotNone(parse_expr("+nan", backend=backend))
 
         def test_column_cte_requires_identifier_after_as(self):
             # `withExpr: columnExpr AS identifier` — post-AS must be a real identifier, not a number / string / paren group.
@@ -5653,9 +5562,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend=backend)
             # Identifier names continue to work.
-            oracle = parse_select("WITH a AS b SELECT b", backend="cpp-json")
-            got = parse_select("WITH a AS b SELECT b", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}")
+            self._assert_ast("WITH a AS b SELECT b", "select")
 
         def test_limit_offset_with_ties_must_precede_offset(self):
             # `limitAndOffsetClause` is either `LIMIT n PERCENT? (COMMA n)? (WITH TIES)?` (compact) or `LIMIT n PERCENT? (WITH TIES)? OFFSET n` (verbose);
@@ -5671,9 +5578,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a FROM t LIMIT 1, 2 WITH TIES",
                 "SELECT a FROM t LIMIT 1 WITH TIES",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_pivot_in_separator_extends_via_postfix_call(self):
             # `pivotColumn`'s LHS extends past any `IN (…) (` (postfix-call on LHS); only the LAST `IN (…)` not followed by `(` is structural.
@@ -5684,9 +5589,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM t PIVOT (sum(x) FOR (y, z) IN ((a, b), (c, d)))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_return_expr_prefix_shortened_when_assignment_follows(self):
             # `return <expr>? <stmt>` where stmt starts with `:=` — cpp backtracks the expr to the shortest prefix that leaves `:=` parseable as the next stmt.
@@ -5702,9 +5605,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "fn f() { return *columns('a') }",  # no `:=`; full SpreadExpr
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_interpolate_as_lambda_value(self):
             # `interpolateExpr: columnExpr (AS columnExpr)?` — AS RHS is a full columnExpr, so a lambda body is valid.
@@ -5713,18 +5614,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 ORDER BY x INTERPOLATE (a AS y -> y+1)",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guards: AS with a non-lambda RHS still folds as a normal column alias.
             for src in (
                 "SELECT a AS my_alias FROM t",
                 'SELECT a AS "my alias" FROM t',
                 "SELECT 1 ORDER BY x INTERPOLATE (a AS 5)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_hogqlx_tag_in_from_paren_decorations(self):
             # `(<Tag/>)` is `LPAREN joinExpr RPAREN`: alias / FINAL / SAMPLE bind to the tag inside the parens (tableExpr) but not outside (JoinExprParens isn't a tableExpr).
@@ -5735,9 +5632,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM (<Tag /> FINAL)",
             )
             for src in accept:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
             reject = (
                 "SELECT 1 FROM (<Tag />) AS x",
@@ -5759,9 +5654,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<outer><inner>foo!bar</inner>baz&qux</outer>",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_hogqlx_tag_identifier_allows_hyphens(self):
             # `HOGQLX_TAG_OPEN`/`_CLOSE` modes admit `[a-zA-Z_][a-zA-Z0-9_-]*` for tag and attribute names — hyphens are part of the ident.
@@ -5774,9 +5667,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a-b>{1}</a-b>",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_join_expr_parens_does_not_take_outer_alias(self):
             # `JoinExprParens` isn't a `tableExpr`, so alias / FINAL / SAMPLE can't bind to a `(joinExpr)` from outside.
@@ -5799,9 +5690,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM (SELECT 1) AS x",
             )
             for src in valid:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_string_literal_unknown_backslash_escapes_rejected(self):
             # `ESCAPE_CHAR_COMMON` is closed: `\b \f \r \n \t \0 \a \v \\ \xNN` plus `\'`; anything else is a lexer error.
@@ -5827,9 +5716,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 r"'\xFF'",
             )
             for src in valid:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_sample_clause_leading_dot_float_value(self):
             # Leading-dot floats `.5` lex as `Dot` + `Number`, so SAMPLE's ratio gate must admit `Dot` when followed by a Number.
@@ -5840,9 +5727,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM t SAMPLE 1 / .04",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_sample_clause_only_accepts_number_literals(self):
             # `ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?` — each side is a `numberLiteral` only, not a general columnExpr.
@@ -5865,9 +5750,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t SAMPLE 1 OFFSET 2",
             )
             for src in valid:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_join_op_grammar_alts_validation(self):
             # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
@@ -5902,9 +5785,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM a ASOF LEFT JOIN b ON 1",
             )
             for src in valid:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_capital_F_template_string_only_in_full_template_context(self):
             # `f'…'` is reachable from `templateString` (a `columnExpr`); `F'…'` only from the `fullTemplateString` entry rule.
@@ -5914,9 +5795,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
             # Guard: lowercase form remains a valid column expression.
             for src in ("f'hello'", "f'{1+2}'"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_empty_paren_only_clauses_rejected(self):
             # `columnAliases`, `interpolateClause`'s paren body, and `columnsReplaceList` each require ≥ 1 element when parens are present.
@@ -5944,16 +5823,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 ORDER BY x INTERPOLATE (a AS b)",
                 "SELECT 1 ORDER BY x INTERPOLATE",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             for src in (
                 "COLUMNS(* REPLACE (a AS b, c AS d))",
                 "COLUMNS(* REPLACE (a AS b))",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_bare_zero_x_prefix_lexes_as_zero_plus_ident(self):
             # `HEXADECIMAL_LITERAL` requires ≥ 1 hex digit after `0x`; otherwise the lexer falls back to `0` then ident `x`.
@@ -5969,9 +5844,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_select(src, backend=backend)
             # Valid hex literals (≥ 1 hex digit) must keep working.
             for src in ("SELECT 0x1", "SELECT 0xFF", "SELECT 0xaB"):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_cast_type_param_group_mode_classification(self):
             # `IDENT(...)` type expr commits per-group: Param renders via raw text (case-preserved, spaceless), Complex / Nested lowercase + `, `-join.
@@ -5997,9 +5870,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as Foo(case when (c) then d end))",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_hogqlx_comments_skipped_between_attributes(self):
             # `HOGQLX_TAG_OPEN`/`_CLOSE` modes skip block + line comments and route unknown bytes to UNEXPECTED_CHARACTER.
@@ -6011,9 +5882,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a /*c*/ />",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guard: unknown bytes (`#`, `@`) inside a tag now reject via UNEXPECTED_CHARACTER.
             for src in ("<a # comment\n />", "<a @x b={1}/>"):
                 with self.assertRaises(ExposedHogQLError, msg=src):
@@ -6048,18 +5917,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := f() * ()",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guard: a valid full expression still parses greedily — recovery only fires when RHS rejects.
             for src in (
                 "let x := {} * (1)",
                 "let x := 1 + 2",
                 "let x := 1",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_unpivot_emits_include_nulls_false_by_default(self):
             # `JoinExprUnpivot` always emits `include_nulls` — `false` by default, `true` when `INCLUDE NULLS` is present.
@@ -6068,9 +5933,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t UNPIVOT INCLUDE NULLS (val FOR month IN (a, b))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_not_with_keyword_infix_treats_not_as_field(self):
             # `NOT <kw-infix> <rhs>` is `Field([not]) <kw-infix> <rhs>` when the infix RHS is valid; otherwise `Not(Field(kw))`.
@@ -6082,9 +5945,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "NOT IS NOT NULL",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guards: unary-NOT shapes work when the rhs is a complete columnExpr (no kw-infix gap).
             for src in (
                 "NOT x",
@@ -6092,9 +5953,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "not in (1,2)",  # IN takes a paren-list, parses as Not(Call(in))
                 "NOT IN (1)",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_multi_join_with_stacked_on_using_clauses(self):
             # Multi-JOIN with stacked constraints binds right-associatively: in `a JOIN b JOIN c ON1 ON2`, ON1 attaches to `c`, ON2 to `b`.
@@ -6106,9 +5965,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guards: the interleaved / single-constraint shapes still
             # parse the same way.
             for src in (
@@ -6116,9 +5973,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b ON 1",
                 "SELECT * FROM a JOIN b USING (x)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_enum_cast_rejected_as_unsupported(self):
             # `ColumnTypeExprEnum` (`ident(enumValue,…)` where `enumValue: STRING = number`) is explicitly unsupported by the visitor.
@@ -6168,9 +6023,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as FixedString(16))",
                 "cast(x as Decimal(10, 2))",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_stmt_expression_pratt_recovers_at_statement_level(self):
             # `x *= 2` has no `*=` token: splits into two stmts (`x` and `* = 2` → Compare(Field('*'), '==', 2)).
@@ -6180,14 +6033,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := 1; x *= 2;",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: `* = 2` is a Compare; `* 2` is two ExprStatements; `x * y` is a single multiplication.
             for src in ("* = 2", "* 2", "x * y", "x = 2"):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_let_decl_shortens_rhs_when_trailing_colon_equals(self):
             # `LET ident := <expr>` has no slot for a trailing `:=`; cpp shortens the expr to its leading primary so the trailing `:=` opens a new stmt.
@@ -6197,9 +6046,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := (1) * (2) := 3",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: ident-chain RHS keeps the full expression via the NamedArgument path.
             for src in (
                 "let x := y",
@@ -6208,9 +6055,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := y * z := 1",
                 "let x := y * z := 1;",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_bare_assignment_lead_chains_through_second_colon_equals(self):
             # `IDENT := <rhs> := <outer>` — the *second* `:=` is the stmt-level varAssignment; the leading `IDENT := <rhs>` becomes a NamedArgument lvalue.
@@ -6222,9 +6067,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a := 'str' := 2",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: existing single- and ident-chain forms.
             for src in (
                 "a := 1",
@@ -6235,9 +6078,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "if (c) a := b",
                 "if (c) a := b ; else d",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_pivot_column_lhs_extends_past_in_via_infix_operators(self):
             # `pivotColumn`'s LHS extends through ANY infix operator after an `IN(…)`; the structural IN is the LAST one not followed by an extender.
@@ -6263,9 +6104,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t PIVOT(1 FOR a IN (b))",
             )
             for src in same_ast:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_parse_order_expr_silently_drops_trailing_tokens(self):
             # `parse_order_expr_json` parses one OrderExpr and silently drops anything trailing (incl. INTERPOLATE, which is one level up).
@@ -6276,9 +6115,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a WITH FILL INTERPOLATE (b)",
                 "a WITH FILL FROM 1 TO 10 INTERPOLATE (b)",
             ):
-                oracle = parse_order_expr(src, backend="cpp-json")
-                got = parse_order_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "order")
 
         def test_pivot_group_by_with_empty_list_rejected(self):
             # `GROUP BY` (PIVOT-level included) requires a non-empty `columnExprList`.
@@ -6297,9 +6134,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY a,)",
                 "SELECT * FROM t PIVOT(sum(a) FOR b IN (1))",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_return_expr_prefix_shortening_admits_keyword_head(self):
             # A leading keyword (`return return *(...) := X`) is a valid shortening head: expr = Field(['return']), `* (...) := X` is the next stmt.
@@ -6308,9 +6143,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "return return * ( 'e' ) := ( 'e' )",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: existing shortening shapes still work.
             for src in (
                 "return * columns('a') := 1",
@@ -6321,9 +6154,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "return x",
                 "return 1 + 2",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_hogqlx_drops_whitespace_only_children_containing_newline(self):
             # `HogqlxTagElementNested` drops child text runs that are all-whitespace AND contain a newline (so pretty-printed HOGQLX has no spurious Constant children).
@@ -6333,9 +6164,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a>{x}\n</a>",
                 "<a>\n  <b/>\n</a>",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guards: pure-space/tab (no newline) and mixed-content runs are kept.
             for src in (
                 "<a> </a>",
@@ -6345,9 +6174,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a></a>",
                 "<a/>",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
@@ -6368,16 +6195,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIn(expected_msg, str(rust_cm.exception), msg=src)
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
             for src in ("a IN COHORT", "a NOT IN COHORT", "a IN cohort"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             for src in (
                 "SELECT a IN COHORT, b FROM t",
                 "SELECT * FROM t WHERE x IN cohort",
@@ -6385,14 +6208,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t WHERE x IN cohort ORDER BY y",
                 "SELECT a IN cohort LIMIT 1",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guard: when an expression-starter follows, COHORT remains the marker.
             for src in ("a IN COHORT 1", "a IN COHORT t.id", "a NOT IN COHORT 1", "a IN cohort + 1"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_tuple_access_rejects_leading_zero_index(self):
             # Postfix `.<index>` requires `DECIMAL_LITERAL`; leading-zero numbers lex as `OCTAL_PREFIX_LITERAL` and are rejected.
@@ -6409,17 +6228,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
             # Guards: single-zero, multi-digit, and float-style chains.
             for src in ("a.0", "a.1", "a.999", "a.1.5", "a.0.5", "a?.0", "a?.1"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_with_cte_admits_primary_form_keywords_as_name(self):
             # CTE names can be any keyword in `identifier` — including primary-form heads (CASE / CAST / SELECT / NOT).
             for kw in ("select", "case", "cast", "not"):
                 src = f"WITH {kw} AS (SELECT 1) SELECT * FROM {kw}"
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guard: NULL / INF / NAN / INTERSECT stay rejected — omitted from `keyword`.
             for kw in ("null", "inf", "nan", "intersect"):
                 src = f"WITH {kw} AS (SELECT 1) SELECT * FROM {kw}"
@@ -6446,9 +6261,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a CROSS JOIN b",
                 "SELECT * FROM a, b",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_cast_type_compound_loop_stops_at_non_identifier_keyword(self):
             # `columnTypeExpr`'s compound alt is `identifier identifier+`; NULL / INF / NAN aren't in `identifier`, so `cast(x as Int NULL)` rejects.
@@ -6473,9 +6286,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as Foo Bar Baz)",
                 "cast(x as Foo Not Bar)",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_call_arg_select_releases_when_followed_by_keyword_infix(self):
             # `f((SELECT 1) IN [1,2])` — the first call arg is the full Compare; keyword-led infixes (IN/LIKE/IS/BETWEEN + NOT-variants) must release the SELECT-as-arg arm.
@@ -6492,14 +6303,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "f((SELECT 1) NOT BETWEEN 1 AND 2)",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guard: bare-SELECT call argument.
             for src in ("f((SELECT 1))", "f(SELECT 1)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
         def test_named_argument_admits_identifier_shaped_keywords(self):
             # `ColumnExprNamedArg: identifier COLONEQUALS columnExpr` — `true`/`false` are plain IDENTIFIERs in the lexer; soft keywords pass via `keyword`.
@@ -6513,9 +6320,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "f(x := 1)",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guard: NULL / INF / NAN aren't in `identifier`, so they stay rejected.
             for src in ("f(null := 1)", "f(inf := 1)", "f(nan := 1)"):
                 with self.assertRaises(ExposedHogQLError, msg=src):
@@ -6565,27 +6370,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("lambda x: x", "expr"),
             )
             for src, kind in valid_cases:
-                parse_fn = parse_program if kind == "program" else parse_expr
-                oracle = parse_fn(src, backend="cpp-json")
-                got = parse_fn(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, kind)
 
         def test_true_false_admitted_as_identifier_in_chain_and_table_positions(self):
             # `true`/`false` are plain IDENTIFIERs in the lexer; they lift to Bool Constants only in the bare-Field branch.
             expr_cases = ("x.true", "x.false", "x.true.false")
             for src in expr_cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             select_cases = (
                 "SELECT * FROM x.true",
                 "SELECT * FROM x.false",
                 "WITH x(true, false) AS (SELECT 1, 2) SELECT * FROM x",
             )
             for src in select_cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_join_constraint_rejected_on_lead_table_and_cross_join(self):
             # `joinConstraintClause` attaches to `JoinExprOp` / `JoinExprPositional` only — not to the lead `JoinExprTable` or `JoinExprCrossOp`.
@@ -6630,9 +6428,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 # `sample` as an ident inside USING(…) — the `(` follow-token defers to the constraint parser, not the USING-SAMPLE guard.
                 "SELECT * FROM a JOIN b USING (sample)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_columns_exclude_replace_reject_reserved_keywords(self):
             # `columnsExcludeItem` and `columnsReplaceItem` use the strict `identifier` rule (excludes NULL/INF/NAN/EXCEPT/INTERSECT + Hog-stmt keywords).
@@ -6655,9 +6451,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * EXCLUDE (a.b) FROM t",
                 "SELECT COLUMNS(* REPLACE (a AS b)) FROM t",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
         def test_invalid_interval_in_block_body_rejected(self):
             # Once `interval` is followed by a primary value it commits to the INTERVAL
