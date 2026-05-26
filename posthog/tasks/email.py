@@ -13,6 +13,7 @@ import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
 
+from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
@@ -941,7 +942,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
             "user_name": user.first_name,
             "user_email": user.email,
             "url": reset_link,
-            "expiration_hours": 1,
+            "expiration_hours": TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS,
             "site_url": settings.SITE_URL,
         },
     )

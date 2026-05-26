@@ -77,7 +77,7 @@ import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
-const SYNC_DELAY = 1000
+export const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
 
 export type NotebookLogicMode = 'notebook' | 'canvas'

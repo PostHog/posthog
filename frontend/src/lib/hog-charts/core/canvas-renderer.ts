@@ -486,6 +486,48 @@ export function drawBars(
     }
 }
 
+// Tracks render as a tinted base under hatched stripes — same construction as the legacy
+// funnel backdrop (`var(--series-color)` behind `repeating-linear-gradient` stripes), so the
+// whole region reads as continuously filled rather than as bare stripes on the background.
+const BAR_TRACK_BASE_ALPHA = 0.14
+const BAR_TRACK_HATCH_ALPHA = 0.18
+/** Translucent overlay drawn over the track on hover. Exported so the chart-type's
+ *  hover callback can match the resting track's tuning. */
+export const BAR_TRACK_HOVER_ALPHA = 0.2
+
+function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], cornerRadius: number): void {
+    for (const track of tracks) {
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, track.x, track.y, track.width, track.height, cornerRadius, track.corners)
+        ctx.fill()
+    }
+}
+
+/** Paints each track rect as a tinted base under hatched stripes. Takes laid-out rects
+ *  from `computeBarTrackRect`, mirroring `drawBars`. */
+export function drawBarTracks(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    tracks: BarRect[],
+    cornerRadius: number
+): void {
+    const renderableTracks = tracks.filter((t) => t.width > 0 && t.height > 0)
+    if (renderableTracks.length === 0) {
+        return
+    }
+    const { ctx } = drawCtx
+    ctx.save()
+    // Solid base fill — what makes the region differ from the background, even between stripes.
+    ctx.globalAlpha = BAR_TRACK_BASE_ALPHA
+    ctx.fillStyle = series.color
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
+    // Hatched stripes on top.
+    ctx.globalAlpha = BAR_TRACK_HATCH_ALPHA
+    ctx.fillStyle = getHatchPattern(ctx, series.color)
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
+    ctx.restore()
+}
+
 /** Translucent fill on the overlay canvas, alpha-composited over the static bar. */
 export function drawBarHighlight(
     ctx: CanvasRenderingContext2D,

@@ -40,3 +40,22 @@ export function getEventsWithPrimaryProperty<T extends { event: string }>(
 ): T[] {
     return events.filter((e) => getPrimaryPropertyForEvent(e.event, overrides) !== null)
 }
+
+/**
+ * Given a list of event names, returns the deduplicated primary properties
+ * associated with them (taxonomy default or team override). Pure client-side
+ * wrapper over `getPrimaryPropertyForEvent`.
+ */
+export function getDistinctPrimaryPropertiesForEvents(
+    eventNames: string[],
+    overrides?: Record<string, string | null | undefined>
+): string[] {
+    const distinct = new Set<string>()
+    for (const eventName of eventNames) {
+        const primary = getPrimaryPropertyForEvent(eventName, overrides)
+        if (primary) {
+            distinct.add(primary)
+        }
+    }
+    return Array.from(distinct)
+}

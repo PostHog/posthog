@@ -69,6 +69,18 @@ export const authFailuresTotal = new Counter({
     labelNames: ['reason'] as const,
 })
 
+export const rateLimitChecksTotal = new Counter({
+    name: 'mcp_rate_limit_checks_total',
+    help: 'Rate limit checks on /mcp requests, by scope and outcome.',
+    labelNames: ['scope', 'result'] as const,
+})
+
+export const rateLimitErrorsTotal = new Counter({
+    name: 'mcp_rate_limit_errors_total',
+    help: 'Rate limit Redis op failures (request still served — fail-open).',
+    labelNames: ['scope'] as const,
+})
+
 export function routeLabel(pathname: string): string {
     if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         return '/mcp'

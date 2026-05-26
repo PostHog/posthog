@@ -2,8 +2,8 @@
 # name: TestPersonalSpendQueries.test_empty_result_when_no_events
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
-  SELECT countIf(1) AS scoped_event_count,
-         round(sumIf(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 1), 6) AS scoped_cost_usd,
+  SELECT countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0)) AS scoped_event_count,
+         round(sumIf(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0)), 6) AS scoped_cost_usd,
          count() AS event_count,
          round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS total_cost_usd
   FROM events
@@ -62,7 +62,7 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(events__person.properties___email, 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(events__person.properties___email, 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   GROUP BY tool
   ORDER BY cost_usd DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -142,48 +142,8 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(events__person.properties___email, 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_model'), ''), 'null'), '^"|"$', '')
-  ORDER BY cost_usd DESC
-  LIMIT 51 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestPersonalSpendQueries.test_empty_result_when_no_events.4
-  '''
-  /* user_id:0 request:_snapshot_@me_spend_ */
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS trace_id,
-         count() AS generation_count,
-         round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS cost_usd,
-         min(toTimeZone(events.timestamp, 'UTC')) AS started_at
-  FROM events
-  LEFT OUTER JOIN
-    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-  LEFT JOIN
-    (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                   (SELECT person.id AS id, max(person.version) AS version
-                                                    FROM person
-                                                    WHERE equals(person.team_id, 99999)
-                                                    GROUP BY person.id
-                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(events__person.properties___email, 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(events__person.properties___email, 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  GROUP BY model
   ORDER BY cost_usd DESC
   LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,

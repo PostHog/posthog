@@ -3868,6 +3868,14 @@
                             "minimum": -9007199254740991,
                             "type": "integer"
                         },
+                        "xAxisLabel": {
+                            "description": "Custom label rendered under the X axis.",
+                            "type": "string"
+                        },
+                        "yAxisLabel": {
+                            "description": "Custom label rendered alongside the Y axis.",
+                            "type": "string"
+                        },
                         "yAxisScaleType": {
                             "default": "linear",
                             "description": "Whether to scale the y-axis.",

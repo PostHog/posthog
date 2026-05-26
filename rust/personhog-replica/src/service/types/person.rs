@@ -8,14 +8,14 @@ impl From<storage::Person> for Person {
             id: person.id,
             uuid: person.uuid.to_string(),
             team_id: person.team_id,
-            properties: serde_json::to_vec(&person.properties).unwrap_or_default(),
+            properties: person.properties.into_bytes(),
             properties_last_updated_at: person
                 .properties_last_updated_at
-                .map(|v| serde_json::to_vec(&v).unwrap_or_default())
+                .map(|v| v.into_bytes())
                 .unwrap_or_default(),
             properties_last_operation: person
                 .properties_last_operation
-                .map(|v| serde_json::to_vec(&v).unwrap_or_default())
+                .map(|v| v.into_bytes())
                 .unwrap_or_default(),
             created_at: person.created_at.timestamp_millis(),
             version: person.version.unwrap_or(0),

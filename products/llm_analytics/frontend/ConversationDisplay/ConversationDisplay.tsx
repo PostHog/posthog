@@ -6,9 +6,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
+import { buildInputSourceIndices } from '../extractSessionTurns'
 import { useAIData } from '../hooks/useAIData'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
-import { costContextFromProperties, normalizeMessage, normalizeMessages } from '../utils'
+import { costContextFromProperties, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -47,21 +48,7 @@ export function ConversationDisplay({
 
     const showPlaygroundButton = eventProperties.$ai_model && input
 
-    const inputSourceIndices = React.useMemo(() => {
-        const indices: number[] = []
-        if (tools) {
-            indices.push(-1)
-        }
-        if (Array.isArray(input)) {
-            for (let i = 0; i < input.length; i++) {
-                const expanded = normalizeMessage(input[i], 'user')
-                for (let j = 0; j < expanded.length; j++) {
-                    indices.push(i)
-                }
-            }
-        }
-        return indices
-    }, [input, tools])
+    const inputSourceIndices = React.useMemo(() => buildInputSourceIndices(input, tools), [input, tools])
 
     return (
         <>
