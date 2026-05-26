@@ -1,11 +1,9 @@
 import { HealthCheckResultOk } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
-import {
-    ConsumerManagedService,
-    composeConsumerLifecycle,
-    newCommonIngestionConsumer,
-} from './common-ingestion-consumer-builder'
+import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from './common-ingestion-consumer'
+import { composeConsumerLifecycle, createCommonIngestionConsumer } from './common-ingestion-consumer-builder'
+import { ConsumerManagedService, newLifecycleBuilder } from './service-registry'
 
 function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     return {
@@ -13,167 +11,160 @@ function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     } as unknown as IngestionOutputs<string>
 }
 
-function makeService(): ConsumerManagedService & { start: jest.Mock; stop: jest.Mock } {
+function makeService(log: string[], label: string): ConsumerManagedService {
     return {
-        start: jest.fn().mockResolvedValue(undefined),
-        stop: jest.fn().mockResolvedValue(undefined),
+        start: jest.fn((): Promise<void> => {
+            log.push(`${label}.start`)
+            return Promise.resolve()
+        }),
+        stop: jest.fn((): Promise<void> => {
+            log.push(`${label}.stop`)
+            return Promise.resolve()
+        }),
     }
 }
 
-function record(calls: string[], label: string): () => Promise<void> {
-    return () => {
-        calls.push(label)
-        return Promise.resolve()
+function makeConfig(overrides: Partial<CommonIngestionConsumerConfig> = {}): CommonIngestionConsumerConfig {
+    return {
+        INGESTION_CONSUMER_GROUP_ID: 'g',
+        INGESTION_CONSUMER_CONSUME_TOPIC: 't',
+        INGESTION_PIPELINE: 'analytics',
+        INGESTION_LANE: 'main',
+        KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        ...overrides,
     }
 }
 
 describe('composeConsumerLifecycle', () => {
-    it('starts services in registration order, then verifies topics, then runs onStart hooks', async () => {
-        const calls: string[] = []
-        const a: ConsumerManagedService = {
-            start: jest.fn(record(calls, 'a.start')),
-            stop: jest.fn().mockResolvedValue(undefined),
-        }
-        const b: ConsumerManagedService = {
-            start: jest.fn(record(calls, 'b.start')),
-            stop: jest.fn().mockResolvedValue(undefined),
-        }
+    it('starts services via the lifecycle, then verifies topics', async () => {
+        const log: string[] = []
+        const a = makeService(log, 'a')
+        const b = makeService(log, 'b')
+        const lifecycle = newLifecycleBuilder().register('a', a).register('b', b).build('consumer')
+
         const outputs = {
             checkTopics: jest.fn(() => {
-                calls.push('checkTopics')
+                log.push('checkTopics')
                 return Promise.resolve([])
             }),
         } as unknown as IngestionOutputs<string>
 
-        const lifecycle = composeConsumerLifecycle({
-            services: { a, b },
+        const consumerLifecycle = composeConsumerLifecycle({
+            lifecycle,
             outputs,
             promiseScheduler: new PromiseScheduler(),
-            onStartHooks: [record(calls, 'hook1'), record(calls, 'hook2')],
-            onStopHooks: [],
             healthcheckFn: undefined,
         })
 
-        await lifecycle.onStart!()
+        await consumerLifecycle.onStart!()
 
-        expect(calls).toEqual(['a.start', 'b.start', 'checkTopics', 'hook1', 'hook2'])
+        expect(log).toEqual(['a.start', 'b.start', 'checkTopics'])
     })
 
-    it('stops in reverse: onStop hooks reversed, then services reversed, then drains scheduler', async () => {
-        const calls: string[] = []
-        const scheduler = new PromiseScheduler()
-        const drainSpy = jest.spyOn(scheduler, 'waitForAll').mockImplementation(() => {
-            calls.push('drain')
-            return Promise.resolve([])
-        })
-        const a: ConsumerManagedService = {
-            start: jest.fn().mockResolvedValue(undefined),
-            stop: jest.fn(record(calls, 'a.stop')),
-        }
-        const b: ConsumerManagedService = {
-            start: jest.fn().mockResolvedValue(undefined),
-            stop: jest.fn(record(calls, 'b.stop')),
-        }
+    it('rolls the lifecycle back when topic verification fails', async () => {
+        const log: string[] = []
+        const a = makeService(log, 'a')
+        const lifecycle = newLifecycleBuilder().register('a', a).build('consumer')
 
-        const lifecycle = composeConsumerLifecycle({
-            services: { a, b },
-            outputs: makeOutputs(),
-            promiseScheduler: scheduler,
-            onStartHooks: [],
-            onStopHooks: [record(calls, 'stop1'), record(calls, 'stop2')],
+        const consumerLifecycle = composeConsumerLifecycle({
+            lifecycle,
+            outputs: makeOutputs(['events', 'dlq']),
+            promiseScheduler: new PromiseScheduler(),
             healthcheckFn: undefined,
         })
 
-        await lifecycle.onStop!()
+        await expect(consumerLifecycle.onStart!()).rejects.toThrow('Output topic verification failed')
+        expect(log).toEqual(['a.start', 'a.stop'])
+    })
 
-        expect(calls).toEqual(['stop2', 'stop1', 'b.stop', 'a.stop', 'drain'])
+    it('stops services in reverse, then drains the scheduler, on onStop', async () => {
+        const log: string[] = []
+        const a = makeService(log, 'a')
+        const b = makeService(log, 'b')
+        const lifecycle = newLifecycleBuilder().register('a', a).register('b', b).build('consumer')
+
+        const scheduler = new PromiseScheduler()
+        const drainSpy = jest.spyOn(scheduler, 'waitForAll').mockImplementation(() => {
+            log.push('drain')
+            return Promise.resolve([])
+        })
+
+        const consumerLifecycle = composeConsumerLifecycle({
+            lifecycle,
+            outputs: makeOutputs(),
+            promiseScheduler: scheduler,
+            healthcheckFn: undefined,
+        })
+
+        await consumerLifecycle.onStart!()
+        await consumerLifecycle.onStop!()
+
+        expect(log).toEqual(['a.start', 'b.start', 'b.stop', 'a.stop', 'drain'])
         expect(drainSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('throws when topic verification fails', async () => {
-        const lifecycle = composeConsumerLifecycle({
-            services: {},
-            outputs: makeOutputs(['events', 'dlq']),
-            promiseScheduler: new PromiseScheduler(),
-            onStartHooks: [],
-            onStopHooks: [],
-            healthcheckFn: undefined,
-        })
+    it('exposes the supplied healthcheck function', () => {
+        const fn = jest.fn().mockResolvedValue(new HealthCheckResultOk())
 
-        await expect(lifecycle.onStart!()).rejects.toThrow(/events, dlq/)
-    })
-
-    it('does not run onStart hooks when topic verification fails', async () => {
-        const hook = jest.fn()
-        const lifecycle = composeConsumerLifecycle({
-            services: {},
-            outputs: makeOutputs(['oops']),
-            promiseScheduler: new PromiseScheduler(),
-            onStartHooks: [hook],
-            onStopHooks: [],
-            healthcheckFn: undefined,
-        })
-
-        await expect(lifecycle.onStart!()).rejects.toThrow()
-        expect(hook).not.toHaveBeenCalled()
-    })
-
-    it('exposes the user-supplied healthcheck', async () => {
-        const healthcheckFn = jest.fn().mockResolvedValue(new HealthCheckResultOk())
-        const lifecycle = composeConsumerLifecycle({
-            services: {},
+        const consumerLifecycle = composeConsumerLifecycle({
+            lifecycle: newLifecycleBuilder().build('consumer'),
             outputs: makeOutputs(),
             promiseScheduler: new PromiseScheduler(),
-            onStartHooks: [],
-            onStopHooks: [],
-            healthcheckFn,
+            healthcheckFn: fn,
         })
 
-        await lifecycle.healthcheck!()
-        expect(healthcheckFn).toHaveBeenCalledTimes(1)
+        expect(consumerLifecycle.healthcheck).toBe(fn)
     })
 
     it('drains the promise scheduler in getBackgroundWork', async () => {
         const scheduler = new PromiseScheduler()
         const drainSpy = jest.spyOn(scheduler, 'waitForAll').mockResolvedValue([])
 
-        const lifecycle = composeConsumerLifecycle({
-            services: {},
+        const consumerLifecycle = composeConsumerLifecycle({
+            lifecycle: newLifecycleBuilder().build('consumer'),
             outputs: makeOutputs(),
             promiseScheduler: scheduler,
-            onStartHooks: [],
-            onStopHooks: [],
             healthcheckFn: undefined,
         })
 
-        await lifecycle.getBackgroundWork!(new PromiseScheduler())
+        await consumerLifecycle.getBackgroundWork!(scheduler)
         expect(drainSpy).toHaveBeenCalledTimes(1)
     })
 })
 
-describe('newCommonIngestionConsumer phase transitions', () => {
-    it('does not invoke the pipeline factory until build()', () => {
-        const teamManager = makeService()
-        const topHog = makeService()
+describe('createCommonIngestionConsumer', () => {
+    it('returns a CommonIngestionConsumer wired to the supplied lifecycle and pipeline', () => {
+        const lifecycle = newLifecycleBuilder().build('consumer')
         const outputs = makeOutputs()
+        const pipeline = { feed: jest.fn(), next: jest.fn() }
 
-        const factory = jest.fn().mockReturnValue({
-            feed: jest.fn(),
-            next: jest.fn(),
+        const consumer = createCommonIngestionConsumer({
+            config: makeConfig(),
+            lifecycle,
+            outputs,
+            pipeline: () => pipeline,
         })
 
-        newCommonIngestionConsumer({
-            INGESTION_CONSUMER_GROUP_ID: 'g',
-            INGESTION_CONSUMER_CONSUME_TOPIC: 't',
-            INGESTION_PIPELINE: 'analytics',
-            INGESTION_LANE: 'main',
-            KAFKA_BATCH_START_LOGGING_ENABLED: false,
-        })
-            .withService('teamManager', teamManager)
-            .withService('topHog', topHog)
-            .setOutputs(outputs)
-            .withPipeline(factory)
+        expect(consumer).toBeInstanceOf(CommonIngestionConsumer)
+    })
 
-        expect(factory).toHaveBeenCalledTimes(0)
+    it('passes the lifecycle services and outputs to the pipeline factory', () => {
+        const a = makeService([], 'a')
+        const lifecycle = newLifecycleBuilder().register('a', a).build('consumer')
+        const outputs = makeOutputs()
+        const factory = jest.fn().mockReturnValue({ feed: jest.fn(), next: jest.fn() })
+
+        createCommonIngestionConsumer({
+            config: makeConfig(),
+            lifecycle,
+            outputs,
+            pipeline: factory,
+        })
+
+        expect(factory).toHaveBeenCalledTimes(1)
+        const ctx = factory.mock.calls[0][0]
+        expect(ctx.services).toBe(lifecycle.services)
+        expect(ctx.outputs).toBe(outputs)
+        expect(ctx.promiseScheduler).toBeDefined()
     })
 })
