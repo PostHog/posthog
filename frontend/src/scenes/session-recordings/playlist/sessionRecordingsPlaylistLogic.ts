@@ -1277,11 +1277,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 onSuccess()
             }
         },
-        setIsAddToCollectionModalOpen: ({ isAddToCollectionModalOpen }) => {
-            if (isAddToCollectionModalOpen) {
-                actions.loadCollectionsForBulkAdd(null)
-            }
-        },
         setAddToCollectionSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadCollectionsForBulkAdd(null)

@@ -28,11 +28,16 @@ const filterPlaylistsBySearch = (search: string | null): SavedSessionRecordingPl
 }
 
 const StoryWrapper = ({ initialSearch }: { initialSearch?: string }): JSX.Element => {
-    const { setIsAddToCollectionModalOpen, setAddToCollectionSearch, setSelectedRecordingsIds } =
-        useActions(sessionRecordingsPlaylistLogic)
+    const {
+        setIsAddToCollectionModalOpen,
+        setAddToCollectionSearch,
+        setSelectedRecordingsIds,
+        loadCollectionsForBulkAdd,
+    } = useActions(sessionRecordingsPlaylistLogic)
 
     useEffect(() => {
         setSelectedRecordingsIds(['rec-1', 'rec-2', 'rec-3'])
+        loadCollectionsForBulkAdd()
         setIsAddToCollectionModalOpen(true)
         if (initialSearch) {
             setAddToCollectionSearch(initialSearch)

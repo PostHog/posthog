@@ -12,6 +12,7 @@ import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
@@ -357,9 +358,18 @@ export function SessionRecordingsPlaylistTopSettings({
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
         setIsAddToCollectionModalOpen,
+        loadCollectionsForBulkAdd,
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+
+    const openAddToCollectionModal = (): void => {
+        for (const playerLogic of sessionRecordingPlayerLogic.findAllMounted()) {
+            playerLogic.actions.setPause()
+        }
+        loadCollectionsForBulkAdd()
+        setIsAddToCollectionModalOpen(true)
+    }
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -373,7 +383,7 @@ export function SessionRecordingsPlaylistTopSettings({
         const menuItems: LemonMenuItem[] = [
             {
                 label: 'Add to collection...',
-                onClick: () => setIsAddToCollectionModalOpen(true),
+                onClick: openAddToCollectionModal,
                 'data-attr': 'add-to-collection',
                 disabledReason: accessControlDisabledReason,
             },
