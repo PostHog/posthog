@@ -1,7 +1,7 @@
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { RedisPool } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { TeamManagerHandle } from '../../utils/team-manager'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from '../common/common-ingestion-consumer'
-import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { createClientWarningsConsumer } from './consumer'
@@ -20,20 +20,16 @@ describe('createClientWarningsConsumer', () => {
         }
     }
 
-    function makeDeps(): {
-        outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
-        teamManager: TeamManagerHandle
-        eventIngestionRestrictionManager: EventIngestionRestrictionManager
-        eventFilterManager: EventFilterManager
-    } {
+    function makeDeps() {
         const outputs = {
             checkTopics: jest.fn().mockResolvedValue([]),
         } as unknown as IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
         return {
             outputs,
             teamManager: {} as TeamManagerHandle,
-            eventIngestionRestrictionManager: {} as EventIngestionRestrictionManager,
-            eventFilterManager: {} as EventFilterManager,
+            postgres: {} as PostgresRouter,
+            redisPool: {} as RedisPool,
+            staticDropEventTokens: [],
         }
     }
 

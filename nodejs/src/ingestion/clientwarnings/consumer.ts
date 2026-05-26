@@ -1,3 +1,5 @@
+import { RedisPool } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { TeamManagerHandle } from '../../utils/team-manager'
 import { CommonIngestionConsumerConfig } from '../common/common-ingestion-consumer'
@@ -16,19 +18,25 @@ export interface ClientWarningsConsumerDeps {
      */
     teamManager: TeamManagerHandle
     /**
-     * Consumer-owned services. Constructed by the caller (so it can inject
-     * the right postgres / redis pool) but registered in the consumer's own
-     * Lifecycle below — the consumer brings them up on start and tears them
-     * down on stop.
+     * Infrastructure the consumer needs to construct its own services
+     * (`EventIngestionRestrictionManager`, `EventFilterManager`) and register
+     * them in its lifecycle.
      */
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    eventFilterManager: EventFilterManager
+    postgres: PostgresRouter
+    redisPool: RedisPool
+    staticDropEventTokens: string[]
 }
 
 export function createClientWarningsConsumer(config: CommonIngestionConsumerConfig, deps: ClientWarningsConsumerDeps) {
     const lifecycle = newLifecycleBuilder()
-        .register('eventIngestionRestrictionManager', deps.eventIngestionRestrictionManager)
-        .register('eventFilterManager', deps.eventFilterManager)
+        .register(
+            'eventIngestionRestrictionManager',
+            new EventIngestionRestrictionManager(deps.redisPool, {
+                pipeline: 'clientwarnings',
+                staticDropEventTokens: deps.staticDropEventTokens,
+            })
+        )
+        .register('eventFilterManager', new EventFilterManager(deps.postgres))
         .build('consumer')
 
     return createCommonIngestionConsumer({
