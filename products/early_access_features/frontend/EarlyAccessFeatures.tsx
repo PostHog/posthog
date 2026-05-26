@@ -76,6 +76,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
                 action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 className="my-0"
+                mcpSurfaceKey="early_access_features.create"
             />
             {!shouldShowEmptyState && (
                 <>

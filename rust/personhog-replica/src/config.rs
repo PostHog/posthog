@@ -49,6 +49,18 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub bulk_acquire_timeout_secs: u64,
 
+    /// Number of items per chunk when splitting bulk operations (reads and
+    /// deletes) into parallel queries.
+    #[envconfig(default = "200")]
+    pub bulk_chunk_size: usize,
+
+    /// Maximum number of chunks to execute concurrently. Each concurrent
+    /// chunk holds a connection from the bulk pool, so this should not
+    /// exceed bulk_max_pg_connections. Kept conservative to limit burst
+    /// load on the database when multiple callers delete concurrently.
+    #[envconfig(default = "2")]
+    pub bulk_max_concurrent_chunks: usize,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.
@@ -82,6 +94,12 @@ pub struct Config {
     /// 0 = disabled (connections live indefinitely).
     #[envconfig(default = "300")]
     pub grpc_max_connection_age_secs: u64,
+
+    /// Maximum concurrent gRPC requests before load shedding.
+    /// When exceeded, new requests get an immediate UNAVAILABLE response
+    /// so the router retries on another pod. 0 = disabled.
+    #[envconfig(default = "0")]
+    pub max_concurrent_requests: usize,
 }
 
 impl Config {

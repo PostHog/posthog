@@ -100,7 +100,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -131,6 +130,7 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -625,7 +625,9 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+                DashboardTile.objects.create(
+                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                )
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",
@@ -905,7 +907,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
-        from posthog.api.alert import AlertSerializer
+        from products.alerts.backend.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
@@ -1508,7 +1510,7 @@ class InsightViewSet(
         recently_viewed = []
         for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
             insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            insight.last_viewed_at = rv.last_viewed_at
             recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
@@ -1880,6 +1882,7 @@ When set, the specified dashboard's filters and date range override will be appl
             result,
             insight_name=insight.name,
             insight_description=insight.description,
+            insight_id=insight.id,
         )
 
         return Response({"result": analysis})

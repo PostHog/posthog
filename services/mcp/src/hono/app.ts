@@ -10,6 +10,14 @@ export type Lifecycle = { shuttingDown: boolean }
 export type App = {
     app: Hono
     lifecycle: Lifecycle
+    warmup: () => Promise<void>
+}
+
+const sseRedirect = (c: HonoCtx): Response => {
+    const target = new URL(c.req.url)
+    target.pathname = '/mcp' + target.pathname.slice('/sse'.length)
+    target.searchParams.set('_deprecated', 'sse')
+    return c.redirect(target.toString(), 308) as unknown as Response
 }
 
 export function createApp(redis: RedisWithPing): App {
@@ -21,19 +29,19 @@ export function createApp(redis: RedisWithPing): App {
 
     registerPublicRoutes(app, redis, lifecycle)
 
-    const sseRedirect = (c: HonoCtx): Response => {
-        const target = new URL(c.req.url)
-        target.pathname = '/mcp' + target.pathname.slice('/sse'.length)
-        target.searchParams.set('_deprecated', 'sse')
-        return c.redirect(target.toString(), 308) as unknown as Response
-    }
     app.all('/sse', sseRedirect)
     app.all('/sse/*', sseRedirect)
 
     const streamable = new StreamableMcpHandler(redis, lifecycle)
+
     app.all('/mcp', streamable.fetch)
     app.all('/mcp/*', streamable.fetch)
 
     app.all('*', (c) => c.notFound())
-    return { app, lifecycle }
+
+    return {
+        app,
+        lifecycle,
+        warmup: () => streamable.warmup(),
+    }
 }

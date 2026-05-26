@@ -111,6 +111,9 @@ def run_sql_with_exceptions(
     # Use original_node_roles (before debug override) for validation purposes
     operation._sql = sql
     operation._node_roles = original_node_roles
+    # node_roles_list reflects the debug/hobby override (e.g. collapsed to NodeRole.ALL),
+    # i.e. the roles this migration actually targets under the current settings.
+    operation._effective_node_roles = node_roles_list
     operation._sharded = sharded
     operation._is_alter_on_replicated_table = is_alter_on_replicated_table
 

@@ -26,7 +26,10 @@ class TestLinkifyCitations(SimpleTestCase):
         citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
         result = _linkify_citations(text, project_id=42, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
-        self.assertIn("/project/42/llm-analytics/traces/trace-abc?event=12345678-1234-1234-1234-123456789abc", result)
+        self.assertIn(
+            "/project/42/ai-observability/traces/trace-abc?event=12345678-1234-1234-1234-123456789abc",
+            result,
+        )
 
     def test_links_cited_generation_id_in_double_backticks(self):
         text = "See `` `12345678-1234-1234-1234-123456789abc` `` here."
@@ -102,7 +105,7 @@ class TestRenderSectionHtml(SimpleTestCase):
             project_id=42,
             citation_map=citation_map,
         )
-        self.assertIn("/project/42/llm-analytics/traces/trace-abc", html)
+        self.assertIn("/project/42/ai-observability/traces/trace-abc", html)
         self.assertIn("12345678...", html)
 
     def test_renders_lists(self):

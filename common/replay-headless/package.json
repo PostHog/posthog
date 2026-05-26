@@ -22,9 +22,8 @@
     },
     "dependencies": {
         "@posthog/replay-shared": "workspace:*",
-        "@posthog/rrweb": "0.0.59",
-        "@posthog/rrweb-types": "0.0.59",
-        "p-limit": "3.1.0"
+        "p-limit": "3.1.0",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@swc/core": "^1.11.29",

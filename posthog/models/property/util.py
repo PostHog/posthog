@@ -21,8 +21,6 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
-from posthog.models.action.action import Action
-from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -49,6 +47,9 @@ from posthog.queries.util import PersonPropertiesMode
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import get_action_tables_and_properties
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
 
@@ -494,7 +495,7 @@ def prop_filter_json_extract(
         }
         if is_denormalized:
             return (
-                " {property_operator} notEmpty({left})".format(left=property_expr, property_operator=property_operator),
+                " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
                 params,
             )
         return (
@@ -513,7 +514,7 @@ def prop_filter_json_extract(
         }
         if is_denormalized:
             return (
-                " {property_operator} empty({left})".format(left=property_expr, property_operator=property_operator),
+                " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
                 params,
             )
         return (

@@ -1,11 +1,11 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
+import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-import { LogLevel } from '@posthog/rrweb-plugin-console-record'
-import { eventWithTime } from '@posthog/rrweb-types'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
@@ -32,6 +32,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
+import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
@@ -329,6 +330,7 @@ export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
     active_realtime_notification_types?: readonly string[]
+    requires_credential_review?: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -351,6 +353,7 @@ export interface UserType extends UserBaseType {
     has_sso_enforcement: boolean
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
+    hide_mcp_hints?: boolean
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
@@ -460,6 +463,11 @@ export interface PersonalAPIKeyType {
     scoped_teams?: TeamType['id'][] | null
 }
 
+export interface ProjectSecretAPIKeyRequest {
+    label: string
+    scopes: ProjectSecretAPIKeyAllowedScope[]
+}
+
 export interface OrganizationBasicType {
     id: string
     name: string
@@ -488,6 +496,10 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_training_opted_in?: boolean
+    is_ai_training_locked?: boolean
+    is_ai_training_cta_shown?: boolean
+    is_hipaa?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
@@ -2948,6 +2960,8 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
     min_decimal_places?: number
+    x_axis_label?: string
+    y_axis_label?: string
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -3822,6 +3836,7 @@ export interface Survey extends WithAccessControl {
     headline_summary?: string | null
     headline_response_count?: number | null
     form_content?: Record<string, unknown> | null
+    base_language?: string | null
     translations?: Record<
         string,
         {
@@ -4304,6 +4319,8 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING. */
     is_debug?: boolean
+    /** Whether one-click dev login is enabled (DEBUG and ALLOW_DEV_LOGIN). */
+    allow_dev_login?: boolean
     /** Whether PostHog is running with settings.TEST. */
     is_test?: boolean
     licensed_users_available?: number | null
@@ -5228,6 +5245,7 @@ export interface ReplayExportContext {
     filename?: string
     duration?: number
     mode?: SessionRecordingPlayerMode
+    skip_inactivity?: boolean
 }
 
 export interface HeatmapExportContext {
@@ -5359,7 +5377,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
-    | 'replay_lens'
+    | 'replay_scanner'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -5525,6 +5543,7 @@ export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
+    PROJECT_SECRET_API_KEY = 'ProjectSecretAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
@@ -5555,6 +5574,7 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EVALUATION = 'Evaluation',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
@@ -5893,6 +5913,11 @@ export interface ExternalDataSourceSyncSchema {
     primary_key_columns: string[] | null
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    /**
+     * User-selected source columns to sync. `null`/undefined = sync all columns.
+     * PK columns and the active incremental field are always retained server-side.
+     */
+    enabled_columns?: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5909,6 +5934,12 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /**
+     * User-selected source columns to sync. `null` means "sync all columns".
+     * Primary-key + active incremental columns are always retained even if not listed.
+     */
+    enabled_columns?: string[] | null
+    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
 }
 
 export enum ExternalDataSchemaStatus {
@@ -5936,6 +5967,12 @@ export interface ExternalDataJob {
     rows_synced: number
     latest_error: string
     workflow_run_id?: string
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows
+     * produced for the same schema: `incremental_merge` (consolidated table) vs `scd2_append`
+     * (cdc-only history table). `null` for non-CDC syncs.
+     */
+    cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
 }
 
 export interface SimpleDataWarehouseTable {
@@ -6388,7 +6425,6 @@ export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
-    Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
     Exports = 'exports',

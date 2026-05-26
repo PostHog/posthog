@@ -31,7 +31,7 @@ from posthog.utils import get_previous_day
 
 @freeze_time("2022-01-10T00:01:00Z")
 class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    """Tests for LLM Analytics usage reporting functionality."""
+    """Tests for AI observability usage reporting functionality."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -467,7 +467,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
 
     def test_full_llm_analytics_report(self) -> None:
-        """Test the full LLM Analytics report generation."""
+        """Test the full AI observability report generation."""
         # Create second organization and team
         org_2 = Organization.objects.create(name="Org 2")
         team_2 = Team.objects.create(organization=org_2, name="Team 2")
@@ -606,7 +606,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         mock_get_ph_client: MagicMock,
         mock_capture_report: MagicMock,
     ) -> None:
-        """Test the main task to send LLM Analytics usage reports."""
+        """Test the main task to send AI observability usage reports."""
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 

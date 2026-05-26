@@ -26,7 +26,6 @@ from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query
@@ -38,6 +37,8 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+
+from products.actions.backend.models.action import Action
 
 
 def get_person_ids_by_cohort_id(

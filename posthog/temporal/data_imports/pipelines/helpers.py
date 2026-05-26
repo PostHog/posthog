@@ -9,25 +9,25 @@ from django.db.models import F
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 initial_datetime = datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
 
 
 @database_sync_to_async_pool
 def aget_external_data_job(team_id, job_id):
-    from products.data_warehouse.backend.models import ExternalDataJob
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     return ExternalDataJob.objects.get(id=job_id, team_id=team_id)
 
 
 @database_sync_to_async_pool
 def aupdate_job_count(job_id: str, team_id: int, count: int):
-    from products.data_warehouse.backend.models import ExternalDataJob
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
 
@@ -57,7 +57,11 @@ def incremental_type_to_operator(field_type: IncrementalFieldType) -> str:
 
 
 def build_table_name(source: ExternalDataSource, schema_name: str):
-    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()
+    # Dots in `schema_name` would parse as `<table>.<column>` in HogQL, so any source that ever
+    # produces a dotted schema name (today: Postgres multi-schema like `public.auth_group`) needs
+    # them rewritten. No-op for pre-existing single-schema sources whose names never contained dots.
+    safe_schema_name = schema_name.replace(".", "__")
+    return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
@@ -68,7 +72,7 @@ def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDat
     """
     import structlog
 
-    from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+    from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
     from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
     from products.revenue_analytics.backend.views.orchestrator import SUPPORTED_SOURCES
 

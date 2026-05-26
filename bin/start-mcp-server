@@ -3,17 +3,35 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../services/mcp"
 
-RUNTIME="${MCP_RUNTIME:-cloudflare}"
+RUNTIME="${MCP_RUNTIME:-hono}"
 
 pnpm install --frozen-lockfile
 
 if [ "$RUNTIME" = "hono" ]; then
     export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
-    export PORT="${PORT:-3030}"
+    export PORT="${PORT:-8787}"
     exec pnpm run dev:hono
 else
     if [ ! -f .dev.vars ]; then
         cp .dev.vars.example .dev.vars
     fi
+
+    # SITE_URL on devboxes points at the public per-workspace subdomain; rewrite
+    # the three PostHog-pointing keys so MCP's OAuth metadata advertises a host
+    # browsers can actually reach. Runs every start (not just first creation) so
+    # .dev.vars stays in sync when the workspace subdomain changes.
+    loopback_re='^https?://(localhost|127\.0\.0\.1)([:/]|$)'
+    if [ -n "${SITE_URL:-}" ] && ! [[ "${SITE_URL}" =~ $loopback_re ]]; then
+        tmp=$(mktemp)
+        grep -Ev '^(POSTHOG_API_BASE_URL|POSTHOG_MCP_APPS_ANALYTICS_BASE_URL|POSTHOG_ANALYTICS_HOST)=' .dev.vars > "$tmp" || true
+        mv "$tmp" .dev.vars
+        # Leading \n guards against the prior file missing a trailing newline.
+        printf '\n%s\n%s\n%s\n' \
+            "POSTHOG_API_BASE_URL=${SITE_URL}" \
+            "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${SITE_URL}" \
+            "POSTHOG_ANALYTICS_HOST=${SITE_URL}" \
+            >> .dev.vars
+    fi
+
     exec pnpm run dev
 fi

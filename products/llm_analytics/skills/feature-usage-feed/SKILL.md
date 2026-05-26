@@ -33,7 +33,7 @@ This skill supports two different ways to scope an eval to "the feature you care
 
 **Pattern A — Feature-native trace_id prefix.** For standalone features that emit their own `$ai_trace_id` pattern (e.g. `session-summary:group:`, `replay-search:`, error-tracking-specific flows). Filter on the prefix.
 
-**Pattern B — PostHog AI agent mode.** For features the user interacts with _via_ PostHog AI in a specific agent mode (error tracking, product analytics, session replay, SQL, flags, surveys, LLM analytics). Filter on `ai_product = 'posthog_ai' AND agent_mode = '<mode>'`. This requires PR #55160 (merged April 2026) to be deployed, which threads `agent_mode` and `supermode` onto every `$ai_generation` emitted by the chat agent loop. A useful ergonomic side-effect: `agent_mode IS NOT NULL` is a reliable "user-facing chat turn" filter — batch jobs and tool-internal LLM calls go through different code paths and have `agent_mode=null`, so they're excluded for free.
+**Pattern B — PostHog AI agent mode.** For features the user interacts with _via_ PostHog AI in a specific agent mode (error tracking, product analytics, session replay, SQL, flags, surveys, AI observability). Filter on `ai_product = 'posthog_ai' AND agent_mode = '<mode>'`. This requires PR #55160 (merged April 2026) to be deployed, which threads `agent_mode` and `supermode` onto every `$ai_generation` emitted by the chat agent loop. A useful ergonomic side-effect: `agent_mode IS NOT NULL` is a reliable "user-facing chat turn" filter — batch jobs and tool-internal LLM calls go through different code paths and have `agent_mode=null`, so they're excluded for free.
 
 If the user asks "what are users trying to DO in [ET / replay / SQL / flags / surveys] mode of PostHog AI", that's Pattern B. If they ask "what use cases does [standalone feature] cover", that's Pattern A. Pick the pattern first — the prompt, filter, and Slack channel naming all follow from it.
 
@@ -56,9 +56,9 @@ If `$session_id` is missing on either event type, file a backend fix before cont
 | `posthog:query-llm-traces-list`                    | Find sample traces matching the feature's `$ai_trace_id` pattern                                                                                                                                                                                                  |
 | `posthog:query-llm-trace`                          | Inspect a specific trace's contents end-to-end                                                                                                                                                                                                                    |
 | `posthog:execute-sql`                              | Verify trace volume, session_id coverage, eval result distributions                                                                                                                                                                                               |
-| `posthog:llma-evaluation-create`                   | (**often unexposed** — UI fallback: LLM analytics → Evaluations → New) Create the LLM-judge eval (disabled at first)                                                                                                                                              |
+| `posthog:llma-evaluation-create`                   | (**often unexposed** — UI fallback: AI observability → Evaluations → New) Create the LLM-judge eval (disabled at first)                                                                                                                                           |
 | `posthog:llma-evaluation-run`                      | (**often unexposed** — UI fallback: the eval's detail page has a "Run on event" button) Dry-run the eval against specific generations during prompt iteration                                                                                                     |
-| `posthog:llma-evaluation-update`                   | (**often unexposed** — UI fallback: edit the eval in LLM analytics → Evaluations) Tweak the prompt / enable when ready                                                                                                                                            |
+| `posthog:llma-evaluation-update`                   | (**often unexposed** — UI fallback: edit the eval in AI observability → Evaluations) Tweak the prompt / enable when ready                                                                                                                                         |
 | `posthog:llma-evaluation-summary-create`           | (**often unexposed** — UI fallback: the eval detail page has a "Summarize results" button) After the feed is running, get an AI summary of pass/N/A patterns to validate signal quality                                                                           |
 | `posthog:workflows-list` / `posthog:workflows-get` | (**often unexposed** — UI: Data pipeline → Workflows) Browse existing workflow configs — useful for cloning an existing feed's structure when setting up a new one. Read-only; no create/update tool is exposed yet, so step 6's Slack workflow setup is UI-only. |
 
@@ -230,7 +230,7 @@ posthog:llma-evaluation-create
 
 Leave model choice to the user — LLM-judge cost scales linearly with event volume, and cheap-vs-capable is a real tradeoff they should make based on their own spend tolerance and signal-quality requirements. Don't pick for them.
 
-**UI fallback** (when `llma-evaluation-create` isn't exposed): LLM analytics → Evaluations → New evaluation. Type = `LLM judge`, output = boolean + allow N/A, filters as above, enabled = off. Paste the prompt from step 3.
+**UI fallback** (when `llma-evaluation-create` isn't exposed): AI observability → Evaluations → New evaluation. Type = `LLM judge`, output = boolean + allow N/A, filters as above, enabled = off. Paste the prompt from step 3.
 
 Then dry-run against your sample traces.
 
@@ -272,7 +272,7 @@ posthog:llma-evaluation-update
 }
 ```
 
-**UI fallback:** LLM analytics → Evaluations → open the eval → toggle enabled.
+**UI fallback:** AI observability → Evaluations → open the eval → toggle enabled.
 
 The eval will now run on every new matching `$ai_generation` event.
 
@@ -333,7 +333,7 @@ If the only values are `True`/`False`/`None` and `True` dominates, the UI `equal
     "type": "actions",
     "elements": [
       {
-        "url": "https://us.posthog.com/project/<project_id>/llm-analytics/traces/{event.properties.$ai_trace_id}?event={event.properties.$ai_target_event_id}",
+        "url": "https://us.posthog.com/project/<project_id>/ai-observability/traces/{event.properties.$ai_trace_id}?event={event.properties.$ai_target_event_id}",
         "text": { "text": "View Trace", "type": "plain_text" },
         "type": "button"
       },
@@ -369,7 +369,7 @@ Recommended flow: synthetic → sanity-check the block template renders → flip
 
 Once the workflow is enabled, trigger the feature yourself. Within a minute or two:
 
-1. The `$ai_generation` event should appear in LLM Analytics
+1. The `$ai_generation` event should appear in AI observability
 2. The eval should auto-run and emit an `$ai_evaluation` event
 3. The workflow should fire and the Slack post should land in the configured channel
 4. Click "View Trigger Session" — should land on the recording of you using the feature, not the replay homepage
@@ -411,7 +411,7 @@ posthog:llma-evaluation-summary-create
 }
 ```
 
-**UI fallback:** open the eval in LLM analytics → Evaluations → "Summarize results" button, filter = fail.
+**UI fallback:** open the eval in AI observability → Evaluations → "Summarize results" button, filter = fail.
 
 If the FAIL bucket is large, the classification step is too strict — relax it. If the PASS bucket has lots of generic reasonings, iterate on the prompt to enforce concreteness. The summary tool gives a quick read on this without you having to scroll through individual events.
 

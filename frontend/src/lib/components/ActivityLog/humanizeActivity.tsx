@@ -154,6 +154,10 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
     [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
     [ActivityScope.LOG]: { singular: 'Log', plural: 'Logs' },
+    [ActivityScope.PROJECT_SECRET_API_KEY]: {
+        singular: 'Project secret API key',
+        plural: 'Project secret API keys',
+    },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
