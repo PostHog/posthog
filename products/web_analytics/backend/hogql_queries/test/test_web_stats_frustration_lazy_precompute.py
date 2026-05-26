@@ -173,9 +173,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_rejected_when_sampling_enabled(self):
         with self._enable_lazy():
             assert (
-                can_use_lazy_precompute(
-                    self._runner(self._build_query(sampling=WebAnalyticsSampling(enabled=True, forceSamplingRate=0.5)))
-                )
+                can_use_lazy_precompute(self._runner(self._build_query(sampling=WebAnalyticsSampling(enabled=True))))
                 is False
             )
 
