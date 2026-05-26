@@ -73,7 +73,9 @@ async def s3_bucket(bucket_name, s3_client, region):
             Bucket=bucket_name,
             ACL="private",
         )
-    except botocore.exceptions.ClientError:
+    except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError):
+        # BotoCoreError covers NoCredentialsError on runners without AWS access (e.g. Depot CI),
+        # so the bucket-dependent tests skip cleanly instead of erroring during setup.
         raise pytest.skip("Could not setup S3 bucket")
 
     yield bucket_name
@@ -88,9 +90,9 @@ async def s3_bucket(bucket_name, s3_client, region):
 @pytest_asyncio.fixture(scope="module")
 async def aws_role_arn(session, bucket_name, role_name):
     async with session.client("iam") as iam, session.client("sts") as sts:
-        identity = await sts.get_caller_identity()
-        identity_role_name = identity["Arn"].split("/")[-2]
         try:
+            identity = await sts.get_caller_identity()
+            identity_role_name = identity["Arn"].split("/")[-2]
             resp = await iam.create_role(
                 RoleName=role_name,
                 MaxSessionDuration=3600,
@@ -111,7 +113,9 @@ async def aws_role_arn(session, bucket_name, role_name):
                 ),
                 Description="Role assumed by the file download batch export during testing",
             )
-        except botocore.exceptions.ClientError:
+        except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError):
+            # BotoCoreError covers NoCredentialsError on runners without AWS access (e.g. Depot CI),
+            # so role-dependent tests skip cleanly instead of erroring during setup.
             raise pytest.skip("Could not create test role")
 
         s3_policy = {
