@@ -1,4 +1,6 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+import posthoganalytics
 
 from posthog.schema import EntityType, RetentionEntity
 
@@ -8,6 +10,35 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+
+RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG = "retention-fixed-interval-base-query-dwh-variant"
+
+
+def retention_fixed_interval_base_query_use_dwh_variant(team: "Team") -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
@@ -20,7 +51,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
         )
 
-        if has_data_warehouse_series:
+        if has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
             return self.build_base_query_dwh(
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
