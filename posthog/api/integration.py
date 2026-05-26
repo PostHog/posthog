@@ -928,13 +928,14 @@ class IntegrationViewSet(
         _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
 
+        response = linkedin_ads.list_linkedin_ads_accounts()
         accounts = [
             {
                 "id": account["id"],
                 "name": account["name"],
                 "reference": account["reference"],
             }
-            for account in linkedin_ads.list_linkedin_ads_accounts()["elements"]
+            for account in response.get("elements", [])
         ]
 
         return Response({"adAccounts": accounts})

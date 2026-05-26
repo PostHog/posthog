@@ -404,8 +404,14 @@ class OauthIntegration:
 
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-                # forces the consent screen, otherwise we won't receive a refresh token
-                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                # forces the consent screen, otherwise we won't receive a refresh token.
+                # include_granted_scopes lets Google carry over previously-granted scopes if
+                # the user reconnects, so a partial re-consent does not silently strip adwords.
+                additional_authorize_params={
+                    "access_type": "offline",
+                    "prompt": "consent",
+                    "include_granted_scopes": "true",
+                },
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
@@ -818,6 +824,23 @@ class OauthIntegration:
                 # the bare Exception into a generic 500 and the user sees "Something went wrong"
                 # with no actionable detail. ValidationError → 400 with `detail` set.
                 _raise_oauth_validation_error(kind, res)
+
+        # Google Ads' consent screen lets users uncheck individual scopes. If `adwords` is
+        # missing, the access token still passes through update_or_create and every
+        # downstream API call fails with "permission to access this resource", which used
+        # to bubble up as a 500. Fail loudly at the callback so the user can reconnect.
+        if kind == "google-ads":
+            granted = frozenset((config.get("scope") or "").split())
+            if "https://www.googleapis.com/auth/adwords" not in granted:
+                logger.warning(
+                    "Google Ads OAuth missing required adwords scope",
+                    granted_scopes=sorted(granted),
+                    integration_kind=kind,
+                )
+                raise ValidationError(
+                    "Google Ads connection is missing the required 'adwords' scope. "
+                    "Please reconnect and accept all requested permissions on Google's consent screen."
+                )
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -1303,6 +1326,40 @@ class GoogleAdsIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
+    @staticmethod
+    def _format_google_ads_error(response: requests.Response) -> str:
+        """Parse Google Ads error body and produce a user-actionable message.
+
+        Google Ads errors look like:
+            {"error": {"code": 400, "message": "...", "status": "INVALID_ARGUMENT",
+                       "details": [{"errors": [{"errorCode": {...}, "message": "..."}]}]}}
+        Fall back to status code / raw text when the shape is unexpected so we never
+        re-raise a bare Exception that DRF turns into a generic 500.
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+
+        if isinstance(body, list) and body:
+            body = body[0]
+        if isinstance(body, dict):
+            error = body.get("error", {}) if isinstance(body.get("error"), dict) else {}
+            details = error.get("details") or []
+            for detail in details:
+                if not isinstance(detail, dict):
+                    continue
+                for err in detail.get("errors") or []:
+                    if isinstance(err, dict) and err.get("message"):
+                        return str(err["message"])
+            if error.get("message"):
+                return str(error["message"])
+
+        snippet = (response.text or "").strip()
+        if snippet:
+            return snippet[:300]
+        return f"Google Ads API returned status {response.status_code}."
+
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
@@ -1338,10 +1395,15 @@ class GoogleAdsIntegration:
             )
 
         if response.status_code != 200:
-            capture_exception(
-                Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
+            logger.warning(
+                "GoogleAdsIntegration: Failed to list ads conversion actions",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+                response_text=response.text[:500],
             )
-            raise Exception("There was an internal error")
+            raise ValidationError(
+                f"Google Ads error while listing conversion actions: {self._format_google_ads_error(response)}"
+            )
 
         return response.json()
 
@@ -1378,8 +1440,15 @@ class GoogleAdsIntegration:
             )
 
         if response.status_code != 200:
-            capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
-            raise Exception("There was an internal error")
+            logger.warning(
+                "GoogleAdsIntegration: Failed to list accessible accounts",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+                response_text=response.text[:500],
+            )
+            raise ValidationError(
+                f"Google Ads error while listing accessible accounts: {self._format_google_ads_error(response)}"
+            )
 
         accessible_accounts = response.json()
         all_accounts: list[dict[str, str]] = []
@@ -1846,7 +1915,34 @@ class LinkedInAdsIntegration:
                 "Please check the account permissions on the provider side."
             )
 
-    def list_linkedin_ads_conversion_rules(self, account_id):
+    def _raise_for_unexpected_response(self, response: requests.Response, context: str) -> None:
+        """Surface non-2xx LinkedIn responses as ValidationErrors with the provider message.
+
+        LinkedIn returns errors with a JSON envelope like
+            {"message": "...", "serviceErrorCode": ..., "status": 4xx}
+        so we expose that message to the toast instead of returning an envelope from
+        list_*() that downstream code (e.g. `response["elements"]`) would KeyError on.
+        """
+        if response.status_code == 200:
+            return
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        message = None
+        if isinstance(body, dict):
+            message = body.get("message") or body.get("errorMessage")
+        if not message:
+            message = (response.text or "").strip()[:300] or f"status {response.status_code}"
+        logger.warning(
+            f"LinkedInAdsIntegration: Unexpected response {context}",
+            status_code=response.status_code,
+            integration_id=self.integration.id,
+            response_text=response.text[:500],
+        )
+        raise ValidationError(f"LinkedIn Ads error while {context}: {message}")
+
+    def list_linkedin_ads_conversion_rules(self, account_id) -> dict:
         response = requests.request(
             "GET",
             f"https://api.linkedin.com/rest/conversions?q=account&account=urn%3Ali%3AsponsoredAccount%3A{account_id}&fields=conversionMethod%2Cenabled%2Ctype%2Cname%2Cid%2Ccampaigns%2CattributionType",
@@ -1858,6 +1954,7 @@ class LinkedInAdsIntegration:
         )
 
         self._check_auth_error(response, "listing conversion rules")
+        self._raise_for_unexpected_response(response, "listing conversion rules")
         return response.json()
 
     def list_linkedin_ads_accounts(self) -> dict:
@@ -1872,6 +1969,7 @@ class LinkedInAdsIntegration:
         )
 
         self._check_auth_error(response, "listing ad accounts")
+        self._raise_for_unexpected_response(response, "listing ad accounts")
         return response.json()
 
 

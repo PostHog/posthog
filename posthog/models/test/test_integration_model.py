@@ -155,7 +155,7 @@ class TestOauthIntegrationModel(BaseTest):
             url = OauthIntegration.authorize_url("google-ads", token="state_token", next="/projects/test")
             assert (
                 url
-                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent&include_granted_scopes=true"
             )
 
     @patch("posthog.models.integration.requests.post")
@@ -883,6 +883,173 @@ class TestOauthIntegrationModel(BaseTest):
             OauthIntegration(integration).refresh_access_token()
 
         assert mock_post.call_args.kwargs["auth"].username == "sk_test_sandbox_secret"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_google_ads_oauth_rejects_missing_adwords_scope(self, mock_post):
+        """If a user unchecks the adwords scope on Google's consent screen, downstream API
+        calls fail with opaque 403s. Fail loudly at the callback with a ValidationError so
+        the frontend can prompt the user to reconnect with the right permissions."""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "expires_in": 3600,
+                # Only userinfo.email was granted - adwords was unchecked
+                "scope": "https://www.googleapis.com/auth/userinfo.email openid",
+            }
+
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "google-ads",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+            assert "adwords" in str(e.value).lower()
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.requests.post")
+    def test_google_ads_oauth_accepts_granted_adwords_scope(self, mock_post, mock_get):
+        """Sanity check: callback succeeds when adwords scope is granted."""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "expires_in": 3600,
+                "scope": "https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+            }
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {"sub": "google_user_1", "email": "user@example.com"}
+
+            integration = OauthIntegration.integration_from_oauth_response(
+                "google-ads",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "next=/projects/test"},
+            )
+            assert integration.config["sub"] == "google_user_1"
+
+
+class TestGoogleAdsIntegrationListHelpers(BaseTest):
+    """Regression coverage for the Google Ads helpers that previously raised
+    `Exception('There was an internal error')` on any non-200 — DRF turned that into a
+    generic 500 with no actionable detail in the picker UI. Helpers now raise
+    ValidationError with the provider's own error message."""
+
+    def _integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={"refreshed_at": int(time.time()), "expires_in": 3600},
+            sensitive_config={"access_token": "FAKE", "refresh_token": "FAKE"},
+        )
+
+    @parameterized.expand(
+        [
+            ("internal_error", 500, {"error": {"status": "INTERNAL", "message": "Internal error encountered."}}),
+            (
+                "invalid_argument",
+                400,
+                {
+                    "error": {
+                        "status": "INVALID_ARGUMENT",
+                        "message": "Request contains an invalid argument.",
+                        "details": [
+                            {
+                                "errors": [
+                                    {
+                                        "errorCode": {"requestError": "BAD_RESOURCE_ID"},
+                                        "message": "Customer ID is malformed.",
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                },
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.requests.request")
+    def test_list_accessible_accounts_surfaces_provider_message(self, _name, status_code, body, mock_request):
+        from posthog.models.integration import GoogleAdsIntegration
+
+        mock_request.return_value.status_code = status_code
+        mock_request.return_value.json.return_value = body
+        mock_request.return_value.text = ""
+
+        with pytest.raises(ValidationError) as e:
+            GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+        # The detail from Google should be in the message, not a bare "internal error".
+        assert "internal error" not in str(e.value).lower() or "google ads" in str(e.value).lower()
+
+    @patch("posthog.models.integration.requests.request")
+    def test_list_conversion_actions_surfaces_provider_message(self, mock_request):
+        from posthog.models.integration import GoogleAdsIntegration
+
+        mock_request.return_value.status_code = 400
+        mock_request.return_value.json.return_value = {
+            "error": {
+                "status": "INVALID_ARGUMENT",
+                "message": "Customer not found.",
+                "details": [{"errors": [{"errorCode": {}, "message": "Customer not found for the given ID."}]}],
+            }
+        }
+        mock_request.return_value.text = ""
+
+        with pytest.raises(ValidationError) as e:
+            GoogleAdsIntegration(self._integration()).list_google_ads_conversion_actions("123", "456")
+        assert "Customer not found" in str(e.value)
+
+
+class TestLinkedInAdsIntegrationListHelpers(BaseTest):
+    """Regression coverage for the LinkedIn helpers. Previously they only handled 401/403
+    and otherwise returned `response.json()` blindly — the viewset then dereferenced
+    `["elements"]` and KeyErrored, surfacing as a Django 500."""
+
+    def _integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="linkedin-ads",
+            config={"refreshed_at": int(time.time()), "expires_in": 3600},
+            sensitive_config={"access_token": "FAKE", "refresh_token": "FAKE"},
+        )
+
+    @patch("posthog.models.integration.requests.request")
+    def test_list_accounts_raises_validation_error_on_500(self, mock_request):
+        from posthog.models.integration import LinkedInAdsIntegration
+
+        mock_request.return_value.status_code = 500
+        mock_request.return_value.json.return_value = {"message": "Internal Server Error", "status": 500}
+        mock_request.return_value.text = '{"message":"Internal Server Error","status":500}'
+
+        with pytest.raises(ValidationError) as e:
+            LinkedInAdsIntegration(self._integration()).list_linkedin_ads_accounts()
+        assert "Internal Server Error" in str(e.value)
+
+    @patch("posthog.models.integration.requests.request")
+    def test_list_accounts_raises_validation_error_on_400_without_json(self, mock_request):
+        from posthog.models.integration import LinkedInAdsIntegration
+
+        mock_request.return_value.status_code = 400
+        mock_request.return_value.json.side_effect = ValueError("no json")
+        mock_request.return_value.text = "<html>Bad Request</html>"
+
+        with pytest.raises(ValidationError) as e:
+            LinkedInAdsIntegration(self._integration()).list_linkedin_ads_accounts()
+        # Falls back to the raw text when there's no JSON body to parse.
+        assert "Bad Request" in str(e.value) or "400" in str(e.value)
+
+    @patch("posthog.models.integration.requests.request")
+    def test_list_accounts_returns_payload_on_200(self, mock_request):
+        from posthog.models.integration import LinkedInAdsIntegration
+
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"elements": [{"id": 1, "name": "acc", "reference": "ref"}]}
+
+        result = LinkedInAdsIntegration(self._integration()).list_linkedin_ads_accounts()
+        assert result == {"elements": [{"id": 1, "name": "acc", "reference": "ref"}]}
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
