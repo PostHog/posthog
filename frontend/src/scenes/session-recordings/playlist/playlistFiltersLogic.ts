@@ -56,16 +56,19 @@ export const playlistFiltersLogic = kea<playlistFiltersLogicType>([
     })),
     actionToUrl(({ values }) => ({
         setIsFiltersExpanded: () => {
-            if (values.isFiltersExpanded === false) {
-                const newSearchParams = new URLSearchParams(router.values.currentLocation.search)
+            const newSearchParams = new URLSearchParams(router.values.currentLocation.search)
+            if (values.isFiltersExpanded) {
+                newSearchParams.set('showFilters', 'true')
+                newSearchParams.set('filtersTab', values.activeFilterTab)
+            } else {
                 newSearchParams.delete('showFilters')
                 newSearchParams.delete('filtersTab')
-                return [
-                    router.values.currentLocation.pathname,
-                    newSearchParams.toString(),
-                    router.values.currentLocation.hashParams,
-                ]
             }
+            return [
+                router.values.currentLocation.pathname,
+                newSearchParams.toString(),
+                router.values.currentLocation.hashParams,
+            ]
         },
     })),
 ])
