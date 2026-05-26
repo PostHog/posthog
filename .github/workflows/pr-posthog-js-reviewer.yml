@@ -30,7 +30,7 @@ jobs:
         if: >-
             github.event.pull_request.head.repo.fork == false &&
             github.event.pull_request.base.ref == 'master' &&
-            (github.event.action != 'edited' || github.event.changes.base.ref.from != null)
+            (github.event.action != 'edited' || github.event.changes.base.ref.from != '')
 
         steps:
             - name: Determine reviewer action
@@ -70,15 +70,15 @@ jobs:
 
                   if gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" --jq '.teams[].slug' | grep -Fxq "$TEAM_REVIEWER_SLUG"; then
                       # Only remove stale requests that this automation added; don't fight manual review requests.
-                      LATEST_AUTOMATED_REQUEST=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/timeline" --paginate -H 'Accept: application/vnd.github+json' --jq '
+                      LATEST_AUTOMATED_REQUEST=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/timeline" --paginate -H 'Accept: application/vnd.github+json' | jq -s -r '
                         [
-                          .[]
+                          .[][]
                           | select((.event == "review_requested" or .event == "review_request_removed") and .requested_team.slug == "client-libraries-approvers")
                           | {event, actor: .actor.login}
                         ]
                         | last
                         | select(.event == "review_requested" and .actor == "assign-reviewers-posthog[bot]")
-                        | .event
+                        | .event // empty
                       ')
 
                       if [ "$LATEST_AUTOMATED_REQUEST" = "review_requested" ]; then
