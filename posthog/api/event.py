@@ -427,7 +427,14 @@ class EventViewSet(
         return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     @extend_schema(
-        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "include_person",
+                OpenApiTypes.BOOL,
+                description="Include person details for the event. Default: false.",
+            ),
+        ],
         responses={200: OpenApiTypes.OBJECT},
     )
     def retrieve(
