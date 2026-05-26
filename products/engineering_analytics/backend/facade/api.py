@@ -1,6 +1,6 @@
 """Facade for engineering_analytics.
 
 The ONLY module other products are allowed to import.
-Real surface is added in PR 4 once the canonical contracts and the first
-HogQL-backed read path exist.
+Real surface lands in the MCP tools vertical-slice PR (workflow_report,
+time_to_merge, pr_lifecycle) — see SPEC.md section 5 and section 6.
 """
