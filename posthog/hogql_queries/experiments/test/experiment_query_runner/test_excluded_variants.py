@@ -2,6 +2,8 @@ from freezegun import freeze_time
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType, ExperimentQuery
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -13,166 +15,72 @@ from products.experiments.backend.models.experiment import ExperimentHoldout
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_excluded_variant_dropped_from_runner_variants(self):
-        # Set up a feature flag with 3 variants: control, test, test-2
-        feature_flag = self.create_feature_flag(key="multi-variant-exclusion-test")
-        feature_flag.filters["multivariate"]["variants"].append(
-            {"key": "test-2", "name": "Test 2", "rollout_percentage": 33}
-        )
-        feature_flag.save()
+    # Sentinel used in `excluded_variants` specs to mean "the attached holdout's pseudo-key",
+    # resolved to `holdout-{id}` once the holdout row exists.
+    _HOLDOUT_KEY = "<holdout>"
 
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        # Exclude 'test-2'
-        experiment.parameters = {"excluded_variants": ["test-2"]}
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
-        )
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
-
-        assert "test-2" not in runner.variants
-        assert "control" in runner.variants
-        assert "test" in runner.variants
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_no_exclusions_leaves_variants_unchanged(self):
-        feature_flag = self.create_feature_flag(key="no-exclusion-test")
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        # parameters without excluded_variants
-        experiment.parameters = {}
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
-        )
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
-
-        assert set(runner.variants) == {"control", "test"}
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_none_parameters_leaves_variants_unchanged(self):
-        feature_flag = self.create_feature_flag(key="null-parameters-test")
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.parameters = None
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
-        )
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
-
-        assert set(runner.variants) == {"control", "test"}
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_empty_excluded_variants_list_leaves_variants_unchanged(self):
-        feature_flag = self.create_feature_flag(key="empty-exclusion-test")
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        # Explicitly set excluded_variants to an empty list
-        experiment.parameters = {"excluded_variants": []}
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
-        )
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
-
-        assert set(runner.variants) == {"control", "test"}
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_holdout_not_in_runner_variants_even_with_excluded_variants(self):
-        feature_flag = self.create_feature_flag(key="holdout-exclusion-test")
-        feature_flag.filters["multivariate"]["variants"].append(
-            {"key": "test-2", "name": "Test 2", "rollout_percentage": 33}
-        )
-        feature_flag.save()
-
-        holdout = ExperimentHoldout.objects.create(
-            team=self.team, name="Test Holdout", filters=[{"properties": [], "rollout_percentage": 20}]
-        )
-
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.holdout = holdout
-        experiment.parameters = {"excluded_variants": ["test-2"]}
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
-        )
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
-
-        assert set(runner.variants) == {"control", "test"}
-        assert f"holdout-{holdout.id}" not in runner.variants
-        assert "test-2" not in runner.variants
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_holdout_attached_does_not_appear_in_runner_variants(self):
-        feature_flag = self.create_feature_flag(key="holdout-only-metric-test")
-        holdout = ExperimentHoldout.objects.create(
-            team=self.team,
-            name="Holdout A",
-            filters=[{"properties": [], "rollout_percentage": 20}],
-        )
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.holdout = holdout
-        experiment.save()
+    def _make_runner(self, experiment):
         metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
+        return ExperimentQueryRunner(query=query, team=self.team)
 
-        assert f"holdout-{holdout.id}" not in runner.variants
-        assert set(runner.variants) == {"control", "test"}
-        # Holdout is still readable on the experiment for UI/etc.
-        assert runner.experiment.holdout is not None
-
+    @parameterized.expand(
+        [
+            # name, extra_variants, attach_holdout, parameters
+            ("excluded_variant_dropped", ["test-2"], False, {"excluded_variants": ["test-2"]}),
+            ("no_exclusions_unchanged", [], False, {}),
+            ("none_parameters_unchanged", [], False, None),
+            ("empty_excluded_variants_unchanged", [], False, {"excluded_variants": []}),
+            ("holdout_and_excluded_both_filtered", ["test-2"], True, {"excluded_variants": ["test-2"]}),
+            ("holdout_attached", [], True, "unset"),
+            ("excluded_variants_naming_holdout_is_idempotent", [], True, {"excluded_variants": [_HOLDOUT_KEY]}),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_holdout_and_excluded_variants_both_filtered(self):
-        feature_flag = self.create_feature_flag(key="both-filters-metric-test")
-        feature_flag.filters["multivariate"]["variants"].append(
-            {"key": "test-2", "name": "Test 2", "rollout_percentage": 33}
-        )
-        feature_flag.save()
-        holdout = ExperimentHoldout.objects.create(
-            team=self.team,
-            name="Holdout B",
-            filters=[{"properties": [], "rollout_percentage": 10}],
-        )
+    def test_runner_variant_filtering(self, name, extra_variants, attach_holdout, parameters):
+        feature_flag = self.create_feature_flag(key=f"{name.replace('_', '-')}-test")
+        for index, variant_key in enumerate(extra_variants):
+            feature_flag.filters["multivariate"]["variants"].append(
+                {"key": variant_key, "name": f"Test {index + 2}", "rollout_percentage": 33}
+            )
+        if extra_variants:
+            feature_flag.save()
+
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.holdout = holdout
-        experiment.parameters = {"excluded_variants": ["test-2"]}
+
+        holdout = None
+        if attach_holdout:
+            holdout = ExperimentHoldout.objects.create(
+                team=self.team,
+                name=f"Holdout {name}",
+                filters=[{"properties": [], "rollout_percentage": 20}],
+            )
+            experiment.holdout = holdout
+
+        if parameters != "unset":
+            resolved = parameters
+            if isinstance(parameters, dict):
+                holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
+                resolved = {
+                    **parameters,
+                    "excluded_variants": [
+                        holdout_key if key == self._HOLDOUT_KEY else key
+                        for key in parameters.get("excluded_variants", [])
+                    ],
+                }
+            experiment.parameters = resolved
         experiment.save()
-        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
 
+        runner = self._make_runner(experiment)
+
+        # The runner always reports exactly the analyzable variants — holdout pseudo-variants
+        # and excluded variants are filtered out regardless of how they were specified.
         assert set(runner.variants) == {"control", "test"}
-        assert f"holdout-{holdout.id}" not in runner.variants
-        assert "test-2" not in runner.variants
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_excluded_variants_containing_holdout_key_is_idempotent(self):
-        feature_flag = self.create_feature_flag(key="exclude-names-holdout-metric-test")
-        holdout = ExperimentHoldout.objects.create(
-            team=self.team,
-            name="Holdout C",
-            filters=[{"properties": [], "rollout_percentage": 15}],
-        )
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.holdout = holdout
-        experiment.parameters = {"excluded_variants": [f"holdout-{holdout.id}"]}
-        experiment.save()
-        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))
-        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        runner = ExperimentQueryRunner(query=query, team=self.team)
-
-        assert set(runner.variants) == {"control", "test"}
+        for excluded in extra_variants:
+            assert excluded not in runner.variants
+        if holdout is not None:
+            assert f"holdout-{holdout.id}" not in runner.variants
+            assert runner.experiment.holdout is not None  # still readable for UI/etc.
 
 
 def test_fingerprint_changes_when_excluded_variants_change():
