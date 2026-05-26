@@ -1,6 +1,5 @@
-from unittest.mock import MagicMock, patch
-
 import pytest
+from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.services.custom_prompt_internals import (
     SandboxRateLimitError,

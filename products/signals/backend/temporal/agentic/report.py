@@ -42,10 +42,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_internals import (
-    CustomPromptSandboxContext,
-    SandboxRateLimitError,
-)
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, SandboxRateLimitError
 
 logger = structlog.get_logger(__name__)
 
