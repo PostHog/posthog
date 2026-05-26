@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                   group_type_index, group_key, group_properties,\n                   created_at,\n                   properties_last_updated_at as \"properties_last_updated_at?: serde_json::Value\",\n                   properties_last_operation as \"properties_last_operation?: serde_json::Value\",\n                   version\n            FROM posthog_group\n            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3\n            ",
+  "query": "\n            SELECT id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                   group_type_index, group_key, group_properties::text as \"group_properties!\",\n                   created_at,\n                   properties_last_updated_at::text as \"properties_last_updated_at?\",\n                   properties_last_operation::text as \"properties_last_operation?\",\n                   version\n            FROM posthog_group\n            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3\n            ",
   "describe": {
     "columns": [
       {
@@ -25,8 +25,8 @@
       },
       {
         "ordinal": 4,
-        "name": "group_properties",
-        "type_info": "Jsonb"
+        "name": "group_properties!",
+        "type_info": "Text"
       },
       {
         "ordinal": 5,
@@ -35,13 +35,13 @@
       },
       {
         "ordinal": 6,
-        "name": "properties_last_updated_at?: serde_json::Value",
-        "type_info": "Jsonb"
+        "name": "properties_last_updated_at?",
+        "type_info": "Text"
       },
       {
         "ordinal": 7,
-        "name": "properties_last_operation?: serde_json::Value",
-        "type_info": "Jsonb"
+        "name": "properties_last_operation?",
+        "type_info": "Text"
       },
       {
         "ordinal": 8,
@@ -61,12 +61,12 @@
       null,
       false,
       false,
+      null,
       false,
-      false,
-      false,
-      false,
+      null,
+      null,
       false
     ]
   },
-  "hash": "7153c106cc8be59b7efb7aec0ee7a368979effba33117ebb08cf5cf633dc0290"
+  "hash": "43acf336bedec8a3529ce380bb6525315ca329b5d8f558ca7a6f8acaffe9d194"
 }
