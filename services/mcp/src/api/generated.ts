@@ -2102,6 +2102,10 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
       smoothingIntervals?: number | null;
+      /** Custom label rendered under the X axis. */
+      xAxisLabel?: string | null;
+      /** Custom label rendered alongside the Y axis. */
+      yAxisLabel?: string | null;
       yAxisScaleType?: YAxisScaleType | null;
     }
 
@@ -2394,10 +2398,10 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type AggregationPropertyType1 = typeof AggregationPropertyType1[keyof typeof AggregationPropertyType1];
+    export type AggregationPropertyType = typeof AggregationPropertyType[keyof typeof AggregationPropertyType];
 
 
-    export const AggregationPropertyType1 = {
+    export const AggregationPropertyType = {
       Event: 'event',
       Person: 'person',
       DataWarehouse: 'data_warehouse',
@@ -2506,7 +2510,7 @@ export namespace Schemas {
       /** The property to aggregate when aggregationType is sum or avg */
       aggregationProperty?: string | null;
       /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-      aggregationPropertyType?: AggregationPropertyType1 | null;
+      aggregationPropertyType?: AggregationPropertyType | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
       /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
@@ -15029,6 +15033,34 @@ export namespace Schemas {
     export interface ErrorTrackingSymbolSetFinishUpload {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
+    }
+
+    /**
+     * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
+     */
+    export interface EstimateRequest {
+      /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+      query?: unknown;
+      /**
+         * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
+    /**
+     * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+     */
+    export interface EstimateResponse {
+      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+      matched_sessions_in_window: number;
+      /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+      window_days: number;
+      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+      estimated_observations_per_month: number;
+      /** Sampling rate applied to the projection. Echoed from the request. */
+      sampling_rate: number;
     }
 
     /**

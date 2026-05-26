@@ -4152,6 +4152,7 @@ dependencies = [
 name = "hogvm"
 version = "0.1.0"
 dependencies = [
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
@@ -6729,6 +6730,7 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics-exporter-prometheus",
  "personhog-common",

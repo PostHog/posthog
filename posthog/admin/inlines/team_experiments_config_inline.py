@@ -21,6 +21,7 @@ class TeamExperimentsConfigInline(admin.StackedInline):
                     "default_only_count_matured_users",
                     "funnel_steps_data_disabled",
                     "default_cuped_enabled",
+                    "default_cuped_lookback_days",
                 ],
             },
         ),
