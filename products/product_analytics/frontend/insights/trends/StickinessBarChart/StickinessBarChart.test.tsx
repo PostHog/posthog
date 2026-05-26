@@ -29,13 +29,18 @@ const stickinessBar = (extra?: Parameters<typeof buildStickinessQuery>[0]): Retu
     buildStickinessQuery({ stickinessFilter: { display: ChartDisplayType.ActionsBar }, ...extra })
 
 describe('StickinessBarChart', () => {
-    it('renders bars from a StickinessQuery in ActionsBar mode', async () => {
-        renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
+    it.each([
+        { display: ChartDisplayType.ActionsBar, layout: 'stacked' },
+        { display: ChartDisplayType.ActionsUnstackedBar, layout: 'grouped' },
+    ])('renders a $layout bar chart from a StickinessQuery', async ({ display }) => {
+        renderInsight({
+            query: stickinessBar({ stickinessFilter: { display } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
 
         await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+            expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
         })
-        expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
     })
 
     it('renders one series per event', async () => {
@@ -63,33 +68,15 @@ describe('StickinessBarChart', () => {
         expect(ticks.every((t) => /%/.test(t))).toBe(true)
     })
 
-    it('tooltip: formats series values as percentages of the series total', async () => {
+    it('tooltip: percent value + "stickiness on {interval} {day}" title (not a calendar date)', async () => {
         renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
 
         const tooltip = await chart.hoverTooltip(2)
-        // Pageview canned series is [45, 82, 134, 210, 95], total 566, so bucket 2 == 134/566 ≈ 23.7%.
+        // Days are 1-indexed in the mock, so bucket 2 == day 3.
         expect(tooltip.row('Pageview')).toMatch(/%/)
-    })
-
-    it('tooltip: uses "stickiness on {interval} {day}" as the title (not a calendar date)', async () => {
-        renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
-
-        const tooltip = await chart.hoverTooltip(2)
-        // Day at index 2 is 3 in the mock's 1-indexed stickiness days.
         expect(tooltip.title()).toMatch(/stickiness on day 3/i)
-        // Critically — must NOT default to a Unix-epoch-derived calendar date.
+        // Must NOT default to a Unix-epoch-derived calendar date.
         expect(tooltip.title()).not.toMatch(/1970/i)
-    })
-
-    it('layout: routes grouped (unstacked) bar through the hog-charts adapter', async () => {
-        renderInsight({
-            query: stickinessBar({ stickinessFilter: { display: ChartDisplayType.ActionsUnstackedBar } }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-
-        await waitFor(() => {
-            expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
-        })
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {
@@ -114,7 +101,6 @@ describe('StickinessBarChart', () => {
         await waitFor(() => {
             expect(personsModal.get()).toBeInTheDocument()
         })
-        // The clicked bucket is index 2, days are 1-indexed in the mock, so day == 3.
         expect(personsModal.title()).toMatch(/stickiness on day 3/i)
         expect(personsModal.title()).toMatch(/Pageview/i)
     })

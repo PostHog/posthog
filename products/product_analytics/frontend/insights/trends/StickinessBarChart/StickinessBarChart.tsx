@@ -58,8 +58,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    // Matches `TrendsBarChart`'s framing; the legacy `ActionsLineGraph` uses the inverse
-    // `isStacked = display !== ActionsUnstackedBar`.
+    // Inverted polarity vs legacy `isStacked` in `ActionsLineGraph`; matches `TrendsBarChart`.
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
 
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
@@ -69,8 +68,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
 
     const hasData = (indexedResults ?? []).some((r: IndexedTrendResult) => r.count !== 0)
 
-    // No `showMultipleYAxes` passthrough — `TimeSeriesBarChart` only declares a single
-    // y-axis today. All series land on `DEFAULT_Y_AXIS_ID` until multi-axis support arrives.
+    // `TimeSeriesBarChart` has a single y-axis — `showMultipleYAxes` is intentionally not forwarded.
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -92,9 +90,8 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         [yAxisScaleType, isGrouped, showValuesOnSeries]
     )
 
-    // Destructure only the context fields we use so re-renders that swap an unrelated
-    // context field don't invalidate the click memos. `openPersonsModal` is a stable
-    // module import, so it doesn't go through the dep tracker.
+    // Close over the primitives so the click memos don't invalidate when unrelated
+    // context fields change. `openPersonsModal` is a stable module import.
     const onDataPointClick = context?.onDataPointClick
     const formatCompareLabel = context?.formatCompareLabel
     const hasClickHandler = !!onDataPointClick || !!hasPersonsModal
