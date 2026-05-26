@@ -84,12 +84,8 @@ interface FollowupCaptureContext {
     post_save?: boolean
 }
 
-function captureFollowupAction(
-    action: FollowupAction,
-    context: FollowupCaptureContext,
-    extra: Record<string, unknown> = {}
-): void {
-    posthog.capture('max artifact action clicked', { action, ...context, ...extra })
+function captureFollowupAction(action: FollowupAction, context: FollowupCaptureContext): void {
+    posthog.capture('max artifact action clicked', { action, ...context })
 }
 
 export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
