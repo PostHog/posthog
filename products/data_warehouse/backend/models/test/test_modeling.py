@@ -704,7 +704,7 @@ class TestResolverFactoryInjection(BaseTest):
         Without a shared anchor, each resolver would get its own deadline_seconds budget
         and prepare_ast_for_printing's multi-pass resolution would compound the bound.
         """
-        from products.data_warehouse.backend.models.modeling import bounded_resolver_factory_for_view
+        from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 
         factory = bounded_resolver_factory_for_view("caller", deadline_seconds=10.0)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -727,7 +727,7 @@ class TestResolverFactoryInjection(BaseTest):
         """
         from posthog.hogql.printer import prepare_ast_for_printing
 
-        from products.data_warehouse.backend.models.modeling import bounded_resolver_factory_for_view
+        from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 
         # Use the shared factory helper so the deadline is end-to-end across passes
         factory = bounded_resolver_factory_for_view("caller", max_view_depth=DEFAULT_RESOLUTION_MAX_VIEW_DEPTH)
