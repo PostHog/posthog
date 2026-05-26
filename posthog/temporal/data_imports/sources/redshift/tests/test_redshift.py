@@ -186,13 +186,11 @@ class TestGetRowsToSync:
         assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
 
     def test_returns_zero_on_generic_exception(self, impl, cursor, logger):
-        # `_explain_query` swallows the first execute; the second execute (inside
-        # the COUNT(*) wrapper) raises and is caught by the outer try → returns 0.
-        cursor.execute.side_effect = [None, RuntimeError("boom")]
+        cursor.execute.side_effect = RuntimeError("boom")
         assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
 
     def test_raises_on_temp_file_limit(self, impl, cursor, logger):
-        cursor.execute.side_effect = [None, RuntimeError("temporary file size exceeds temp_file_limit")]
+        cursor.execute.side_effect = RuntimeError("temporary file size exceeds temp_file_limit")
         with pytest.raises(TemporaryFileSizeExceedsLimitException):
             impl.get_rows_to_sync(cursor, self._inner(), None, logger)
 

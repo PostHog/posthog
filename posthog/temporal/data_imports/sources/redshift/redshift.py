@@ -613,36 +613,30 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     ) -> int:
         """Count the rows the given `inner_query` will produce.
 
-        Redshift's `temporary file size exceeds temp_file_limit` error is
-        promoted to `TemporaryFileSizeExceedsLimitException` — the
-        non-retryable error message tells the customer to set the
-        incremental field as a SORTKEY. Everything else swallows to 0.
+        Overrides the base helper to (1) let `psycopg.errors.QueryCanceled`
+        bubble out so `build_pipeline` can promote it to
+        `QueryTimeoutException`, and (2) promote Redshift's
+        `temporary file size exceeds temp_file_limit` to
+        `TemporaryFileSizeExceedsLimitException` — both are listed in
+        `get_non_retryable_errors` and need to escape the base's catch-all
+        `except Exception` that otherwise returns 0.
         """
         try:
             query = sql.SQL("SELECT COUNT(*) FROM ({}) as t").format(inner_query)
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
             cursor.execute(query)
             row = cursor.fetchone()
-
             if row is None:
-                logger.debug("get_rows_to_sync: No results returned. Using 0 as rows to sync")
                 return 0
-
-            rows_to_sync_int = int(row[0] or 0)
-            logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
-            return rows_to_sync_int
+            return int(row[0] or 0)
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
             capture_exception(e)
-
             if "temporary file size exceeds temp_file_limit" in str(e):
                 raise TemporaryFileSizeExceedsLimitException(
                     f"Error: {e}. Please ensure your incremental field is set as a SORTKEY on the table"
                 )
-
             return 0
 
     def fetch_table_stats(
