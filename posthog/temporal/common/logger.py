@@ -24,6 +24,7 @@ Temporal context, like activity ID, workflow type, attempt number, and others, w
 automatically included.
 """
 
+import os
 import sys
 import json
 import typing
@@ -160,12 +161,28 @@ class LogMessagesRenderer:
             try:
                 log_source, log_source_id = resolve_log_source(event_dict["workflow_type"], event_dict["workflow_id"])
 
+                # Event-level overrides let one workflow_type route to multiple schemas.
+                log_source = event_dict.pop("log_source", log_source)
+                log_source_id = event_dict.pop("log_source_id", log_source_id)
+
+                # Append resource + batch_index so the Syncs UI distinguishes parallel batches
+                # of the same CDC sync. Scoped to `external_data_jobs` so we don't reshape
+                # message text for batch exports / data modeling / other temporal workflows.
+                message_text = event_dict[self.event_key]
+                if log_source == "external_data_jobs":
+                    resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
+                    if resource_marker:
+                        message_text = f"{message_text} [{resource_marker}]"
+                    batch_index = event_dict.get("batch_index")
+                    if batch_index is not None:
+                        message_text = f"{message_text} #{batch_index}"
+
                 message_dict = {
                     "instance_id": event_dict["workflow_run_id"],
                     "level": event_dict["level"],
                     "log_source": log_source,
                     "log_source_id": log_source_id,
-                    "message": event_dict[self.event_key],
+                    "message": message_text,
                     "team_id": event_dict["team_id"],
                     "timestamp": event_dict["timestamp"],
                 }
@@ -527,7 +544,10 @@ def configure_logger(
     log_producer = None
     log_producer_error = None
 
-    is_test_or_tty = sys.stderr.isatty() or settings.TEST
+    # `TEMPORAL_LOGS_TO_KAFKA=true` forces produce path on a TTY (local dev). No effect in prod
+    # (no TTY anyway) or tests (settings.TEST always wins).
+    force_produce = os.getenv("TEMPORAL_LOGS_TO_KAFKA", "").strip().lower() in ("1", "true", "yes", "on")
+    is_test_or_tty = settings.TEST or (sys.stderr.isatty() and not force_produce)
 
     if is_test_or_tty:
         logger_factory = LoggerFactory(file=file, is_test_or_tty=is_test_or_tty)
@@ -861,6 +881,12 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
     elif workflow_type == "external-data-job":
         # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "external_data_jobs"
+    elif workflow_type == "cdc-extraction":
+        # WorkflowID is f"cdc-extraction-{source_id}-{iso_ts}". Per-schema lines override
+        # log_source_id at emit time; default here is the source id.
+        without_prefix = workflow_id.removeprefix("cdc-extraction-")
+        log_source_id = without_prefix[:36] if len(without_prefix) >= 36 else without_prefix
         log_source = "external_data_jobs"
     elif workflow_type == "data-modeling-run":
         # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"

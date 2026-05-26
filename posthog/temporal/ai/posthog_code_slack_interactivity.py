@@ -95,7 +95,9 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
         return
 
     try:
-        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
     except Integration.DoesNotExist:
         logger.warning("posthog_code_terminate_integration_not_found", integration_id=integration_id)
         return

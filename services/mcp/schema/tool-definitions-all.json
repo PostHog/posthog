@@ -38,7 +38,71 @@
         "summary": "List accounts",
         "title": "List accounts",
         "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-create": {
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure). The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account notebook",
+        "title": "Create account notebook",
+        "required_scopes": ["account:write"],
         "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-destroy": {
+        "description": "Permanently delete an account notebook by its `short_id`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account notebook",
+        "title": "Delete account notebook",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-list": {
+        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notebooks",
+        "title": "List account notebooks",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-retrieve": {
+        "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account notebook",
+        "title": "Get account notebook",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -70,7 +134,7 @@
         "summary": "Get account",
         "title": "Get account",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2483,6 +2547,51 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-bulk-delete-create": {
+        "description": "Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING: `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling this with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active experiments, early access features, or that other flags depend on are skipped and reported in `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk delete feature flags",
+        "title": "Bulk delete feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flags-bulk-keys-create": {
+        "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Look up feature flag keys by ID",
+        "title": "Look up feature flag keys by ID",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-bulk-update-tags-create": {
+        "description": "Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and `skipped` (flags missing or without edit permission, with reason).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk update tags on feature flags",
+        "title": "Bulk update tags on feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
         "category": "Feature flags",
@@ -3205,12 +3314,12 @@
         }
     },
     "llma-personal-spend": {
-        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
         "title": "Get my LLM spend analysis",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["user:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4668,7 +4777,7 @@
         }
     },
     "query-session-recordings-list": {
-        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Deep links to specific recordings\n\nTo link a user to a specific recording, build the URL as `{posthog_base_url}/replay/{id}` using the `id` returned in each result row.\n\nDo not use `/replay/home?sessionRecordingId={id}` — that path takes the user to the replay list with the default filter applied and does not open the recording.\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- Deep-link to a specific recording as `{posthog_base_url}/replay/{id}`, never `/replay/home?sessionRecordingId={id}`.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session recordings",
@@ -5556,6 +5665,22 @@
         "feature": "user_interviews",
         "summary": "Update a per-interviewee context row",
         "title": "Update a per-interviewee context row",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
         "required_scopes": ["user_interview:write"],
         "new_mcp": true,
         "annotations": {

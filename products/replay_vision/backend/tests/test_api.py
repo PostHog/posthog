@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -10,6 +10,8 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -351,6 +353,11 @@ class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
         resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
         self.assertEqual(resp.status_code, 404)
 
+    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
+    def test_flag_off_returns_404_on_estimate(self, _flag_mock) -> None:
+        resp = self.client.post(f"{self.scanners_url}estimate/", data={}, format="json")
+        self.assertEqual(resp.status_code, 404)
+
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
     def setUp(self) -> None:
@@ -640,3 +647,120 @@ class TestObserveActionFeatureFlag(APIBaseTest):
                 format="json",
             )
             self.assertEqual(resp.status_code, 404)
+
+
+class TestSessionReplayObservationViewSet(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner_a = self._create_scanner(name="scanner-a")
+        self.scanner_b = self._create_scanner(name="scanner-b")
+
+    @property
+    def session_observations_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/"
+
+    def _create_observation(self, scanner: ReplayScanner, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+
+    def test_list_returns_observations_from_every_scanner_for_the_session(self) -> None:
+        self._create_observation(self.scanner_a, "sess-target")
+        self._create_observation(self.scanner_b, "sess-target")
+        self._create_observation(self.scanner_a, "sess-other")
+
+        resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()["results"]
+        self.assertEqual({r["scanner_id"] for r in results}, {str(self.scanner_a.id), str(self.scanner_b.id)})
+
+    def test_list_requires_session_id(self) -> None:
+        resp = self.client.get(self.session_observations_url)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_list_excludes_other_teams(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other-team")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        ReplayObservation.objects.create(
+            scanner=other_scanner,
+            session_id="sess-target",
+            scanner_snapshot=_snapshot_for(other_scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        self._create_observation(self.scanner_a, "sess-target")
+
+        resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()["results"]
+        self.assertEqual([r["scanner_id"] for r in results], [str(self.scanner_a.id)])
+
+    def test_retrieve(self) -> None:
+        observation = self._create_observation(self.scanner_a, "sess-target")
+        resp = self.client.get(f"{self.session_observations_url}{observation.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["id"], str(observation.id))
+
+
+class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
+    @property
+    def estimate_url(self) -> str:
+        return f"{self.scanners_url}estimate/"
+
+    def _ingest_session(self, *, days_ago: float) -> None:
+        # HogQL skips non-UUIDv7 `$session_id` values, so the estimate query would return 0 for them.
+        first_timestamp = timezone.now() - timedelta(days=days_ago)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=str(uuid7()),
+            distinct_id="estimate-distinct-id",
+            first_timestamp=first_timestamp,
+            last_timestamp=first_timestamp + timedelta(minutes=5),
+        )
+
+    @parameterized.expand(
+        [
+            ("sampling_rate_above_one", {"sampling_rate": 1.5}),
+            ("sampling_rate_negative", {"sampling_rate": -0.1}),
+        ]
+    )
+    def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
+        resp = self.client.post(self.estimate_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_estimate_counts_only_in_window_sessions(self) -> None:
+        for index in range(3):
+            self._ingest_session(days_ago=index + 1)
+        self._ingest_session(days_ago=40)
+
+        resp = self.client.post(self.estimate_url, data={}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.json()
+        self.assertEqual(body["matched_sessions_in_window"], 3)
+        self.assertEqual(body["window_days"], 30)
+        self.assertEqual(body["estimated_observations_per_month"], 3)
+
+    def test_estimate_applies_sampling(self) -> None:
+        for index in range(4):
+            self._ingest_session(days_ago=index + 1)
+        # Anchor 40 days back so `window_days` clamps to a deterministic 30, not the recent data span.
+        self._ingest_session(days_ago=40)
+
+        resp = self.client.post(self.estimate_url, data={"sampling_rate": 0.5}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.json()
+        self.assertEqual(body["matched_sessions_in_window"], 4)
+        self.assertEqual(body["window_days"], 30)
+        self.assertEqual(body["sampling_rate"], 0.5)
+        self.assertEqual(body["estimated_observations_per_month"], 2)

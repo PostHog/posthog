@@ -2247,16 +2247,13 @@ export interface _SummaryApi {
     date_from: string
     /** Exclusive UTC end of the spend window resolved from the request. */
     date_to: string
-    /**
-     * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
-     * @nullable
-     */
-    product: string | null
+    /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+    product: string
     /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
     total_cost_usd: number
     /** Total $ai_generation + $ai_embedding events captured across every product. */
     event_count: number
-    /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+    /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
     scoped_cost_usd: number
     /** Total $ai_generation + $ai_embedding events for the scoped slice. */
     scoped_event_count: number
@@ -2363,7 +2360,7 @@ export interface PersonalSpendAnalysisResponseApi {
     by_tool: _ToolBreakdownApi
     /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
     by_model: _ModelBreakdownApi
-    /** Most expensive trace IDs (sessions) in the window. Scoped to `product` when set. */
+    /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
     top_traces: _TopTracesApi
 }
 
@@ -2955,11 +2952,11 @@ export type LlmAnalyticsPersonalSpendListParams = {
      */
     limit?: number
     /**
-     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * @minLength 1
      * @maxLength 64
-     * @nullable
      */
-    product?: string | null
+    product: string
     /**
      * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
      */

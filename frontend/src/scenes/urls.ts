@@ -46,6 +46,7 @@ export const urls = {
     destinations: (): string => '/data-management/destinations',
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
+    eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,

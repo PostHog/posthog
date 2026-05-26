@@ -112,11 +112,92 @@ export namespace Schemas {
       properties?: AccountProperties;
       /** Tag names attached to the account. Pass a list to replace existing tags. */
       tags?: string[];
+      /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+      readonly notebooks: readonly string[];
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `engineering` - Engineering
+    * `data` - Data
+    * `product` - Product Management
+    * `founder` - Founder
+    * `leadership` - Leadership
+    * `marketing` - Marketing
+    * `sales` - Sales / Success
+    * `other` - Other
+     */
+    export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
+
+
+    export const RoleAtOrganizationEnum = {
+      Engineering: 'engineering',
+      Data: 'data',
+      Product: 'product',
+      Founder: 'founder',
+      Leadership: 'leadership',
+      Marketing: 'marketing',
+      Sales: 'sales',
+      Other: 'other',
+    } as const;
+
+    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
+
+
+    export const BlankEnum = {
+      '': '',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
+
+    export interface UserBasic {
+      readonly id: number;
+      readonly uuid: string;
+      /**
+         * @maxLength 200
+         * @nullable
+         */
+      distinct_id?: string | null;
+      /** @maxLength 150 */
+      first_name?: string;
+      /** @maxLength 150 */
+      last_name?: string;
+      /** @maxLength 254 */
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      readonly hedgehog_config: UserBasicHedgehogConfig;
+      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
+    }
+
+    export interface AccountNotebook {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable title of the account notebook.
+         * @maxLength 256
+         * @nullable
+         */
+      title?: string | null;
+      /** Notebook content as a ProseMirror JSON document structure. */
+      content?: unknown;
+      /**
+         * Plain text representation of the notebook content for search.
+         * @nullable
+         */
+      text_content?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_at: string;
+      readonly last_modified_by: UserBasic;
     }
 
     /**
@@ -569,63 +650,6 @@ export namespace Schemas {
       * `regex` - regex
       * `exact` - exact */
       url_matching?: ActionStepMatchingEnum | null;
-    }
-
-    /**
-     * * `engineering` - Engineering
-    * `data` - Data
-    * `product` - Product Management
-    * `founder` - Founder
-    * `leadership` - Leadership
-    * `marketing` - Marketing
-    * `sales` - Sales / Success
-    * `other` - Other
-     */
-    export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
-
-
-    export const RoleAtOrganizationEnum = {
-      Engineering: 'engineering',
-      Data: 'data',
-      Product: 'product',
-      Founder: 'founder',
-      Leadership: 'leadership',
-      Marketing: 'marketing',
-      Sales: 'sales',
-      Other: 'other',
-    } as const;
-
-    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
-
-
-    export const BlankEnum = {
-      '': '',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
-
-    export interface UserBasic {
-      readonly id: number;
-      readonly uuid: string;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      distinct_id?: string | null;
-      /** @maxLength 150 */
-      first_name?: string;
-      /** @maxLength 150 */
-      last_name?: string;
-      /** @maxLength 254 */
-      email: string;
-      /** @nullable */
-      is_email_verified?: boolean | null;
-      /** @nullable */
-      readonly hedgehog_config: UserBasicHedgehogConfig;
-      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
     }
 
     /**
@@ -1264,6 +1288,20 @@ export namespace Schemas {
       /** List of active breakpoints */
       breakpoints: ActiveBreakpoint[];
     }
+
+    /**
+     * * `true` - true
+    * `false` - false
+    * `STALE` - STALE
+     */
+    export type ActiveEnum = typeof ActiveEnum[keyof typeof ActiveEnum];
+
+
+    export const ActiveEnum = {
+      True: 'true',
+      False: 'false',
+      Stale: 'STALE',
+    } as const;
 
     export interface ActivityLog {
       readonly id: string;
@@ -2064,6 +2102,10 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
       smoothingIntervals?: number | null;
+      /** Custom label rendered under the X axis. */
+      xAxisLabel?: string | null;
+      /** Custom label rendered alongside the Y axis. */
+      yAxisLabel?: string | null;
       yAxisScaleType?: YAxisScaleType | null;
     }
 
@@ -2356,10 +2398,10 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type AggregationPropertyType1 = typeof AggregationPropertyType1[keyof typeof AggregationPropertyType1];
+    export type AggregationPropertyType = typeof AggregationPropertyType[keyof typeof AggregationPropertyType];
 
 
-    export const AggregationPropertyType1 = {
+    export const AggregationPropertyType = {
       Event: 'event',
       Person: 'person',
       DataWarehouse: 'data_warehouse',
@@ -2468,7 +2510,7 @@ export namespace Schemas {
       /** The property to aggregate when aggregationType is sum or avg */
       aggregationProperty?: string | null;
       /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-      aggregationPropertyType?: AggregationPropertyType1 | null;
+      aggregationPropertyType?: AggregationPropertyType | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
       /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
@@ -2897,6 +2939,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -2936,6 +2979,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -6469,6 +6514,134 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    /**
+     * * `fully_rolled_out` - fully_rolled_out
+    * `not_rolled_out` - not_rolled_out
+    * `partial` - partial
+     */
+    export type RolloutStateEnum = typeof RolloutStateEnum[keyof typeof RolloutStateEnum];
+
+
+    export const RolloutStateEnum = {
+      FullyRolledOut: 'fully_rolled_out',
+      NotRolledOut: 'not_rolled_out',
+      Partial: 'partial',
+    } as const;
+
+    export interface BulkDeleteDeletedItem {
+      /** ID of the soft-deleted flag. */
+      id: number;
+      /** The flag key at the time of deletion. */
+      key: string;
+      /** Rollout state captured before deletion.
+
+      * `fully_rolled_out` - fully_rolled_out
+      * `not_rolled_out` - not_rolled_out
+      * `partial` - partial */
+      rollout_state: RolloutStateEnum;
+      /**
+         * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
+         * @nullable
+         */
+      active_variant: string | null;
+    }
+
+    export interface BulkDeleteErrorItem {
+      /** Feature flag ID — integer for valid inputs; the original raw value for invalid inputs. */
+      id: unknown;
+      /** The flag key, when known. */
+      key?: string;
+      /** Human-readable reason the flag could not be deleted. */
+      reason: string;
+    }
+
+    /**
+     * * `boolean` - boolean
+    * `multivariant` - multivariant
+    * `experiment` - experiment
+    * `remote_config` - remote_config
+     */
+    export type BulkDeleteFiltersTypeEnum = typeof BulkDeleteFiltersTypeEnum[keyof typeof BulkDeleteFiltersTypeEnum];
+
+
+    export const BulkDeleteFiltersTypeEnum = {
+      Boolean: 'boolean',
+      Multivariant: 'multivariant',
+      Experiment: 'experiment',
+      RemoteConfig: 'remote_config',
+    } as const;
+
+    /**
+     * * `server` - Server
+    * `client` - Client
+    * `all` - All
+     */
+    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
+
+
+    export const EvaluationRuntimeEnum = {
+      Server: 'server',
+      Client: 'client',
+      All: 'all',
+    } as const;
+
+    /**
+     * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
+     */
+    export interface BulkDeleteFilters {
+      /** Filter by active state.
+
+      * `true` - true
+      * `false` - false
+      * `STALE` - STALE */
+      active?: ActiveEnum;
+      /** Filter to flags created by a specific user ID. */
+      created_by_id?: number;
+      /** Search by feature flag key or name (case-insensitive). */
+      search?: string;
+      /** Filter by flag type.
+
+      * `boolean` - boolean
+      * `multivariant` - multivariant
+      * `experiment` - experiment
+      * `remote_config` - remote_config */
+      type?: BulkDeleteFiltersTypeEnum;
+      /** Filter by evaluation runtime.
+
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum;
+      /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
+      excluded_properties?: string;
+      /** Tag names to filter by. Flags carrying at least one of these tags match. */
+      tags?: string[];
+      /** When true, only matches flags with at least one evaluation context. */
+      has_evaluation_contexts?: boolean;
+    }
+
+    export interface BulkDeleteRequest {
+      /** Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs. */
+      filters?: BulkDeleteFilters;
+      /** Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`. */
+      ids?: number[];
+    }
+
+    /**
+     * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+     */
+    export interface BulkDeleteResponse {
+      /** Flags successfully soft-deleted. */
+      deleted: BulkDeleteDeletedItem[];
+      /** Flags that could not be deleted, with reasons. */
+      errors: BulkDeleteErrorItem[];
+    }
+
     export interface BulkIntervieweeContextItem {
       /**
          * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
@@ -6494,6 +6667,23 @@ export namespace Schemas {
       skipped_count: number;
       /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
       skipped_identifiers: string[];
+    }
+
+    export interface BulkKeysRequest {
+      /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
+      ids?: unknown[];
+    }
+
+    /**
+     * Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.
+     */
+    export type BulkKeysResponseKeys = {[key: string]: string};
+
+    export interface BulkKeysResponse {
+      /** Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project. */
+      keys: BulkKeysResponseKeys;
+      /** Present when some submitted IDs were not numeric and were ignored. */
+      warning?: string;
     }
 
     export interface BulkNotificationIdsRequest {
@@ -9093,6 +9283,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -13052,20 +13243,6 @@ export namespace Schemas {
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
 
-    /**
-     * * `server` - Server
-    * `client` - Client
-    * `all` - All
-     */
-    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
-
-
-    export const EvaluationRuntimeEnum = {
-      Server: 'server',
-      Client: 'client',
-      All: 'all',
-    } as const;
-
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
     export interface MinimalFeatureFlag {
@@ -14856,6 +15033,34 @@ export namespace Schemas {
     export interface ErrorTrackingSymbolSetFinishUpload {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
+    }
+
+    /**
+     * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
+     */
+    export interface EstimateRequest {
+      /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+      query?: unknown;
+      /**
+         * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
+    /**
+     * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+     */
+    export interface EstimateResponse {
+      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+      matched_sessions_in_window: number;
+      /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+      window_days: number;
+      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+      estimated_observations_per_month: number;
+      /** Sampling rate applied to the projection. Echoed from the request. */
+      sampling_rate: number;
     }
 
     /**
@@ -17024,6 +17229,32 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    /**
+     * * `events` - events
+    * `persons` - persons
+    * `sessions` - sessions
+     */
+    export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
+
+
+    export const FileDownloadBatchExportOnDemandModelEnum = {
+      Events: 'events',
+      Persons: 'persons',
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Request shape for a FileDownload batch export on demand.
+     */
+    export interface FileDownloadBatchExportOnDemand {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadBatchExportOnDemandModelEnum;
+      include?: string[];
+      exclude?: string[];
+      data_interval_start: string;
+      data_interval_end: string;
     }
 
     /**
@@ -20064,6 +20295,15 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LatestTestInterview {
+      /** When the test interview was completed. */
+      completed_at: string;
+      /** Full transcript of the test call, if Vapi delivered one. May be empty. */
+      transcript: string;
+      /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
+      summary: string;
+    }
+
     export interface LegalDocumentCreator {
       first_name: string;
       email: string;
@@ -20912,7 +21152,7 @@ export namespace Schemas {
     }
 
     export interface MCPSession {
-      /** PostHog $session_id grouping all mcp_tool_call events. */
+      /** $mcp_session_id grouping all mcp_tool_call events in the session. */
       readonly session_id: string;
       /** Total number of mcp_tool_call events in the session. */
       readonly tool_calls: number;
@@ -21902,6 +22142,15 @@ export namespace Schemas {
       results: Account[];
     }
 
+    export interface PaginatedAccountNotebookList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountNotebook[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -22751,21 +23000,15 @@ export namespace Schemas {
     }
 
     export interface PaginatedMCPSessionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
       results: MCPSession[];
+      /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+      has_next: boolean;
     }
 
     export interface PaginatedMCPToolCallList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
       results: MCPToolCall[];
+      /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+      has_next: boolean;
     }
 
     export interface PaginatedMaterializedColumnSlotList {
@@ -25830,6 +26073,8 @@ export namespace Schemas {
       properties?: PatchedAccountProperties;
       /** Tag names attached to the account. Pass a list to replace existing tags. */
       tags?: string[];
+      /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+      readonly notebooks?: readonly string[];
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -31588,16 +31833,13 @@ export namespace Schemas {
       date_from: string;
       /** Exclusive UTC end of the spend window resolved from the request. */
       date_to: string;
-      /**
-         * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
-         * @nullable
-         */
-      product: string | null;
+      /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+      product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
-      /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+      /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
       scoped_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events for the scoped slice. */
       scoped_event_count: number;
@@ -31704,7 +31946,7 @@ export namespace Schemas {
       by_tool: _ToolBreakdown;
       /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
       by_model: _ModelBreakdown;
-      /** Most expensive trace IDs (sessions) in the window. Scoped to `product` when set. */
+      /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
 
@@ -33394,6 +33636,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33769,6 +34012,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -35840,6 +36084,21 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * Request body for the presence beacon and beacon-leave endpoints.
+
+    `device_id` is the UUID of the caller's `UserPushToken` row, which the
+    client received when it registered for push via `/api/users/@me/push_tokens/`.
+    The client is expected to use the same identifier on the beacon and leave
+    calls; if the user has unregistered the underlying push token, the value
+    won't resolve and the call returns 404 — at which point pushes were
+    already not going there anyway.
+     */
+    export interface TaskPresenceBeaconRequest {
+      /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
+      device_id: string;
+    }
+
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
@@ -36679,6 +36938,13 @@ export namespace Schemas {
       results: TestHogTaggerResultItem[];
       /** Optional message, for example when no recent AI events were found. */
       message?: string;
+    }
+
+    export interface TestInterviewLink {
+      /** Public, unauthenticated URL the topic author opens to dogfood the voice interview themselves — does not count against the targeted interviewees. */
+      interview_url: string;
+      /** Most recent test interview completed by the topic author, or null if none yet. */
+      latest_test_interview: LatestTestInterview | null;
     }
 
     export interface TextReprMetadata {
@@ -40200,6 +40466,22 @@ export namespace Schemas {
 
     export type AccountsListParams = {
     /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string;
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string;
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean;
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40208,9 +40490,28 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string;
+    };
+
+    export type AccountsNotebooksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -41014,7 +41315,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_end'.
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string;
     /**
@@ -41366,6 +41667,21 @@ export namespace Schemas {
     topic?: string;
     };
 
+    export type VisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string;
+    };
+
     export type VisionScannersListParams = {
     /**
      * Filter to scanners that emit Signals.
@@ -41545,11 +41861,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * @minLength 1
      * @maxLength 64
-     * @nullable
      */
-    product?: string | null;
+    product: string;
     /**
      * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
      */
@@ -43185,6 +43501,14 @@ export namespace Schemas {
     } as const;
 
     export type EventDefinitionsListParams = {
+    /**
+     * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
+     */
+    exclude_hidden?: boolean;
+    /**
+     * When true, omit events whose last ingested occurrence is older than 30 days. Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events remain discoverable. Default false. If a search returns zero results with this filter on, retry with `exclude_stale=false` and tell the user the matches are stale.
+     */
+    exclude_stale?: boolean;
     /**
      * Number of results to return per page.
      */

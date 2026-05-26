@@ -6,6 +6,7 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 export function AllowTrainingCallout({
@@ -17,10 +18,12 @@ export function AllowTrainingCallout({
 }): JSX.Element | null {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
+    const { isHobby } = useValues(preflightLogic)
     const isFlagEnabled = useFeatureFlag('AI_TRAINING')
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     if (
+        isHobby ||
         !isFlagEnabled ||
         restrictionReason ||
         currentOrganization?.is_ai_training_opted_in !== false ||
