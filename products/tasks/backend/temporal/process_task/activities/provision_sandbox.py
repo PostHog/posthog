@@ -37,7 +37,6 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "GH_TOKEN",
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
-    "POSTHOG_AUTORESEARCH_PIPELINE_ID",
 }
 
 
@@ -187,9 +186,6 @@ def _build_environment_variables(
     else:
         # Fresh runs and handoff-resumed runs both submit output to the current run.
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
-
-    if autoresearch_pipeline_id := (ctx.state or {}).get("autoresearch_pipeline_id"):
-        environment_variables["POSTHOG_AUTORESEARCH_PIPELINE_ID"] = str(autoresearch_pipeline_id)
 
     return environment_variables
 
