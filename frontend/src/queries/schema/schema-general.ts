@@ -495,11 +495,6 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     explain?: string[]
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
-    /**
-     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
-     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
-     */
-    warnings?: DataWarehouseSyncWarning[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2059,6 +2054,13 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /**
+     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
+     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     * Accumulated across every HogQL execution that contributes to this response — so insights backed
+     * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
+     */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 interface CachedQueryResponseMixin {

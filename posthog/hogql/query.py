@@ -886,6 +886,13 @@ class HogQLQueryExecutor:
                 self._execute_clickhouse_query()
 
         warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
+        # Side-channel: surface warnings to a query-runner-level accumulator so non-HogQL response
+        # types (Trends, Funnels, etc.) pick them up via the base-class funnel point without each
+        # runner having to copy them manually.
+        if warnings:
+            from posthog.hogql.warehouse_warnings import record_warnings
+
+            record_warnings(warnings)
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
