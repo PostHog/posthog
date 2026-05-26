@@ -1,6 +1,7 @@
 import {
     detectMarkdown,
     detectTabularFormat,
+    expandFlattenedTables,
     isTabularData,
     parseMarkdownToTipTap,
     parseTabularDataToTipTapTable,
@@ -216,6 +217,56 @@ describe('DropAndPasteHandlerExtension', () => {
 
             expect(result[0].type).toBe('codeBlock')
             expect(result[0].content?.[0].text).toBe('const x = 1')
+        })
+
+        it('parses a flattened table whose rows were joined on a single line', () => {
+            // Slack / ChatGPT / Notion etc. commonly strip newlines between table rows when
+            // copied as plain text. The pre-processor should re-expand these before parsing.
+            const result = parseMarkdownToTipTap('| a | b | |---|---| | 1 | 2 | | 3 | 4 |')
+
+            expect(result[0].type).toBe('table')
+            expect(result[0].content).toHaveLength(3)
+            const headerRow = result[0].content?.[0]
+            expect(headerRow?.content?.[0].type).toBe('tableHeader')
+            expect(headerRow?.content?.[0].content?.[0].content?.[0].text).toBe('a')
+            const lastRow = result[0].content?.[2]
+            expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('4')
+        })
+    })
+
+    describe('expandFlattenedTables', () => {
+        it('expands a flattened table into separate rows', () => {
+            const input = '| a | b | |---|---| | 1 | 2 |'
+            expect(expandFlattenedTables(input)).toBe(['| a | b |', '|---|---|', '| 1 | 2 |'].join('\n'))
+        })
+
+        it('expands a flattened table embedded between other markdown lines', () => {
+            const input = ['# Heading', '| a | b | |---|---| | 1 | 2 |', 'trailing paragraph'].join('\n')
+            expect(expandFlattenedTables(input)).toBe(
+                ['# Heading', '| a | b |', '|---|---|', '| 1 | 2 |', 'trailing paragraph'].join('\n')
+            )
+        })
+
+        it('handles alignment markers in the delimiter row', () => {
+            const input = '| a | b | c | | :--- | :---: | ---: | | 1 | 2 | 3 |'
+            expect(expandFlattenedTables(input)).toBe(
+                ['| a | b | c |', '| :--- | :---: | ---: |', '| 1 | 2 | 3 |'].join('\n')
+            )
+        })
+
+        it('leaves a well-formed multi-line table untouched', () => {
+            const input = ['| a | b |', '|---|---|', '| 1 | 2 |'].join('\n')
+            expect(expandFlattenedTables(input)).toBe(input)
+        })
+
+        it.each([
+            { input: 'just a plain paragraph of text', desc: 'plain prose' },
+            { input: 'see |foo| and |bar| for details', desc: 'inline pipes without a delimiter row' },
+            { input: '| a | | b |', desc: 'two glued segments without a delimiter row' },
+            { input: '', desc: 'empty string' },
+            { input: '# Heading\n\nplain paragraph', desc: 'markdown without any pipes' },
+        ])('leaves $desc untouched', ({ input }) => {
+            expect(expandFlattenedTables(input)).toBe(input)
         })
     })
 })
