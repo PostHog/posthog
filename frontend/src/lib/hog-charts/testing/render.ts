@@ -8,11 +8,8 @@ import { ensureJsdom } from './jsdom'
 import { HOG_CHARTS_TOOLTIP_SELECTOR } from './tooltip'
 
 export interface RenderHogChartOptions {
-    /** When true, do not intercept the chart's `tooltip` prop. The chart renders its own
-     *  internal tooltip component (e.g. BoxPlotTooltip), letting tests assert on real DOM
-     *  output. In this mode `chart.waitForTooltip()` still returns the portal element and
-     *  `isPinned`, but the structured `TooltipContext` fields throw on access — use the
-     *  default mode when you need context capture. */
+    /** Skip the tooltip-prop override so the chart renders its own tooltip. Context capture
+     *  via `chart.waitForTooltip()` is unavailable in this mode. */
     nativeTooltip?: boolean
 }
 
@@ -32,11 +29,9 @@ export function renderHogChart<Meta = unknown>(
 
     const props = ui.props as { tooltip?: (ctx: TooltipContext<Meta>) => ReactNode; labels?: string[] }
 
-    // Default: intercept the (optional) `tooltip` render prop so `chart.waitForTooltip()` can
-    // return the structured `TooltipContext` the chart computed. When the consumer passes a
-    // tooltip we still call it for the rendered DOM; otherwise we fall through to
-    // DefaultTooltip, matching the chart's natural default.
-    // `nativeTooltip`: skip the override so the chart renders its own internal tooltip.
+    // Intercept the `tooltip` render prop so `chart.waitForTooltip()` exposes the structured
+    // `TooltipContext` the chart computed. Falls through to DefaultTooltip when no consumer
+    // tooltip is supplied, matching the chart's natural default.
     let lastTooltipContext: TooltipContext<Meta> | null = null
     let toRender: ReactElement = ui
     if (!options.nativeTooltip) {

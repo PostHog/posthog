@@ -137,10 +137,8 @@ describe('BoxPlot', () => {
     })
 
     describe('tooltip rendering', () => {
-        // These tests render the chart's actual BoxPlotTooltip via `nativeTooltip: true` so the
-        // assertions exercise the real DOM — including BoxPlot's `grouped` decision (set by
-        // series count, not passed by hand). The default `renderHogChart` mode would replace
-        // the tooltip prop and bypass BoxPlotTooltip entirely.
+        // `nativeTooltip: true` lets BoxPlotTooltip render its own DOM — the default mode
+        // replaces the tooltip prop and short-circuits past it.
 
         const SINGLE_SERIES: BoxPlotSeries[] = [
             {
