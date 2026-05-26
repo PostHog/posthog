@@ -152,29 +152,31 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     return ast.Field(chain=["events", "properties", "$pathname"])
 
 
-# HogQL template for the precompute INSERT. The lazy_computation framework
-# substitutes the listed placeholders (including `time_window_min` /
-# `time_window_max`), parses the result, and INSERTs into
-# `web_stats_frustration_preaggregated`. The framework automatically
-# prepends `team_id`, `job_id` and appends `expires_at` to the SELECT.
+# HogQL template for the precompute INSERT — a state-converted version of
+# the live `FRUSTRATION_METRICS_INNER_QUERY` + `FrustrationMetricsStrategy`
+# outer aggregation. The lazy_computation framework substitutes the listed
+# placeholders (including `time_window_min` / `time_window_max`), parses the
+# result, and INSERTs into `web_stats_frustration_preaggregated`. The
+# framework automatically prepends `team_id`, `job_id` and appends
+# `expires_at` to the SELECT.
+#
+# The inner subquery mirrors the live `FRUSTRATION_METRICS_INNER_QUERY`
+# verbatim (per-session counts of rage / dead / exception events), and the
+# outer aggregation mirrors the live `FrustrationMetricsStrategy.build_query`
+# OUTER (sums collapsed by breakdown) — but bucketed hourly so reads can
+# answer arbitrary date ranges via `sumMergeIf`. `sumState(...)` and `sum(...)`
+# both aggregate over the same grouped rows, so the HAVING can filter on the
+# regular `sum(...)` value while emitting the `sumState(...)` column for
+# storage. The outer HAVING is the state-equivalent of the live
+# `FrustrationMetricsStrategy._having()` collapse — drop hour-breakdown
+# tuples where every metric is zero, which matches what the live outer
+# `HAVING or(metric > 0, ...)` drops. Saves storing the all-zero rows that
+# the read query would only re-filter via its own `HAVING or(rage > 0, ...)`.
 #
 # The `event IN (...)` filter restricts the scan to events that can possibly
 # contribute to any of the three metrics, plus `$pageview` / `$screen` so the
 # session-start anchoring is correct. The forward pad lets sessions that span
 # a UTC-day boundary aggregate cleanly — same reasoning as overview/paths.
-#
-# Inner HAVING drops sessions where *no* frustration event happened on the
-# breakdown_value. Without this filter we'd emit one row per
-# (session, breakdown_value) for every pageview session — even sessions
-# where rage/dead/error counts are all zero — and the read query would just
-# discard them via its own `HAVING or(rage > 0, ...)`. Storing pure-zero
-# rows is pure waste: for the dogfooding team the existing paths precompute
-# (which DOES emit one row per touched URL because every URL visit is
-# meaningful for paths) has 4.87M unique breakdown_values, ~88% singletons.
-# Frustration's user-visible value is restricted to URLs with at least one
-# rage/dead/error event, so filtering at INSERT loses nothing the read
-# would have surfaced — an order-of-magnitude row-count reduction by
-# matching INSERT scope to read scope.
 INSERT_QUERY_TEMPLATE = """
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
@@ -202,12 +204,16 @@ FROM (
     GROUP BY session_id, breakdown_value
     HAVING and(
         breakdown_value IS NOT NULL,
-        or(rage_clicks_count > 0, dead_clicks_count > 0, errors_count > 0),
         toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
         toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
     )
 )
 GROUP BY time_window_start, breakdown_value
+HAVING or(
+    sum(rage_clicks_count) > 0,
+    sum(dead_clicks_count) > 0,
+    sum(errors_count) > 0
+)
 """
 
 
