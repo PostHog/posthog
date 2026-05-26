@@ -24,6 +24,16 @@
   project: vznmbshh6q
 
 - image: cymbal
+  bin: cymbal-legacy
+  dockerfile: ./rust/Dockerfile
+  project: 8dq0xkk0ck
+
+- image: cymbal-server
+  bin: cymbal-server
+  dockerfile: ./rust/Dockerfile
+  project: 8dq0xkk0ck
+
+- image: cymbal-resolution
   bin: cymbal-server
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck

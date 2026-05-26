@@ -19,7 +19,9 @@ on:
     pull_request:
         paths:
             - 'rust/**'
+            - '.github/workflows/_rust-build-images.yml'
             - '.github/workflows/rust-docker-build.yml'
+            - '.github/rust-images.yml'
         branches:
             - 'master'
 
