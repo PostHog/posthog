@@ -143,7 +143,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     fn parse_statement(&mut self) -> Result<E::Value, ParseError> {
         let stmt_start = self.peek0.start;
-        let result = self.parse_statement_inner()?;
+        // Guard the statement / block recursion (every nested block, `if`/`for`/`while`/`try` body, and bare block routes back through here) so `{ { … } }` or `if (a) if (b) …` nested past the cap rejects cleanly instead of overflowing the host stack (uncatchable SIGSEGV). Shares the counter with expression + subquery nesting.
+        let result = self.with_recursion_guard(Self::parse_statement_inner)?;
         Ok(self.wrap_pos(result, stmt_start))
     }
 

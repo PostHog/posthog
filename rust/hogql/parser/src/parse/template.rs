@@ -129,7 +129,9 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
                     // token at the `\`, then starts a fresh token on
                     // the next valid character. The body splitter
                     // models that by closing the current literal chunk
-                    // and dropping the two-byte `\X` sequence.
+                    // and dropping the `\X` sequence (both the backslash
+                    // and the escaped char — cpp drops `\q`, `\é`, and
+                    // `\😀` alike, all contributing nothing).
                     if !literal.is_empty() {
                         chunks.push(wrap_literal_chunk(
                             emit,
@@ -139,7 +141,15 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
                             body_offset + i,
                         ));
                     }
-                    i += 2;
+                    // `X` may be a multibyte codepoint (`\é`, `\😀`), so step
+                    // past the whole escaped char, not a fixed 2 bytes — a
+                    // fixed step lands mid-char and panics the `&body[i..]`
+                    // slice at the bottom of the loop.
+                    let escaped_char = body[i + 1..]
+                        .chars()
+                        .next()
+                        .expect("guarded by `i + 1 < bytes.len()`");
+                    i += 1 + escaped_char.len_utf8();
                     literal_start = i;
                     continue;
                 }

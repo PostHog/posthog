@@ -2829,14 +2829,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_select("SELECT 1 FROM a JOIN b ON a.x = b.x", backend=backend)
             self.assertIn("synthetic post_init failure", str(caught.exception))
 
-        def test_deeply_nested_expression_does_not_stack_overflow(self):
-            # Deep paren input must surface a clean `SyntaxError`, not stack-OOM in the recursive-descent loop. Cap lives at `MAX_EXPR_RECURSION_DEPTH = 1000`, mirrors ClickHouse's `max_parser_depth`. cpp / python paths have their own stack characteristics so the assertion is rust-specific.
+        def test_deeply_nested_input_does_not_stack_overflow(self):
+            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp / python have their own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
             if backend not in ("rust-json", "rust-py"):
                 self.skipTest("rust-specific recursion cap")
-            deep = "(" * 1500 + "1" + ")" * 1500
-            with self.assertRaises(SyntaxError) as cm:
-                self._expr(deep)
-            self.assertIn("too deeply nested", str(cm.exception).lower())
+            parse_fns = {"expr": parse_expr, "select": parse_select, "program": parse_program}
+            cases = (
+                ("expr", "(" * 1500 + "1" + ")" * 1500),
+                ("select", "(" * 1500 + "select 1" + ")" * 1500),
+                ("program", "{" * 1500 + "}" * 1500),
+            )
+            for rule, src in cases:
+                with self.assertRaises(SyntaxError, msg=rule) as cm:
+                    parse_fns[rule](src, backend=backend)
+                self.assertIn("too deeply nested", str(cm.exception).lower(), msg=rule)
 
         def test_ctes_inject_into_paren_wrapped_inner_with(self):
             # An outer WITH attached to a paren-wrapped inner that already has its own WITH must surface both CTEs, with the outer's appended after the inner's (matches cpp's `VISIT(SelectStmtWithParens)` ordering).
@@ -7423,6 +7429,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(query, backend=backend),
                     msg=query,
                 )
+
+        def test_template_unknown_escape_with_multibyte_char(self):
+            # An unknown f-string escape `\X` drops the backslash and the escaped char (cpp's `STRING_TEXT` lexer behaviour). When `X` is a multibyte codepoint (`\é`, `\😀`) the rust body splitter must step past the whole codepoint — a fixed 2-byte step landed mid-char and panicked the body slice, an uncatchable `PanicException` on the json path that also escaped `except Exception`. cpp accepts all of these, so matching it (value + positions) is a parity requirement.
+            self.assertEqual(self._expr(r"f'\é'"), ast.Constant(value=""))
+            self.assertEqual(self._expr(r"f'\😀z'"), ast.Constant(value="z"))
+            self.assertEqual(self._expr(r"f'\éxyz'"), ast.Constant(value="xyz"))
+            # Full position parity against cpp for the position-carrying backends; python spans f-strings over the whole token, so it only checks structure.
+            for src in (r"f'\é'", r"f'\éxyz'", r"f'\😀z'", r"f'ab\écd'", r"f'\é{1}\😀'"):
+                expected = parse_expr(src, backend="cpp-json")
+                actual = parse_expr(src, backend=backend)
+                if backend == "python":
+                    self.assertEqual(clear_locations(actual), clear_locations(expected), msg=src)
+                else:
+                    self.assertEqual(actual, expected, msg=src)
 
         def test_interpolate_expr_carries_positions(self):
             # The INTERPOLATE item node (InterpolateExpr) was built without a position

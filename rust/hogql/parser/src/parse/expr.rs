@@ -32,9 +32,9 @@ type FunctionArgs<V> = (bool, Vec<V>, Option<Vec<V>>);
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<E::Value, ParseError> {
-        // Cap the central recursive entry so deeply-nested input (`((…))` with thousands of nests) surfaces as a syntax error rather than stack OOM. Bound rationale on `MAX_EXPR_RECURSION_DEPTH`.
-        self.expr_recursion_depth += 1;
-        let result = if self.expr_recursion_depth > crate::parse::MAX_EXPR_RECURSION_DEPTH {
+        // Cap the central recursive entry so deeply-nested input (`((…))` with thousands of nests) surfaces as a syntax error rather than stack OOM. Shares the counter with subquery / statement nesting; bound rationale on `MAX_RECURSION_DEPTH`.
+        self.recursion_depth += 1;
+        let result = if self.recursion_depth > crate::parse::MAX_RECURSION_DEPTH {
             Err(ParseError::syntax(
                 "expression too deeply nested",
                 self.peek0.start,
@@ -46,7 +46,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 .map(|lhs| self.wrap_pos(lhs, lhs_start))
                 .and_then(|lhs| self.pratt_continue_with_lhs(lhs, min_bp, lhs_start))
         };
-        self.expr_recursion_depth -= 1;
+        self.recursion_depth -= 1;
         result
     }
 

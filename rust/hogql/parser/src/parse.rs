@@ -160,8 +160,8 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
 // Parser core
 // ============================================================================
 
-/// Recursion-depth cap for `parse_expr_bp`. Mirrors ClickHouse's `max_parser_depth` default (1000) so deeply-nested input (e.g. `((((…))))`) surfaces a clean `ParseError::syntax` instead of stack-OOMing the worker before any parse error can fire.
-pub(crate) const MAX_EXPR_RECURSION_DEPTH: u32 = 1000;
+/// Shared recursion-depth cap across the parser's three recursive-descent dimensions — expression nesting (`parse_expr_bp`), subquery / set nesting (`parse_select_set_stmt`), and Hog statement / block nesting (`parse_statement`). Mirrors ClickHouse's `max_parser_depth` default (1000) so deeply-nested input (`((((…))))`, `(select (select …))`, `{ { … } }`) surfaces a clean `ParseError` instead of stack-OOMing the worker before any parse error can fire. One shared counter (not one per dimension) bounds total live descent depth regardless of how the nesting is composed, and stays below the empirical host-stack overflow points (~2000 nested subqueries, ~8000 nested blocks).
+pub(crate) const MAX_RECURSION_DEPTH: u32 = 1000;
 
 pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     pub(crate) src: &'a str,
@@ -302,8 +302,8 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// once at construction so the hot wrap_pos path stays O(log n) via the
     /// line-starts binary search.
     pub(crate) is_ascii_src: bool,
-    /// Live `parse_expr_bp` recursion depth; bumped on entry, decremented on exit. Enforces `MAX_EXPR_RECURSION_DEPTH`.
-    pub(crate) expr_recursion_depth: u32,
+    /// Live recursive-descent depth shared across expression / subquery / statement nesting; bumped on entry to each recursive entry point, decremented on exit. Enforces `MAX_RECURSION_DEPTH`.
+    pub(crate) recursion_depth: u32,
     /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,
 }
@@ -342,7 +342,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
-            expr_recursion_depth: 0,
+            recursion_depth: 0,
             emit,
         })
     }
@@ -523,6 +523,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let s = self.pos_obj(start);
         let e = self.pos_obj(end);
         self.emit.with_pos(value, s, e)
+    }
+
+    /// Run `f` one level deeper in the shared recursion-depth counter, rejecting cleanly if it would exceed [`MAX_RECURSION_DEPTH`]. The counter is decremented on every exit path (the over-depth bail and any `?` inside `f`), so it tracks live descent depth. Wraps the recursive entry points whose mutual recursion is otherwise unbounded — `parse_select_set_stmt` (subquery / set nesting) and `parse_statement` (Hog block / statement nesting); `parse_expr_bp` does the equivalent inline.
+    pub(crate) fn with_recursion_guard<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > MAX_RECURSION_DEPTH {
+            self.recursion_depth -= 1;
+            return Err(ParseError::syntax(
+                "input too deeply nested",
+                self.peek0.start,
+                self.peek0.end,
+            ));
+        }
+        let result = f(self);
+        self.recursion_depth -= 1;
+        result
     }
 
     /// Snapshot the parser cursor + per-call context so a failed

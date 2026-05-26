@@ -36,7 +36,25 @@ fn run<F>(f: F) -> String
 where
     F: FnOnce() -> Result<serde_json::Value, error::ParseError>,
 {
-    match f() {
+    // Catch panics so a parser bug surfaces as a structured JSON error envelope (a `NotImplementedError` the Python side maps to the `ExposedHogQLError` family) instead of a `PanicException` — a `BaseException` that slips past callers' `except Exception` and the shadow-comparison harness's guard, crashing the primary parse. `run_py` wraps its deep parse the same way; the `*_json` entry points have no other unwind boundary, so they need it here.
+    let outcome = std::panic::catch_unwind(AssertUnwindSafe(f));
+    let result = match outcome {
+        Ok(r) => r,
+        Err(panic) => {
+            let msg = panic
+                .downcast_ref::<&'static str>()
+                .copied()
+                .map(str::to_string)
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "parser panicked".to_string());
+            Err(error::ParseError::not_implemented(
+                format!("internal parser panic: {msg}"),
+                0,
+                0,
+            ))
+        }
+    };
+    match result {
         Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| {
             // serde_json::Value -> string never fails in practice, but emit a structured error rather than panic across the FFI.
             error::ParseError::syntax("internal: failed to serialize AST", 0, 0).to_json_string()
@@ -156,4 +174,27 @@ fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_program_py, m)?)?;
     m.add_function(wrap_pyfunction!(parse_full_template_string_py, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_converts_panic_to_json_error_envelope() {
+        // A panic on a `*_json` path must surface as a structured error envelope, not unwind across the FFI as a `PanicException` (a `BaseException` that escapes callers' `except Exception` and the shadow harness). cargo captures the expected panic's stderr for a passing test, so no hook silencing is needed.
+        let out = run(|| panic!("synthetic json-path panic"));
+        assert!(out.contains("\"error\":true"), "got: {out}");
+        assert!(out.contains("NotImplementedError"), "got: {out}");
+        assert!(out.contains("synthetic json-path panic"), "got: {out}");
+    }
+
+    #[test]
+    fn run_passes_through_ok_and_error_results() {
+        // The catch_unwind wrapper must not disturb the normal Ok / Err paths.
+        let ok = run(|| Ok(serde_json::json!({"node": "Constant"})));
+        assert!(ok.contains("Constant"), "got: {ok}");
+        let err = run(|| Err(error::ParseError::syntax("nope", 1, 2)));
+        assert!(err.contains("SyntaxError") && err.contains("nope"), "got: {err}");
+    }
 }

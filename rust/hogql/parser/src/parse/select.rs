@@ -19,6 +19,11 @@ use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_select_set_stmt(&mut self) -> Result<E::Value, ParseError> {
+        // Guard the subquery / set recursion (`parse_select_set_stmt` ↔ `parse_select_stmt_with_parens` on each `(` / `WITH (`) so `(select (select …))` nested past the cap rejects cleanly instead of overflowing the host stack (uncatchable SIGSEGV). Shares the counter with expression + statement nesting.
+        self.with_recursion_guard(Self::parse_select_set_stmt_inner)
+    }
+
+    fn parse_select_set_stmt_inner(&mut self) -> Result<E::Value, ParseError> {
         let stmt_start = self.peek0.start;
         let first = self.parse_select_stmt_with_parens()?;
         let mut subsequent: Vec<E::Value> = Vec::new();
