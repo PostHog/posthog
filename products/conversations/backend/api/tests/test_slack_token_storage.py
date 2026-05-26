@@ -149,59 +149,6 @@ class TestSlackTokenStorage(BaseTest):
         config = TeamConversationsSlackConfig.objects.get(team=self.team)
         assert config.slack_team_id == "T_SECOND"
 
-    def test_save_stores_slack_team_domain(self):
-        save_supporthog_slack_token(
-            team=self.team,
-            user=self.user,
-            is_impersonated_session=False,
-            bot_token="xoxb-domain",
-            slack_team_id="T_DOMAIN",
-            slack_team_domain="posthog",
-        )
-
-        config = TeamConversationsSlackConfig.objects.get(team=self.team)
-        assert config.slack_team_domain == "posthog"
-
-    def test_save_overwrites_slack_team_domain(self):
-        save_supporthog_slack_token(
-            team=self.team,
-            user=self.user,
-            is_impersonated_session=False,
-            bot_token="xoxb-1",
-            slack_team_id="T_1",
-            slack_team_domain="firstworkspace",
-        )
-        save_supporthog_slack_token(
-            team=self.team,
-            user=self.user,
-            is_impersonated_session=False,
-            bot_token="xoxb-2",
-            slack_team_id="T_2",
-            slack_team_domain=None,
-        )
-
-        config = TeamConversationsSlackConfig.objects.get(team=self.team)
-        assert config.slack_team_domain is None
-
-    def test_clear_resets_slack_team_domain(self):
-        save_supporthog_slack_token(
-            team=self.team,
-            user=self.user,
-            is_impersonated_session=False,
-            bot_token="xoxb-clear-domain",
-            slack_team_id="T_CLR_DOM",
-            slack_team_domain="posthog",
-        )
-
-        clear_supporthog_slack_token(
-            team=self.team,
-            user=self.user,
-            is_impersonated_session=False,
-        )
-
-        config = TeamConversationsSlackConfig.objects.get(team=self.team)
-        assert config.slack_team_domain is None
-
     def test_extension_auto_created_on_team_creation(self):
         config = get_or_create_team_extension(self.team, TeamConversationsSlackConfig)
         assert config.team_id == self.team.pk

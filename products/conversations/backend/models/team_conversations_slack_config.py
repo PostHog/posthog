@@ -14,7 +14,6 @@ class TeamConversationsSlackConfig(models.Model):
 
     slack_bot_token = EncryptedTextField(max_length=500, null=True, blank=True)
     slack_team_id = models.CharField(max_length=64, null=True, blank=True)
-    slack_team_domain = models.CharField(max_length=100, null=True, blank=True)
 
     class Meta:
         app_label = "conversations"

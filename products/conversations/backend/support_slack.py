@@ -79,7 +79,6 @@ def save_supporthog_slack_token(
     is_impersonated_session: bool,
     bot_token: str,
     slack_team_id: str,
-    slack_team_domain: str | None = None,
 ) -> None:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     old_token = config.slack_bot_token
@@ -92,8 +91,7 @@ def save_supporthog_slack_token(
     with transaction.atomic():
         config.slack_bot_token = bot_token
         config.slack_team_id = slack_team_id
-        config.slack_team_domain = slack_team_domain
-        config.save(update_fields=["slack_bot_token", "slack_team_id", "slack_team_domain"])
+        config.save(update_fields=["slack_bot_token", "slack_team_id"])
         team.save(update_fields=["conversations_settings"])
 
     log_activity(
@@ -146,8 +144,7 @@ def clear_supporthog_slack_token(
     with transaction.atomic():
         config.slack_bot_token = None
         config.slack_team_id = None
-        config.slack_team_domain = None
-        config.save(update_fields=["slack_bot_token", "slack_team_id", "slack_team_domain"])
+        config.save(update_fields=["slack_bot_token", "slack_team_id"])
         team.save(update_fields=["conversations_settings"])
 
     log_activity(

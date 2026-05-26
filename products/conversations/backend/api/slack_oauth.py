@@ -7,13 +7,11 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonRes
 from django.views.decorators.csrf import csrf_exempt
 
 import requests
-import structlog
 from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from slack_sdk import WebClient
 
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
@@ -23,8 +21,6 @@ from posthog.models.user import User
 from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.support_slack import clear_supporthog_slack_token, save_supporthog_slack_token
-
-logger = structlog.get_logger(__name__)
 
 STATE_SALT = "conversations.supporthog.slack.oauth"
 STATE_MAX_AGE_SECONDS = 10 * 60
@@ -52,26 +48,6 @@ def _append_query(url: str, params: dict[str, str]) -> str:
 
 def _get_callback_url() -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", "api/conversations/v1/slack/callback")
-
-
-def _fetch_slack_team_domain(bot_token: str) -> str | None:
-    """Fetch the Slack workspace subdomain (e.g. "posthog") via team.info.
-
-    Returned value powers the canonical message permalink format
-    https://<domain>.slack.com/archives/<channel>/p<ts>, which the Slack apps
-    deep-link into. Failure to fetch is non-fatal — the link just falls back.
-    """
-    try:
-        response = WebClient(token=bot_token).team_info()
-        if response.get("ok"):
-            team = response.get("team")
-            if isinstance(team, dict):
-                domain = team.get("domain")
-                if isinstance(domain, str) and domain:
-                    return domain
-    except Exception as e:
-        logger.warning("support_slack_team_info_failed", error=str(e))
-    return None
 
 
 def _safe_next_path(team_id: int, next_path: str | None) -> str:
@@ -221,10 +197,6 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not OrganizationMembership.objects.filter(user_id=user.id, organization_id=team.organization_id).exists():
         return _error_response(next_path, "forbidden_team_access", 403)
 
-    # Fetch outside the atomic block — we don't want to hold a row lock
-    # open while waiting on a Slack API call.
-    slack_team_domain = _fetch_slack_team_domain(bot_token)
-
     try:
         with transaction.atomic():
             conflicting_config = (
@@ -242,7 +214,6 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
                 is_impersonated_session=is_impersonated_session(request),
                 bot_token=bot_token,
                 slack_team_id=slack_team_id,
-                slack_team_domain=slack_team_domain,
             )
     except IntegrityError:
         return _error_response(next_path, "slack_workspace_already_connected", 409)

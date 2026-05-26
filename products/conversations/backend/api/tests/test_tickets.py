@@ -28,7 +28,7 @@ from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 from products.conversations.backend.api.tickets import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
-from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket, TicketAssignment
+from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
@@ -115,50 +115,6 @@ class TestTicketAPI(APIBaseTest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.unread_team_count, 0)
-
-    def test_retrieve_slack_ticket_includes_team_domain(self, mock_on_commit):
-        TeamConversationsSlackConfig.objects.update_or_create(
-            team=self.team,
-            defaults={"slack_team_id": "T123", "slack_team_domain": "posthog"},
-        )
-        slack_ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.SLACK,
-            widget_session_id="slack-session",
-            distinct_id="slack-user",
-            slack_channel_id="C123",
-            slack_thread_ts="1779810655.965749",
-            slack_team_id="T123",
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{slack_ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        body = response.json()
-        self.assertEqual(body["slack_team_domain"], "posthog")
-        self.assertEqual(body["slack_channel_id"], "C123")
-        self.assertEqual(body["slack_thread_ts"], "1779810655.965749")
-
-    def test_retrieve_slack_ticket_team_domain_null_when_not_set(self, mock_on_commit):
-        slack_ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.SLACK,
-            widget_session_id="slack-session-2",
-            distinct_id="slack-user-2",
-            slack_channel_id="C999",
-            slack_thread_ts="1779810655.965750",
-            slack_team_id="T999",
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{slack_ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["slack_team_domain"])
-
-    def test_retrieve_non_slack_ticket_team_domain_is_null(self, mock_on_commit):
-        TeamConversationsSlackConfig.objects.update_or_create(
-            team=self.team,
-            defaults={"slack_team_id": "T123", "slack_team_domain": "posthog"},
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["slack_team_domain"])
 
     def test_retrieve_ticket_includes_anonymous_traits(self, mock_on_commit):
         """Test that retrieve includes anonymous_traits."""

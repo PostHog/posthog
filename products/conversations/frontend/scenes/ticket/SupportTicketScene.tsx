@@ -44,22 +44,6 @@ export const scene: SceneExport<{ ticketId: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
-function buildSlackThreadUrl(
-    slackChannelId: string,
-    slackThreadTs: string,
-    slackTeamDomain: string | null | undefined,
-    slackTeamId: string | null | undefined
-): string {
-    const messageId = `p${slackThreadTs.replace('.', '')}`
-    if (slackTeamDomain) {
-        return `https://${slackTeamDomain}.slack.com/archives/${slackChannelId}/${messageId}`
-    }
-    if (slackTeamId) {
-        return `https://app.slack.com/client/${slackTeamId}/${slackChannelId}/thread/${slackChannelId}-${slackThreadTs.replace('.', '')}`
-    }
-    return `https://slack.com/archives/${slackChannelId}/${messageId}`
-}
-
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
@@ -287,12 +271,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <div className="flex justify-between items-center">
                                         <span className="text-muted-alt">Slack thread</span>
                                         <Link
-                                            to={buildSlackThreadUrl(
-                                                ticket.slack_channel_id,
-                                                ticket.slack_thread_ts,
-                                                ticket.slack_team_domain,
-                                                ticket.slack_team_id
-                                            )}
+                                            to={`https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`}
                                             target="_blank"
                                             className="text-xs"
                                         >

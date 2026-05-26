@@ -63,7 +63,7 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.models import EmailChannel, TeamConversationsSlackConfig, Ticket, TicketAssignment
+from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
 from ee.models.rbac.role import Role
@@ -202,13 +202,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
-    slack_team_domain = serializers.SerializerMethodField(
-        help_text=(
-            "Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com), used to "
-            "build the canonical Slack thread permalink. Null for non-Slack tickets or "
-            "when the workspace domain has not been fetched yet."
-        )
-    )
 
     class Meta:
         model = Ticket
@@ -238,7 +231,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
-            "slack_team_domain",
             "email_subject",
             "email_from",
             "email_to",
@@ -266,7 +258,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
-            "slack_team_domain",
             "email_subject",
             "email_from",
             "email_to",
@@ -288,11 +279,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             return config.from_email
         return None
 
-    def get_slack_team_domain(self, obj: Ticket) -> str | None:
-        if obj.channel_source != Channel.SLACK:
-            return None
-        return self.context.get("slack_team_domain")
-
 
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
@@ -303,20 +289,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     posthog_feature_flag = {
         "product-support-ai-suggestion": ["suggest_reply"],
     }
-
-    def get_serializer_context(self) -> dict:
-        # One lookup per request so list views don't issue N queries for the
-        # workspace subdomain (constant per Slack workspace).
-        context = super().get_serializer_context()
-        if "slack_team_domain" not in self.__dict__:
-            domain: str | None = (
-                TeamConversationsSlackConfig.objects.filter(team_id=self.team_id)
-                .values_list("slack_team_domain", flat=True)
-                .first()
-            )
-            self.__dict__["slack_team_domain"] = domain
-        context["slack_team_domain"] = self.__dict__["slack_team_domain"]
-        return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
