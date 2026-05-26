@@ -110,6 +110,8 @@ export const userLogic = kea<userLogicType>([
             types,
             enabled,
         }),
+        updatePipelineNotification: (pipelineId: string, enabled: boolean) => ({ pipelineId, enabled }),
+        updatePipelineNotificationForAll: (pipelineIds: string[], enabled: boolean) => ({ pipelineIds, enabled }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -546,6 +548,40 @@ export const userLogic = kea<userLogicType>([
                         data_pipeline_error_threshold: threshold / 100,
                     },
                 })
+        },
+        updatePipelineNotification: ({ pipelineId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: {
+                        ...values.user.notification_settings.pipeline_notifications_disabled,
+                        [pipelineId]: !enabled,
+                    },
+                },
+            })
+        },
+        updatePipelineNotificationForAll: ({ pipelineIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const pipelineNotificationsDisabled = {
+                ...values.user.notification_settings.pipeline_notifications_disabled,
+            }
+            pipelineIds.forEach((id) => {
+                pipelineNotificationsDisabled[id] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: pipelineNotificationsDisabled,
+                },
+            })
         },
     })),
     selectors({

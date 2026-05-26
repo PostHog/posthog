@@ -780,15 +780,21 @@ class TestExternalDataSource(APIBaseTest):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
                 return_value=(True, None),
             ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
@@ -4524,11 +4530,17 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=(True, None),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             # Create a BigQuery source
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
