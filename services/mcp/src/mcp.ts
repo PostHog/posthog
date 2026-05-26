@@ -6,6 +6,7 @@ import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { hasScope } from '@/lib/api'
+import { applyBackwardCompatParamAliases } from '@/lib/backward-compat-aliases'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -450,7 +451,8 @@ export class MCP extends McpAgent<Env> {
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
         const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
-            const validation = tool.schema.safeParse(params)
+            const normalizedParams = applyBackwardCompatParamAliases(tool.name, params)
+            const validation = tool.schema.safeParse(normalizedParams)
 
             if (!validation.success) {
                 const errorOutput = `Invalid input: ${validation.error.message}`
@@ -470,7 +472,7 @@ export class MCP extends McpAgent<Env> {
                 const previousContext = isContextSwitch
                     ? await this.getAnalyticsContextSafe(await this.getContext())
                     : undefined
-                const handlerResult = await handler(params)
+                const handlerResult = await handler(normalizedParams)
                 if (isContextSwitch) {
                     this.ctx.waitUntil(
                         this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
@@ -493,7 +495,7 @@ export class MCP extends McpAgent<Env> {
                     handlerResult,
                     toolMeta: tool._meta,
                     toolName: tool.name,
-                    params,
+                    params: normalizedParams,
                     clientName: this.mcpClientName,
                     distinctId,
                 })
