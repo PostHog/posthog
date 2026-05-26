@@ -66,6 +66,25 @@ describe('TrendsLineChart', () => {
             expect(glyphs.length).toBe(2)
         })
 
+        it('sorts tooltip rows by descending value regardless of series order', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    ],
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            const rows = tooltip.rows()
+            expect(rows).toHaveLength(2)
+            expect(rows[0]).toContain('Pageview')
+            expect(rows[1]).toContain('Napped')
+        })
+
         it('shows breakdown values in the tooltip', async () => {
             renderInsight({
                 query: buildTrendsQuery({
