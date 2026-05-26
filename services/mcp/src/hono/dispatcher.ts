@@ -23,6 +23,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
+import { CapabilityStore, projectClientCapabilities, supportsAnyElicitation } from './capability-store'
 import { getEnv } from './constants'
 import { ElicitBinding } from './elicit-binding'
 import { InstructionsBuilder } from './instructions'
@@ -113,6 +114,12 @@ export interface McpDispatcherOptions {
      * Per-await metrics adapter (e.g. Prometheus). Defaults to no-op.
      */
     busMetrics?: BusAwaitMetrics
+    /**
+     * Per-token cache of `initialize` capabilities. Defaults to a
+     * Redis-backed store using the same `RedisLike` client. Tests can inject
+     * a stub backed by an in-memory Map.
+     */
+    capabilityStore?: CapabilityStore
 }
 
 class McpDispatcher {
@@ -123,6 +130,7 @@ class McpDispatcher {
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly sessionBus: SessionResponseBus
     private readonly busMetrics: BusAwaitMetrics | undefined
+    private readonly capabilityStore: CapabilityStore
 
     private warmupPromise: Promise<void> | undefined
 
@@ -135,6 +143,7 @@ class McpDispatcher {
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
         this.sessionBus = options.sessionBus ?? new RedisPollingSessionResponseBus(redis)
         this.busMetrics = options.busMetrics
+        this.capabilityStore = options.capabilityStore ?? new CapabilityStore(redis)
     }
 
     /** Test accessor — exposes the bus so tests can deliver elicit responses. */
@@ -223,6 +232,31 @@ class McpDispatcher {
     ): Promise<Response> {
         const { id, params } = request
 
+        // Only install the elicit binding when the client declared elicitation
+        // support at initialize. Otherwise leave `Context.elicit` undefined —
+        // tool handlers checking `if (context.elicit)` see the truthful answer
+        // and fall back, no SSE round-trip required. This is the spec-compliant
+        // gate; without it we'd push a server-initiated request the client
+        // never agreed to support.
+        const caps = await this.capabilityStore.get(props.userHash)
+        const elicitAllowed = supportsAnyElicitation(caps)
+
+        type HandlerOutcome = { kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }
+
+        if (!elicitAllowed) {
+            // Fast path: no binding, no SSE possible. Behaves exactly like a
+            // pre-elicit tool call.
+            const outcome: HandlerOutcome = await this.toolExecutor
+                .handleToolCall(params, props, state)
+                .then((value): HandlerOutcome => ({ kind: 'success', value }))
+                .catch((error): HandlerOutcome => ({ kind: 'error', error }))
+            const result = this.buildToolsCallJsonRpcResponse(id, outcome)
+            return new Response(JSON.stringify(result), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            })
+        }
+
         const binding = new ElicitBinding({
             bus: this.sessionBus,
             createSseHandle: async () => createSseResponse(),
@@ -231,7 +265,6 @@ class McpDispatcher {
         })
         state.reqCtx.setElicitBinding(binding)
 
-        type HandlerOutcome = { kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }
         const handlerPromise: Promise<HandlerOutcome> = this.toolExecutor
             .handleToolCall(params, props, state)
             .then((value): HandlerOutcome => ({ kind: 'success', value }))
@@ -351,6 +384,15 @@ class McpDispatcher {
             const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
                 ? requestedVersion
                 : LATEST_PROTOCOL_VERSION
+
+            // Cache the client's declared capabilities so subsequent stateless
+            // requests can gate server-initiated calls (elicitation/create
+            // today). Always overwrite so a re-initialize with FEWER
+            // capabilities than a prior session correctly downgrades the
+            // cached state. Best-effort write: a Redis blip just costs an
+            // extra fail-closed bounce on the next tool/call.
+            const projectedCaps = projectClientCapabilities(params?.['capabilities'])
+            await this.capabilityStore.set(props.userHash, projectedCaps)
 
             const instructions = await this.instructionsBuilder.build(props, state)
 

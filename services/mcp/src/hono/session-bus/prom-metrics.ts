@@ -29,5 +29,12 @@ export function createPromBusMetrics(): BusAwaitMetrics {
         onUnhealthy() {
             sessionBusAwaitsTotal.inc({ outcome: 'unhealthy' })
         },
+        onNotSupported() {
+            // Refinement of `resolved`: the bus did deliver a payload, but the
+            // gateway classified it as a client capability gap. Dashboards
+            // tracking elicit health should subtract this from `resolved` to
+            // get the "user actually completed the modal" count.
+            sessionBusAwaitsTotal.inc({ outcome: 'not_supported' })
+        },
     }
 }

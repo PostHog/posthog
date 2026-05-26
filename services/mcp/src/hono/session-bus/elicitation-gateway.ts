@@ -17,6 +17,7 @@
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { validateElicitResult } from './elicit-result-validator'
+import { ElicitationNotSupportedError } from './errors'
 import type { BusAwaitMetrics, SessionResponseBus } from './types'
 
 /**
@@ -55,6 +56,14 @@ export interface ElicitCallOptions {
 /** Default elicit timeout. 5 minutes — comfortable for human interaction. */
 const DEFAULT_ELICIT_TIMEOUT_MS = 5 * 60 * 1000
 
+function safeMetric(fn: () => void): void {
+    try {
+        fn()
+    } catch {
+        /* metrics must never affect gateway behavior */
+    }
+}
+
 export class ElicitationGateway {
     constructor(
         private readonly bus: SessionResponseBus,
@@ -69,7 +78,13 @@ export class ElicitationGateway {
      * Throws (no recovery):
      * - `SessionBusTimeoutError` if no response within the deadline.
      * - `SessionBusAbortedError` if `options.signal` aborts.
-     * - `SessionBusUnhealthyError` if the bus or the validation step fails.
+     * - `ElicitationNotSupportedError` if the client returned a JSON-RPC error
+     *   envelope (e.g. `-32601 Method not found` from a client that didn't
+     *   advertise elicitation support). Tool authors should catch this and
+     *   fall back to a non-interactive path (typically: refuse the operation
+     *   and return an instructional message).
+     * - `SessionBusUnhealthyError` if the bus transport fails or the payload
+     *   is structurally invalid (not a result, not a JSON-RPC error envelope).
      */
     async elicit(params: ElicitRequestFormParams, options: ElicitCallOptions = {}): Promise<ElicitResult> {
         const requestId = crypto.randomUUID()
@@ -91,6 +106,13 @@ export class ElicitationGateway {
         }
         const raw = await this.bus.await<unknown>(requestId, awaitOptions)
 
-        return validateElicitResult(raw)
+        try {
+            return validateElicitResult(raw)
+        } catch (error) {
+            if (error instanceof ElicitationNotSupportedError) {
+                safeMetric(() => this.options.metrics?.onNotSupported?.(requestId, error.code))
+            }
+            throw error
+        }
     }
 }

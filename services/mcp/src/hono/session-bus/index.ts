@@ -6,7 +6,12 @@
  * implementation detail and can change.
  */
 
-export { SessionBusAbortedError, SessionBusTimeoutError, SessionBusUnhealthyError } from './errors'
+export {
+    ElicitationNotSupportedError,
+    SessionBusAbortedError,
+    SessionBusTimeoutError,
+    SessionBusUnhealthyError,
+} from './errors'
 
 export type { AwaitOptions, BusAwaitMetrics, SessionResponseBus } from './types'
 

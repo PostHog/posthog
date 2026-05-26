@@ -21,10 +21,18 @@ function createMockRedis(): MockRedis {
             }
             return store.get(key) ?? null
         }),
-        set: vi.fn(async (key: string, value: string) => {
+        set: vi.fn(async (key: string, value: string, ..._args: (string | number)[]) => {
             if (failNextN.set > 0) {
                 failNextN.set--
                 throw new Error('mock redis set failure')
+            }
+            // Honor NX semantics: if the key already exists, refuse the write
+            // and return null. Required for testing the first-writer-wins
+            // bus contract.
+            const args = _args.map((a) => (typeof a === 'string' ? a.toUpperCase() : a))
+            const nx = args.includes('NX')
+            if (nx && store.has(key)) {
+                return null
             }
             store.set(key, value)
             return 'OK'
@@ -77,6 +85,21 @@ describe('RedisPollingSessionResponseBus', () => {
         await new Promise((resolve) => setTimeout(resolve, 10))
         redis._store.set('mcp:session-response:r', JSON.stringify({ action: 'decline' }))
         await expect(pending).resolves.toEqual({ action: 'decline' })
+    })
+
+    it('first deliver wins; a second deliver for the same key is silently dropped', async () => {
+        // First-writer-wins is the bus contract. SET NX in the implementation
+        // makes the second SET a no-op. This protects against duplicate POSTs
+        // (network retry, user double-click with a different choice, or an
+        // attacker racing replies).
+        await bus.deliver('r', { action: 'accept', content: { first: true } })
+        await bus.deliver('r', { action: 'decline', content: { second: true } })
+        const pending = bus.await<{ action: string; content: Record<string, unknown> }>('r', {
+            timeoutMs: 1_000,
+        })
+        const result = await pending
+        expect(result.action).toBe('accept')
+        expect(result.content).toEqual({ first: true })
     })
 
     it('DELs the key after a successful read (one-shot)', async () => {

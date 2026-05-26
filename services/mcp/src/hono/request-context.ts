@@ -133,19 +133,26 @@ export class RequestContext {
             const distinctId = await this.getDistinctId()
             await this.trackEvent(event, properties, analyticsContext, undefined, distinctId, this.props)
         }
-        // Read the binding lazily — the dispatcher may set it after this
-        // method returns. The closure captures `this`, not the current value.
+        // `Context.elicit` is exposed as a getter so `if (context.elicit)`
+        // tracks the current binding state. The dispatcher installs (or omits)
+        // the binding AFTER this method returns, depending on the client's
+        // initialize-declared capability. Tool authors get the spec-correct
+        // capability check: `undefined` when no binding, a callable when one
+        // is installed.
         const self = this
-        const elicit: Context['elicit'] = (params, options) => {
-            const binding = self.elicitBinding
-            if (!binding) {
-                throw new Error(
-                    'Elicit is not available in this request context. The dispatcher only installs the elicit binding for tools/call.'
-                )
-            }
-            return binding.invoke(params, options)
-        }
-        return { ...partialContext, trackEvent, elicit }
+        const ctx: Context = { ...partialContext, trackEvent }
+        Object.defineProperty(ctx, 'elicit', {
+            enumerable: true,
+            configurable: false,
+            get(): Context['elicit'] {
+                const binding = self.elicitBinding
+                if (!binding) {
+                    return undefined
+                }
+                return (params, options) => binding.invoke(params, options)
+            },
+        })
+        return ctx
     }
 
     async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {

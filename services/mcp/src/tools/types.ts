@@ -100,15 +100,28 @@ export type Context = {
      * Request structured input from the user via the MCP client (an elicitation
      * modal). Used to gate destructive actions behind manual confirmation.
      *
-     * Optional because not every runtime wires elicitation today: the Hono
-     * dispatcher sets it via the per-request elicit binding when a tool handler
-     * needs to surface a prompt; runtimes without that wiring leave it undefined,
-     * and consumers should fall back to "no confirmation available, fail closed".
+     * Undefined when elicitation cannot or should not be attempted. Tool
+     * authors MUST treat `context.elicit` as a capability check and fall back
+     * gracefully when it's missing. Reasons for `undefined`:
      *
-     * Throws (cross-pod errors from the underlying session bus):
-     * - `SessionBusTimeoutError` if no response within the deadline
-     * - `SessionBusAbortedError` if the request signal aborts
-     * - `SessionBusUnhealthyError` if the bus or validation fails
+     * - **Runtime not wired:** runtimes other than Hono (e.g. the Workers/DO
+     *   implementation) don't expose elicit at all yet.
+     * - **Client didn't declare support:** the MCP spec requires the server
+     *   NOT to send `elicitation/create` to a client that didn't advertise
+     *   `capabilities.elicitation` at initialize. The Hono dispatcher reads
+     *   the cached capability and leaves `elicit` undefined when missing —
+     *   including cold-start cases where no initialize has been observed
+     *   yet for this token. Fail-closed by design.
+     *
+     * Throws (only when invoked — i.e. when `elicit` is defined):
+     * - `SessionBusTimeoutError` if no response within the deadline.
+     * - `SessionBusAbortedError` if the request signal aborts.
+     * - `ElicitationNotSupportedError` if the client returns a JSON-RPC error
+     *   envelope at runtime (e.g. lied about capability, or supports only a
+     *   mode we don't yet send). Carries the JSON-RPC error code. Tool
+     *   authors should catch and fall back to a non-interactive path.
+     * - `SessionBusUnhealthyError` if the bus transport or payload validation
+     *   fails (structurally malformed responses, not protocol-level errors).
      */
     elicit?: ElicitFn
 }

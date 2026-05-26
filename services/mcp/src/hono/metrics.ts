@@ -126,4 +126,14 @@ export const sessionBusPollsTotal = new Counter({
     help: 'Total Redis GETs performed by the polling session-response bus.',
 })
 
+// CapabilityStore cache observations. A low hit rate after warm-up is the
+// signal that initialize-driven capability caching isn't sticking — either
+// because clients aren't re-initializing or the TTL is too short. `stale`
+// counts corrupt-JSON reads (treated as miss for fail-closed reasons).
+export const clientCapabilityCacheTotal = new Counter({
+    name: 'mcp_client_capability_cache_total',
+    help: 'CapabilityStore reads, broken down by result.',
+    labelNames: ['result'] as const,
+})
+
 export { register }

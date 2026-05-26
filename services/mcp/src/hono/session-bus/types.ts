@@ -94,4 +94,16 @@ export interface BusAwaitMetrics {
 
     /** Called when the underlying transport fails irrecoverably. */
     onUnhealthy?(requestId: string | number, cause: unknown): void
+
+    /**
+     * Called when the bus delivered a payload but it was a JSON-RPC error
+     * envelope from the client (typically because the client doesn't support
+     * `elicitation/create`).
+     *
+     * Note: this is a *refinement* of `onResolve`, not a replacement. The
+     * bus already counted the delivery via `onResolve` before the gateway
+     * could classify the payload. Dashboards should compute
+     * `clean_awaits = resolved - not_supported - (other gateway-rejected)`.
+     */
+    onNotSupported?(requestId: string | number, code: number): void
 }

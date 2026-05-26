@@ -137,10 +137,15 @@ export class RedisPollingSessionResponseBus implements SessionResponseBus {
     async deliver(requestId: string | number, payload: unknown): Promise<void> {
         const key = buildKey(requestId)
         const value = JSON.stringify(payload)
-        // `SET key value EX seconds` — TTL guarantees abandoned responses
-        // self-clean. Last-writer-wins is fine; the await reads exactly once.
+        // `SET key value NX EX seconds` — atomic first-writer-wins.
+        // Without NX, a second deliver (a duplicate POST, a double-click, or
+        // an attacker racing two replies) overwrites the first response after
+        // it's been stored but before the poll loop reads it, producing
+        // last-writer-wins semantics that contradict the bus contract. NX
+        // makes the second SET a no-op; the second caller's payload is
+        // silently dropped (intended — the bus is a one-shot reply channel).
         try {
-            await this.redis.set(key, value, 'EX', this.responseTtlSeconds)
+            await this.redis.set(key, value, 'EX', this.responseTtlSeconds, 'NX')
         } catch (error) {
             throw new SessionBusUnhealthyError(`Redis SET failed for request=${requestId}`, {
                 cause: error,

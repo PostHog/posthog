@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ElicitationGateway } from '@/hono/session-bus/elicitation-gateway'
 import type { TransportMessageSender } from '@/hono/session-bus/elicitation-gateway'
-import { SessionBusTimeoutError, SessionBusUnhealthyError } from '@/hono/session-bus/errors'
+import {
+    ElicitationNotSupportedError,
+    SessionBusTimeoutError,
+    SessionBusUnhealthyError,
+} from '@/hono/session-bus/errors'
 import { InMemorySessionResponseBus } from '@/hono/session-bus/in-memory-bus'
 
 function createCapturingSender(): TransportMessageSender & { sent: unknown[] } {
@@ -81,6 +85,52 @@ describe('ElicitationGateway', () => {
 
         controller.abort()
         await expect(pending).rejects.toThrow(/aborted/i)
+    })
+
+    it('throws ElicitationNotSupportedError when the client returns a JSON-RPC error envelope', async () => {
+        const bus = new InMemorySessionResponseBus()
+        const sender = createCapturingSender()
+        const gateway = new ElicitationGateway(bus, sender)
+
+        const pending = gateway.elicit({
+            message: 'x',
+            requestedSchema: { type: 'object', properties: {} },
+        })
+
+        await new Promise((resolve) => setImmediate(resolve))
+        const sent = sender.sent[0] as { id: string }
+        await bus.deliver(sent.id, { error: { code: -32601, message: 'Method not found' } })
+
+        let caught: unknown
+        try {
+            await pending
+        } catch (e) {
+            caught = e
+        }
+        expect(caught).toBeInstanceOf(ElicitationNotSupportedError)
+        expect((caught as ElicitationNotSupportedError).code).toBe(-32601)
+    })
+
+    it('invokes onNotSupported metric when the client signals lack of support', async () => {
+        const bus = new InMemorySessionResponseBus()
+        const sender = createCapturingSender()
+        const notSupportedSpy = vi.fn()
+        const gateway = new ElicitationGateway(bus, sender, {
+            metrics: { onNotSupported: notSupportedSpy },
+        })
+
+        const pending = gateway.elicit({
+            message: 'x',
+            requestedSchema: { type: 'object', properties: {} },
+        })
+
+        await new Promise((resolve) => setImmediate(resolve))
+        const sent = sender.sent[0] as { id: string }
+        await bus.deliver(sent.id, { error: { code: -32602, message: 'unsupported mode' } })
+
+        await expect(pending).rejects.toBeInstanceOf(ElicitationNotSupportedError)
+        expect(notSupportedSpy).toHaveBeenCalledTimes(1)
+        expect(notSupportedSpy).toHaveBeenCalledWith(expect.any(String), -32602)
     })
 
     it('emits await-start / resolve metrics via the configured hook', async () => {
