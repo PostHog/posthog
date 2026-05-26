@@ -71,12 +71,20 @@ class ProjectProfile:
         return asdict(self)
 
 
-def get_project_profile(*, team_id: int, force_refresh: bool = False) -> ProjectProfile:
+def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build: bool = True) -> ProjectProfile | None:
     """Return a fresh project profile for a team, computing on cache miss.
 
     Reads the newest `SignalProjectProfile` row; if expired or absent, recomputes inline
     and persists. The lazy compute path keeps brand-new teams (no profile yet) usable
     without waiting for the daily Temporal workflow.
+
+    `lazy_build=False` turns this into a pure cache read: on a miss it returns `None`
+    instead of building. Untrusted read callers (a session-authenticated GET, or a
+    `signal_scout:read` PAK without the internal scope) pass this so the read can't trigger
+    the expensive inventory rebuild + row write — DRF exempts safe methods from CSRF, so a
+    build on cache miss would otherwise be CSRF-reachable. The headless scout (internal
+    token) and the Temporal workflow keep the default build-on-miss path. `force_refresh`
+    always builds, regardless of `lazy_build`.
 
     `SignalProjectProfile` is a `TeamScopedRootMixin` model, so `RootTeamMixin.save()`
     stores every row under the *canonical* (root) team. Resolve the requested `team_id`
@@ -100,6 +108,10 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False) -> Project
         cached = _latest_fresh_profile(team_id=team_id)
         if cached is not None:
             return _to_dataclass(cached)
+        if not lazy_build:
+            # Pure cache read: a miss returns None rather than triggering an inline build,
+            # so an untrusted (CSRF-reachable) GET stays side-effect-free.
+            return None
     team = Team.objects.get(id=team_id)
     return compute_project_profile(team=team, force=force_refresh)
 

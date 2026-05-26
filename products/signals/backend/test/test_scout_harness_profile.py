@@ -640,7 +640,7 @@ class TestGetProjectProfile(BaseTest):
         first = compute_project_profile(team=self.team)
         # Second call hits the cache — we should get the same row id back.
         second = get_project_profile(team_id=self.team.id)
-        assert second.profile_id == first.profile_id
+        assert second is not None and second.profile_id == first.profile_id
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
     def test_recomputes_when_cached_row_is_expired(self) -> None:
@@ -650,7 +650,7 @@ class TestGetProjectProfile(BaseTest):
             expires_at=timezone.now() - timedelta(minutes=1),
         )
         fresh = get_project_profile(team_id=self.team.id)
-        assert fresh.profile_id != stale.profile_id
+        assert fresh is not None and fresh.profile_id != stale.profile_id
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 2
 
     def test_recomputes_when_source_version_does_not_match(self) -> None:
@@ -658,7 +658,7 @@ class TestGetProjectProfile(BaseTest):
         # Simulate a schema bump by retagging the row to a stale version.
         SignalProjectProfile.objects.filter(id=old.profile_id).update(source_version="v0_legacy")
         fresh = get_project_profile(team_id=self.team.id)
-        assert fresh.profile_id != old.profile_id
+        assert fresh is not None and fresh.profile_id != old.profile_id
         assert fresh.source_version == INVENTORY_SOURCE_VERSION
 
     def test_team_isolated(self) -> None:
@@ -667,6 +667,7 @@ class TestGetProjectProfile(BaseTest):
         # Calling for self.team shouldn't return the other team's profile — it should
         # build a fresh one for self.team.
         result = get_project_profile(team_id=self.team.id)
+        assert result is not None
         row = SignalProjectProfile.objects.get(id=result.profile_id)
         assert row.team_id == self.team.id
 
@@ -674,9 +675,24 @@ class TestGetProjectProfile(BaseTest):
         cached = compute_project_profile(team=self.team)
         # Default fetch hits the cache — same row.
         sanity = get_project_profile(team_id=self.team.id)
-        assert sanity.profile_id == cached.profile_id
+        assert sanity is not None and sanity.profile_id == cached.profile_id
         # `force_refresh=True` skips the cache and the post-lock re-check, persisting a
         # second row even though the first is still well within TTL.
         fresh = get_project_profile(team_id=self.team.id, force_refresh=True)
-        assert fresh.profile_id != cached.profile_id
+        assert fresh is not None and fresh.profile_id != cached.profile_id
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 2
+
+    def test_lazy_build_false_returns_none_on_cache_miss_without_building(self) -> None:
+        # Read-only callers (untrusted, CSRF-reachable GETs) pass `lazy_build=False` so a
+        # miss returns None instead of running the inventory build + persisting a row.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        result = get_project_profile(team_id=self.team.id, lazy_build=False)
+        assert result is None
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+
+    def test_lazy_build_false_returns_cached_row_when_fresh(self) -> None:
+        cached = compute_project_profile(team=self.team)
+        result = get_project_profile(team_id=self.team.id, lazy_build=False)
+        assert result is not None and result.profile_id == cached.profile_id
+        # No new row — the read-only path served the cache.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1

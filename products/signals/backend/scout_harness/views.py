@@ -69,15 +69,17 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 def _caller_carries_scout_internal_scope(request: Request) -> bool:
     """True only when the request authenticates with the sandbox-internal scout scope.
 
-    `force_refresh` punches through the profile cache and triggers a full rebuild
-    (per-section table scans + the ClickHouse top-events aggregation). Honoring it for
-    any `signal_scout:read` PAK would let an attacker spam expensive recomputes, and
-    honoring it on a session-authenticated GET makes the rebuild CSRF-triggerable. The
-    headless scout's sandbox OAuth token is the only caller that legitimately needs it,
-    and it's minted with `signal_scout_internal:write` via `SCOUT_INTERNAL_SCOPES` — so
-    gate the flag on that scope. Session and other non-token auth carry no API scopes and
-    never pass, which also closes the CSRF path. `*` (full-access consent) deliberately
-    does not match: internal scopes are not reachable via user-consented tokens.
+    The profile build — whether a `force_refresh` rebuild or the lazy build on cache miss —
+    runs per-section table scans plus the ClickHouse top-events aggregation and writes a
+    row. Honoring either for any `signal_scout:read` PAK would let an attacker spam
+    expensive recomputes, and honoring either on a session-authenticated GET makes the
+    rebuild CSRF-triggerable (DRF exempts safe methods from CSRF). The headless scout's
+    sandbox OAuth token is the only caller that legitimately builds inline, and it's minted
+    with `signal_scout_internal:write` via `SCOUT_INTERNAL_SCOPES` — so gate the build on
+    that scope. Session and other non-token auth carry no API scopes and never pass, which
+    closes the CSRF path; untrusted read callers get the cached profile or a 404. `*`
+    (full-access consent) deliberately does not match: internal scopes are not reachable
+    via user-consented tokens.
     """
     authenticator = request.successful_authenticator
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
@@ -426,16 +428,22 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         responses={
             200: OpenApiResponse(
                 response=ProjectProfileSerializer,
-                description="The team's current project profile (cached or freshly computed).",
+                description="The team's current project profile (cached, or freshly built for the internal scout token).",
+            ),
+            404: OpenApiResponse(
+                description=(
+                    "No profile has been built for this team yet, and the caller is not the internal scout "
+                    "token (which builds on cache miss). Public read callers never trigger a build."
+                ),
             ),
         },
         summary="Get the current project profile",
         description=(
-            "Return the team's deterministic project profile. The response reflects either the "
-            "newest non-expired cached row or a freshly-built one (lazy compute on cache miss). "
-            "`force_refresh=true` skips the cache and rebuilds from authoritative sources, but is "
-            "honored only for the internal scout token — public read callers always get the "
-            "cached/lazy-built profile. Read this at the start of a run to orient on the team's "
+            "Return the team's deterministic project profile. For the internal scout token the response "
+            "reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); "
+            "`force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers "
+            "(session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been "
+            "built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's "
             "product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
         ),
     )
@@ -456,10 +464,21 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     def current(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
-        # `force_refresh` triggers a full inventory rebuild, so honor it only for the
-        # internal scout token — never for a `signal_scout:read` PAK (recompute spam) or
-        # a session-authenticated GET (CSRF-triggered rebuild). Public read callers always
-        # get the cached/lazy-built profile regardless of the flag.
-        force_refresh = bool(validated.get("force_refresh", False)) and _caller_carries_scout_internal_scope(request)
-        profile = get_project_profile(team_id=self.team_id, force_refresh=force_refresh)
+        caller_is_internal_scout = _caller_carries_scout_internal_scope(request)
+        # Both `force_refresh` and the lazy build-on-miss run the full inventory rebuild
+        # (per-section table scans + the ClickHouse top-events aggregation) and write a row,
+        # so both are gated to the internal scout token. A session-authenticated GET bypasses
+        # CSRF (safe method), so letting it build would make the rebuild CSRF-triggerable; a
+        # `signal_scout:read` PAK could likewise spam recomputes. Untrusted read callers get
+        # the newest cached profile, or a 404 if none exists — they never trigger a build. The
+        # scout's sandbox token carries `signal_scout_internal:write`, and the Phase-7 Temporal
+        # workflow builds out-of-band, so the build path stays covered.
+        force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
+        profile = get_project_profile(
+            team_id=self.team_id,
+            force_refresh=force_refresh,
+            lazy_build=caller_is_internal_scout,
+        )
+        if profile is None:
+            raise exceptions.NotFound("No project profile has been built for this team yet.")
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
