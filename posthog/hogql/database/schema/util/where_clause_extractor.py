@@ -147,8 +147,15 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=True)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
-        # don't even try to handle complex logic
-        return ast.Constant(value=True)
+        # Visit both operands so constant expressions (e.g. `toDateTime('2024-10-25') + interval 1 day`)
+        # are preserved rather than collapsed to True.  If either side references a tracked-table field
+        # (signalled by a tombstone), propagate the tombstone so the comparison is dropped from the
+        # inner WHERE instead of being mis-evaluated as "field < 1".
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+        return ast.ArithmeticOperation(op=node.op, left=left, right=right)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
         if self.is_join:
