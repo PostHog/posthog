@@ -3662,6 +3662,22 @@ snapshots:
         hash: v1.k794b7964.b0ef436291d127e0454ce74a02c768d1f118f7e32d17271d885ac42c975b46ee.IASwEqjMsp__Bo1Cap9WhhtInKGDq9XISu718YwO9II
     queries-webvitalspathbreakdown--web-vitals-path-breakdown--light:
         hash: v1.k794b7964.fd0ba51aa1e7fbc6df4564bcd53037862f0ac3aee503d2af8f4cca02c170edeb.k1sR9J1GXAgy8FchVJl3jdoRKkrnFuQlHKcP2Ek6mxw
+    replay-components-addtocollectionmodal--no-collections--dark:
+        hash: v1.k794b7964.be350fe6aa74b0b9cdb467708414213566448645662aa3eca28251d3796c5eff.URL0tvmIpsx9nLEXq9MaSZ1B-v68PGI_G99VYirxRvs
+    replay-components-addtocollectionmodal--no-collections--light:
+        hash: v1.k794b7964.c61450bf864b98eb16ff8f5d6765be6c40a86c239e081501003ec17a58e05159.hCE3KBEBwDkIh_037ZwPUdbBm6etpE2HecM0RvG203s
+    replay-components-addtocollectionmodal--no-search-entered--dark:
+        hash: v1.k794b7964.5f19fd40ae16655602e99a0f0053060f1bdc9f51f8f4edd129fcd795b882695e.nkJZMbzynKWiNtEN_qaAqyDCUpcPAjSJOKlNOFXgtn0
+    replay-components-addtocollectionmodal--no-search-entered--light:
+        hash: v1.k794b7964.f4d7bf2be105b65e6b53fbc802c82e12b6c94c8d87d48a8571bc3e97229b78dd.0SyzhSS8dDO433IwKIZPPZ5RILDJJnrtY-OnBlVJDZk
+    replay-components-addtocollectionmodal--search-with-no-results--dark:
+        hash: v1.k794b7964.9889d29aa66b6f9cc3c84cceb02eae55d45c72b331112f8fd926ab146e48346d.JX4kJzbEuFzbfzcGzhj6nMI1punSsxD2p7TXA290D08
+    replay-components-addtocollectionmodal--search-with-no-results--light:
+        hash: v1.k794b7964.dd87bc7b6c2bd55b902a5008f8caa9f131bd7d8602f84ca0ebd994f52413c814.mzmTQgic4NfHeL4TpE6hyJ_aCXRmV9lAVXVDId6PZis
+    replay-components-addtocollectionmodal--search-with-results--dark:
+        hash: v1.k794b7964.7cc4bc6c2e8a05bb54170d166124bc22170a7595c9e72032efe1f072a63414b1.BXYNUohIX2ABzXQ9zhGudMLv7FqEfl0mDLYljl4WKAs
+    replay-components-addtocollectionmodal--search-with-results--light:
+        hash: v1.k794b7964.60b1c221559414716ed423b756e5ef3599e09d25a71e3f814ff323302f077db9.zCZPmWYs4cKjSwtjF2JlSeajtffRCncoa6PLCaZGdrY
     replay-components-comment-modal--default--dark:
         hash: v1.k794b7964.8dc0dd1d81258c518aae25f6dfbd810511af510732eaa156ce7b8b3640ec4db7.NpbN1GlhsLXxUscMwxPvR43xSKA4-Su4iM2tD13JeBc
     replay-components-comment-modal--default--light:
@@ -4719,7 +4735,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
-        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.xupnP9sdcp25xPBOMzrhSHwtRpKPLKHaqLDBncapvQA
+        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.gaL7vRk-pWoOUkiPi-NGCd1W72x-M5l9jk5Qu-UcjwI
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.3gc3UBg-8GVo4HkNBH7UrogK2q1uh9pXPDjTdYGT8nc
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
@@ -4731,7 +4747,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--light:
         hash: v1.k794b7964.c95c5a49f7a20b7fcb1041dd26c73ee87c9a906cb229247a44fd4633bbdc9173.StrJ2VBA5acLqvnsiO2CS_o6qadxeaeO6ST8lxf5UdI
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
-        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.URrKOLP9uUjbKWcui2yOA7hm_JsXsbkAlOcWJshoQrI
+        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.KSiw8WpvjWXIDh87ExL4cPnopVJlTXvzU8N8ruh6Hi8
     scenes-app-insights-funnels--funnel-time-to-convert--dark:
