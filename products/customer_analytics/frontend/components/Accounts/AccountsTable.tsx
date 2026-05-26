@@ -75,7 +75,6 @@ export function AccountsTable(): JSX.Element {
             columns={columns}
             expandable={{
                 noIndent: true,
-                rowExpandable: (account) => (account.notebooks?.length ?? 0) > 0,
                 expandedRowRender: (account) => <AccountNotebooksExpansion accountId={account.id} />,
             }}
             pagination={{
