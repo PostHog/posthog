@@ -326,6 +326,8 @@ def _fit_and_score(
         return _score_rows(feature_rows, recipe)
 
     try:
+        # Binary classification: column 1 is P(y=1). Multi-class would need
+        # a different event shape (one $autoresearch_p_<class> per column).
         proba = estimator.predict_proba(X)[:, 1]
     except Exception:
         logger.exception("autoresearch_model_predict_failed", model_class=model_class_path)
