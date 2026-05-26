@@ -19,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ReadOnlyModeError } from 'lib/readOnlyGuard'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
@@ -585,6 +586,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
+                if (e instanceof ReadOnlyModeError || (e as Error)?.cause instanceof ReadOnlyModeError) {
+                    // Read-only mode already shows its own toast via the guard; suppress the
+                    // generic failure toast and avoid rethrowing so kea does not log this
+                    // expected block as an unhandled listener exception.
+                    return
+                }
                 if (e instanceof ApiError) {
                     lemonToast.error(e.detail ?? 'Could not save insight')
                 } else {
