@@ -171,12 +171,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         {
             name: 'builds the xAxis from interval/timezone/allDays',
             input: { interval: 'day' as const, timezone: 'UTC', allDays: ['2024-06-10', '2024-06-11'] },
-            expected: { timezone: 'UTC', interval: 'day', allDays: ['2024-06-10', '2024-06-11'] },
+            expected: {
+                label: undefined,
+                timezone: 'UTC',
+                interval: 'day',
+                allDays: ['2024-06-10', '2024-06-11'],
+            },
         },
         {
             name: 'defaults interval to "day" and allDays to empty when omitted',
             input: {},
-            expected: { timezone: undefined, interval: 'day', allDays: [] },
+            expected: { label: undefined, timezone: undefined, interval: 'day', allDays: [] },
         },
     ])('$name', ({ input, expected }) => {
         const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
@@ -201,13 +206,15 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         })
     })
 
-    it('forces percentage format when isPercentStackView is true', () => {
+    it('forces percentage_scaled format when isPercentStackView is true', () => {
+        // BarChart percent layout puts the value scale on 0..1, so the y-tick formatter
+        // expects 0..1 input rather than the 0..100 input of the regular `percentage` format.
         const cfg = buildTrendsBarTimeSeriesConfig({
             isPercentStackView: true,
             isGrouped: false,
             trendsFilter: { aggregationAxisFormat: 'currency' },
         })
-        expect(cfg.yAxis?.format).toBe('percentage')
+        expect(cfg.yAxis?.format).toBe('percentage_scaled')
     })
 
     it('maps schema goal lines through the shared adapter', () => {
@@ -218,6 +225,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             goalLines,
         })
         expect(cfg.goalLines).toEqual([expect.objectContaining({ value: 50, label: 'Target' })])
+    })
+
+    it('passes custom axis labels into the chart config', () => {
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+        })
+        expect(cfg.xAxis?.label).toBe('Signup date')
+        expect(cfg.yAxis?.label).toBe('Total events')
     })
 
     it('passes valueLabels and tooltip through unchanged', () => {

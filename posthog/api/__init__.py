@@ -114,7 +114,11 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
-from products.replay_vision.backend.api import ReplayObservationViewSet, ReplayScannerViewSet
+from products.replay_vision.backend.api import (
+    ReplayObservationViewSet,
+    ReplayScannerViewSet,
+    SessionReplayObservationViewSet,
+)
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.presentation.views import (
@@ -438,11 +442,18 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
+environment_accounts_router = environments_router.register(
     r"accounts",
     customer_analytics.AccountViewSet,
     "environment_accounts",
     ["team_id"],
+)
+
+environment_accounts_router.register(
+    r"notebooks",
+    customer_analytics.AccountNotebookViewSet,
+    "environment_account_notebooks",
+    ["team_id", "account_id"],
 )
 
 projects_router.register(
@@ -1622,6 +1633,12 @@ environment_vision_scanners_router.register(
     ReplayObservationViewSet,
     "environment_vision_scanner_observations",
     ["team_id", "scanner_id"],
+)
+environments_router.register(
+    r"vision/observations",
+    SessionReplayObservationViewSet,
+    "environment_vision_observations",
+    ["team_id"],
 )
 
 environments_router.register(

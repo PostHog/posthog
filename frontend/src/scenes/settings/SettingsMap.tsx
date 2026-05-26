@@ -1512,6 +1512,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Internal AI training',
                 component: <OrganizationAITrainingOptOut />,
                 flag: 'AI_TRAINING',
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
                 keywords: ['ai', 'training', 'opt-out', 'opt-in', 'model', 'max'],
                 searchDescription:
                     'Control whether PostHog can use your data to train AI models. Turning this off disables AI features for your organization.',

@@ -1160,6 +1160,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Apply the per-team opt-in here so every stats-table tab (Path,
+                                // Entry path, End path, channel breakdowns, etc.) consistently
+                                // reaches the lazy precompute gate. The backend gate decides
+                                // per-breakdown which combinations are actually served from the
+                                // precompute. `source` overrides can still pin this off for a
+                                // specific tab if ever needed.
                                 useWebAnalyticsPrecompute,
                                 ...source,
                             },
@@ -1411,6 +1417,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                               includeAvgTimeOnPage:
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
+                                              useWebAnalyticsPrecompute,
                                           },
                                           {
                                               ...pathTabExtras,

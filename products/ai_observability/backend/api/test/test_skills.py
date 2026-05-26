@@ -320,6 +320,41 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("no_query_string", "", None),
+            ("with_version_query_string", "?version=1", 1),
+        ]
+    )
+    def test_get_skill_by_uuid_redirects_to_name(self, mock_feature_enabled, _label, query_suffix, _version):
+        skill = self.create_skill(name="uuid-redirect-target")
+        skill_id = str(skill.id)
+
+        response = self.client.get(self._url(f"name/{skill_id}{query_suffix}"))
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "uuid-redirect-target" in response["Location"]
+        assert skill_id not in response["Location"]
+        if query_suffix:
+            assert query_suffix.lstrip("?") in response["Location"]
+
+    def test_get_skill_by_uuid_not_found_returns_404(self, mock_feature_enabled):
+        import uuid
+
+        nonexistent_id = str(uuid.uuid4())
+        response = self.client.get(self._url(f"name/{nonexistent_id}"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_skill_with_uuid_shaped_name_returns_skill_not_redirect(self, mock_feature_enabled):
+        uuid_shaped_name = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        self.create_skill(name=uuid_shaped_name, body="# UUID-named skill")
+
+        response = self.client.get(self._url(f"name/{uuid_shaped_name}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == uuid_shaped_name
+
     # --- Publish new version ---
 
     def test_publish_new_version(self, mock_feature_enabled):

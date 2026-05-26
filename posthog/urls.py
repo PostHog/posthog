@@ -31,12 +31,12 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_callback.personal_finish import github_link_complete
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.user_integration import github_link_complete
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization

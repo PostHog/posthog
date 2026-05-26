@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { Suspense, lazy } from 'react'
 
+import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -26,7 +27,7 @@ import { TraceSummary, aiObservabilitySessionDataLogic } from './aiObservability
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
 import { SentimentBar } from './components/SentimentTag'
-import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleStream'
 import { SessionTurn } from './extractSessionTurns'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
@@ -165,11 +166,10 @@ function SessionSceneWrapper(): JSX.Element {
             </header>
 
             <div className="flex flex-col">
-                {sessionTurns.map((turn, index) => (
+                {sessionTurns.map((turn) => (
                     <SessionTurnView
                         key={turn.trace.id}
                         turn={turn}
-                        turnNumber={index + 1}
                         showSentiment={showSentiment}
                         showSessionSummarization={!!showSessionSummarization}
                         traceSearchParams={traceSearchParams}
@@ -241,25 +241,24 @@ function SummarizeAllButton({
 
 function SessionTurnView({
     turn,
-    turnNumber,
     showSentiment,
     showSessionSummarization,
     traceSearchParams,
 }: {
     turn: SessionTurn
-    turnNumber: number
     showSentiment: boolean
     showSessionSummarization: boolean
     traceSearchParams: Record<string, unknown>
 }): JSX.Element {
-    const { traceSummaries, loadingFullTraces, fullTraces, reasoningExpandedTraceIds, expandedGenerationIds } =
-        useValues(aiObservabilitySessionDataLogic)
-    const { toggleReasoning, toggleGenerationExpanded, loadFullTrace } = useActions(aiObservabilitySessionDataLogic)
+    const { traceSummaries, loadingFullTraces, fullTraces, stepsExpandedTraceIds, expandedGenerationIds } = useValues(
+        aiObservabilitySessionDataLogic
+    )
+    const { toggleSteps, toggleGenerationExpanded, loadFullTrace } = useActions(aiObservabilitySessionDataLogic)
 
     const trace = turn.trace
     const summary: TraceSummary | undefined = traceSummaries[trace.id]
     const isLoading = loadingFullTraces.has(trace.id)
-    const reasoningShown = reasoningExpandedTraceIds.has(trace.id)
+    const stepsShown = stepsExpandedTraceIds.has(trace.id)
     const fullTrace = fullTraces[trace.id]
     const baseTraceParams = {
         ...traceSearchParams,
@@ -268,45 +267,84 @@ function SessionTurnView({
     const traceUrl = combineUrl(urls.aiObservabilityTrace(trace.id), baseTraceParams).url
     const summaryUrl = combineUrl(urls.aiObservabilityTrace(trace.id), { ...baseTraceParams, tab: 'summary' }).url
 
+    const canShowSteps = turn.isLoaded && turn.userVisibleTurn
+
     return (
-        <div className="flex flex-col gap-2 py-4 border-t first:border-t-0 first:pt-0">
-            <div className="flex items-center gap-2 flex-wrap text-xs text-muted">
-                <span className="font-semibold text-default">Turn {turnNumber}</span>
-                {(trace.errorCount ?? 0) > 0 && (
-                    <LemonTag type="danger" size="small">
-                        {trace.errorCount === 1 ? '1 error' : `${trace.errorCount} errors`}
-                    </LemonTag>
-                )}
-                {typeof trace.totalLatency === 'number' && <span>{trace.totalLatency.toFixed(2)}s</span>}
-                {typeof trace.totalCost === 'number' && <span>· {formatLLMCost(trace.totalCost)}</span>}
-                <span>
-                    · <TZLabel time={trace.createdAt} />
-                </span>
-                {showSentiment && (
-                    <span className="ml-1">
-                        <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />
-                    </span>
-                )}
-                <div className="flex-1" />
-                <Link to={traceUrl} className="text-xs">
-                    Open trace →
-                </Link>
+        <div className="flex flex-col">
+            <div className="flex items-center gap-3 py-3 text-xs text-muted">
+                <div className="flex-1 border-t" />
+                <TZLabel time={trace.createdAt} formatDate="MMM D, YYYY" formatTime="h:mm A" />
+                <div className="flex-1 border-t" />
             </div>
+            <div className="flex gap-10 pb-4">
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    {showSessionSummarization && summary && (
+                        <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
+                    )}
 
-            {showSessionSummarization && summary && <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />}
+                    <TurnBody turn={turn} isLoading={isLoading} onLoad={() => loadFullTrace(trace.id)} />
 
-            <TurnBody turn={turn} isLoading={isLoading} onLoad={() => loadFullTrace(trace.id)} />
+                    {turn.tools.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted">
+                            <IconWrench className="text-sm shrink-0" />
+                            {turn.tools.map((name) => (
+                                <LemonTag key={name} size="small" className="font-mono">
+                                    {name}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    )}
 
-            {turn.isLoaded && turn.userVisibleTurn && (
-                <ReasoningToggle
-                    traceId={trace.id}
-                    fullTrace={fullTrace}
-                    reasoningShown={reasoningShown}
-                    onToggle={() => toggleReasoning(trace.id)}
-                    expandedEventIds={expandedGenerationIds}
-                    onToggleEventExpand={toggleGenerationExpanded}
-                />
-            )}
+                    {(trace.errorCount ?? 0) > 0 && (
+                        <div className="flex items-center gap-2 min-w-0">
+                            <LemonTag type="danger" size="small" className="shrink-0">
+                                {trace.errorCount === 1 ? '1 error' : `${trace.errorCount} errors`}
+                            </LemonTag>
+                            {turn.errors.length > 0 && (
+                                <Tooltip
+                                    title={
+                                        <div className="flex flex-col gap-1">
+                                            {turn.errors.map((e, i) => (
+                                                <div key={i}>
+                                                    <strong>{e.label}:</strong> {e.message}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    }
+                                >
+                                    <span className="text-xs text-muted truncate">
+                                        {turn.errors[0].label} · {turn.errors[0].message}
+                                        {turn.errors.length > 1 && ` · +${turn.errors.length - 1} more`}
+                                    </span>
+                                </Tooltip>
+                            )}
+                        </div>
+                    )}
+
+                    {canShowSteps && stepsShown && (
+                        <StepsPanel
+                            traceId={trace.id}
+                            fullTrace={fullTrace}
+                            expandedEventIds={expandedGenerationIds}
+                            onToggleEventExpand={toggleGenerationExpanded}
+                        />
+                    )}
+                </div>
+
+                <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
+                    {showSentiment && <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />}
+                    <div className="flex flex-col gap-1 items-start">
+                        {canShowSteps && (
+                            <LemonButton size="xsmall" type="tertiary" onClick={() => toggleSteps(trace.id)}>
+                                {stepsShown ? 'Hide steps' : 'Show steps'}
+                            </LemonButton>
+                        )}
+                        <Link to={traceUrl} target="_blank" className="text-xs">
+                            Open trace
+                        </Link>
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }
@@ -364,63 +402,29 @@ function TurnBody({
         return <div className="text-muted text-sm py-2">No conversational turn to render in this trace.</div>
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
-    // Rendering goes through the same `ConversationMessagesDisplay` the Trace page
-    // uses, so parser coverage is identical: shapes recognized by `normalizeMessage`
-    // render natively, anything else falls back to JSON. See `extractSessionTurns.ts`
-    // and `messageSignature.ts` for the dedup + user-visible-turn conventions.
-    return (
-        <ConversationMessagesDisplay
-            inputNormalized={turn.newInputs}
-            outputNormalized={turn.outputs}
-            inputSourceIndices={turn.newInputSourceIndices}
-            errorData={turn.userVisibleTurn.properties.$ai_error}
-            httpStatus={turn.userVisibleTurn.properties.$ai_http_status}
-            raisedError={turn.userVisibleTurn.properties.$ai_is_error}
-            bordered
-            // Explicit so the Session view doesn't silently inherit a future
-            // change to the Trace page's default — the two surfaces can diverge.
-            displayOption="collapse_except_output_and_last_input"
-            traceId={turn.userVisibleTurn.properties.$ai_trace_id}
-            generationEventId={turn.userVisibleTurn.id}
-        />
-    )
+    return <TranscriptBubbleStream inputs={turn.newInputs} outputs={turn.outputs} />
 }
 
-function ReasoningToggle({
+function StepsPanel({
     traceId,
     fullTrace,
-    reasoningShown,
-    onToggle,
     expandedEventIds,
     onToggleEventExpand,
 }: {
     traceId: string
     fullTrace: LLMTrace | undefined
-    reasoningShown: boolean
-    onToggle: () => void
     expandedEventIds: Set<string>
     onToggleEventExpand: (eventId: string) => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
-            <button
-                type="button"
-                onClick={onToggle}
-                className="self-start text-xs text-muted hover:text-default underline"
-            >
-                {reasoningShown ? 'Hide reasoning' : 'Show reasoning'}
-            </button>
-            {reasoningShown && (
-                <div className="border rounded bg-bg-light p-3">
-                    <AIObservabilityTraceEvents
-                        trace={fullTrace}
-                        isLoading={false}
-                        expandedEventIds={expandedEventIds}
-                        onToggleEventExpand={onToggleEventExpand}
-                        traceId={traceId}
-                    />
-                </div>
-            )}
+        <div className="border rounded bg-bg-light p-3">
+            <AIObservabilityTraceEvents
+                trace={fullTrace}
+                isLoading={false}
+                expandedEventIds={expandedEventIds}
+                onToggleEventExpand={onToggleEventExpand}
+                traceId={traceId}
+            />
         </div>
     )
 }

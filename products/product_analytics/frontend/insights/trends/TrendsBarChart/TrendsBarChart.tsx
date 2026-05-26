@@ -11,7 +11,8 @@ import {
     ValueLabels,
 } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { percentage } from 'lib/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -129,7 +130,14 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
 
     const valueLabelFormatter = useCallback(
-        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        (value: number) => {
+            // In percent layout the chart computes each segment's share of its band and passes
+            // a 0..1 fraction here, so we render it directly as a percentage.
+            if (isPercentStackView) {
+                return percentage(value, 1)
+            }
+            return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+        },
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
@@ -144,6 +152,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                xAxisLabel: trendsFilter?.xAxisLabel,
+                yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: TIME_SERIES_TOOLTIP_CONFIG,
@@ -157,6 +167,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             interval,
             timezone,
             currentPeriodResult?.days,
+            trendsFilter?.xAxisLabel,
+            trendsFilter?.yAxisLabel,
             goalLines,
             showValuesOnSeries,
             valueLabelFormatter,
@@ -176,8 +188,10 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
             yTickFormatter: aggregatedYTickFormatter,
+            xAxisLabel: trendsFilter?.xAxisLabel,
+            yAxisLabel: trendsFilter?.yAxisLabel,
         }),
-        [yAxisScaleType, aggregatedYTickFormatter]
+        [yAxisScaleType, aggregatedYTickFormatter, trendsFilter?.xAxisLabel, trendsFilter?.yAxisLabel]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal

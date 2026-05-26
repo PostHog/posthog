@@ -58,7 +58,7 @@ SESSION_SORT_FIELDS: frozenset[str] = frozenset(
         "distinct_id",
     }
 )
-DEFAULT_SESSION_SORT_COLUMN = "session_end"
+DEFAULT_SESSION_SORT_COLUMN = "session_start"
 
 # PR1 aggregates the last 24h of mcp_tool_call events on the fly, scoped to the
 # team. Wider windows (7d/30d) land in PR2. See
@@ -138,12 +138,13 @@ def list_mcp_sessions(
     offset: int,
     search: str = "",
     order_by: str = "",
-) -> list[contracts.MCPSession]:
-    """List MCP sessions for a team, aggregated on the fly from mcp_tool_call events.
+) -> contracts.MCPSessionsPage:
+    """List a page of MCP sessions for a team, aggregated on the fly from mcp_tool_call events.
 
     One row per $mcp_session_id over the last 24h, grouped in ClickHouse and
-    scoped to the team so the events sort key prunes the scan. Results are cached
-    briefly so concurrent dashboard refreshes share a single aggregation.
+    scoped to the team so the events sort key prunes the scan. Over-fetches one row
+    to report ``has_next`` (replay-style) without a separate count query. Results
+    are cached briefly so concurrent dashboard refreshes share a single aggregation.
 
     ``search`` does case-insensitive substring matching across session_id,
     distinct_id, mcp_client_name, and any element of tools_used. ``order_by`` is a
@@ -157,12 +158,12 @@ def list_mcp_sessions(
     if cached is not None:
         return cached
 
-    sessions = _query_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
+    page = _query_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
     # Don't cache empty results: a newly set-up team's first sessions would
     # otherwise stay hidden for the full TTL.
-    if sessions:
-        cache.set(cache_key, sessions, SESSIONS_CACHE_TTL_SECONDS)
-    return sessions
+    if page.results:
+        cache.set(cache_key, page, SESSIONS_CACHE_TTL_SECONDS)
+    return page
 
 
 def _query_mcp_sessions(
@@ -171,14 +172,19 @@ def _query_mcp_sessions(
     offset: int,
     search: str,
     order_by: str,
-) -> list[contracts.MCPSession]:
+) -> contracts.MCPSessionsPage:
     column, descending = _normalise_order_by(order_by)
-    order_text = f"{column} {'DESC' if descending else 'ASC'}"
+    # Append the unique session_id as a tiebreaker so the sort is a *total* order.
+    # Without it, ties on the sort column (e.g. equal session_end) make offset
+    # pagination drop or repeat rows across pages.
+    direction = "DESC" if descending else "ASC"
+    order_text = f"{column} {direction}" if column == "session_id" else f"{column} {direction}, session_id ASC"
 
+    # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
         "date_from": ast.Constant(value=timezone.now() - MCP_SESSIONS_LOOKBACK),
-        "limit": ast.Constant(value=limit),
+        "limit": ast.Constant(value=limit + 1),
         "offset": ast.Constant(value=offset),
     }
 
@@ -199,9 +205,12 @@ def _query_mcp_sessions(
         response = execute_hogql_query(query=query, team=team)
 
     rows = [_row_to_session_dict(row) for row in (response.results or [])]
+    has_next = len(rows) > limit
+    rows = rows[:limit]
     persons_by_distinct_id = _resolve_persons(team.id, [row["distinct_id"] for row in rows])
     intents_by_session = _attach_intents(team, [row["session_id"] for row in rows])
-    return [_to_session_contract(row, persons_by_distinct_id, intents_by_session) for row in rows]
+    results = [_to_session_contract(row, persons_by_distinct_id, intents_by_session) for row in rows]
+    return contracts.MCPSessionsPage(results=results, has_next=has_next)
 
 
 def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:

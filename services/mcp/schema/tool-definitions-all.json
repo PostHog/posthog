@@ -38,7 +38,71 @@
         "summary": "List accounts",
         "title": "List accounts",
         "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-create": {
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure). The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account notebook",
+        "title": "Create account notebook",
+        "required_scopes": ["account:write"],
         "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-destroy": {
+        "description": "Permanently delete an account notebook by its `short_id`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account notebook",
+        "title": "Delete account notebook",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-list": {
+        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notebooks",
+        "title": "List account notebooks",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-retrieve": {
+        "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account notebook",
+        "title": "Get account notebook",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -70,7 +134,7 @@
         "summary": "Get account",
         "title": "Get account",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
