@@ -37,6 +37,7 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)
 
+
 MAX_ATTEMPTS = 3
 POLL_INTERVAL_SECONDS = 2.0
 
@@ -171,12 +172,63 @@ class BatchConsumer:
             await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
     async def _process_single(self, batch: PendingBatch) -> None:
-        """Increment attempt, check max retries, then process the batch."""
+        """Increment attempt, check max retries, then process the batch.
+
+        Binds per-batch contextvars so every downstream log line (including loader calls)
+        routes to log_entries under the right schema/workflow.
+        """
         assert self._conn is not None
 
         team_id = str(batch.team_id)
         schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
+
+        # Producer (running inside a Temporal activity) stamps workflow ids into batch metadata,
+        # so no DB round-trip is needed here.
+        workflow_id = batch.metadata.get("workflow_id") or ""
+        workflow_run_id = batch.metadata.get("workflow_run_id") or ""
+
+        # Derive workflow_type from the workflow_id prefix so non-CDC syncs (regular
+        # `external-data-job`) route to the right `log_entries` source too.
+        workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
+
+        # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
+        bound_keys = (
+            "team_id",
+            "schema_id",
+            "source_id",
+            "job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "workflow_type",
+            "workflow_id",
+            "workflow_run_id",
+            "log_source_id",
+            "attempt",
+        )
+        structlog.contextvars.bind_contextvars(
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            source_id=batch.source_id,
+            job_id=batch.job_id,
+            run_uuid=batch.run_uuid,
+            batch_id=batch.id,
+            resource_name=batch.resource_name,
+            workflow_type=workflow_type,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            log_source_id=batch.schema_id,
+            attempt=attempt,
+        )
+        try:
+            await self._process_single_inner(batch, attempt, team_id, schema_id)
+        finally:
+            # Unbind only the keys we set so any ambient context (parent logger, test setup) survives.
+            structlog.contextvars.unbind_contextvars(*bound_keys)
+
+    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
+        assert self._conn is not None
 
         # Check before we even try — if already at max, fail the whole run.
         if attempt > self._config.max_attempts:
@@ -188,6 +240,16 @@ class BatchConsumer:
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
             return
+
+        logger.info(
+            "batch_picked_up",
+            batch_id=batch.id,
+            run_uuid=batch.run_uuid,
+            batch_index=batch.batch_index,
+            is_final_batch=batch.is_final_batch,
+            attempt=attempt,
+            resource_name=batch.resource_name,
+        )
 
         # Pre-increment: if we OOM here, recovery sees attempt=N+1
         # and knows this attempt was consumed.
@@ -201,9 +263,8 @@ class BatchConsumer:
         try:
             start = time.monotonic()
             await self._process_batch(batch)
-            BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(
-                time.monotonic() - start
-            )
+            duration = time.monotonic() - start
+            BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(duration)
 
             await BatchQueue.update_status(
                 self._conn,
@@ -212,6 +273,14 @@ class BatchConsumer:
                 attempt=attempt,
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            logger.info(
+                "batch_processed_ok",
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
+                is_final_batch=batch.is_final_batch,
+                duration_seconds=round(duration, 3),
+            )
         except Exception as e:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(e).__name__).inc()

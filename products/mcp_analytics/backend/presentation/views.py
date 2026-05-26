@@ -36,6 +36,32 @@ class MCPAnalyticsPagination(LimitOffsetPagination):
     max_limit = 500
 
 
+class MCPSessionPagination(LimitOffsetPagination):
+    """Returns ``{results, has_next}`` instead of a count-based envelope. The list is an
+    on-the-fly ClickHouse aggregate with no cheap total, so ``has_next`` comes from the
+    logic layer over-fetching one row rather than a count query.
+    """
+
+    default_limit = 100
+    max_limit = 500
+
+    def get_paginated_response(self, data: Any, *, has_next: bool = False) -> Response:
+        return Response({"results": data, "has_next": has_next})
+
+    def get_paginated_response_schema(self, schema: dict) -> dict:
+        return {
+            "type": "object",
+            "required": ["results", "has_next"],
+            "properties": {
+                "results": schema,
+                "has_next": {
+                    "type": "boolean",
+                    "description": "Whether more results exist beyond this page; the client fetches the next page with a larger offset.",
+                },
+            },
+        }
+
+
 @extend_schema(tags=["mcp_analytics"])
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
@@ -116,16 +142,17 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
     scope_object = "INTERNAL"
-    pagination_class = MCPAnalyticsPagination
+    pagination_class = MCPSessionPagination
 
     def dangerously_get_queryset(self) -> QuerySet:
-        # Sessions are aggregated from ClickHouse events, not from a Django model.
-        # Returning an empty queryset satisfies DRF's GenericViewSet plumbing.
+        # Sessions live in ClickHouse, not a Django model, but GenericViewSet still needs a
+        # queryset for its plumbing. The model is arbitrary — we borrow MCPAnalyticsSubmission
+        # (a plain manager) so .none() can't trip a team-scoped manager's guard.
         return MCPAnalyticsSubmission.objects.none()
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_list",
-        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by most recent activity first by default.",
+        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
         parameters=[
             OpenApiParameter(
                 name="search",
@@ -142,21 +169,23 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description=(
                     "Sort column. Allowed: session_id, session_start, session_end, "
                     "duration_seconds, tool_call_count, mcp_client_name, distinct_id. "
-                    "Prefix with '-' for descending. Defaults to '-session_end'."
+                    "Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
                 ),
             ),
         ],
         responses={200: MCPSessionSerializer(many=True)},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        paginator = self.pagination_class()
+        # Instantiate the concrete class (not self.pagination_class()) so the typed
+        # get_paginated_response(has_next=...) is visible to the type checker.
+        paginator = MCPSessionPagination()
         limit = paginator.get_limit(request) or paginator.default_limit
         offset = paginator.get_offset(request)
         search = request.query_params.get("search", "")
         order_by = request.query_params.get("order_by", "")
-        sessions = api.list_mcp_sessions(self.team, limit=limit, offset=offset, search=search, order_by=order_by)
-        serializer = self.get_serializer(sessions, many=True)
-        return Response({"results": serializer.data})
+        page = api.list_mcp_sessions(self.team, limit=limit, offset=offset, search=search, order_by=order_by)
+        serializer = self.get_serializer(page.results, many=True)
+        return paginator.get_paginated_response(serializer.data, has_next=page.has_next)
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_tool_calls",
@@ -167,7 +196,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
         serializer = MCPToolCallSerializer(tool_calls, many=True)
-        return Response({"results": serializer.data})
+        # has_next is always false: this returns the whole (capped) call list, not a page.
+        # The field exists because the viewset's paginator shapes the response schema.
+        return Response({"results": serializer.data, "has_next": False})
 
 
 @extend_schema(tags=["mcp_analytics"])

@@ -3,12 +3,11 @@ Personal LLM spend analysis endpoint.
 
 Surfaces the requesting user's own LLM spend across PostHog products (last N
 days) by running a fixed set of HogQL queries against PostHog's internal cloud
-analytics team. Optionally filter to a single `ai_product` (e.g. `posthog_code`,
-`background_agents`) — when omitted, results aggregate across every product
-captured by LLM analytics for that user.
+analytics team. Scoped to a single `ai_product` via the required `product`
+query param; see `SUPPORTED_PRODUCTS` for the currently accepted values.
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?date_from=-30d&date_to=&product=<key>&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false
 """
 
 from __future__ import annotations
@@ -31,9 +30,10 @@ from rest_framework.response import Response
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
@@ -43,6 +43,8 @@ logger = structlog.get_logger(__name__)
 
 MAX_PRODUCT_KEY_LENGTH = 64
 MAX_DATE_STRING_LENGTH = 32
+
+SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
@@ -61,10 +63,9 @@ def _internal_team_id() -> int:
     return settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
 
 
-def _cache_key(email: str, date_from: str, date_to: str | None, product: str | None, limit: int) -> str:
-    product_slot = product or "_all"
+def _cache_key(email: str, date_from: str, date_to: str | None, product: str, limit: int) -> str:
     to_slot = date_to or "_now"
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product_slot}:{limit}"
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -117,15 +118,13 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         help_text=("End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted."),
     )
     product = serializers.CharField(
-        required=False,
-        allow_null=True,
+        required=True,
+        allow_null=False,
         allow_blank=False,
         max_length=MAX_PRODUCT_KEY_LENGTH,
-        default=None,
         help_text=(
-            "Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product "
-            "(e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across "
-            "every product captured for the user."
+            "Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. "
+            f"Only the following products are currently supported: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
         ),
     )
     limit = serializers.IntegerField(
@@ -144,6 +143,14 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
+
+    def validate_product(self, value: str) -> str:
+        if value not in SUPPORTED_PRODUCTS:
+            logger.warning("personal_spend.product_rejected", product=value)
+            raise serializers.ValidationError(
+                f"product `{value}` is not supported. Supported products: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
+            )
+        return value
 
 
 class _ProductBreakdownRowSerializer(serializers.Serializer):
@@ -217,8 +224,7 @@ class _SummarySerializer(serializers.Serializer):
     )
     date_to = serializers.DateTimeField(help_text="Exclusive UTC end of the spend window resolved from the request.")
     product = serializers.CharField(
-        allow_null=True,
-        help_text="The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.",
+        help_text="The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`.",
     )
     total_cost_usd = serializers.FloatField(
         help_text="Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter."
@@ -228,8 +234,8 @@ class _SummarySerializer(serializers.Serializer):
     )
     scoped_cost_usd = serializers.FloatField(
         help_text=(
-            "Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed "
-            "across `by_tool` / `by_model` for the scoped slice."
+            "Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` "
+            "for the scoped slice."
         ),
     )
     scoped_event_count = serializers.IntegerField(
@@ -281,15 +287,21 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     by_tool = _ToolBreakdownSerializer(help_text="Spend grouped by tool. Scoped to `product` when set.")
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
     top_traces = _TopTracesSerializer(
-        help_text="Most expensive trace IDs (sessions) in the window. Scoped to `product` when set."
+        help_text=(
+            "Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings "
+            "that aren't actionable in the UI. Kept in the response shape so existing consumers don't "
+            "crash; remove your rendering of this field and we'll drop it from the response entirely "
+            "in a follow-up."
+        )
     )
 
 
 def _email_filter(email: str) -> ast.Expr:
-    # With person-on-events mode `person.properties.email` is a denormalized column on
-    # the events row, so this is a single column read rather than a join — it also catches
-    # every event the user identified with, including historical distinct_ids merged into
-    # the same person.
+    # With person-on-events, the event row carries `person_id` directly; HogQL then joins to
+    # `person` to read `properties.email`. The join is bounded to one person per event (not a
+    # full pdi walk), and on the main cluster the printer transparently uses the materialized
+    # `pmat_email` column when registered. Same shape the LLM Analytics "Users" tab uses
+    # against `events` -- see `products/llm_analytics/frontend/tabs/llmAnalyticsUsersLogic.ts`.
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["person", "properties", "email"]),
@@ -330,13 +342,8 @@ def _ai_product_eq(value: str) -> ast.Expr:
     )
 
 
-def _true() -> ast.Expr:
-    """Identity filter used when no product scoping is requested."""
-    return ast.Constant(value=True)
-
-
-def _product_filter(product: str | None) -> ast.Expr:
-    return _ai_product_eq(product) if product else _true()
+def _product_filter(product: str) -> ast.Expr:
+    return _ai_product_eq(product)
 
 
 def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
@@ -345,7 +352,7 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
 
 
 def _fetch_summary(
-    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str | None
+    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
 ) -> dict[str, Any]:
     query = parse_select(
         """
@@ -354,11 +361,11 @@ def _fetch_summary(
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -390,14 +397,14 @@ def _fetch_by_product(
             properties.ai_product AS product,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         GROUP BY product
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
@@ -424,7 +431,7 @@ def _fetch_by_tool(
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
-    product: str | None,
+    product: str,
     limit: int,
 ) -> dict[str, Any]:
     # `$ai_tools_called` stores a comma-separated list of all tools called within a
@@ -438,7 +445,7 @@ def _fetch_by_tool(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
-        FROM posthog.ai_events
+        FROM events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
@@ -448,7 +455,7 @@ def _fetch_by_tool(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -476,7 +483,7 @@ def _fetch_by_model(
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
-    product: str | None,
+    product: str,
     limit: int,
 ) -> dict[str, Any]:
     query = parse_select(
@@ -487,7 +494,7 @@ def _fetch_by_model(
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
             sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in}
             AND {product_filter}
             AND {email_filter}
@@ -497,7 +504,7 @@ def _fetch_by_model(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
@@ -522,54 +529,6 @@ def _fetch_by_model(
     return _truncate(rows, limit)
 
 
-def _fetch_top_traces(
-    team: Team,
-    email: str,
-    from_dt: datetime.datetime,
-    to_dt: datetime.datetime,
-    product: str | None,
-    limit: int,
-) -> dict[str, Any]:
-    query = parse_select(
-        """
-        SELECT
-            properties.$ai_trace_id AS trace_id,
-            count() AS generation_count,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            min(timestamp) AS started_at
-        FROM posthog.ai_events
-        WHERE equals(event, '$ai_generation')
-            AND {product_filter}
-            AND {email_filter}
-            AND {timestamp_filter}
-        GROUP BY trace_id
-        ORDER BY cost_usd DESC
-        LIMIT {limit}
-        """
-    )
-    result = execute_with_ai_events_fallback(
-        query=query,
-        placeholders={
-            "product_filter": _product_filter(product),
-            "email_filter": _email_filter(email),
-            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
-            "limit": ast.Constant(value=limit + 1),
-        },
-        team=team,
-        query_type="PersonalSpendTopTraces",
-    )
-    rows = [
-        {
-            "trace_id": row[0] if row[0] is not None else None,
-            "generation_count": int(row[1] or 0),
-            "cost_usd": float(row[2] or 0.0),
-            "started_at": row[3],
-        }
-        for row in (result.results or [])
-    ]
-    return _truncate(rows, limit)
-
-
 class PersonalSpendViewSet(viewsets.ViewSet):
     """
     Returns the requesting user's personal LLM spend analysis across PostHog products.
@@ -578,31 +537,39 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
     authenticated user's email (read off the events row via person-on-events) —
     callers cannot pivot to other users' data. Authorization model is "any
-    authenticated PostHog user may read their own spend"; the `llm_analytics:read`
-    scope on the MCP tool is decorative since no project-level scope check
-    applies. Routes through `execute_with_ai_events_fallback` so reads hit the
-    dedicated `ai_events` table when enabled, with the shared `events` table as
-    a fallback. Optionally filter tool / model / trace breakdowns to a single
-    `ai_product` via the `product` query param; `by_product` always returns
-    the full cross-product breakdown. The endpoint is only registered on US
-    Cloud + dev/test envs; hobby / self-hosted deploys never see this URL;
-    EU deploys receive a 302 to the US URL.
+    authenticated PostHog user may read their own spend" via `user:read` (the
+    same scope that covers `/api/users/@me/`). Queries the shared `events`
+    table directly -- same pattern as the LLM Analytics "Users" tab and every
+    other person-property filter on AI events. We don't route through
+    `execute_with_ai_events_fallback` because the satellite `ai_events`
+    cluster's Distributed `person` shim doesn't declare materialized columns
+    like `pmat_email`, and the helper's fallback only catches empty results,
+    not the unresolved-identifier exception that would fire there. The
+    `events`-table WHERE clauses lead with the sort-key columns (`team_id`,
+    `event`, `timestamp`) so the scan narrows before the person join fires,
+    and the HogQL printer uses `pmat_email` on the main cluster's `person`
+    when registered -- so this path should be comparable to what the
+    satellite would have served. The endpoint is cached for 5 minutes per
+    user (see `CACHE_TIMEOUT_SECONDS`). The `product` query param is required
+    and scopes tool / model / trace breakdowns to a single `ai_product`; see
+    `SUPPORTED_PRODUCTS` for the currently accepted values. `by_product` always
+    returns the full cross-product breakdown. The endpoint is only registered
+    on US Cloud + dev/test envs; hobby / self-hosted deploys never see this
+    URL; EU deploys receive a 302 to the US URL.
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated, APIScopePermission]
-    # Identity-scoped: the caller reads their own spend, not data nested under
-    # a team or project. `scope_object = "INTERNAL"` + `dangerously_skip_scoped_team_enforcement`
-    # opt out of team/org enforcement in APIScopePermission — valid here because
-    # this viewset filters strictly by the authenticated user's email (see
-    # `_email_filter` in `list` below). The required scope is overridden to the
-    # purpose-built `personal_spend:read` — narrower than the broad `user:read`
-    # cluster — and the frontend (scopes.tsx) marks its `:write` as disabled.
-    scope_object = "INTERNAL"
-    dangerously_skip_scoped_team_enforcement = True
-
-    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        return ["personal_spend:read"]
+    # Identity-scoped (`/@me/...`): the caller reads their own spend, not data
+    # nested under a team or project. `scope_object = "user"` matches the shape
+    # of `/api/users/@me/` — APIScopePermission already exempts the `user`
+    # bucket from team/org scoping, so we don't need
+    # `dangerously_skip_scoped_team_enforcement` here. `user:read` is a clean
+    # superset of "read your own spend": anyone trusted with `user:read`
+    # already learns the more sensitive identity facts on `/api/users/@me/`,
+    # and the wildcard `*` plus OAuth identity tokens (MCP) inherit access
+    # the same way they do for every other `user`-scoped endpoint.
+    scope_object = "user"
 
     def get_throttles(self):
         return [
@@ -625,10 +592,11 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         description=(
             "Return a structured personal LLM spend analysis for the requesting user. Pass "
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
-            "the window — defaults to the last 30 days, max 90 days. Pass `product=<ai_product>` "
-            "to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`); "
-            "omit it for an aggregate view. `by_product` is always returned for cross-product "
-            "visibility. Use `refresh=true` to bypass the 5-minute response cache."
+            "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
+            "query param is required and scopes the tool / model / trace breakdowns to a single "
+            f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
+            "always returned for cross-product visibility. Use `refresh=true` to bypass the "
+            "5-minute response cache."
         ),
         tags=["LLM Analytics"],
     )
@@ -662,22 +630,29 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             logger.exception("personal_spend.team_missing", team_id=team_id)
             raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
-        summary = _fetch_summary(team, email, from_dt, to_dt, product)
-        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
-        scoped = summary["scoped_cost_usd"] or 0.0
-        # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
-        # contribute to every tool. `share_of_scoped` is independent per row, so agents can
-        # present headline percentages directly without reconciling sums.
-        for row in by_tool["items"]:
-            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+        # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
+        # in the existing per-product Prometheus + cost-attribution dashboards alongside the
+        # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
+        with tags_context(product=Product.LLM_ANALYTICS):
+            summary = _fetch_summary(team, email, from_dt, to_dt, product)
+            by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+            scoped = summary["scoped_cost_usd"] or 0.0
+            # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
+            # contribute to every tool. `share_of_scoped` is independent per row, so agents can
+            # present headline percentages directly without reconciling sums.
+            for row in by_tool["items"]:
+                row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
 
-        payload = {
-            "summary": summary,
-            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
-            "by_tool": by_tool,
-            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-            "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
-        }
+            payload = {
+                "summary": summary,
+                "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+                "by_tool": by_tool,
+                "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+                # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
+                # existing consumers don't crash while they remove the rendering. Drop the field
+                # entirely once no consumer reads it.
+                "top_traces": {"items": [], "truncated": False},
+            }
 
         response_data = PersonalSpendAnalysisResponseSerializer(payload).data
         cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)

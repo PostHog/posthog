@@ -121,6 +121,7 @@ import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -276,7 +277,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         },
     ] as LemonTab<FeatureFlagsTab>[]
 
-    if (featureFlag.key && id) {
+    if (id) {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
@@ -330,6 +331,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         key: FeatureFlagsTab.EXPERIMENTS,
         content: <ExperimentsTab featureFlag={featureFlag} />,
     })
+
+    if (id) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>Testing</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        New
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.TESTING,
+            content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+        })
+    }
 
     return (
         <>

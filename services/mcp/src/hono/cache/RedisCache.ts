@@ -8,24 +8,31 @@ export interface RedisLike {
     del(...keys: string[]): Promise<number>
     unlink?(...keys: string[]): Promise<number>
     scan(cursor: string | number, ...args: (string | number)[]): Promise<[cursor: string, keys: string[]]>
+    incr(key: string): Promise<number>
+    expire(key: string, seconds: number): Promise<number>
+    ttl(key: string): Promise<number>
 }
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 const CLEAR_MAX_ITERATIONS = 50
 const CLEAR_SCAN_COUNT = 100
 
+export type CachePrefix = 'token' | 'session' | 'user'
+
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private redis: RedisLike
     private ttl: number
+    private prefix: CachePrefix
 
-    constructor(scope: string, redis: RedisLike, ttlSeconds: number = DEFAULT_TTL_SECONDS) {
+    constructor(scope: string, redis: RedisLike, prefix: CachePrefix = 'token', ttlSeconds: number = DEFAULT_TTL_SECONDS) {
         super(scope)
         this.redis = redis
+        this.prefix = prefix
         this.ttl = ttlSeconds
     }
 
     private getScopedKey(key: string): string {
-        return `mcp:user:${this.scope}:${key}`
+        return `mcp:${this.prefix}:${this.scope}:${key}`
     }
 
     async get<K extends keyof T>(key: K): Promise<T[K] | undefined> {
@@ -62,7 +69,7 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     }
 
     async clear(): Promise<void> {
-        const pattern = `mcp:user:${this.scope}:*`
+        const pattern = `mcp:${this.prefix}:${this.scope}:*`
         let cursor = '0'
         const unlink = this.redis.unlink?.bind(this.redis) ?? this.redis.del.bind(this.redis)
         for (let i = 0; i < CLEAR_MAX_ITERATIONS; i += 1) {

@@ -14,6 +14,7 @@ Reference: https://docs.expo.dev/push-notifications/sending-notifications/
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -36,15 +37,27 @@ def send_push_to_user(
     title: str,
     body: str,
     data: dict[str, Any] | None = None,
+    suppressed_push_token_ids: Iterable[uuid.UUID | str] | None = None,
 ) -> int:
     """Send a push notification to every device registered for ``user``.
+
+    ``suppressed_push_token_ids`` lets the caller (typically a feature-specific
+    dispatcher) drop devices that have proven they're already watching the
+    relevant context — e.g. presence beacons on a PostHog Code task. Tokens
+    whose ``UserPushToken.id`` is in the set are skipped before fanout, even
+    if that leaves the user with zero recipients. The contract is "if any
+    device is provably watching, suppress the others", so an empty post-filter
+    list intentionally results in no push being sent.
 
     Returns the number of messages the Expo service accepted (i.e. for which
     a non-error ticket was returned). Tokens flagged by Expo as
     ``DeviceNotRegistered`` are deleted for this user so we stop trying to
     deliver to dead devices.
     """
-    tokens = list(UserPushToken.objects.filter(user=user).values_list("token", flat=True))
+    qs = UserPushToken.objects.filter(user=user)
+    if suppressed_push_token_ids:
+        qs = qs.exclude(id__in=list(suppressed_push_token_ids))
+    tokens = list(qs.values_list("token", flat=True))
     if not tokens:
         return 0
 
