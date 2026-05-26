@@ -160,6 +160,7 @@ if (inputs.debug) {
             description:
                 'Language and locale code of the pre-approved template. Must match the language the template was approved in. Only used for template messages.',
             default: 'en_US',
+            searchable: true,
             choices: [
                 { value: 'af', label: 'Afrikaans (af)' },
                 { value: 'sq', label: 'Albanian (sq)' },

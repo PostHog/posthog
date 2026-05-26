@@ -13,6 +13,7 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonLabel,
+    LemonSearchableSelect,
     LemonSelect,
     LemonSwitch,
     LemonTag,
@@ -454,6 +455,18 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'choice':
+            if (schema.searchable) {
+                return (
+                    <LemonSearchableSelect
+                        fullWidth
+                        value={input.value}
+                        className="ph-no-capture"
+                        onChange={onValueChange}
+                        options={schema.choices ?? []}
+                        disabled={disabled}
+                    />
+                )
+            }
             return (
                 <LemonSelect
                     fullWidth
