@@ -2,6 +2,7 @@ import re
 import json
 import math
 import time
+import random
 import datetime
 import dataclasses
 from collections.abc import Callable
@@ -325,6 +326,10 @@ def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     import uuid
 
     return str(uuid.uuid4())
+
+
+def randomFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> float:
+    return random.random()
 
 
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
@@ -1027,6 +1032,7 @@ STL: dict[str, STLFunction] = {
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
+    "randomFloat": STLFunction(fn=randomFloat, minArgs=0, maxArgs=0),
     "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
     "sha256": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),

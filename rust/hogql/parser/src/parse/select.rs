@@ -549,12 +549,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "where", _v);
         }
-        // `(USING? SAMPLE …)?` — the grammar allows a SAMPLE clause at
-        // SELECT level (before GROUP BY *and* after QUALIFY). Both
-        // positions attach to the FROM table's existing JoinExpr.sample
-        // slot. The leading USING is optional in the first position
-        // and required in the second; we just accept either.
-        self.try_attach_select_level_sample(&mut obj)?;
+        // `selectStmt`-level `(USING? sampleClause)?` (before GROUP BY): DuckDB's `USING SAMPLE`, rejected not dropped.
+        self.reject_select_level_sample()?;
         if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
@@ -673,9 +669,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "qualify", _v);
         }
-        // Second `USING SAMPLE` opportunity per the grammar (after
-        // QUALIFY, before WINDOW). Same attach-to-FROM-table logic.
-        self.try_attach_select_level_sample(&mut obj)?;
+        // Second `selectStmt`-level `(USING sampleClause)?` slot (after QUALIFY): same DuckDB `USING SAMPLE`, rejected not dropped.
+        self.reject_select_level_sample()?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
             let mut windows: std::collections::BTreeMap<String, E::Value> =
@@ -1268,26 +1263,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    /// Consume an optional `[USING] SAMPLE …` clause at SELECT level
-    /// and discard it — the grammar's `selectStmt` rule allows this
-    /// clause in two positions, but the cpp visitor's `VISIT(SelectStmt)`
-    /// doesn't read the `sampleClause` from either slot. Only the
-    /// table-level form (consumed inside `parse_table_atom` while
-    /// building the JoinExpr) ends up on `JoinExpr.sample`. We mirror
-    /// the silent-drop behaviour here so the parser accepts the syntax
-    /// without diverging from cpp.
-    fn try_attach_select_level_sample(&mut self, _obj: &mut E::Value) -> Result<(), ParseError> {
-        let saw_sample = if self.peek_kw2(Kw::Using, Kw::Sample) {
-            self.bump()?; // USING
-            true
-        } else {
-            matches!(self.peek(), TokenKind::Keyword(Kw::Sample))
-        };
+    /// Reject `selectStmt`-level `[USING] SAMPLE`: DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` lands on `JoinExpr.sample`), so reject rather than silently drop. Matches the python + cpp visitors' `NotImplementedError`.
+    fn reject_select_level_sample(&mut self) -> Result<(), ParseError> {
+        let saw_sample = self.peek_kw2(Kw::Using, Kw::Sample)
+            || matches!(self.peek(), TokenKind::Keyword(Kw::Sample));
         if !saw_sample {
             return Ok(());
         }
-        drop(self.try_consume_sample()?);
-        Ok(())
+        Err(ParseError::not_implemented(
+            "Unsupported: SelectStmt.sampleClause()",
+            self.peek0.start,
+            self.peek0.end,
+        ))
     }
 
     /// LIMIT BY columnExprList: comma-separated columnExprs. Two
