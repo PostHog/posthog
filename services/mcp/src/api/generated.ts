@@ -9309,6 +9309,32 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
+    export interface Response7 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+    }
+
     export interface WebVitalsPathBreakdownResultItem {
       path: string;
       value: number;
@@ -9890,7 +9916,7 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
-    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | null;
+    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | null;
 
     export type DataTableNodeViewPropsContextType = typeof DataTableNodeViewPropsContextType[keyof typeof DataTableNodeViewPropsContextType];
 
@@ -10203,6 +10229,10 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
     }
 
     export interface WebGoalsQuery {
@@ -10230,6 +10260,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -33662,6 +33694,32 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
+    export interface QueryResponseAlternative26 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+    }
+
     export interface QueryResponseAlternative27 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -34036,6 +34094,32 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+    }
+
+    export interface QueryResponseAlternative46 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
     }
 
     export interface QueryResponseAlternative47 {
@@ -34808,7 +34892,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;

@@ -140,19 +140,38 @@ def _check_eligible(runner: "WebGoalsQueryRunner") -> None:
         raise NoActionsConfigured()
 
 
+# Attribute name used to memoize the action lookup on the per-request
+# runner instance. Using a `_lazy_*` prefix avoids collision with anything
+# the live `WebGoalsQueryRunner` already stores.
+_RUNNER_ACTIONS_CACHE_ATTR = "_lazy_goals_actions"
+
+
 def _select_actions(runner: "WebGoalsQueryRunner") -> list:
     """Top-N actions, matching the live runner's hard `[:5]` slice exactly.
 
-    The set is fetched fresh per eligibility check + INSERT — different sets
-    produce different INSERT ASTs and therefore distinct lazy_computation
-    cache keys, so the cache naturally invalidates when a team's top-5
-    ordering churns (rare; driven by `pinned_at` first, then by the much
-    slower `last_calculated_at`).
+    Memoized on the runner instance: this function is called from both the
+    eligibility check (`_check_eligible`) and the orchestrator
+    (`execute_lazy_precomputed_read`). Without caching we issue two
+    consecutive identical Postgres queries per opted-in request AND open a
+    TOCTOU window where a concurrent action mutation between the two calls
+    can flip eligibility from "pass with N actions" to "execute with 0
+    actions", producing a confusing empty-then-fallback response. The
+    runner is request-scoped, so a per-runner attribute cache is the right
+    lifetime.
+
+    Different top-5 sets across requests still produce different INSERT
+    ASTs and therefore distinct lazy_computation cache keys — the cache
+    here is purely an in-request memoization.
     """
+    cached = getattr(runner, _RUNNER_ACTIONS_CACHE_ATTR, None)
+    if cached is not None:
+        return cached
     qs = Action.objects.filter(team__project_id=runner.team.project_id, deleted=False).order_by(
         "pinned_at", "-last_calculated_at"
     )[:MAX_ACTIONS]
-    return list(qs)
+    fetched = list(qs)
+    setattr(runner, _RUNNER_ACTIONS_CACHE_ATTR, fetched)
+    return fetched
 
 
 def _events_session_id_expr(runner: "WebGoalsQueryRunner") -> ast.Expr:
@@ -183,12 +202,24 @@ def _build_insert_query(actions: Sequence) -> str:
     > 0` keeps unique-person counts honest for both the per-action and
     denominator rows in one expression.
     """
-    # Per-session COUNT columns + ORM-known action ids for the arrayJoin
+    # Per-session COUNT columns + ORM-known action ids for the arrayJoin.
+    # Every tuple element is wrapped in an explicit `toInt64(...)` so the
+    # tuple types unify cleanly across the array. ClickHouse requires
+    # uniform element types within an array of tuples; without the explicit
+    # cast the denominator's literal `0` (Int32) and the per-action
+    # `countIf(...)` (UInt64) would force ClickHouse into type-unification
+    # rules that have historically produced runtime errors in similar
+    # precompute paths, and the round-trip parity test is skipped pending
+    # the read-after-write CI flake — so a type error would only surface in
+    # production through the failure counter and silent fall-through to the
+    # live path.
     count_aliases = ",\n            ".join(f"countIf({{action_{n}_expr}}) AS count_{n}" for n in range(len(actions)))
-    array_join_pairs = ",\n            ".join(f"tuple({{action_{n}_id}}, count_{n})" for n in range(len(actions)))
-    # `tuple(-1::Int64, 0)` — the literal -1 anchors the denominator row.
-    # `0` is just a placeholder; the denominator never uses `count_state`.
-    array_join_literal = f"tuple({DENOMINATOR_ACTION_ID}::Int64, toInt(0)), {array_join_pairs}"
+    array_join_pairs = ",\n            ".join(
+        f"tuple({{action_{n}_id}}, toInt64(count_{n}))" for n in range(len(actions))
+    )
+    # The literal `-1` anchors the per-hour denominator row; `0` is just a
+    # placeholder because the denominator row's `count_state` is never read.
+    array_join_literal = f"tuple(toInt64({DENOMINATOR_ACTION_ID}), toInt64(0)), {array_join_pairs}"
 
     return f"""
 SELECT
