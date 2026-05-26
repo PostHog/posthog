@@ -16,6 +16,7 @@ import {
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
+import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
 import {
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
@@ -246,13 +247,30 @@ export class IngestionGeneralServer implements NodeServer {
                 hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
             }
 
+            const startClientWarnings = (override?: { topic: string; groupId: string }) => {
+                serviceLoaders.push(async () => {
+                    const consumerConfig = override
+                        ? {
+                              ...this.config,
+                              INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                              INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                          }
+                        : this.config
+                    const consumer = createClientWarningsConsumer(consumerConfig, {
+                        outputs: ingestionOutputs,
+                        teamManager,
+                    })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (isCombinedMode) {
                 // Local dev / hobby: run multiple consumers for all ingestion topics in one process
                 const consumersOptions = [
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-                    { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
                     { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
                 ]
 
@@ -266,6 +284,10 @@ export class IngestionGeneralServer implements NodeServer {
                         return consumer.service
                     })
                 }
+
+                startClientWarnings({ topic: 'client_iwarnings_ingestion', groupId: 'client_iwarnings_ingestion' })
+            } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
+                startClientWarnings()
             } else {
                 // Production ingestion-v2: single consumer using config-provided topic
                 serviceLoaders.push(async () => {
