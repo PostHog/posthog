@@ -21695,6 +21695,12 @@ class EndpointRequest(BaseModel):
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
     )
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched."
+        ),
+    )
     version: int | None = Field(
         default=None,
         description=("Target a specific version for updates (optional, defaults to current version)"),

@@ -56,6 +56,7 @@ from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -390,7 +391,7 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
     ),
 )
 @extend_schema(tags=[ProductKey.ENDPOINTS])
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
+class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemViewSetMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
@@ -408,6 +409,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "destroy",
         "update",
         "partial_update",
+        "bulk_update_tags",
     ]
     lookup_field = "name"
     queryset = Endpoint.objects.all()
@@ -444,6 +446,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
+
+    def _get_tag_names(self, endpoint: Endpoint) -> list[str]:
+        """Read tag names from the prefetched cache or from the DB if not prefetched."""
+        if hasattr(endpoint, "prefetched_tags"):
+            return sorted({ti.tag.name for ti in endpoint.prefetched_tags})
+        return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
+
+    def _apply_tags(self, endpoint: Endpoint, tags: list[str] | None) -> None:
+        """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
+        if tags is None:
+            return
+        endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)
+        cleanup_orphan_tags(endpoint.team_id)
 
     def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
@@ -515,6 +530,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
+            "tags": self._get_tag_names(endpoint),
         }
 
         if isinstance(obj, EndpointVersion):
@@ -780,6 +796,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 columns=columns,
             )
 
+            self._apply_tags(endpoint, data.tags)
+
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -998,6 +1016,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             raise
                 elif should_disable:
                     self._disable_materialization(endpoint, request, target_version)
+
+            self._apply_tags(endpoint, data.tags)
 
             endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
             if endpoint_changes:
