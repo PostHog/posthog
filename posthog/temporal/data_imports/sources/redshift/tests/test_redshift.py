@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.generated_configs import RedshiftSour
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,
+    _explain_query,
     filter_redshift_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.redshift.source import _REDSHIFT_IMPLEMENTATION, RedshiftSource
@@ -193,6 +194,63 @@ class TestGetRowsToSync:
         cursor.execute.side_effect = RuntimeError("temporary file size exceeds temp_file_limit")
         with pytest.raises(TemporaryFileSizeExceedsLimitException):
             impl.get_rows_to_sync(cursor, self._inner(), None, logger)
+
+
+class TestExplainQueryRollback:
+    """`_explain_query` swallows EXPLAIN failures, but failures inside a
+    psycopg transaction leave the connection in an aborted state — every
+    follow-up `cursor.execute(...)` on the same connection then blows up
+    with "current transaction is aborted". The helper must roll back so
+    the real query can still run on the shared cursor.
+    """
+
+    def _make_cursor(self) -> MagicMock:
+        c = MagicMock()
+        c.connection = MagicMock()
+        return c
+
+    def test_rollback_called_when_explain_raises(self, logger):
+        cursor = self._make_cursor()
+        cursor.execute.side_effect = RuntimeError("EXPLAIN failed against svv_table_info")
+        _explain_query(cursor, sql.SQL("SELECT 1").format(), logger)
+        cursor.connection.rollback.assert_called_once()
+
+    def test_rollback_not_called_when_explain_succeeds(self, logger):
+        cursor = self._make_cursor()
+        cursor.fetchall.return_value = [("Seq Scan",)]
+        _explain_query(cursor, sql.SQL("SELECT 1").format(), logger)
+        cursor.connection.rollback.assert_not_called()
+
+    def test_rollback_failure_is_swallowed(self, logger):
+        cursor = self._make_cursor()
+        cursor.execute.side_effect = RuntimeError("EXPLAIN failed")
+        cursor.connection.rollback.side_effect = RuntimeError("connection broken")
+        # Should not raise even if the rollback itself fails — the helper
+        # is best-effort and the caller still needs to attempt its own query.
+        _explain_query(cursor, sql.SQL("SELECT 1").format(), logger)
+
+    def test_followup_query_succeeds_after_explain_failure(self, impl, logger):
+        """End-to-end regression for the 2026-05-26 InFailedSqlTransaction
+        bursts: EXPLAIN against `svv_table_info` aborts the transaction,
+        and the follow-up `SELECT size, tbl_rows ...` would fail without
+        the rollback. With the fix, fetch_table_stats returns real stats.
+        """
+        cursor = MagicMock()
+        cursor.connection = MagicMock()
+
+        def execute_side_effect(query, *args, **kwargs):
+            rendered = query.as_string() if hasattr(query, "as_string") else str(query)
+            if rendered.startswith("EXPLAIN"):
+                raise RuntimeError("EXPLAIN failed against svv_table_info")
+            return None
+
+        cursor.execute.side_effect = execute_side_effect
+        cursor.fetchone.return_value = (4, 200)  # 4 MB, 200 rows
+
+        stats = impl.fetch_table_stats(cursor, "public", "messages", logger)
+
+        assert stats == TableStats(table_size_bytes=4 * 1024 * 1024, row_count=200)
+        cursor.connection.rollback.assert_called_once()
 
 
 class TestFetchTableStats:

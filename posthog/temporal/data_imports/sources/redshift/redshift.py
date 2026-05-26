@@ -165,6 +165,16 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     except Exception as e:
         capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
+        # A failed EXPLAIN leaves psycopg's transaction in an aborted state,
+        # so every follow-up `cursor.execute(query)` on the same connection
+        # would fail with "current transaction is aborted, commands ignored
+        # until end of transaction block". Rolling back here lets the real
+        # query run on the shared cursor — EXPLAIN is purely diagnostic and
+        # nothing earlier in the transaction needs to be preserved.
+        try:
+            cursor.connection.rollback()
+        except Exception as rollback_exc:
+            logger.debug(f"EXPLAIN rollback raised an exception: {rollback_exc}")
 
 
 class RedshiftColumn(Column):
