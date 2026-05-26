@@ -160,6 +160,8 @@ export interface ChartConfig {
     hideXAxis?: boolean
     /** Hide the y-axis labels and reduce left margin. */
     hideYAxis?: boolean
+    xAxisLabel?: string
+    yAxisLabel?: string
 
     // — Overlays —
 

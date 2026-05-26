@@ -176,6 +176,9 @@ tools:
     batch-exports-update:
         operation: batch_exports_update
         enabled: false
+    file-download-batch-exports-cancel-create:
+        operation: file_download_batch_exports_cancel_create
+        enabled: false
     file-download-batch-exports-create:
         operation: file_download_batch_exports_create
         enabled: false
