@@ -475,7 +475,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # workflow builds out-of-band, so the build path stays covered.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         profile = get_project_profile(
-            team_id=self.team_id,
+            team_id=_canonical_team_id(self),
             force_refresh=force_refresh,
             lazy_build=caller_is_internal_scout,
         )
