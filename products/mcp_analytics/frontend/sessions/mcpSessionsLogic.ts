@@ -108,11 +108,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         toolCalls: [
             [] as MCPToolCallApi[],
             {
-                loadToolCalls: async (sessionId: string) => {
+                loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
                         return []
                     }
                     const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    // Discard stale results when the user clicks through sessions quickly —
+                    // only the most recently selected session's tool calls should win.
+                    breakpoint()
                     return [...(response.results ?? [])]
                 },
             },
