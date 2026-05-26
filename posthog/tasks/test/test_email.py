@@ -389,6 +389,47 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    @patch("posthoganalytics.capture")
+    def test_send_email_verification_without_current_organization(
+        self, mock_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        user.current_organization = None
+        user.current_team = None
+        user.organization_memberships.all().delete()
+        user.save()
+        user.refresh_from_db()
+        assert user.current_organization is None
+
+        token = email_verification_token_generator.make_token(self.user)
+        send_email_verification(user.id, token)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        mock_capture.assert_called_once_with(
+            event="verification email sent",
+            distinct_id=str(user.distinct_id),
+        )
+
+    @patch("posthog.tasks.email.capture_exception")
+    @patch("posthoganalytics.capture", side_effect=RuntimeError("analytics down"))
+    def test_send_email_verification_swallows_analytics_failure(
+        self,
+        _mock_capture: MagicMock,
+        mock_capture_exception: MagicMock,
+        MockEmailMessage: MagicMock,
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        token = email_verification_token_generator.make_token(self.user)
+
+        send_email_verification(user.id, token)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        mock_capture_exception.assert_called_once()
+
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")

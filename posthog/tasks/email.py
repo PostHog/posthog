@@ -20,6 +20,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
 from posthog.models import (
@@ -453,11 +454,16 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     )
     message.add_user_recipient(user, email_override=user.pending_email)
     message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="verification email sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    try:
+        capture_kwargs: dict[str, Any] = {
+            "distinct_id": str(user.distinct_id),
+            "event": "verification email sent",
+        }
+        if user.current_organization is not None:
+            capture_kwargs["groups"] = {"organization": str(user.current_organization.id)}
+        posthoganalytics.capture(**capture_kwargs)
+    except Exception as e:
+        capture_exception(e)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
