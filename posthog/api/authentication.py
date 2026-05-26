@@ -985,6 +985,11 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         user.set_password(password)
         user.requested_password_reset_at = None
+        # Possessing the unique reset token (only ever delivered by email via
+        # send_password_reset) proves the user owns this address, regardless of
+        # whether they came in as None (legacy / agentic-provisioned), False
+        # (invite-accept, Vercel-provisioned), or True.
+        user.is_email_verified = True
         user.save()
 
         report_user_password_reset(user)

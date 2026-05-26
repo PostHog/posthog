@@ -8,8 +8,8 @@ from django.core.management import call_command
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [pytest.mark.django_db]
 

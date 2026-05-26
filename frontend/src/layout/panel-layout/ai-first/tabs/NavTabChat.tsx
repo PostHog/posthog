@@ -186,13 +186,6 @@ export function NavTabChat({
                                                                                         className: 'pr-0',
                                                                                         menuItem: true,
                                                                                     }}
-                                                                                    extraContextMenuItems={
-                                                                                        <AiChatListItem.ContextMenuAction
-                                                                                            conversationId={
-                                                                                                conversation.id
-                                                                                            }
-                                                                                        />
-                                                                                    }
                                                                                     onClick={(e) => {
                                                                                         e.preventDefault()
                                                                                         router.actions.push(

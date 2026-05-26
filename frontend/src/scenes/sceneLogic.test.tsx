@@ -152,130 +152,6 @@ describe('sceneLogic', () => {
         expect(unmountedTabIds).not.toContain('tab-1')
     })
 
-    it('can pin and unpin tabs, syncing storage', async () => {
-        const teamId = teamLogic.values.currentTeamId ?? 'null'
-        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
-
-        logic.actions.setTabs([
-            {
-                id: 'tab-1',
-                active: true,
-                pathname: '/a',
-                search: '',
-                hash: '',
-                title: 'Tab A',
-                iconType: 'blank',
-            },
-            {
-                id: 'tab-2',
-                active: false,
-                pathname: '/b',
-                search: '',
-                hash: '',
-                title: 'Tab B',
-                iconType: 'blank',
-            },
-        ])
-
-        logic.actions.pinTab('tab-2')
-
-        await expectLogic(logic).toMatchValues({
-            tabs: [
-                expect.objectContaining({ id: 'tab-2', pinned: true }),
-                expect.objectContaining({ id: 'tab-1', pinned: false }),
-            ],
-        })
-
-        const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')
-        expect(storedPinned).toEqual({
-            tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
-            homepage: null,
-        })
-
-        logic.actions.setHomepage(logic.values.tabs[0])
-
-        expect(JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')).toEqual({
-            tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
-            homepage: expect.objectContaining({ id: 'tab-2', pinned: true }),
-        })
-
-        logic.actions.unpinTab('tab-2')
-
-        await expectLogic(logic).toMatchValues({
-            tabs: expect.arrayContaining([
-                expect.objectContaining({ id: 'tab-1', pinned: false }),
-                expect.objectContaining({ id: 'tab-2', pinned: false }),
-            ]),
-        })
-
-        expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
-        expect(logic.values.homepage).toBeNull()
-    })
-
-    it('removes pinned tabs when receiving updated storage without them', async () => {
-        const teamId = teamLogic.values.currentTeamId ?? 'null'
-        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
-
-        logic.actions.setTabs([
-            {
-                id: 'tab-1',
-                active: true,
-                pathname: '/a',
-                search: '',
-                hash: '',
-                title: 'Tab A',
-                iconType: 'blank',
-            },
-            {
-                id: 'tab-2',
-                active: false,
-                pathname: '/b',
-                search: '',
-                hash: '',
-                title: 'Tab B',
-                iconType: 'blank',
-            },
-        ])
-
-        logic.actions.pinTab('tab-1')
-        logic.actions.pinTab('tab-2')
-
-        await expectLogic(logic).toMatchValues({
-            tabs: [
-                expect.objectContaining({ id: 'tab-1', pinned: true }),
-                expect.objectContaining({ id: 'tab-2', pinned: true }),
-            ],
-        })
-
-        const remoteState = {
-            tabs: [
-                {
-                    id: 'tab-1',
-                    pathname: '/a',
-                    search: '',
-                    hash: '',
-                    title: 'Tab A',
-                    iconType: 'blank',
-                    pinned: true,
-                    active: false,
-                },
-            ],
-            homepage: null,
-        }
-
-        localStorage.setItem(pinnedStorageKey, JSON.stringify(remoteState))
-        window.dispatchEvent(
-            new StorageEvent('storage', {
-                key: pinnedStorageKey,
-                newValue: JSON.stringify(remoteState),
-            })
-        )
-
-        await expectLogic(logic).toMatchValues({
-            tabs: [expect.objectContaining({ id: 'tab-1', pinned: true })],
-        })
-    })
-
     it('does not duplicate pinned tab when unpinning after reordering', async () => {
         logic.actions.setTabs([
             {
@@ -328,22 +204,6 @@ describe('sceneLogic', () => {
             ]),
         })
 
-        const stalePinnedState = {
-            tabs: logic.values.tabs
-                .filter((tab) => tab.pinned)
-                .map((tab) => ({
-                    id: tab.id,
-                    pathname: tab.pathname,
-                    search: tab.search,
-                    hash: tab.hash,
-                    title: tab.title,
-                    active: false,
-                    iconType: tab.iconType,
-                    pinned: true,
-                })),
-            homepage: null,
-        }
-
         logic.actions.unpinTab('tab-3')
 
         await expectLogic(logic).toMatchValues({
@@ -353,8 +213,6 @@ describe('sceneLogic', () => {
                 expect.objectContaining({ id: 'tab-3', pinned: false }),
             ]),
         })
-
-        logic.actions.setPinnedStateFromBackend(stalePinnedState)
 
         const tab3Instances = logic.values.tabs.filter((tab) => tab.id === 'tab-3')
         const pinnedTabs = logic.values.tabs.filter((tab) => tab.pinned)
@@ -396,52 +254,5 @@ describe('sceneLogic', () => {
             const fallback = [{ ...tabBase, id: 'a', pathname: '/x', active: false }]
             expect(mergePinnedTabs(null, fallback)).toMatchObject([{ id: 'a', pinned: true }])
         })
-    })
-
-    it('hydrates pinned tabs stored under legacy personal key', async () => {
-        const teamId = teamLogic.values.currentTeamId ?? 'null'
-        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
-
-        logic.unmount()
-
-        sessionStorage.clear()
-
-        localStorage.setItem(
-            pinnedStorageKey,
-            JSON.stringify({
-                personal: [
-                    {
-                        id: 'legacy-tab',
-                        pathname: '/legacy',
-                        search: '',
-                        hash: '',
-                        title: 'Legacy tab',
-                        iconType: 'blank',
-                        pinned: true,
-                    },
-                ],
-                homepage: {
-                    id: 'legacy-tab',
-                    pathname: '/legacy',
-                    search: '',
-                    hash: '',
-                    title: 'Legacy tab',
-                    iconType: 'blank',
-                    pinned: true,
-                },
-            })
-        )
-        ;(api.get as jest.Mock).mockReturnValue(new Promise(() => {}))
-
-        logic = sceneLogic.build({ scenes: testScenes })
-        logic.cache.tabsLoaded = false
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions(['setTabs'])
-
-        expect(logic.values.tabs).toEqual(
-            expect.arrayContaining([expect.objectContaining({ id: 'legacy-tab', pinned: true })])
-        )
-        expect(logic.values.homepage).toEqual(expect.objectContaining({ id: 'legacy-tab', pinned: true }))
     })
 })

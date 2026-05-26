@@ -5,6 +5,7 @@ pub mod rule_suppression;
 pub mod suppression;
 
 use moka::future::{Cache, CacheBuilder};
+use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
@@ -26,7 +27,13 @@ use crate::{
 #[derive(Clone)]
 pub struct LinkingStage {
     pub app_context: Arc<AppContext>,
-    pub issue_cache: Cache<(TeamId, String), Issue>,
+    // Cross-batch `(team_id, fingerprint) -> issue_id` mapping cache. Owned by AppContext.
+    pub issue_cache: Cache<(TeamId, String), Uuid>,
+    // Per-batch fingerprint -> Issue dedup. Built fresh per batch (LinkingStage is
+    // constructed per batch via `From`), so events sharing a fingerprint within a single
+    // batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
+    // concurrent misses for the same key inside the same batch.
+    pub batch_issue_cache: Cache<(TeamId, String), Issue>,
 }
 
 impl Stage for LinkingStage {
@@ -50,14 +57,14 @@ impl Stage for LinkingStage {
 
 impl From<&Arc<AppContext>> for LinkingStage {
     fn from(ctx: &Arc<AppContext>) -> Self {
-        let issue_cache = CacheBuilder::new(1000)
-            .time_to_live(std::time::Duration::from_secs(
-                ctx.config.issue_cache_ttl_seconds,
-            ))
-            .build();
+        // `issue_cache` lives on AppContext so it survives across batches; cloning the
+        // moka handle is just a refcount bump on the underlying Arc.
+        // `batch_issue_cache` is built fresh per batch — capacity is generous because
+        // `MAX_EVENTS_PER_BATCH` is 1000 today; the cache is dropped when the stage is.
         Self {
             app_context: ctx.clone(),
-            issue_cache,
+            issue_cache: ctx.issue_cache.clone(),
+            batch_issue_cache: CacheBuilder::new(10_000).build(),
         }
     }
 }

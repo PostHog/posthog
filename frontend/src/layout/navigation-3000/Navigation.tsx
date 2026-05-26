@@ -10,7 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -21,7 +21,6 @@ import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
-import { SceneTabs } from '../scenes/SceneTabs'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -45,12 +44,11 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId } = useValues(sceneLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -150,15 +148,10 @@ export function Navigation({
                 <ProjectDragAndDropProvider>
                     <PanelLayout className="left-nav" />
 
-                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start mt-px">
-                        <SceneTabs />
-                    </div>
-
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1',
+                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
                             {
-                                'lg:rounded-tl-none': firstTabIsActive,
                                 'rounded-r-none': sidePanelOpen,
                             }
                         )}
@@ -172,7 +165,6 @@ export function Navigation({
                                 '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t focus-visible:outline-none flex flex-col',
                                 {
                                     'p-0': noPaddingScene,
-                                    'rounded-tl-none': firstTabIsActive,
                                     'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
                                 }
                             )}
@@ -187,6 +179,11 @@ export function Navigation({
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                            // Settings scene's nav is viewport-fixed on desktop, so the
+                                            // banner needs to clear it (nav width + column gap) to align
+                                            // with the settings content column.
+                                            'md:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                activeSceneId === Scene.Settings,
                                         })}
                                     >
                                         <ProjectNotice
