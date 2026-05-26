@@ -96,10 +96,10 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         ),
     session_id: zod.string().optional().describe('Filter to observations of a specific session recording.'),
     status: zod
-        .enum(['failed', 'pending', 'running', 'succeeded'])
+        .enum(['failed', 'ineligible', 'pending', 'running', 'succeeded'])
         .optional()
         .describe(
-            'Filter by observation status.\n\n* `pending` - Pending\n* `running` - Running\n* `succeeded` - Succeeded\n* `failed` - Failed'
+            'Filter by observation status.\n\n* `pending` - Pending\n* `running` - Running\n* `succeeded` - Succeeded\n* `failed` - Failed\n* `ineligible` - Ineligible'
         ),
     triggered_by: zod
         .enum(['on_demand', 'schedule'])
