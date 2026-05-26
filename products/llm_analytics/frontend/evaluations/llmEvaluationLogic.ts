@@ -138,6 +138,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         const conditions = evaluation.conditions
                             .filter((c) => c.properties && c.properties.length > 0)
                             .map((c) => ({ properties: c.properties }))
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
                             source: evaluation.evaluation_config.source,
                             sample_count: 5,
@@ -189,6 +190,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const requestFilter = values.evaluationSummaryFilter
 
                     // Backend fetches data server-side by ID - we just pass the filter
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
                         evaluation_id: props.evaluationId,
                         filter: requestFilter,
@@ -226,7 +228,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
-                setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
+                setTriggerConditions: (state, { conditions }) =>
+                    state
+                        ? {
+                              ...state,
+                              conditions: conditions.map((c) =>
+                                  c.rollout_percentage != null
+                                      ? { ...c, rollout_percentage: Math.round(c.rollout_percentage * 100) / 100 }
+                                      : c
+                              ),
+                          }
+                        : null,
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state ? { ...state, model_configuration: modelConfiguration } : null,
                 setEvaluationType: (state, { evaluationType }) => {
@@ -369,6 +381,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const evaluation = await api.get(`/api/environments/${teamId}/evaluations/${props.evaluationId}/`)
                     actions.loadEvaluationSuccess(evaluation)
                 } catch (error) {
@@ -529,8 +542,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                 const isNew = props.evaluationId === 'new'
                 const response = isNew
-                    ? await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
-                    : await api.update(
+                    ? // nosemgrep: prefer-codegen-api
+                      await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
+                    : // nosemgrep: prefer-codegen-api
+                      await api.update(
                           `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
                           values.evaluation!
                       )
@@ -643,6 +658,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation || !isTrialLimitReached) {
                     return true
                 }
+                // Hog evals don't call an LLM and never consume trial quota
+                if (evaluation.evaluation_type === 'hog') {
+                    return true
+                }
                 // Can enable if the evaluation has a BYOK key
                 return !!evaluation.model_configuration?.provider_key_id
             },
@@ -680,7 +699,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (runs): Record<string, EvaluationRun> => {
                 const lookup: Record<string, EvaluationRun> = {}
                 for (const run of runs) {
-                    lookup[run.generation_id] = run
+                    if (run.generation_id) {
+                        lookup[run.generation_id] = run
+                    }
                 }
                 return lookup
             },
@@ -777,7 +798,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, props }) => ({
-        '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
+        '/ai-evals/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
             if (method === 'PUSH' && newEvaluationId !== props.evaluationId) {

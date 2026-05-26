@@ -91,7 +91,7 @@ impl DistinctIdLookup for PostgresStorage {
         }
 
         let client = current_client_name();
-        let pool_label = PostgresStorage::pool_label(consistency);
+        let pool_label = PostgresStorage::bulk_pool_label(consistency);
         let labels = [
             (
                 "operation".to_string(),
@@ -102,7 +102,7 @@ impl DistinctIdLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let pool = self.pool_for_consistency(consistency);
+        let pool = self.bulk_pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = match limit_per_person {

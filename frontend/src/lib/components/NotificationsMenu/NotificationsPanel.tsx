@@ -5,24 +5,25 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import {
+    NotificationGroup,
+    sidePanelNotificationsLogic,
+} from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PanelLayoutPanel } from '~/layout/panel-layout/PanelLayoutPanel'
-import { InAppNotification } from '~/types'
 
-import { NotificationRow } from './NotificationRow'
+import { NotificationGroupRow } from './NotificationGroupRow'
 import { notificationsMenuLogic } from './notificationsMenuLogic'
 
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { inAppNotifications, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
+    const { groups, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
         useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
-    const filteredNotifications =
-        activeTab === 'unread' ? inAppNotifications.filter((n: InAppNotification) => !n.read) : inAppNotifications
+    const filteredGroups = activeTab === 'unread' ? groups.filter((g: NotificationGroup) => g.has_unread) : groups
 
     const header = (
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -66,17 +67,17 @@ export function NotificationsPanel(): JSX.Element {
                 className="flex-1 overflow-hidden"
                 innerClassName="p-1"
             >
-                {importantChangesLoading && inAppNotifications.length === 0 ? (
+                {importantChangesLoading && groups.length === 0 ? (
                     <div className="p-2">
                         <LemonSkeleton className="h-10 my-1" repeat={5} fade />
                     </div>
-                ) : filteredNotifications.length > 0 ? (
+                ) : filteredGroups.length > 0 ? (
                     <>
                         <div className="flex flex-col gap-px">
-                            {filteredNotifications.map((notification: InAppNotification) => (
-                                <NotificationRow
-                                    key={notification.id}
-                                    notification={notification}
+                            {filteredGroups.map((group: NotificationGroup) => (
+                                <NotificationGroupRow
+                                    key={group.group_key}
+                                    group={group}
                                     onNavigate={() => closePanel()}
                                 />
                             ))}

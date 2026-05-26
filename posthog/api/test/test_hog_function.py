@@ -15,9 +15,10 @@ from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models.action.action import Action
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
+
+from products.actions.backend.models.action import Action
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 

@@ -5,9 +5,12 @@ import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
+    resolveYScaleForSeries,
     yTickCountForHeight,
 } from '../core/scales'
 import type { ScaleSet, StackedBand } from '../core/scales'
@@ -205,10 +208,6 @@ function LineChartInner<Meta = unknown>({
             if (hoverIndex < 0) {
                 return
             }
-            const resolveChartYScale = (s: ResolvedSeries): ((value: number) => number) => {
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                return scales.yAxes?.[axisId]?.scale ?? scales.y
-            }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded || s.fill?.lowerData) {
                     continue
@@ -221,7 +220,7 @@ function LineChartInner<Meta = unknown>({
                 }
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
-                const y = resolveChartYScale(s)(data[hoverIndex])
+                const y = resolveYScaleForSeries(scales, s)(data[hoverIndex])
                 if (x != null && isFinite(y)) {
                     drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
                 }
@@ -230,19 +229,10 @@ function LineChartInner<Meta = unknown>({
         [stackedData]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    // Stacked/percent-stacked areas: display each series's own segment value (resolveValue)
+    // but anchor the tooltip/value labels at the stacked top (resolvePositionValue).
+    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
+    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -258,6 +248,7 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            resolvePositionValue={resolvePositionValue}
         >
             {children}
         </Chart>

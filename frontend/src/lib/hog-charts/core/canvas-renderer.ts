@@ -290,6 +290,13 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+export interface DrawGridOptions {
+    gridColor?: string
+    orientation?: 'vertical' | 'horizontal'
+    /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
+    categoryTicks?: number[]
+}
+
 /** Draws the grid lines and the categorical-axis baseline.
  *
  * `orientation`:
@@ -299,14 +306,12 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
-export function drawGrid(
-    drawCtx: DrawContext,
-    options: { gridColor?: string; orientation?: 'vertical' | 'horizontal' } = {}
-): void {
+export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
     const orientation = options.orientation ?? 'vertical'
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
+    const categoryTicks = options.categoryTicks ?? []
 
     const valueTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
 
@@ -314,12 +319,27 @@ export function drawGrid(
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
+    // Skip the first category tick when it falls right next to the axis baseline
+    // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
+    // as a faint second line hugging the axis.
+    const AXIS_BASELINE_GAP = 4
+
     if (orientation === 'horizontal') {
         for (const tick of valueTicks) {
             const x = Math.round(yScale(tick)) + 0.5
             ctx.beginPath()
             ctx.moveTo(x, dimensions.plotTop)
             ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
+            ctx.stroke()
+        }
+        for (const coord of categoryTicks) {
+            if (!isFinite(coord) || coord - dimensions.plotTop < AXIS_BASELINE_GAP) {
+                continue
+            }
+            const y = Math.round(coord) + 0.5
+            ctx.beginPath()
+            ctx.moveTo(dimensions.plotLeft, y)
+            ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
             ctx.stroke()
         }
         const axisY = Math.round(dimensions.plotTop) + 0.5
@@ -335,6 +355,17 @@ export function drawGrid(
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
+        ctx.stroke()
+    }
+
+    for (const coord of categoryTicks) {
+        if (!isFinite(coord) || coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
+            continue
+        }
+        const x = Math.round(coord) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(x, dimensions.plotTop)
+        ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
         ctx.stroke()
     }
 
@@ -455,21 +486,62 @@ export function drawBars(
     }
 }
 
+// Tracks render as a tinted base under hatched stripes — same construction as the legacy
+// funnel backdrop (`var(--series-color)` behind `repeating-linear-gradient` stripes), so the
+// whole region reads as continuously filled rather than as bare stripes on the background.
+const BAR_TRACK_BASE_ALPHA = 0.14
+const BAR_TRACK_HATCH_ALPHA = 0.18
+/** Translucent overlay drawn over the track on hover. Exported so the chart-type's
+ *  hover callback can match the resting track's tuning. */
+export const BAR_TRACK_HOVER_ALPHA = 0.2
+
+function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], cornerRadius: number): void {
+    for (const track of tracks) {
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, track.x, track.y, track.width, track.height, cornerRadius, track.corners)
+        ctx.fill()
+    }
+}
+
+/** Paints each track rect as a tinted base under hatched stripes. Takes laid-out rects
+ *  from `computeBarTrackRect`, mirroring `drawBars`. */
+export function drawBarTracks(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    tracks: BarRect[],
+    cornerRadius: number
+): void {
+    const renderableTracks = tracks.filter((t) => t.width > 0 && t.height > 0)
+    if (renderableTracks.length === 0) {
+        return
+    }
+    const { ctx } = drawCtx
+    ctx.save()
+    // Solid base fill — what makes the region differ from the background, even between stripes.
+    ctx.globalAlpha = BAR_TRACK_BASE_ALPHA
+    ctx.fillStyle = series.color
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
+    // Hatched stripes on top.
+    ctx.globalAlpha = BAR_TRACK_HATCH_ALPHA
+    ctx.fillStyle = getHatchPattern(ctx, series.color)
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
+    ctx.restore()
+}
+
+/** Translucent fill on the overlay canvas, alpha-composited over the static bar. */
 export function drawBarHighlight(
     ctx: CanvasRenderingContext2D,
     bar: BarRect,
-    color: string,
+    overlayColor: string,
     cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
 ): void {
     if (bar.width <= 0 || bar.height <= 0) {
         return
     }
-    ctx.strokeStyle = color
-    ctx.lineWidth = 2
-    ctx.setLineDash([])
+    ctx.fillStyle = overlayColor
     ctx.beginPath()
     traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
-    ctx.stroke()
+    ctx.fill()
 }
 
 export function drawHighlightPoint(

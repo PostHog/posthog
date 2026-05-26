@@ -5,6 +5,7 @@ from django.dispatch import receiver
 
 import structlog
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
 from .evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
@@ -24,7 +25,7 @@ class EvaluationStatusReason(models.TextChoices):
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
 
 
-class Evaluation(UUIDTModel):
+class Evaluation(ModelActivityMixin, UUIDTModel):
     class Meta:
         ordering = ["-created_at", "id"]
         indexes = [

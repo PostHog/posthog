@@ -10,7 +10,7 @@ from unittest import TestCase, mock
 
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.connection import DATA_NODE_ROLES, NodeRole
 
 # Migrations created before this validation existed are grandfathered.
 MIN_CHECKED_MIGRATION_NUMBER = 150
@@ -121,11 +121,19 @@ class TestUniqueMigrationPrefixes(TestCase):
         if is_alter_on_replicated_table is None:
             errors.append("is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries")
 
-        if sharded and node_roles != [NodeRole.DATA]:
-            errors.append("ALTER TABLE on sharded tables must have node_role=NodeRole.DATA")
+        allowed_roles_label = "one of " + ", ".join(
+            f"NodeRole.{r.name}" for r in sorted(DATA_NODE_ROLES, key=lambda r: r.name)
+        )
 
-        if not sharded and is_alter_on_replicated_table and set(node_roles) != {NodeRole.DATA}:
-            errors.append("ALTER TABLE on non-sharded tables must have node_role=NodeRole.DATA")
+        if sharded and (len(node_roles) != 1 or node_roles[0] not in DATA_NODE_ROLES):
+            errors.append(f"ALTER TABLE on sharded tables must have node_role={allowed_roles_label}")
+
+        if (
+            not sharded
+            and is_alter_on_replicated_table
+            and (len(node_roles) != 1 or node_roles[0] not in DATA_NODE_ROLES)
+        ):
+            errors.append(f"ALTER TABLE on non-sharded tables must have node_role={allowed_roles_label}")
 
         return errors
 

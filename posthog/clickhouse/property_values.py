@@ -9,15 +9,17 @@ KAFKA_TABLE_NAME = f"kafka_{TABLE_NAME}"
 MV_NAME = f"{TABLE_NAME}_mv"
 DISTRIBUTED_TABLE_NAME = f"{TABLE_NAME}_distributed"
 
-# The Kafka message schema: pre-processed rows from the WarpStream pipeline.
-# Each message is one (team_id, property_type, property_key, property_value) tuple.
+# The Kafka message schema: pre-processed rows from the property-values aggregator.
+# Each message is one (team_id, property_type, property_key, property_value)
+# tuple plus an accumulated `property_count` from the aggregator's flush window.
 KAFKA_PROPERTY_VALUES_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     `team_id` Int64,
     `property_type` LowCardinality(String),
     `property_key` String,
-    `property_value` String
+    `property_value` String,
+    `property_count` UInt64
 ) ENGINE = {engine}
 """
 
@@ -49,7 +51,7 @@ SETTINGS
         table_name=TABLE_NAME,
         engine=AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
         extra_fields=""",
-    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1""",
+    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1""",
     )
 
 
@@ -81,7 +83,7 @@ AS SELECT
     property_type,
     property_key,
     property_value,
-    toUInt64(1) as property_count,
+    property_count,
     coalesce(_timestamp, now()) as last_seen
 FROM {database}.{kafka_table}
 WHERE lengthUTF8(property_key) > 0

@@ -11,38 +11,14 @@ import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
 import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
 
-// In dev we let `@tailwindcss/vite` compile Tailwind on-demand instead of
-// running the standalone CLI watcher and re-importing its output. Mapping the
-// precompiled path to the source CSS keeps `global.scss` (which is shared with
-// the production esbuild build) untouched while letting Vite process the
-// `@import 'tailwindcss';` / `@config` directives directly.
-const tailwindSource = resolve(__dirname, '../common/tailwind/tailwind.css')
-const tailwindDevSourcePlugin = {
-    name: 'posthog-tailwind-dev-source',
-    enforce: 'pre' as const,
-    resolveId(source: string) {
-        const normalized = source.replaceAll('\\', '/')
-        if (
-            normalized.endsWith('@posthog/tailwind/dist/tailwind.css') ||
-            normalized.endsWith('/common/tailwind/dist/tailwind.css')
-        ) {
-            return tailwindSource
-        }
-        return null
-    },
-}
-
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     const isDev = mode === 'development'
 
     return {
         plugins: [
-            // Only run Tailwind via Vite in dev. Production goes through the
-            // standalone CLI in `common/tailwind` and the precompiled CSS, so
-            // we must not redirect that import or double-compile here.
-            ...(isDev ? [tailwindDevSourcePlugin, tailwindcss()] : []),
             react(),
+            tailwindcss(),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
@@ -68,7 +44,9 @@ export default defineConfig(({ mode }) => {
             },
         ],
         resolve: {
+            dedupe: ['@base-ui/react'],
             alias: {
+                '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
                 // Add direct mappings for PostHog's import structure from tsconfig.json

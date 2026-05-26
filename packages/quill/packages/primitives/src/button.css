@@ -14,6 +14,18 @@
         outline: none;
     }
 
+    /*
+     * When a quill button is rendered as an <a> (e.g. `render={<LinkPrimitive />}`),
+     * the consumer's global `a { color: … }` reset would otherwise paint the label.
+     * `:where(a)` neutralizes that with zero added specificity — being in the
+     * `components` layer is enough to beat a `base`-layer `a {}` rule, while the
+     * (0,1,0) specificity still lets colored variants (link, primary, …) win.
+     */
+    :where(a).quill-button {
+        color: var(--foreground);
+        text-decoration: none;
+    }
+
     .quill-button:focus-visible {
         border-color: var(--ring);
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
@@ -74,7 +86,7 @@
     }
 
     .quill-button--variant-default[data-popup-open] {
-        background-color: var(--fill-expanded);
+        background-color: var(--fill-selected);
     }
 
     .quill-button--variant-default:not(:hover, [data-highlighted])[aria-selected='true'],

@@ -46,6 +46,7 @@ interface OverviewGridProps {
     numSkeletons: number
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
@@ -57,6 +58,7 @@ export function OverviewGrid({
     numSkeletons,
     samplingRate,
     usedPreAggregatedTables = false,
+    usedLazyPrecompute = false,
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
@@ -81,6 +83,7 @@ export function OverviewGrid({
                               key={item.key}
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
+                              usedLazyPrecompute={usedLazyPrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
                           />
@@ -125,6 +128,7 @@ const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Elemen
 interface OverviewItemCellProps {
     item: OverviewItem
     usedPreAggregatedTables: boolean
+    usedLazyPrecompute: boolean
     labelFromKey: (key: string) => string
     compact: boolean
 }
@@ -132,6 +136,7 @@ interface OverviewItemCellProps {
 const OverviewItemCell = ({
     item,
     usedPreAggregatedTables,
+    usedLazyPrecompute,
     labelFromKey,
     compact,
 }: OverviewItemCellProps): JSX.Element => {
@@ -179,54 +184,70 @@ const OverviewItemCell = ({
                 : 'No data'
 
     return (
-        <Tooltip title={tooltip}>
-            <div
-                className={clsx(
-                    compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT,
-                    'relative'
-                )}
-            >
-                {usedPreAggregatedTables && <PreAggregatedBadge />}
-                <div className="flex flex-row w-full justify-center items-center gap-1">
-                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
-                    {item.warning && (
-                        <Tooltip
-                            title={
-                                <div>
-                                    {item.warning}
-                                    {item.warningLink && (
-                                        <>
-                                            {' '}
-                                            <Link to={item.warningLink} className="text-link">
-                                                Learn more
-                                            </Link>
-                                        </>
-                                    )}
-                                </div>
-                            }
-                        >
-                            <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
-                        </Tooltip>
+        <div
+            className={clsx(
+                'flex-1 border bg-surface-primary rounded relative',
+                compact ? 'min-w-[6rem] h-24' : 'min-w-[10rem] h-30'
+            )}
+        >
+            {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
+                does not also surface the cell's metric tooltip. */}
+            {usedLazyPrecompute ? (
+                <PreAggregatedBadge variant="precomputed" />
+            ) : usedPreAggregatedTables ? (
+                <PreAggregatedBadge variant="preagg" />
+            ) : null}
+            <Tooltip title={tooltip}>
+                <div
+                    className={clsx(
+                        'flex flex-col items-center text-center justify-between w-full h-full',
+                        compact ? 'p-1' : 'p-2'
+                    )}
+                >
+                    <div className="flex flex-row w-full justify-center items-center gap-1">
+                        <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
+                            {label}
+                        </div>
+                        {item.warning && (
+                            <Tooltip
+                                interactive={!!item.warningLink}
+                                title={
+                                    <div>
+                                        {item.warning}
+                                        {item.warningLink && (
+                                            <>
+                                                {' '}
+                                                <Link to={item.warningLink} className="text-link">
+                                                    Learn more
+                                                </Link>
+                                            </>
+                                        )}
+                                    </div>
+                                }
+                            >
+                                <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
+                            </Tooltip>
+                        )}
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className={compact ? 'text-lg' : 'text-2xl'}>
+                            {formatItem(item.value, item.kind, { currency: baseCurrency })}
+                        </div>
+                    </div>
+                    {trend && isNotNil(item.changeFromPreviousPct) ? (
+                        // eslint-disable-next-line react/forbid-dom-props
+                        <div style={{ color: trend.color }}>
+                            <trend.Icon color={trend.color} />
+                            {formatPercentage(item.changeFromPreviousPct)}
+                        </div>
+                    ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
+                        <div className="text-muted">-</div>
+                    ) : (
+                        <div />
                     )}
                 </div>
-                <div className="w-full flex-1 flex items-center justify-center">
-                    <div className={compact ? 'text-lg' : 'text-2xl'}>
-                        {formatItem(item.value, item.kind, { currency: baseCurrency })}
-                    </div>
-                </div>
-                {trend && isNotNil(item.changeFromPreviousPct) ? (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div style={{ color: trend.color }}>
-                        <trend.Icon color={trend.color} />
-                        {formatPercentage(item.changeFromPreviousPct)}
-                    </div>
-                ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
-                    <div className="text-muted">-</div>
-                ) : (
-                    <div />
-                )}
-            </div>
-        </Tooltip>
+            </Tooltip>
+        </div>
     )
 }
 

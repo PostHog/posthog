@@ -9,10 +9,6 @@ export type CyclotronV2PoolConfig = {
     idleTimeoutMs?: number
 }
 
-// `id` and `functionId` use PostHog's UUIDT-style identifiers which don't set
-// valid UUID version bits, so we only validate them as non-empty strings here.
-// `personId` comes from posthog_person.uuid (a real UUID v4/v7) and ingestion's
-// resolution, so we validate it strictly to catch any bad data at the boundary.
 export const CyclotronV2JobInitSchema = z.object({
     id: z.string().min(1).optional(),
     teamId: z.number().int(),
@@ -23,8 +19,14 @@ export const CyclotronV2JobInitSchema = z.object({
     parentRunId: z.string().nullish(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: z.uuid().nullish(),
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    // When `true`, the insert uses ON CONFLICT (id) DO UPDATE — the existing
+    // row's status is reset to 'available', the lock is cleared, and state is
+    // replaced. Used by the rerun path so a re-execution can reuse the
+    // original `invocation_id` (so lifecycle rows collapse under one
+    // ReplacingMergeTree key) without colliding on the cyclotron_jobs PK.
+    overwriteExisting: z.boolean().optional(),
 })
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
@@ -33,7 +35,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: z.uuid().nullish(),
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
 })
 

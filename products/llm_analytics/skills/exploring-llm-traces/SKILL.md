@@ -2,7 +2,7 @@
 name: exploring-llm-traces
 description: >
   ABSOLUTE MUST to debug and inspect LLM/AI agent traces using PostHog's MCP tools.
-  Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
+  Use when the user pastes a trace or session URL (e.g. /ai-observability/traces/<id> or /ai-observability/sessions/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
   or analyze token usage and costs.
@@ -15,11 +15,12 @@ a single AI interaction — from the top-level agent invocation down to individu
 
 ## Available tools
 
-| Tool                            | Purpose                                             |
-| ------------------------------- | --------------------------------------------------- |
-| `posthog:query-llm-traces-list` | Search and list traces (compact — no large content) |
-| `posthog:query-llm-trace`       | Get a single trace by ID with full event tree       |
-| `posthog:execute-sql`           | Ad-hoc SQL for complex trace analysis               |
+| Tool                            | Purpose                                                       |
+| ------------------------------- | ------------------------------------------------------------- |
+| `posthog:query-llm-traces-list` | Search and list traces; can return large multi-trace payloads |
+| `posthog:query-llm-trace`       | Get a single trace by ID with full event tree                 |
+| `posthog:read-data-schema`      | Discover custom event/person properties before filtering      |
+| `posthog:execute-sql`           | Ad-hoc SQL for complex trace analysis                         |
 
 ## Event hierarchy
 
@@ -34,19 +35,49 @@ $ai_trace (top-level container)
 
 Events are linked via `$ai_parent_id` → parent's `$ai_span_id` or `$ai_trace_id`.
 
-## Workflow: debug a trace from a URL
+## Workflow: debug a trace or session from a URL
 
-### Step 1 — Fetch the trace
+### Step 1 — Classify the URL
+
+First inspect the path. Do not treat every UUID-looking value as a trace ID.
+
+- `/ai-observability/traces/<trace_id>` or legacy `/llm-analytics/traces/<trace_id>` / `/llm-observability/traces/<trace_id>` is a single trace. Fetch it with `posthog:query-llm-trace`.
+- `/ai-observability/sessions/<session_id>` or legacy `/llm-analytics/sessions/<session_id>` is an AI session, not a trace. Fetch traces with `posthog:query-llm-traces-list` filtered by event property `$ai_session_id`.
+
+Preserve `date_from` / `date_to` query parameters from the URL when present.
+If none are present but the URL has a `timestamp` query parameter, use that timestamp as the anchor and query an absolute window around it, for example `timestamp - 36h` to `timestamp + 36h`.
+This handles exact session links whose UI timestamp may be offset from the stored event timestamps while keeping the query bounded.
+If the URL has neither explicit dates nor `timestamp`, use a safe default like `{"date_from": "-7d"}`.
+
+For exact trace and session URLs, skip schema discovery for the standard `$ai_*` fields used below. These are AI observability built-ins, not project-specific custom properties.
+
+### Step 2 — Fetch trace data
+
+For a trace URL, call `posthog:query-llm-trace` with:
 
 ```json
-posthog:query-llm-trace
 {
   "traceId": "<trace_id>",
-  "dateRange": {"date_from": "-7d"}
+  "dateRange": { "date_from": "-7d" }
 }
 ```
 
-The result contains the full event tree with all properties.
+For a session URL, call `posthog:query-llm-traces-list` with:
+
+```json
+{
+  "dateRange": { "date_from": "<timestamp_minus_36h>", "date_to": "<timestamp_plus_36h>" },
+  "filterTestAccounts": false,
+  "limit": 20,
+  "properties": [{ "type": "event", "key": "$ai_session_id", "value": ["<session_id>"], "operator": "exact" }]
+}
+```
+
+Use the URL's `date_from` / `date_to` values in the session query if present.
+If the URL only has `timestamp`, calculate the absolute date range from that timestamp instead of using a relative range like `-1h`.
+Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
+
+The result contains the event tree with all properties.
 The response may be large — when it exceeds the inline limit, Claude Code auto-persists it to a file.
 
 From the result you get:
@@ -57,7 +88,7 @@ From the result you get:
 - Parent-child relationships via `$ai_parent_id`
 - `_posthogUrl` — **always include this in your response** so the user can click through to the UI
 
-### Step 2 — Parse large results with scripts
+### Step 3 — Parse large results with scripts
 
 When the result is persisted to a file (large traces with full `$ai_input`/`$ai_output_choices`),
 use the [parsing scripts](./scripts/) to explore it.
@@ -118,7 +149,7 @@ The trace tools return `_posthogUrl` — always surface this to the user.
 
 You can also construct links manually:
 
-- **Trace detail**: `https://app.posthog.com/llm-observability/traces/<trace_id>?timestamp=<url_encoded_timestamp>&event=<optional_event_id>`
+- **Trace detail**: `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_timestamp>&event=<optional_event_id>`
 - **Traces list with filters**: returned in `_posthogUrl` from `query-llm-traces-list`
 
 The `timestamp` query param is **required** — use the `createdAt` of the earliest event in the trace, URL-encoded (e.g. `timestamp=2026-04-01T19%3A39%3A20Z`).
@@ -130,8 +161,12 @@ When presenting findings, always include the relevant PostHog URL so the user ca
 Use `posthog:query-llm-traces-list` to search and filter traces.
 
 **CRITICAL: Never assume event names, property names, or property values from training data.**
-Every project instruments different custom properties. Always call `posthog:read-data-schema` first
-to discover what properties and values actually exist in the project's data before constructing filters.
+Every project instruments different custom properties. For open-ended searches and custom filters, call
+`posthog:read-data-schema` first to discover what properties and values actually exist in the project's
+data before constructing filters.
+
+The exception is exact AI observability trace/session URLs: use the built-in `$ai_trace_id` / `$ai_session_id`
+fields directly and skip schema discovery.
 
 ### Discovering the schema first
 
@@ -241,14 +276,14 @@ results (array for list, object for single trace)
 
 ### Available scripts
 
-| Script                                                         | Purpose                                                  | Usage                                                    |
-| -------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
-| [`print_summary.py`](./scripts/print_summary.py)               | Trace metadata, tool calls, errors, and final LLM output | `python3 scripts/print_summary.py FILE`                  |
-| [`print_timeline.py`](./scripts/print_timeline.py)             | Chronological event timeline with I/O summaries          | `python3 scripts/print_timeline.py FILE`                 |
-| [`extract_span.py`](./scripts/extract_span.py)                 | Full input/output of a specific span by name             | `SPAN="name" python3 scripts/extract_span.py FILE`       |
-| [`extract_conversation.py`](./scripts/extract_conversation.py) | LLM messages with thinking blocks and tool calls         | `python3 scripts/extract_conversation.py FILE`           |
-| [`search_traces.py`](./scripts/search_traces.py)               | Find a keyword across all event properties               | `SEARCH="keyword" python3 scripts/search_traces.py FILE` |
-| [`show_structure.py`](./scripts/show_structure.py)             | Show JSON keys and types without values                  | `cat blob.json \| python3 scripts/show_structure.py`     |
+| Script                                                         | Purpose                                                                                 | Usage                                                    |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| [`print_summary.py`](./scripts/print_summary.py)               | Aggregate list/session totals, trace metadata, tool calls, errors, and final LLM output | `python3 scripts/print_summary.py FILE`                  |
+| [`print_timeline.py`](./scripts/print_timeline.py)             | Chronological event timeline with I/O summaries                                         | `python3 scripts/print_timeline.py FILE`                 |
+| [`extract_span.py`](./scripts/extract_span.py)                 | Full input/output of a specific span by name                                            | `SPAN="name" python3 scripts/extract_span.py FILE`       |
+| [`extract_conversation.py`](./scripts/extract_conversation.py) | LLM messages with thinking blocks and tool calls                                        | `python3 scripts/extract_conversation.py FILE`           |
+| [`search_traces.py`](./scripts/search_traces.py)               | Find a keyword across all event properties                                              | `SEARCH="keyword" python3 scripts/search_traces.py FILE` |
+| [`show_structure.py`](./scripts/show_structure.py)             | Show JSON keys and types without values                                                 | `cat blob.json \| python3 scripts/show_structure.py`     |
 
 ## Tips
 

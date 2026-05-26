@@ -33,6 +33,7 @@ fn empty_captured_headers() -> CapturedEventHeaders {
         now: None,
         force_disable_person_processing: None,
         historical_migration: None,
+        skip_heatmap_processing: None,
         dlq_reason: None,
         dlq_step: None,
         dlq_timestamp: None,
@@ -83,6 +84,11 @@ impl FakeEvent {
         self.partition_key = k.map(String::from);
         self
     }
+
+    fn with_headers(mut self, h: CapturedEventHeaders) -> Self {
+        self.event_headers = h;
+        self
+    }
 }
 
 impl Event for FakeEvent {
@@ -102,13 +108,9 @@ impl Event for FakeEvent {
         self.event_headers.clone()
     }
 
-    fn partition_key<'buf>(&self, _ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
-        match &self.partition_key {
-            Some(k) => {
-                buf.push_str(k);
-                Some(buf.as_str())
-            }
-            None => None,
+    fn partition_key(&self, _ctx: &Context, buf: &mut String) {
+        if let Some(k) = &self.partition_key {
+            buf.push_str(k);
         }
     }
 
@@ -689,6 +691,9 @@ fn sink_name_returns_configured_name() {
 #[case::overflow(Destination::Overflow, "events_overflow")]
 #[case::dlq(Destination::Dlq, "events_dlq")]
 #[case::custom(Destination::Custom("my_topic".into()), "my_topic")]
+#[case::exception(Destination::ExceptionErrorTracking, "error_tracking_events")]
+#[case::heatmap(Destination::HeatmapMain, "heatmaps_ingestion")]
+#[case::client_ingestion_warning(Destination::ClientIngestionWarning, "events_plugin_ingestion")]
 #[tokio::test]
 async fn destination_routes_to_correct_topic(
     #[case] destination: Destination,
@@ -880,13 +885,31 @@ async fn health_refreshed_on_partial_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Partition key: None vs Some
+// Partition key: null-key policy × destination
 // ---------------------------------------------------------------------------
 
+#[rstest]
+#[case::analytics_main(Destination::AnalyticsMain, true, None)]
+#[case::overflow(Destination::Overflow, true, None)]
+#[case::dlq(Destination::Dlq, true, Some("phc_test:user-1"))]
+#[case::historical(Destination::AnalyticsHistorical, true, Some("phc_test:user-1"))]
+#[case::custom(Destination::Custom("my_topic".into()), true, Some("phc_test:user-1"))]
+#[case::analytics_main_no_disable(Destination::AnalyticsMain, false, Some("phc_test:user-1"))]
 #[tokio::test]
-async fn none_partition_key_propagates_as_none() {
+async fn force_disable_null_key_policy(
+    #[case] destination: Destination,
+    #[case] force_disable: bool,
+    #[case] expected_key: Option<&str>,
+) {
     let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_partition_key(None);
+    let mut headers = empty_captured_headers();
+    if force_disable {
+        headers.force_disable_person_processing = Some(true);
+    }
+    let event = FakeEvent::ok("evt-1")
+        .with_partition_key(Some("phc_test:user-1"))
+        .with_destination(destination)
+        .with_headers(headers);
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
@@ -894,10 +917,7 @@ async fn none_partition_key_propagates_as_none() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].outcome(), Outcome::Success);
     h.producer.with_records(|records| {
-        assert_eq!(
-            records[0].key, None,
-            "None partition key must propagate as None"
-        );
+        assert_eq!(records[0].key.as_deref(), expected_key);
     });
 }
 

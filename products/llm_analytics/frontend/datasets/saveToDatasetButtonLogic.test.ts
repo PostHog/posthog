@@ -455,7 +455,7 @@ describe('saveToDatasetButtonLogic', () => {
 
                 viewAction()
 
-                expect(router.actions.push).toHaveBeenCalledWith('/llm-analytics/datasets/test-dataset-1')
+                expect(router.actions.push).toHaveBeenCalledWith('/ai-evals/datasets/test-dataset-1')
             })
         })
 

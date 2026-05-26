@@ -11,7 +11,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
-    Action,
     Annotation,
     Cohort,
     ExportedAsset,
@@ -25,20 +24,18 @@ from posthog.models import (
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.actions.backend.models.action import Action
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.conversations.backend.models import Ticket
+from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
@@ -49,6 +46,10 @@ from products.llm_analytics.backend.models.trace_reviews import TraceReview, Tra
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -125,6 +126,10 @@ def _create_alert(team: Team, label: str) -> AlertConfiguration:
 
 def _create_activity_log(team: Team, label: str) -> ActivityLog:
     return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
+
+
+def _create_account(team: Team, label: str) -> Account:
+    return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -379,6 +384,22 @@ def _create_trace_review(team: Team, label: str) -> TraceReview:
     )
 
 
+def _create_score_definition(team: Team, label: str) -> ScoreDefinition:
+    user = _get_or_create_user_for_team(team, label)
+    definition = ScoreDefinition.objects.create(
+        team=team,
+        name=f"score_definition_{label}",
+        description="",
+        kind=ScoreDefinition.Kind.BOOLEAN,
+        created_by=user,
+    )
+    definition.create_new_version(
+        config={"true_label": "Yes", "false_label": "No"},
+        created_by=user,
+    )
+    return definition
+
+
 def _create_trace_review_score(team: Team, label: str) -> TraceReviewScore:
     user = _get_or_create_user_for_team(team, label)
     review = TraceReview.objects.create(
@@ -495,6 +516,7 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
@@ -536,6 +558,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("review_queue_items", _create_review_queue_item),
     ("review_queues", _create_review_queue),
     ("sandbox_environments", _create_sandbox_environment),
+    ("score_definitions", _create_score_definition),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),

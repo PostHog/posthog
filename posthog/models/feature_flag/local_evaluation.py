@@ -529,10 +529,8 @@ def _get_flags_response_for_local_evaluation_batch(
     # serialize — one DB round trip instead of two.
     all_flags = list(
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team_id__in=team_ids,
-        )
+        .filter(team_id__in=team_ids)
+        .exclude(has_encrypted_payloads=True)
         .exclude(id__in=survey_flag_ids)
         .annotate(
             evaluation_tag_names_agg=ArrayAgg(
@@ -791,8 +789,8 @@ def verify_team_flag_definitions(
         if flag_key in cached_flags_by_key:
             db_flag = db_flags_by_key[flag_key]
             cached_flag = cached_flags_by_key[flag_key]
-            if db_flag != cached_flag:
-                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            if field_diffs:
                 diff: dict = {
                     "type": "FIELD_MISMATCH",
                     "flag_key": flag_key,

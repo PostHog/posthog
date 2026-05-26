@@ -87,6 +87,11 @@ tools:
             to get full details including filters, calculation status,
 
             and query definition.
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
         ui_app: cohort-list
         response:
             include:
@@ -122,6 +127,9 @@ tools:
             - last_error_message
             - count
             - experiment_set
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: cohort
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
@@ -140,6 +148,9 @@ tools:
         description: >
             Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
             matching users, and calculation status.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: cohort
     cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update

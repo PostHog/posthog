@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+import structlog
+
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
@@ -272,3 +274,98 @@ class TestGroupByKey:
 
     def test_empty_input(self):
         assert _group_by_key([]) == {}
+
+
+class TestLogContextBinding:
+    """Verify the consumer binds the structlog contextvars `LogMessagesRenderer` needs.
+
+    The CDC Syncs UI panel queries log_entries by `(log_source='external_data_jobs',
+    log_source_id=schema_id, instance_id=workflow_run_id)`. The renderer in
+    `posthog.temporal.common.logger` reads these from the structlog event_dict, so they
+    must be bound via contextvars BEFORE downstream loggers fire.
+    """
+
+    @pytest.mark.asyncio
+    async def test_process_single_binds_log_context_for_syncs_panel(self):
+        consumer = _make_consumer()
+        batch = _make_batch(
+            latest_attempt=0,
+            metadata={"workflow_id": "cdc-extraction-source-123", "workflow_run_id": "wf-run-id-456"},
+        )
+        seen: dict[str, Any] = {}
+
+        async def capture_context(b):
+            seen.update(structlog.contextvars.get_contextvars())
+
+        consumer._process_batch = capture_context
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
+        ):
+            await consumer._process_single(batch)
+
+        assert seen.get("workflow_type") == "cdc-extraction"
+        assert seen.get("workflow_id") == "cdc-extraction-source-123"
+        assert seen.get("workflow_run_id") == "wf-run-id-456"
+        assert seen.get("team_id") == batch.team_id
+        assert seen.get("log_source_id") == batch.schema_id
+        assert seen.get("schema_id") == batch.schema_id
+        assert seen.get("attempt") == 1
+
+        # Cleared after the batch returns so context doesn't leak across batches.
+        assert structlog.contextvars.get_contextvars().get("batch_id") is None
+
+    @pytest.mark.asyncio
+    async def test_process_single_binds_external_data_job_workflow_type_for_non_cdc(self):
+        """Consumer also runs non-CDC syncs (`external-data-job` workflow_id prefix)."""
+        consumer = _make_consumer()
+        batch = _make_batch(
+            latest_attempt=0,
+            metadata={
+                "workflow_id": "019df430-765a-0000-0523-040f9c48be64-2026-05-21T00:00:00",
+                "workflow_run_id": "wf-run",
+            },
+        )
+        seen: dict[str, Any] = {}
+
+        async def capture_context(b):
+            seen.update(structlog.contextvars.get_contextvars())
+
+        consumer._process_batch = capture_context
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
+        ):
+            await consumer._process_single(batch)
+
+        assert seen.get("workflow_type") == "external-data-job"
+
+    @pytest.mark.asyncio
+    async def test_process_single_handles_missing_workflow_ids_in_metadata(self):
+        """Old batches enqueued before this change have no workflow ids in metadata — must not crash."""
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
+        ):
+            await consumer._process_single(_make_batch(latest_attempt=0, metadata={}))
+
+        consumer._process_batch.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_single_clears_context_on_error(self):
+        consumer = _make_consumer(max_attempts=3)
+        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
+        ):
+            await consumer._process_single(_make_batch(latest_attempt=0))
+
+        assert "batch_id" not in structlog.contextvars.get_contextvars()
+        assert "workflow_run_id" not in structlog.contextvars.get_contextvars()

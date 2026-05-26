@@ -42,6 +42,7 @@ export interface PauseResponseApi {
  * `in_progress` - In Progress
  * `pending_input` - Pending Input
  * `ready` - Ready
+ * `resolved` - Resolved
  * `failed` - Failed
  * `deleted` - Deleted
  * `suppressed` - Suppressed
@@ -54,6 +55,7 @@ export const SignalReportStatusEnumApi = {
     InProgress: 'in_progress',
     PendingInput: 'pending_input',
     Ready: 'ready',
+    Resolved: 'resolved',
     Failed: 'failed',
     Deleted: 'deleted',
     Suppressed: 'suppressed',
@@ -114,6 +116,7 @@ export interface PaginatedSignalReportListApi {
  * `zendesk` - Zendesk
  * `conversations` - Conversations
  * `error_tracking` - Error tracking
+ * `pganalyze` - pganalyze
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -125,6 +128,7 @@ export const SourceProductEnumApi = {
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
+    Pganalyze: 'pganalyze',
 } as const
 
 /**
@@ -197,9 +201,9 @@ export interface _UserApi {
  * `P3` - P3
  * `P4` - P4
  */
-export type AutostartPriorityEnumApi = (typeof AutostartPriorityEnumApi)[keyof typeof AutostartPriorityEnumApi]
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
 
-export const AutostartPriorityEnumApi = {
+export const AutonomyPriorityEnumApi = {
     P0: 'P0',
     P1: 'P1',
     P2: 'P2',
@@ -213,14 +217,29 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
-    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    autostart_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
+    /**
+     * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
+     * @nullable
+     */
+    readonly slack_notification_integration_id: number | null
+    /**
+     * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+     * @maxLength 255
+     * @nullable
+     */
+    slack_notification_channel?: string | null
+    /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
 }

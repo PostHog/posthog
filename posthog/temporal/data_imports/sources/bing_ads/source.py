@@ -34,6 +34,33 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BINGADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Match only on auth/permission failures that retrying cannot recover from.
+        # Transient SDK errors (network, Bing outage, rate limits) propagate as their
+        # original exception class and stay retryable — see BingAdsClient.get_customer_id,
+        # which wraps the underlying error as `ValueError("Failed to fetch customer ID: <ExcType>: <msg>")`.
+        auth_friendly = (
+            "PostHog could not authenticate with Bing Ads. The connected account's OAuth credentials "
+            "are revoked, expired, or no longer have access. Please reconnect your Bing Ads integration."
+        )
+        return {
+            # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
+            # whose str() format is "<error_code> <error_description>").
+            "OAuthTokenRequestException": auth_friendly,
+            "invalid_grant": auth_friendly,
+            "invalid_client": auth_friendly,
+            "unauthorized_client": auth_friendly,
+            # Bing Ads service-level auth error codes surfaced via suds.WebFault details.
+            "AuthenticationTokenExpired": auth_friendly,
+            "AuthenticationFailed": auth_friendly,
+            "InvalidCredentials": auth_friendly,
+            "OAuthTokenExpired": auth_friendly,
+            # Deterministic credential/config errors raised in source_for_pipeline.
+            "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
+            "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
+            "Bing Ads developer token not configured": None,
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -94,7 +121,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: BingAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()

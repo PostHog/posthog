@@ -124,22 +124,26 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        for i in range(501):
-            with freeze_time(now + timedelta(minutes=i)):
-                _create_event(
-                    event=f"event{i}",
-                    distinct_id="person1",
-                    team=self.team,
-                )
+        # Use an explicit small limit so we only have to create limit+1 events
+        # to exercise the hasMore path. The default-limit branch is covered by
+        # `test_taxonomy_query_runner` above (asserts `limit == 500`).
+        limit = 5
+        for i in range(limit + 1):
+            _create_event(
+                event=f"event{i}",
+                distinct_id="person1",
+                team=self.team,
+                timestamp=now + timedelta(minutes=i),
+            )
 
         flush_persons_and_events()
 
-        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=limit))
         response = runner.run()
 
         assert isinstance(response, CachedTeamTaxonomyQueryResponse)
         # hasMore=True, so no well-known events appended
-        self.assertEqual(len(response.results), 500)
+        self.assertEqual(len(response.results), limit)
         self.assertTrue(response.hasMore)
 
     def test_pagination_with_limit_and_offset(self):

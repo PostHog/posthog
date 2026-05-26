@@ -8,14 +8,17 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import {
     IconAIText,
+    IconChevronDown,
     IconChevronLeft,
     IconChevronRight,
     IconComment,
     IconCopy,
+    IconDownload,
     IconMessage,
     IconPlay,
     IconReceipt,
     IconSearch,
+    IconShare,
 } from '@posthog/icons'
 import {
     LemonButton,
@@ -24,6 +27,7 @@ import {
     LemonDivider,
     LemonDialog,
     LemonInput,
+    LemonMenu,
     LemonSelect,
     LemonTable,
     LemonTabs,
@@ -58,6 +62,7 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
@@ -88,7 +93,7 @@ import { SearchHighlight } from './SearchHighlight'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
-import { exportTraceToClipboard } from './traceExportUtils'
+import { exportTraceToClipboard, exportTraceToFile } from './traceExportUtils'
 import { TraceReviewButton } from './traceReviews/TraceReviewButton'
 import { traceReviewModalLogic } from './traceReviews/traceReviewModalLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -501,6 +506,7 @@ function TraceSceneWrapper(): JSX.Element {
                             actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
+                        <AIObservabilityRenameBanner />
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}
@@ -530,7 +536,7 @@ function TraceSceneWrapper(): JSX.Element {
                                         Discussion
                                     </LemonButton>
                                 )}
-                                <CopyTraceButton trace={trace} tree={enrichedTree} />
+                                <ShareTraceButton trace={trace} tree={enrichedTree} />
                             </div>
                         </div>
                     </div>
@@ -1870,22 +1876,36 @@ function EventTypeFilters(): JSX.Element {
     )
 }
 
-function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
-    const handleCopyTrace = async (): Promise<void> => {
-        await exportTraceToClipboard(trace, tree)
-    }
-
+function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
     return (
-        <LemonButton
-            type="secondary"
-            size="xsmall"
-            icon={<IconCopy />}
-            onClick={handleCopyTrace}
-            tooltip="Copy trace to clipboard"
-            data-attr="copy-trace-json"
+        <LemonMenu
+            items={[
+                {
+                    label: 'Copy to clipboard',
+                    icon: <IconCopy />,
+                    onClick: () => void exportTraceToClipboard(trace, tree),
+                    'data-attr': 'llma-trace-share-copy',
+                },
+                {
+                    label: 'Download file',
+                    icon: <IconDownload />,
+                    onClick: () => exportTraceToFile(trace, tree),
+                    'data-attr': 'llma-trace-share-download',
+                },
+            ]}
+            placement="bottom-end"
         >
-            Copy trace JSON
-        </LemonButton>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                icon={<IconShare />}
+                sideIcon={<IconChevronDown />}
+                tooltip="Share trace JSON"
+                data-attr="llma-trace-share-button"
+            >
+                Share
+            </LemonButton>
+        </LemonMenu>
     )
 }
 

@@ -338,6 +338,10 @@ pub struct FeatureFlagMatcher {
     /// so the matcher skips the CohortCacheManager PG query entirely.
     /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
     preloaded_cohorts: Option<Arc<[Cohort]>>,
+    /// Whether to include detailed condition analysis in flag evaluation results.
+    detailed_analysis: bool,
+    /// Whether to only use person properties from request payload, ignoring database properties.
+    only_use_override_person_properties: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -357,6 +361,22 @@ impl FlagSnapshot {
             version: flag.version,
         }
     }
+}
+
+/// Mirrors Python's `add_local_person_and_group_properties` so flag conditions
+/// matching on `distinct_id` evaluate without a DB lookup. Always injects the
+/// request `distinct_id` (including `""`) unless an explicit
+/// `person_property_overrides["distinct_id"]` is already present, in which case
+/// the explicit override wins.
+fn merge_distinct_id_into_person_properties(
+    distinct_id: &str,
+    overrides: Option<HashMap<String, Value>>,
+) -> HashMap<String, Value> {
+    let mut overrides = overrides.unwrap_or_default();
+    overrides
+        .entry("distinct_id".to_string())
+        .or_insert_with(|| Value::String(distinct_id.to_string()));
+    overrides
 }
 
 impl FeatureFlagMatcher {
@@ -387,6 +407,8 @@ impl FeatureFlagMatcher {
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             preloaded_cohorts: None,
+            detailed_analysis: false,
+            only_use_override_person_properties: false,
         }
     }
 
@@ -418,6 +440,16 @@ impl FeatureFlagMatcher {
         self
     }
 
+    pub fn with_detailed_analysis(mut self, detailed_analysis: bool) -> Self {
+        self.detailed_analysis = detailed_analysis;
+        self
+    }
+
+    pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
+        self.only_use_override_person_properties = only_use_override;
+        self
+    }
+
     /// Evaluates all feature flags for the current matcher context.
     ///
     /// ## Arguments
@@ -444,6 +476,11 @@ impl FeatureFlagMatcher {
         optimize_experience_continuity_lookups: bool,
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
+
+        let person_property_overrides = Some(merge_distinct_id_into_person_properties(
+            &self.distinct_id,
+            person_property_overrides,
+        ));
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -810,7 +847,7 @@ impl FeatureFlagMatcher {
             &self.filtered_out_flag_ids,
         );
 
-        if flags_requiring_db_preparation.is_empty() {
+        if flags_requiring_db_preparation.is_empty() || self.only_use_override_person_properties {
             self.flag_evaluation_state.skip_person_properties();
             return false;
         }
@@ -929,6 +966,7 @@ impl FeatureFlagMatcher {
                         &result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
+                        person_property_overrides,
                     );
                 });
             }
@@ -950,6 +988,7 @@ impl FeatureFlagMatcher {
                         result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
+                        person_property_overrides,
                     );
                 }
             }
@@ -977,13 +1016,27 @@ impl FeatureFlagMatcher {
         result: &Result<FeatureFlagMatch, FlagError>,
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
+        person_property_overrides: &Option<HashMap<String, Value>>,
     ) {
         match result {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                level_evaluated_flags_map
-                    .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
+                let flag_details = if self.detailed_analysis {
+                    // Use merged person properties (DB + overrides) for condition analysis
+                    let merged_person_props = self
+                        .get_person_properties(person_property_overrides.as_ref())
+                        .ok();
+                    FlagDetails::create_with_analysis(
+                        flag,
+                        flag_match,
+                        true,
+                        merged_person_props.as_ref(),
+                    )
+                } else {
+                    FlagDetails::create(flag, flag_match)
+                };
+                level_evaluated_flags_map.insert(flag.key.clone(), flag_details);
             }
             Err(e) => {
                 *errors_while_computing_flags = true;
@@ -1571,7 +1624,6 @@ impl FeatureFlagMatcher {
                 }
             }
         }
-
         self.check_rollout(
             feature_flag,
             rollout_percentage,
@@ -1664,11 +1716,15 @@ impl FeatureFlagMatcher {
         &self,
         property_overrides: Option<&HashMap<String, Value>>,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // Start with DB properties (clone only when we need a mutable copy)
-        let mut merged_properties = self
-            .get_person_properties_from_evaluation_state()
-            .cloned()
-            .unwrap_or_default();
+        let mut merged_properties = if self.only_use_override_person_properties {
+            // When only_use_override_person_properties is true, ignore DB properties entirely
+            HashMap::new()
+        } else {
+            // Start with DB properties (clone only when we need a mutable copy)
+            self.get_person_properties_from_evaluation_state()
+                .cloned()
+                .unwrap_or_default()
+        };
 
         // Merge in overrides (overrides take precedence)
         if let Some(overrides) = property_overrides {
@@ -2460,5 +2516,54 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    #[rstest::rstest]
+    #[case::injects_when_overrides_absent("user_42", None, "user_42", vec![])]
+    #[case::injects_when_overrides_lack_distinct_id(
+        "user_42",
+        Some(vec![("email", "a@x.com")]),
+        "user_42",
+        vec![("email", "a@x.com")],
+    )]
+    #[case::explicit_override_wins(
+        "user_42",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    #[case::injects_empty_string_when_overrides_absent("", None, "", vec![])]
+    #[case::injects_empty_string_when_overrides_lack_distinct_id(
+        "",
+        Some(vec![("foo", "bar")]),
+        "",
+        vec![("foo", "bar")],
+    )]
+    #[case::explicit_override_wins_over_empty_request_distinct_id(
+        "",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    fn test_merge_distinct_id_into_person_properties(
+        #[case] request_distinct_id: &str,
+        #[case] overrides: Option<Vec<(&str, &str)>>,
+        #[case] expected_distinct_id: &str,
+        #[case] expected_extras: Vec<(&str, &str)>,
+    ) {
+        let overrides = overrides.map(|kvs| {
+            kvs.into_iter()
+                .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
+                .collect::<HashMap<_, _>>()
+        });
+        let result = merge_distinct_id_into_person_properties(request_distinct_id, overrides);
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String(expected_distinct_id.to_string())),
+        );
+        for (k, v) in &expected_extras {
+            assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
+        }
+        assert_eq!(result.len(), 1 + expected_extras.len());
     }
 }

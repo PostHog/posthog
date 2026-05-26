@@ -68,7 +68,10 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         """
         return DashboardTemplate(
             template_name="Product analytics",
-            dashboard_description="",
+            dashboard_description=(
+                "A starter view of how people use your app: how many visit, whether they come back, "
+                "where traffic comes from, and how they move through your pages."
+            ),
             dashboard_filters={},
             tiles=[
                 {

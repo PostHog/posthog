@@ -28,6 +28,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -62,6 +63,7 @@ class Task(DeletedMetaFields, models.Model):
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
@@ -119,6 +121,15 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
+    archived = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "to share archive state across desktop and mobile."
+        ),
+    )
+    archived_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     ci_prompt = models.TextField(
@@ -132,6 +143,7 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
         ]
 
     def __str__(self):
@@ -321,6 +333,16 @@ class Task(DeletedMetaFields, models.Model):
             )
             if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
+        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+            # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
+            # then use the user_id BOT provided and get user's GitHub Integration instead
+            user_github_integration = resolve_user_github_integration_for_task(
+                task_stub,
+                repository=repository,
+                allow_refresh=True,
+            )
+            if user_github_integration is not None:
+                github_user_integration = user_github_integration.integration
 
         if repository:
             if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
@@ -426,6 +448,7 @@ class TaskAutomation(models.Model):
         FAILED = "failed", "Failed"
         RUNNING = "running", "Running"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     cron_expression = models.CharField(max_length=100)
     timezone = models.CharField(max_length=128, default="UTC")
@@ -514,6 +537,7 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -687,10 +711,13 @@ class TaskRun(models.Model):
         """Get the Temporal workflow ID for this task run."""
         return self.get_workflow_id(self.task_id, self.id)
 
-    def heartbeat_workflow(self) -> None:
+    def heartbeat_workflow(self, agent_active: bool = False) -> None:
+        if not agent_active:
+            return
+
         from django.core.cache import cache
 
-        cache_key = f"tasks:task_run:heartbeat:{self.id}"
+        cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
         if not cache.add(cache_key, True, timeout=60):
             return
 
@@ -703,7 +730,7 @@ class TaskRun(models.Model):
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(self.workflow_id)
-            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat))
+            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
@@ -862,6 +889,9 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+
+        notify_task_run_completed(self)
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
@@ -891,6 +921,9 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_failed
+
+        notify_task_run_failed(self)
 
     def build_stream_state_event(self) -> dict[str, Any]:
         return {
@@ -1272,6 +1305,61 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+# How long a single beacon keeps a device "present" before the row is treated as stale.
+# Clients beacon every ~30s; expiring after 60s gives them one missed POST of slack.
+TASK_PRESENCE_TTL_SECONDS = 60
+
+
+class TaskPresence(TeamScopedRootMixin):
+    """Per-device 'this user is actively watching this task' beacon.
+
+    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    task screen is foregrounded. The push fanout consults this table to skip
+    devices that are demonstrably already watching the task, so we don't fire
+    phantom notifications at a phone while the user is mid-conversation with
+    the agent on their laptop.
+
+    Rows are ephemeral (expire after ``TASK_PRESENCE_TTL_SECONDS``). Cleanup is
+    lazy: every push fanout filters on ``expires_at > now``, so stale rows are
+    ignored automatically. We can layer a periodic sweep on top later if the
+    row count ever becomes a problem; for now there's nothing to maintain.
+    """
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # `related_name="+"` on every FK so Django doesn't add reverse accessors
+    # (`user.task_presences`, etc.). Presence is always queried forward — by
+    # (task, user) or by push_token id — and skipping the reverse manager
+    # keeps frameworks that walk all reverse relations on related models
+    # (notably the User activity-logger) from tripping on this model's
+    # fail-closed manager when no team context is set.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    # Identifies the device that's watching. Push fanout joins on this FK to
+    # decide which tokens to suppress, and CASCADE means unregistering the push
+    # token automatically clears the presence too.
+    push_token = models.ForeignKey(
+        "posthog.UserPushToken",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    last_seen_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "posthog_task_presence"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "push_token"],
+                name="task_presence_task_push_token_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
 
 
 @receiver(post_save, sender=TaskRun)

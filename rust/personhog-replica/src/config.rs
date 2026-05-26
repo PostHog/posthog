@@ -35,6 +35,20 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    /// Max connections for the bulk pool (large batch reads, deletes).
+    /// Kept small so bulk queries can't starve the fast pool.
+    #[envconfig(default = "5")]
+    pub bulk_max_pg_connections: u32,
+
+    /// Statement timeout for bulk queries (ms). Longer than the fast pool
+    /// because batch reads over thousands of IDs legitimately take seconds.
+    #[envconfig(default = "30000")]
+    pub bulk_statement_timeout_ms: u64,
+
+    /// Acquire timeout for bulk pool (seconds).
+    #[envconfig(default = "10")]
+    pub bulk_acquire_timeout_secs: u64,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.
@@ -68,11 +82,29 @@ pub struct Config {
     /// 0 = disabled (connections live indefinitely).
     #[envconfig(default = "300")]
     pub grpc_max_connection_age_secs: u64,
+
+    /// Maximum concurrent gRPC requests before load shedding.
+    /// When exceeded, new requests get an immediate UNAVAILABLE response
+    /// so the router retries on another pod. 0 = disabled.
+    #[envconfig(default = "0")]
+    pub max_concurrent_requests: usize,
 }
 
 impl Config {
     pub fn acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.acquire_timeout_secs)
+    }
+
+    pub fn bulk_acquire_timeout(&self) -> Duration {
+        Duration::from_secs(self.bulk_acquire_timeout_secs)
+    }
+
+    pub fn bulk_statement_timeout(&self) -> Option<u64> {
+        if self.bulk_statement_timeout_ms == 0 {
+            None
+        } else {
+            Some(self.bulk_statement_timeout_ms)
+        }
     }
 
     pub fn idle_timeout(&self) -> Option<Duration> {

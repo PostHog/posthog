@@ -229,6 +229,18 @@ mod tests {
                 "events_overflow".into(),
             ),
             (format!("{prefix}KAFKA_TOPIC_DLQ"), "events_dlq".into()),
+            (
+                format!("{prefix}KAFKA_TOPIC_EXCEPTION"),
+                "error_tracking_events".into(),
+            ),
+            (
+                format!("{prefix}KAFKA_TOPIC_HEATMAP"),
+                "heatmaps_ingestion".into(),
+            ),
+            (
+                format!("{prefix}KAFKA_TOPIC_CLIENT_INGESTION_WARNING"),
+                "events_plugin_ingestion".into(),
+            ),
         ]
         .into_iter()
         .collect()

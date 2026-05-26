@@ -382,13 +382,19 @@ def get_js_url(request: HttpRequest) -> str:
     """
     from urllib.parse import urlparse
 
+    from django.http.request import split_domain_port
+
     parsed = urlparse(settings.JS_URL)
-    if settings.DEBUG and parsed.hostname == "localhost":
+    if settings.DEBUG and parsed.hostname == "localhost" and not request.is_secure():
         # Rewrite the JS_URL hostname to match the request origin so the browser
         # can reach the Vite dev server when accessed via a non-localhost address
-        # (e.g. from a Docker container or remote host).
+        # (e.g. from a Docker container or remote host). Skipped when the request
+        # is HTTPS (e.g. ngrok) — browsers exempt localhost from mixed-content blocking,
+        # so keeping http://localhost:8234 lets the browser load Vite assets directly.
+        # split_domain_port keeps IPv6 hosts wrapped in brackets so the URL stays valid.
+        domain, _ = split_domain_port(request.get_host())
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"http://{request.get_host().split(':')[0]}:{parsed.port}"
+        return f"http://{domain}:{parsed.port}"
     return settings.JS_URL
 
 

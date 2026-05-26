@@ -33,6 +33,7 @@ from posthog.utils import (
     get_default_event_info,
     get_default_event_name,
     get_ip_address,
+    get_js_url,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
@@ -163,6 +164,75 @@ class TestFormatUrls(TestCase):
             }
             request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
+
+
+class TestGetJsUrl(TestCase):
+    factory = RequestFactory()
+
+    @parameterized.expand(
+        [
+            (
+                "http_rewrites_host",
+                True,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://dev-container:8234",
+            ),
+            (
+                "https_keeps_localhost",
+                True,
+                "http://localhost:8234",
+                "my-tunnel.ngrok-free.dev",
+                True,
+                "http://localhost:8234",
+            ),
+            (
+                "non_localhost_unchanged",
+                True,
+                "https://cdn.example.com/static",
+                "dev-container:8000",
+                False,
+                "https://cdn.example.com/static",
+            ),
+            (
+                "non_debug_unchanged",
+                False,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://localhost:8234",
+            ),
+            (
+                "http_rewrites_ipv6_host",
+                True,
+                "http://localhost:8234",
+                "[::1]:8000",
+                False,
+                "http://[::1]:8234",
+            ),
+            (
+                "http_rewrites_host_without_port",
+                True,
+                "http://localhost:8234",
+                "dev-container",
+                False,
+                "http://dev-container:8234",
+            ),
+        ]
+    )
+    def test_get_js_url(
+        self, _name: str, debug: bool, js_url: str, http_host: str, is_https: bool, expected: str
+    ) -> None:
+        settings_kwargs: dict = {"DEBUG": debug, "JS_URL": js_url}
+        if is_https:
+            settings_kwargs["SECURE_PROXY_SSL_HEADER"] = ("HTTP_X_FORWARDED_PROTO", "https")
+        with self.settings(**settings_kwargs):
+            if is_https:
+                request = self.factory.get("/", HTTP_HOST=http_host, HTTP_X_FORWARDED_PROTO="https")
+            else:
+                request = self.factory.get("/", HTTP_HOST=http_host)
+            self.assertEqual(expected, get_js_url(request))
 
 
 class TestGeneralUtils(TestCase):

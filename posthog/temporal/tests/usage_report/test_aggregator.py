@@ -2,22 +2,24 @@
 
 These cover the building blocks the aggregation activity composes:
 `load_all_data`, `iter_chunk_lines`, `batched`, `build_manifest`,
-`filter_org_reports`, `sort_org_reports`. No Django / Temporal / S3
-required.
+`filter_org_reports`, `filter_orgs_with_usage`, `sort_org_reports`.
+No Django / Temporal / S3 required.
 """
 
 import json
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
 
-from posthog.tasks.usage_report import InstanceMetadata, OrgReport
+from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
 from posthog.temporal.usage_report.aggregator import (
     batched,
     build_manifest,
     filter_org_reports,
+    filter_orgs_with_usage,
     iter_chunk_lines,
     load_all_data,
     sort_org_reports,
@@ -163,7 +165,7 @@ class _FakeOrgReport:
         self.organization_id = organization_id
 
 
-def test_iter_chunk_lines_emits_id_and_report_with_usage_flag() -> None:
+def test_iter_chunk_lines_emits_id_and_report() -> None:
     org_a = _FakeOrgReport("org-a")
     org_b = _FakeOrgReport("org-b")
 
@@ -178,22 +180,9 @@ def test_iter_chunk_lines_emits_id_and_report_with_usage_flag() -> None:
         )
 
     assert result == [
-        ({"organization_id": "org-a", "usage_report": {"event_count_in_period": 10, "has_non_zero_usage": True}}, True),
-        (
-            {"organization_id": "org-b", "usage_report": {"event_count_in_period": 0, "has_non_zero_usage": False}},
-            False,
-        ),
+        {"organization_id": "org-a", "usage_report": {"event_count_in_period": 10, "has_non_zero_usage": True}},
+        {"organization_id": "org-b", "usage_report": {"event_count_in_period": 0, "has_non_zero_usage": False}},
     ]
-
-
-def test_iter_chunk_lines_treats_missing_flag_as_falsy() -> None:
-    org = _FakeOrgReport("org-x")
-    with patch(
-        "posthog.temporal.usage_report.aggregator.serialize_full_org_report",
-        return_value={"event_count_in_period": 0},  # no has_non_zero_usage
-    ):
-        out = list(iter_chunk_lines(cast(list[OrgReport], [org]), instance_metadata=cast(InstanceMetadata, None)))
-    assert out[0][1] is False
 
 
 # ---- build_manifest ------------------------------------------------------
@@ -259,3 +248,41 @@ def test_sort_org_reports_orders_by_organization_id() -> None:
     )
     out = sort_org_reports(reports)
     assert [r.organization_id for r in out] == ["a", "m", "z"]
+
+
+# ---- filter_orgs_with_usage ----------------------------------------------
+
+
+def _empty_org_report(organization_id: str, **overrides: Any) -> OrgReport:
+    """Construct an `OrgReport` with every counter zeroed out. Override
+    individual counters per test to exercise the `has_non_zero_usage`
+    branches without listing the full field set every time.
+    """
+    counter_fields: dict[str, Any] = {f.name: 0 for f in dataclasses.fields(UsageReportCounters)}
+    # `dwh_*_storage_in_s3_in_mib` are floats, but `0` works fine.
+    counter_fields.update(overrides)
+    return OrgReport(
+        date="2026-05-04",
+        organization_id=organization_id,
+        organization_name="org",
+        organization_created_at="2024-01-01T00:00:00+00:00",
+        organization_user_count=0,
+        team_count=0,
+        teams={},
+        **counter_fields,
+    )
+
+
+def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None:
+    reports = {
+        "with-events": _empty_org_report("with-events", event_count_in_period=1),
+        "with-recordings": _empty_org_report("with-recordings", recording_count_in_period=1),
+        "idle": _empty_org_report("idle"),
+        # Counters not in `has_non_zero_usage` (dashboard counts, query
+        # bytes read, etc.) must not keep an org in.
+        "non-billable-only": _empty_org_report("non-billable-only", dashboard_count=10, query_app_bytes_read=5_000_000),
+    }
+
+    out = filter_orgs_with_usage(reports)
+
+    assert set(out.keys()) == {"with-events", "with-recordings"}

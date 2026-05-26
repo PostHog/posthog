@@ -178,13 +178,53 @@ tools:
                 - types
     insights-activity-retrieve:
         operation: insights_activity_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Get insight activity log
+        description: >
+            Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it
+            (created, edited, deleted, restored), including who made each change and which fields changed. The full
+            `before`/`after` diff blobs are omitted to keep responses agent-friendly — to inspect the current state of
+            the insight after a change, call `insight-get` with the insight's `short_id`. Paginate with `limit` and
+            `page`.
+        response:
+            exclude:
+                - detail.changes.*.before
+                - detail.changes.*.after
+                - detail.trigger
+                - detail.type
     insights-activity-retrieve-2:
         operation: insights_activity_retrieve
         enabled: false
     insights-all-activity-retrieve:
         operation: insights_all_activity_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Get recent insight activity across the project
+        description: >
+            Project-wide audit trail of changes to all insights, most recent first. Returns who created, edited,
+            deleted, or restored each insight and which fields changed. Useful for surfacing what people (or agents)
+            have been working on recently. The full `before`/`after` diff blobs are omitted to keep responses
+            agent-friendly — drill into a specific insight with `insights-activity-retrieve` (or `insight-get` for
+            current state). Paginate with `limit` and `page`.
+        response:
+            exclude:
+                - detail.changes.*.before
+                - detail.changes.*.after
+                - detail.trigger
+                - detail.type
     insights-analyze-retrieve:
         operation: insights_analyze_retrieve
         enabled: false
@@ -217,6 +257,11 @@ tools:
             - basic
             - format
             - refresh
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
         response:
             include:
                 - id
@@ -244,7 +289,38 @@ tools:
         enabled: false
     insights-trending-retrieve:
         operation: insights_trending_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - insight:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        list: true
+        title: Get most-viewed insights
+        description: >
+            Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use
+            this to surface the insights that matter most to the team — the ones people actually open. Each result
+            includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only —
+            call `insight-query` with the returned `short_id` to fetch the actual data for any of them.
+        response:
+            include:
+                - id
+                - short_id
+                - name
+                - derived_name
+                - description
+                - tags
+                - favorited
+                - dashboards
+                - created_at
+                - created_by
+                - last_modified_at
+                - last_modified_by
+                - last_viewed_at
+                - view_count
+                - viewers
     insights-update:
         operation: insights_update
         enabled: false

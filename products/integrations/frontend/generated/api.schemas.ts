@@ -46,14 +46,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -73,7 +69,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -274,6 +270,8 @@ export interface SlackChannelsResponseApi {
      * @nullable
      */
     lastRefreshedAt?: string | null
+    /** Whether more channels match the current search beyond this page. */
+    has_more?: boolean
 }
 
 /**
@@ -316,6 +314,22 @@ export interface GitHubReposResponseApi {
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+}
+
+export interface GitHubTeamApi {
+    /** GitHub team numeric identifier. */
+    id: number
+    /** GitHub team slug. */
+    slug: string
+    /** GitHub team display name. */
+    name: string
+}
+
+export interface GitHubTeamsResponseApi {
+    /** List of GitHub teams available to the installation organization. */
+    teams: GitHubTeamApi[]
+    /** Whether more teams are available beyond this page. */
+    has_more: boolean
 }
 
 export interface UserGitHubAccountApi {
@@ -505,6 +519,24 @@ export const IntegrationsListKind = {
     Vercel: 'vercel',
 } as const
 
+export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string
+}
+
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -542,6 +574,24 @@ export type IntegrationsGithubReposRetrieveParams = {
     offset?: number
     /**
      * Optional case-insensitive repository name search query.
+     */
+    search?: string
+}
+
+export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string
 }

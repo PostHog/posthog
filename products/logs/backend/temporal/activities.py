@@ -17,6 +17,9 @@ from django.db.utils import IntegrityError
 
 import structlog
 import temporalio.activity
+from pydantic import ValidationError as PydanticValidationError
+
+from posthog.schema import PropertyGroupFilter
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
@@ -40,11 +43,12 @@ from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
     CheckResult,
+    ControlPlaneOutcome,
     NotificationAction,
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at
+from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -371,6 +375,59 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
 
 
+def _detect_broken_filter_config(filters: object) -> str | None:
+    """Returns a human-readable reason if `filters` is structurally broken in a way
+    that will permanently prevent the alert from running. Returns None if the shape
+    is valid enough to attempt evaluation.
+    """
+    if not isinstance(filters, dict):
+        return f"filters must be a JSON object, got {type(filters).__name__}"
+    filter_group = filters.get("filterGroup")
+    if not filter_group:
+        return None
+    try:
+        PropertyGroupFilter.model_validate(filter_group)
+    except PydanticValidationError as e:
+        return f"Invalid filterGroup shape: {e.errors()[0]['msg']}"
+    return None
+
+
+def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
+    """Transition an alert to BROKEN because its configuration is structurally
+    invalid and can never succeed. Runs in the same sync DB pool as discovery —
+    each call is its own short transaction so a failure on one row doesn't
+    roll back the others.
+    """
+    try:
+        with transaction.atomic():
+            alert = LogsAlertConfiguration.objects.select_for_update().get(pk=alert_id)
+            if alert.state == LogsAlertConfiguration.State.BROKEN:
+                return
+            state_before = alert.state
+            outcome = ControlPlaneOutcome(
+                new_state=AlertState.BROKEN,
+                consecutive_failures=alert.consecutive_failures,
+            )
+            update_fields = apply_outcome(alert, outcome)
+            LogsAlertEvent.objects.create(
+                alert=alert,
+                kind=LogsAlertEvent.Kind.BROKEN_CONFIG,
+                threshold_breached=False,
+                state_before=state_before,
+                state_after=outcome.new_state.value,
+                error_message=reason,
+            )
+            alert.save(update_fields=update_fields)
+    except Exception as e:
+        logger.exception(
+            "Failed to mark alert BROKEN for invalid config",
+            alert_id=alert_id,
+            reason=reason,
+            error=str(e),
+        )
+        capture_exception(e)
+
+
 def _cohort_manifests_from_alerts(
     rows: Sequence[dict],
     *,
@@ -381,22 +438,46 @@ def _cohort_manifests_from_alerts(
 
     Cohort key + size-cap logic on plain dicts (no Django model hydration)
     so it stays cheap at scale and produces serialisable manifests for the
-    workflow.
+    workflow. Alerts with structurally broken filter configs are transitioned
+    to BROKEN and excluded from the manifests — they would never succeed
+    anyway, and one bad row must not brick discovery for the rest of the
+    project.
     """
     grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[str]] = defaultdict(list)
     for row in rows:
-        nca = row["next_check_at"] if row["next_check_at"] is not None else now
-        date_to = resolve_alert_date_to(nca, checkpoint)
-        projection_eligible = is_projection_eligible(row["filters"])
-        key = (
-            row["team_id"],
-            row["window_minutes"],
-            row["evaluation_periods"],
-            row["check_interval_minutes"],
-            projection_eligible,
-            date_to,
-        )
-        grouped[key].append(str(row["id"]))
+        try:
+            broken_reason = _detect_broken_filter_config(row["filters"])
+            if broken_reason is not None:
+                logger.warning(
+                    "Marking alert BROKEN due to invalid filter config",
+                    alert_id=str(row["id"]),
+                    team_id=row.get("team_id"),
+                    reason=broken_reason,
+                )
+                _mark_alert_broken_for_bad_config(str(row["id"]), broken_reason)
+                continue
+            nca = row["next_check_at"] if row["next_check_at"] is not None else now
+            date_to = resolve_alert_date_to(nca, checkpoint)
+            projection_eligible = is_projection_eligible(row["filters"])
+            key = (
+                row["team_id"],
+                row["window_minutes"],
+                row["evaluation_periods"],
+                row["check_interval_minutes"],
+                projection_eligible,
+                date_to,
+            )
+            grouped[key].append(str(row["id"]))
+        except Exception as e:
+            # Any unexpected per-row failure must not brick discovery for the
+            # rest of the project.
+            logger.exception(
+                "Skipping alert in cohort discovery due to malformed row",
+                alert_id=str(row.get("id")),
+                team_id=row.get("team_id"),
+                error=str(e),
+            )
+            capture_exception(e)
 
     manifests: list[CohortManifest] = []
     for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_ids in grouped.items():
@@ -754,7 +835,12 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
     # (the per-alert fallback's `alert.save()` would honour `auto_now`, but the
     # happy path is bulk_update).
     alert.updated_at = now
-    alert.next_check_at = advance_next_check_at(alert.next_check_at, alert.check_interval_minutes, now)
+    alert.next_check_at = advance_next_check_at(
+        alert.next_check_at,
+        alert.check_interval_minutes,
+        now,
+        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+    )
     update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
     if (
