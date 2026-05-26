@@ -1,6 +1,6 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
+import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
 import {
     asString,
     costContextFromProperties,
