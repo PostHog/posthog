@@ -29,7 +29,7 @@ function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
         sampling_rate: 0.1,
         query: null,
         provider: 'google',
-        model: 'gemini-3-flash',
+        model: 'gemini-3-flash-preview',
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
