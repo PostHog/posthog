@@ -6,7 +6,83 @@ export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | '
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'ineligible'
+
+export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+
+const INELIGIBLE_KIND_LABELS: Record<IneligibleKind, string> = {
+    no_recording: 'No recording',
+    too_short: 'Too short',
+    too_inactive: 'Too inactive',
+    too_long: 'Too long',
+    no_events: 'No events',
+}
+
+export type FailureKind =
+    | 'provider_transient'
+    | 'provider_rejected'
+    | 'rasterization_failed'
+    | 'validation_failed'
+    | 'internal_error'
+
+const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
+    provider_transient: {
+        label: 'AI provider unavailable',
+        description: 'The AI provider was temporarily unreachable. PostHog will retry on the next schedule fire.',
+    },
+    provider_rejected: {
+        label: 'AI provider rejected video',
+        description: "The AI provider couldn't process this recording. Other recordings should work.",
+    },
+    rasterization_failed: {
+        label: 'Rasterization failed',
+        description: "PostHog couldn't render this recording into a video. Other recordings should work.",
+    },
+    validation_failed: {
+        label: 'AI output invalid',
+        description:
+            "The AI's response didn't match the scanner schema after several attempts. Try simplifying the scanner prompt.",
+    },
+    internal_error: {
+        label: 'Internal error',
+        description: 'An unexpected PostHog error occurred. Please contact support.',
+    },
+}
+
+const FAILURE_KIND_LABELS = Object.fromEntries(
+    Object.entries(FAILURE_KINDS).map(([kind, meta]) => [kind, meta.label])
+) as Record<FailureKind, string>
+
+export type ParsedReason<K extends string> = { kind: K; label: string; message: string }
+
+function parseKindReason<K extends string>(error_reason: string, labels: Record<K, string>): ParsedReason<K> | null {
+    // The backend formats `error_reason` as `kind:human message`; fall back to a generic label on drift.
+    const idx = error_reason.indexOf(':')
+    if (idx <= 0) {
+        return null
+    }
+    const kind = error_reason.slice(0, idx)
+    if (!(kind in labels)) {
+        return null
+    }
+    return {
+        kind: kind as K,
+        label: labels[kind as K],
+        message: error_reason.slice(idx + 1).trim(),
+    }
+}
+
+export function parseIneligibleReason(error_reason: string): ParsedReason<IneligibleKind> | null {
+    return parseKindReason(error_reason, INELIGIBLE_KIND_LABELS)
+}
+
+export function parseFailureReason(error_reason: string): ParsedReason<FailureKind> | null {
+    return parseKindReason(error_reason, FAILURE_KIND_LABELS)
+}
+
+export function failureKindDescription(kind: FailureKind): string {
+    return FAILURE_KINDS[kind].description
+}
 
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL = 'gemini-3-flash'
