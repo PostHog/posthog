@@ -95,8 +95,14 @@ class TestNonIntegratedConversionsTableQueryRunnerJoinShape(TestCase):
             assert join_node.table.chain == [config.campaign_costs_cte_name]
             assert join_node.constraint is not None
 
-        by_name_targets = {_field_chain_str(op.right) for op in _flatten_compare_ops(by_name.constraint.expr)}
-        by_id_targets = {_field_chain_str(op.right) for op in _flatten_compare_ops(by_id.constraint.expr)}
+        # Pull out narrowed local references so mypy doesn't lose the `is not None`
+        # check across the assertion above.
+        by_name_constraint = by_name.constraint
+        by_id_constraint = by_id.constraint
+        assert by_name_constraint is not None and by_id_constraint is not None
+
+        by_name_targets = {_field_chain_str(op.right) for op in _flatten_compare_ops(by_name_constraint.expr)}
+        by_id_targets = {_field_chain_str(op.right) for op in _flatten_compare_ops(by_id_constraint.expr)}
 
         # First alternate join must target CC.campaign_name; second must target CC.campaign_id.
         # Either alias on the right side proves we're matching against the *other* field
