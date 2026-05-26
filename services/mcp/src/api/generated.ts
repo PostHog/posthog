@@ -38740,6 +38740,10 @@ export namespace Schemas {
     event?: string;
     format?: EnvironmentsEventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -43817,6 +43821,10 @@ export namespace Schemas {
      */
     event?: string;
     format?: EventsListFormat;
+    /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
     /**
      * The maximum number of results to return
      */
