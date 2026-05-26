@@ -1,4 +1,5 @@
 import re
+import builtins
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, TypedDict, cast
@@ -6,9 +7,11 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Min
+from django.db.models import F, Min, Q, QuerySet, Value
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils.text import slugify
@@ -30,19 +33,20 @@ from drf_spectacular.utils import (
 )
 from loginas.utils import is_impersonated_session
 from nanoid import generate
+from opentelemetry import trace
 from posthoganalytics import capture_exception
-from rest_framework import exceptions, filters, request, serializers, status, viewsets
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -52,7 +56,14 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.models import Action
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -63,8 +74,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
+from products.actions.backend.models.action import Action
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
     SurveyEventName,
     SurveyEventProperties,
@@ -78,12 +92,29 @@ from ee.surveys.summaries.headline_summary import generate_survey_headline
 
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 CACHE_TIMEOUT_SECONDS = 300
 DISPLAY_LANGUAGE_QUERY_PARAM = "display_language"
 DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+# Translation language codes must be BCP-47-ish (lang[-subtag...]). This is the same shape
+# the JS SDK matches against navigator.language. Aliases like "english" or sentinel values
+# like "default" are rejected because they never match a real browser locale.
+BCP47_LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2,3}(-[a-z0-9]{2,8}){0,3}$")
+DEFAULT_BASE_LANGUAGE = "en"
+# Sentinel keys we explicitly reject — these used to appear in customer data and never
+# resolved to anything in the SDK. Block them at the API so they don't keep accumulating.
+REJECTED_TRANSLATION_KEYS = frozenset({"default", "original", "base"})
+
+
+def _normalize_language_code(raw: str) -> str:
+    """Lowercase + underscore-to-hyphen. Matches what the SDK does before lookup."""
+    return raw.strip().lower().replace("_", "-")
+
+
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
 # Root survey description is intentionally excluded because customers have used it for internal notes.
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
@@ -98,6 +129,118 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
 ]
+SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
+SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+)
+SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
+    "id",
+    "type",
+    "question",
+    "description",
+    "buttonText",
+    "choices",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+    "link",
+    "translations",
+)
+
+
+class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
+    target_language = serializers.CharField(help_text="Language code to generate translations for, for example pt-BR.")
+    source_language = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional override for the source language code. Defaults to the survey's `base_language` "
+            "(or 'en' if unset)."
+        ),
+    )
+    overwrite = serializers.BooleanField(
+        required=False, default=False, help_text="Whether to overwrite existing translations for this language."
+    )
+    survey = serializers.DictField(
+        child=serializers.JSONField(allow_null=True, help_text="Draft survey field value."),
+        required=False,
+        help_text="Optional translation-only draft survey payload to translate instead of the last saved survey.",
+    )
+
+    def validate_survey(self, survey: dict[str, Any]) -> dict[str, Any]:
+        draft = {field: survey[field] for field in SURVEY_TRANSLATION_DRAFT_FIELDS if field in survey}
+
+        appearance = draft.get("appearance")
+        if isinstance(appearance, dict):
+            draft["appearance"] = {
+                field: appearance[field] for field in SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS if field in appearance
+            }
+
+        questions = draft.get("questions")
+        if isinstance(questions, list):
+            draft["questions"] = [
+                {field: question[field] for field in SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS if field in question}
+                for question in questions
+                if isinstance(question, dict)
+            ]
+
+        return draft
+
+
+class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False, allow_blank=True, help_text="Translated survey name.")
+    thankYouMessageHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you header."
+    )
+    thankYouMessageDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you description."
+    )
+    thankYouMessageCloseButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+
+
+class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
+    question = serializers.CharField(required=False, allow_blank=True, help_text="Translated question text.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Translated question description.")
+    buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated submit button text.")
+    choices = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text="Translated choices in the same order as the source choices.",
+    )
+    lowerBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated lower rating bound label."
+    )
+    upperBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated upper rating bound label."
+    )
+    link = serializers.CharField(required=False, allow_blank=True, help_text="Translated link text or localized URL.")
+
+
+class GeneratedSurveyQuestionTranslationPatchSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Survey question id this patch applies to.")
+    translations = serializers.DictField(
+        child=GeneratedSurveyQuestionTranslationSerializer(),
+        help_text="Question translation patch keyed by target language.",
+    )
+
+
+class GenerateSurveyTranslationsResponseSerializer(serializers.Serializer):
+    translations = serializers.DictField(
+        child=GeneratedSurveyRootTranslationSerializer(),
+        help_text="Survey-level translation patch keyed by language.",
+    )
+    questions = serializers.ListField(
+        child=GeneratedSurveyQuestionTranslationPatchSerializer(),
+        help_text="Question-level translation patches keyed by question id and language.",
+    )
+    generated_field_paths = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Editor field paths generated by AI and safe to highlight as draft content.",
+    )
+    trace_id = serializers.CharField(help_text="LLM trace id for debugging and feedback.")
 
 
 def get_hosted_survey_display_language(request: HttpRequest) -> str | None:
@@ -475,6 +618,15 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
     enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
+    base_language = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=20,
+        help_text=(
+            "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's "
+            "untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
+        ),
+    )
 
     @extend_schema_field(
         serializers.ListField(
@@ -530,6 +682,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "base_language",
             "translations",
             "user_access_level",
             "form_content",
@@ -600,6 +753,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
     enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
+    base_language = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=20,
+        help_text=(
+            "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's "
+            "untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -639,6 +801,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "base_language",
             "translations",
             "_create_in_folder",
             "form_content",
@@ -700,22 +863,85 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def _resolve_base_language(self) -> str:
+        """Resolve the survey's base language from incoming data, falling back to the instance, then 'en'."""
+        initial_data = getattr(self, "initial_data", None)
+        if isinstance(initial_data, dict) and "base_language" in initial_data:
+            candidate = initial_data.get("base_language")
+            if isinstance(candidate, str) and candidate.strip():
+                return _normalize_language_code(candidate)
+        if self.instance is not None:
+            instance_lang = getattr(self.instance, "base_language", None)
+            if isinstance(instance_lang, str) and instance_lang.strip():
+                return _normalize_language_code(instance_lang)
+        return DEFAULT_BASE_LANGUAGE
+
+    def _validate_translation_language_key(self, raw_key: Any, base_language: str, context: str) -> str:
+        """Validate and normalize a single translation language key. Raises ValidationError on bad input."""
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            raise serializers.ValidationError(f"{context}: translation language code cannot be empty.")
+        normalized = _normalize_language_code(raw_key)
+        if normalized in REJECTED_TRANSLATION_KEYS:
+            raise serializers.ValidationError(
+                f"{context}: '{raw_key}' is not a valid translation language. "
+                "The untranslated text is the original — set the survey's base language instead of adding it as a translation."
+            )
+        if not BCP47_LANGUAGE_CODE_RE.match(normalized):
+            raise serializers.ValidationError(
+                f"{context}: '{raw_key}' is not a valid language code. "
+                "Use BCP-47 codes like 'en', 'es', or 'es-MX' (not language names like 'english')."
+            )
+        if normalized == base_language:
+            raise serializers.ValidationError(
+                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'). "
+                "The original text already covers this language — translate to a different language."
+            )
+        return normalized
+
+    def validate_base_language(self, value: Any) -> str:
+        """Ensure base_language is a canonical BCP-47-ish code."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return DEFAULT_BASE_LANGUAGE
+        if not isinstance(value, str):
+            raise serializers.ValidationError("base_language must be a string.")
+        normalized = _normalize_language_code(value)
+        if normalized in REJECTED_TRANSLATION_KEYS:
+            raise serializers.ValidationError(
+                f"'{value}' is not a valid language code. Use a BCP-47 code like 'en' or 'es'."
+            )
+        if not BCP47_LANGUAGE_CODE_RE.match(normalized):
+            raise serializers.ValidationError(
+                f"'{value}' is not a valid language code. Use BCP-47 codes like 'en', 'es', or 'es-MX'."
+            )
+        return normalized
+
     def validate_translations(self, value: Any) -> Optional[dict[str, dict[str, str]]]:
-        """Validate survey-level translations."""
+        """Validate survey-level translations.
+
+        Write-strict, read-tolerant: pre-existing entries with unchanged content
+        are passed through even if their language code is no longer valid, so users
+        can keep saving surveys with legacy keys without losing data. The UI
+        surfaces those entries with a fix-or-remove prompt.
+        """
         if value is None:
             return value
 
         if not isinstance(value, dict):
             raise serializers.ValidationError("Translations must be an object")
 
-        cleaned_translations = {}
-        for lang_code, translation_data in value.items():
+        base_language = self._resolve_base_language()
+        existing_translations: dict[str, Any] = {}
+        if self.instance is not None:
+            instance_translations = getattr(self.instance, "translations", None)
+            if isinstance(instance_translations, dict):
+                existing_translations = instance_translations
+
+        cleaned_translations: dict[str, dict[str, str]] = {}
+        for raw_lang_code, translation_data in value.items():
             if not isinstance(translation_data, dict):
-                raise serializers.ValidationError(f"Translation for '{lang_code}' must be an object")
+                raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
-            cleaned_translation = {}
-
-            # Validate and sanitize all translatable fields to prevent XSS
+            cleaned_translation: dict[str, str] = {}
             for field in [
                 "name",
                 "description",
@@ -725,42 +951,73 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             ]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
-                        raise serializers.ValidationError(f"Translation for '{lang_code}': '{field}' must be a string")
+                        raise serializers.ValidationError(
+                            f"Translation for '{raw_lang_code}': '{field}' must be a string"
+                        )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
                     else:
                         cleaned_translation[field] = translation_data[field]
 
-            # Only store non-empty translations to avoid wasting storage
-            if cleaned_translation:
-                cleaned_translations[lang_code] = cleaned_translation
+            if not cleaned_translation:
+                continue
+
+            # Grandfather pre-existing keys: surveys saved before this validation keep saving, even when
+            # their content is edited. New bad keys are still rejected below. The dashboard surfaces
+            # these under "Legacy translation keys" so owners can clean up at their pace.
+            if raw_lang_code in existing_translations:
+                cleaned_translations[raw_lang_code] = cleaned_translation
+                continue
+
+            normalized_key = self._validate_translation_language_key(
+                raw_lang_code, base_language, context="Survey translation"
+            )
+            # Detect collisions across normalization (e.g., legacy "EN" + new "en" both targeting "en").
+            if any(_normalize_language_code(existing_key) == normalized_key for existing_key in cleaned_translations):
+                raise serializers.ValidationError(
+                    f"Survey translation: '{raw_lang_code}' collides with another translation for '{normalized_key}'."
+                )
+            cleaned_translations[normalized_key] = cleaned_translation
 
         return cleaned_translations
 
-    def _validate_question_translations(self, translations_dict: Any, question_index: int) -> dict[str, dict[str, Any]]:
-        """Validate and sanitize translations for a single question."""
+    def _validate_question_translations(
+        self,
+        translations_dict: Any,
+        question_index: int,
+        base_language: Optional[str] = None,
+        existing_question_translations: Optional[dict[str, Any]] = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Validate and sanitize translations for a single question.
+
+        Write-strict, read-tolerant: pre-existing entries with unchanged content
+        are passed through even if their language code is no longer valid.
+        """
         # Use question_index + 1 for user-facing error messages
         question_num = question_index + 1
 
         if not isinstance(translations_dict, dict):
             raise serializers.ValidationError(f"Question {question_num}: translations must be an object")
 
-        cleaned_translations = {}
+        resolved_base_language = base_language or self._resolve_base_language()
+        existing = existing_question_translations if isinstance(existing_question_translations, dict) else {}
 
-        for lang_code, translation_data in translations_dict.items():
+        cleaned_translations: dict[str, dict[str, Any]] = {}
+
+        for raw_lang_code, translation_data in translations_dict.items():
             if not isinstance(translation_data, dict):
                 raise serializers.ValidationError(
-                    f"Question {question_num}: Translation for '{lang_code}' must be an object"
+                    f"Question {question_num}: Translation for '{raw_lang_code}' must be an object"
                 )
 
-            cleaned_translation = {}
+            cleaned_translation: dict[str, Any] = {}
 
             # Validate and sanitize all translatable fields
             for field in ["question", "description", "buttonText", "lowerBoundLabel", "upperBoundLabel"]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(
-                            f"Question {question_num}: Translation '{lang_code}' field '{field}' must be a string"
+                            f"Question {question_num}: Translation '{raw_lang_code}' field '{field}' must be a string"
                         )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
@@ -771,7 +1028,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if "link" in translation_data:
                 if not isinstance(translation_data["link"], str):
                     raise serializers.ValidationError(
-                        f"Question {question_num}: Translation '{lang_code}' field 'link' must be a string"
+                        f"Question {question_num}: Translation '{raw_lang_code}' field 'link' must be a string"
                     )
                 cleaned_translation["link"] = self._validate_and_sanitize_link(translation_data["link"])
 
@@ -779,13 +1036,28 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if "choices" in translation_data:
                 if not isinstance(translation_data["choices"], list):
                     raise serializers.ValidationError(
-                        f"Question {question_num}: Translation '{lang_code}' field 'choices' must be a list of strings"
+                        f"Question {question_num}: Translation '{raw_lang_code}' field 'choices' must be a list of strings"
                     )
                 cleaned_translation["choices"] = self._validate_and_sanitize_choices(translation_data["choices"])
 
-            # Only store non-empty translations to avoid wasting storage
-            if cleaned_translation:
-                cleaned_translations[lang_code] = cleaned_translation
+            if not cleaned_translation:
+                continue
+
+            # Grandfather pre-existing keys so edits to legacy translations still save (see validate_translations).
+            if raw_lang_code in existing:
+                cleaned_translations[raw_lang_code] = cleaned_translation
+                continue
+
+            normalized_key = self._validate_translation_language_key(
+                raw_lang_code, resolved_base_language, context=f"Question {question_num} translation"
+            )
+            # Detect collisions across normalization (e.g., legacy "EN" + new "en" both targeting "en").
+            if any(_normalize_language_code(existing_key) == normalized_key for existing_key in cleaned_translations):
+                raise serializers.ValidationError(
+                    f"Question {question_num} translation: '{raw_lang_code}' collides with another translation "
+                    f"for '{normalized_key}'."
+                )
+            cleaned_translations[normalized_key] = cleaned_translation
 
         return cleaned_translations
 
@@ -795,6 +1067,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if not isinstance(value, list):
             raise serializers.ValidationError("Questions must be a list of objects")
+
+        base_language = self._resolve_base_language()
+        existing_questions: list[dict[str, Any]] = []
+        if self.instance is not None:
+            existing_value = getattr(self.instance, "questions", None)
+            if isinstance(existing_value, list):
+                existing_questions = [q for q in existing_value if isinstance(q, dict)]
 
         cleaned_questions = []
         for index, raw_question in enumerate(value):
@@ -854,7 +1133,17 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             # Validate and sanitize inline translations
             if "translations" in raw_question:
-                cleaned_translations = self._validate_question_translations(raw_question["translations"], index)
+                existing_question_translations: dict[str, Any] = {}
+                if index < len(existing_questions):
+                    candidate = existing_questions[index].get("translations")
+                    if isinstance(candidate, dict):
+                        existing_question_translations = candidate
+                cleaned_translations = self._validate_question_translations(
+                    raw_question["translations"],
+                    index,
+                    base_language=base_language,
+                    existing_question_translations=existing_question_translations,
+                )
 
                 # Validate choices array length matches if present
                 original_choices = cleaned_question.get("choices")
@@ -938,6 +1227,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
+
+        linked_insight_id = data.get("linked_insight_id")
+        if linked_insight_id:
+            try:
+                Insight.objects.get(pk=linked_insight_id, team_id=self.context["team_id"])
+            except Insight.DoesNotExist:
+                raise serializers.ValidationError("Insight with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
         conditions = data.get("conditions") or {}
@@ -1081,6 +1377,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if errors:
                 raise serializers.ValidationError(errors)
 
+        # Cross-field: base_language must not collide with any existing translation key.
+        # validate_translations already covers the "translations in payload" case; this catches partial
+        # updates where only base_language is sent (otherwise get_survey_api_translations would silently
+        # drop the matching translation from the SDK payload, making it unreachable with no warning).
+        incoming_base_language = data.get("base_language")
+        if incoming_base_language and "translations" not in data and self.instance is not None:
+            normalized_base = _normalize_language_code(incoming_base_language)
+            instance_translations = getattr(self.instance, "translations", None) or {}
+            for existing_key in instance_translations:
+                if isinstance(existing_key, str) and _normalize_language_code(existing_key) == normalized_base:
+                    raise serializers.ValidationError(
+                        {
+                            "base_language": (
+                                f"'{incoming_base_language}' already exists as a translation key on this survey. "
+                                "Remove the translation first, or pick a different base language."
+                            )
+                        }
+                    )
+
         return data
 
     def create(self, validated_data):
@@ -1088,6 +1403,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="survey.create",
+            team_id=self.context["team_id"],
+        )
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_or_update_targeting_flag(
                 None, validated_data["targeting_flag_filters"], validated_data["name"]
@@ -1125,6 +1445,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                warn_if_missing_feature_flag_write_scope(
+                    self.context["request"],
+                    action="survey.update.remove_targeting_flag",
+                    team_id=self.context["team_id"],
+                    feature_flag_id=instance.targeting_flag_id,
+                )
                 # Manually delete the flag and log the change
                 # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
                 # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
@@ -1140,6 +1466,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
+            warn_if_missing_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.update.targeting_flag_filters",
+                team_id=self.context["team_id"],
+                feature_flag_id=instance.targeting_flag_id,
+            )
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
@@ -1523,15 +1855,23 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+            ),
+        ],
+    ),
 )
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ["archived"]
-    search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
@@ -1540,15 +1880,73 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             return SurveySerializer
 
     def safely_get_queryset(self, queryset):
-        return queryset.exclude(product_tour__isnull=False)
+        queryset = queryset.exclude(product_tour__isnull=False)
+        if self.action == "list":
+            search = self.request.GET.get("search")
+            if search:
+                if len(search) > MAX_SEARCH_LENGTH:
+                    raise serializers.ValidationError(
+                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                    )
+                queryset = self._apply_search(queryset, search)
+        return queryset
+
+    @tracer.start_as_current_span("SurveyViewSet.list")
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("survey.search.result_count", results_len)
+            span.set_attribute("survey.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("SurveyViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("survey.search.length", len(search))
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
+            .order_by("-_search_score", "name")
+        )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
+        related_internal_targeting_flag = instance.internal_targeting_flag
+        if related_targeting_flag or related_internal_targeting_flag:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="survey.destroy",
+                team_id=self.team_id,
+                feature_flag_id=(related_targeting_flag or related_internal_targeting_flag).id,
+            )
         if related_targeting_flag:
             related_targeting_flag.delete()
-
-        related_internal_targeting_flag = instance.internal_targeting_flag
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
 
@@ -1565,7 +1963,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return super().destroy(request, *args, **kwargs)
 
-    def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
+    def _get_partial_responses_filter(self, base_conditions_sql: builtins.list[str]) -> str:
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=base_conditions_sql,
         )
@@ -1687,7 +2085,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
 
     def _process_survey_results(
-        self, results: list[tuple[str, int, int, datetime | None, datetime | None]]
+        self, results: builtins.list[tuple[str, int, int, datetime | None, datetime | None]]
     ) -> SurveyStats:
         """Process raw survey event results into stats format.
 
@@ -2124,6 +2522,74 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         return Response(list(uuids))
 
     @extend_schema(
+        operation_id="surveys_question_labels",
+        description=(
+            "Return a slim list of question labels for the team's surveys. Used by the frontend to resolve "
+            "`$survey_response_<question_id>` property keys into human-readable question text without "
+            "loading the full survey payload."
+        ),
+        responses={
+            200: inline_serializer(
+                name="SurveyQuestionLabelsResponse",
+                fields={
+                    "labels": serializers.ListField(
+                        child=inline_serializer(
+                            name="SurveyQuestionLabel",
+                            fields={
+                                "question_id": serializers.CharField(help_text="UUID assigned to the survey question."),
+                                "question_text": serializers.CharField(
+                                    help_text="Untranslated question text as configured by the survey author.",
+                                    allow_blank=True,
+                                ),
+                                "question_index": serializers.IntegerField(
+                                    help_text="Zero-based index of the question within the survey."
+                                ),
+                                "survey_id": serializers.CharField(
+                                    help_text="UUID of the survey this question belongs to."
+                                ),
+                                "survey_name": serializers.CharField(help_text="Display name of the survey."),
+                            },
+                        ),
+                        help_text="One entry per question that has an ID assigned, across all the team's surveys.",
+                    ),
+                },
+            ),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="question_labels", required_scopes=["survey:read"])
+    def question_labels(self, request: request.Request, **kwargs) -> Response:
+        # Custom (non-`list`) actions skip the routing layer's automatic access-level filter,
+        # so apply it explicitly here — otherwise a user with access to only one survey would
+        # receive labels for every survey in the team.
+        queryset = self.user_access_control.filter_queryset_by_access_level(self.get_queryset())
+        # The viewset's class-level queryset pre-joins `linked_flag`, `linked_insight`,
+        # `targeting_flag`, `internal_targeting_flag` via `select_related`. `.only(...)` on
+        # those deferred FK columns raises `FieldError: cannot be both deferred and traversed
+        # using select_related`. Reset the select_related list before slimming the projection.
+        queryset = queryset.select_related(None).only("id", "name", "questions")
+        labels: list[dict[str, Any]] = []
+        for survey in queryset.iterator(chunk_size=200):
+            questions = survey.questions or []
+            if not isinstance(questions, list):
+                continue
+            for index, question in enumerate(questions):
+                if not isinstance(question, dict):
+                    continue
+                question_id = question.get("id")
+                if not question_id:
+                    continue
+                labels.append(
+                    {
+                        "question_id": question_id,
+                        "question_text": question.get("question") or "",
+                        "question_index": index,
+                        "survey_id": str(survey.id),
+                        "survey_name": survey.name,
+                    }
+                )
+        return Response({"labels": labels})
+
+    @extend_schema(
         parameters=[
             OpenApiParameter(
                 "date_from",
@@ -2420,6 +2886,80 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             r.headers["Server-Timing"] = timings_header
         return r
 
+    @extend_schema(
+        request=GenerateSurveyTranslationsRequestSerializer,
+        responses=GenerateSurveyTranslationsResponseSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="generate_translations", required_scopes=["survey:write"])
+    def generate_translations(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        if not (settings.DEBUG or is_cloud()):
+            raise exceptions.ValidationError(
+                "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
+            )
+
+        if not settings.GEMINI_API_KEY:
+            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate translations"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        saved_survey = self.get_object()
+
+        serializer = GenerateSurveyTranslationsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        saved_survey = self.get_object()
+        survey = data.get("survey")
+        if survey is None:
+            survey = {
+                "name": saved_survey.name,
+                "description": saved_survey.description,
+                "type": saved_survey.type,
+                "appearance": saved_survey.appearance or {},
+                "questions": saved_survey.questions or [],
+                "translations": saved_survey.translations or {},
+            }
+        user = cast(User, request.user)
+
+        source_language = (
+            data.get("source_language")
+            or getattr(saved_survey, "base_language", DEFAULT_BASE_LANGUAGE)
+            or DEFAULT_BASE_LANGUAGE
+        )
+
+        translations, questions, generated_field_paths, trace_id = generate_survey_translation(
+            survey=survey,
+            target_language=data["target_language"],
+            source_language=source_language,
+            overwrite=data["overwrite"],
+            distinct_id=str(user.distinct_id),
+            team_id=self.team.pk,
+        )
+
+        posthoganalytics.capture(
+            event="survey translations generated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "survey_id": kwargs["pk"],
+                "target_language": data["target_language"],
+                "field_count": len(generated_field_paths),
+            },
+        )
+        return Response(
+            {
+                "translations": translations,
+                "questions": questions,
+                "generated_field_paths": generated_field_paths,
+                "trace_id": trace_id,
+            }
+        )
+
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
     def duplicate_to_projects(self, request: request.Request, **kwargs):
         """Duplicate a survey to multiple projects in a single transaction.
@@ -2610,13 +3150,48 @@ class SurveyAPIActionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-def get_survey_api_translations(translations: Any) -> dict[str, dict[str, str]] | None:
+def _strip_invalid_translation_keys(translations: Any, normalized_base: str) -> dict[str, Any] | None:
+    """Filter a translation map (survey-level or question-level) down to keys the SDK can match.
+
+    Drops sentinels ('default', 'original', 'base'), non-BCP-47 shapes, and keys whose normalized
+    form equals the survey's base language (since the SDK renders base text in that case).
+    """
+    if not isinstance(translations, dict):
+        return None
+    filtered: dict[str, Any] = {}
+    for language, translation in translations.items():
+        if not isinstance(language, str) or not isinstance(translation, dict):
+            continue
+        normalized = _normalize_language_code(language)
+        if (
+            normalized in REJECTED_TRANSLATION_KEYS
+            or not BCP47_LANGUAGE_CODE_RE.match(normalized)
+            or normalized == normalized_base
+        ):
+            continue
+        filtered[normalized] = translation
+    return filtered or None
+
+
+def get_survey_api_translations(
+    translations: Any, base_language: str = DEFAULT_BASE_LANGUAGE
+) -> dict[str, dict[str, str]] | None:
     if not isinstance(translations, dict):
         return None
 
+    normalized_base = _normalize_language_code(base_language) if isinstance(base_language, str) else ""
     safe_translations: dict[str, dict[str, str]] = {}
     for language, translation in translations.items():
         if not isinstance(language, str) or not isinstance(translation, dict):
+            continue
+
+        # Drop entries the SDK can't match: invalid codes, sentinels like "default", or the base language itself.
+        normalized = _normalize_language_code(language)
+        if (
+            normalized in REJECTED_TRANSLATION_KEYS
+            or not BCP47_LANGUAGE_CODE_RE.match(normalized)
+            or normalized == normalized_base
+        ):
             continue
 
         safe_translation = {
@@ -2625,7 +3200,7 @@ def get_survey_api_translations(translations: Any) -> dict[str, dict[str, str]] 
             if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
         }
         if safe_translation:
-            safe_translations[language] = safe_translation
+            safe_translations[normalized] = safe_translation
 
     return safe_translations or None
 
@@ -2640,6 +3215,8 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
+    base_language = serializers.CharField(read_only=True)
+    questions = serializers.SerializerMethodField(method_name="get_questions")
     translations = serializers.SerializerMethodField(method_name="get_translations")
 
     class Meta:
@@ -2665,6 +3242,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
             "schedule",
             "enable_partial_responses",
+            "base_language",
             "translations",
         ]
         read_only_fields = fields
@@ -2677,7 +3255,36 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
     )
     def get_translations(self, survey: Survey) -> dict[str, dict[str, str]] | None:
-        return get_survey_api_translations(survey.translations)
+        return get_survey_api_translations(
+            survey.translations, getattr(survey, "base_language", DEFAULT_BASE_LANGUAGE) or DEFAULT_BASE_LANGUAGE
+        )
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
+    def get_questions(self, survey: Survey) -> list[dict[str, Any]] | None:
+        """Return questions with question-level translation keys filtered to what the SDK can match."""
+        questions = survey.questions
+        if not isinstance(questions, list):
+            return questions
+        normalized_base = _normalize_language_code(
+            getattr(survey, "base_language", DEFAULT_BASE_LANGUAGE) or DEFAULT_BASE_LANGUAGE
+        )
+        cleaned: list[dict[str, Any]] = []
+        for question in questions:
+            if not isinstance(question, dict):
+                cleaned.append(question)
+                continue
+            inline_translations = question.get("translations")
+            if not isinstance(inline_translations, dict):
+                cleaned.append(question)
+                continue
+            filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
+            next_question = dict(question)
+            if filtered:
+                next_question["translations"] = filtered
+            else:
+                next_question.pop("translations", None)
+            cleaned.append(next_question)
+        return cleaned
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)

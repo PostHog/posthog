@@ -136,6 +136,7 @@ RUN apt-get update && \
 RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -313,7 +314,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 # Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache,sharing=locked \
     PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
     /python-runtime/bin/python -m playwright install --with-deps chromium && \
     mkdir -p /ms-playwright && \

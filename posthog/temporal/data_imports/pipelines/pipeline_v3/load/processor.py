@@ -35,8 +35,9 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -64,8 +65,14 @@ def _apply_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_arrow()
-        if PARTITION_KEY not in delta_schema.names:
+        # Check the table's *partition columns* — not its schema columns. A delta
+        # table can contain `_ph_partition_key` in its schema without being
+        # partitioned by it (e.g. leftover from a prior write that included the
+        # column but was committed with `partition_by=None`). Writing with
+        # `partition_by=PARTITION_KEY` in that case raises
+        # `DeltaError: Specified table partitioning does not match table partitioning`.
+        partition_columns = getattr(existing_delta_table.metadata(), "partition_columns", None) or []
+        if PARTITION_KEY not in partition_columns:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
@@ -159,6 +166,7 @@ async def _handle_partial_data_loading(
         row_count=export_signal.cumulative_row_count,
         queryable_folder=queryable_folder,
         table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        primary_keys=export_signal.primary_keys,
     )
 
     logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)
@@ -225,6 +233,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
+        logger=logger,
         latest_error=None,
     )
 
@@ -258,6 +267,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
+        logger=logger,
         latest_error=str(error),
     )
 
@@ -491,7 +501,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         )
 
         if export_signal.is_final_batch:
-            logger.debug(
+            logger.info(
                 "final_batch_received",
                 total_batches=export_signal.total_batches,
                 total_rows=export_signal.total_rows,

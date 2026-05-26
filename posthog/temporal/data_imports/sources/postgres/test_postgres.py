@@ -13,6 +13,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
+import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -23,6 +24,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_SERIALIZATION_RETRIES,
     ChildPartition,
     PartitionStrategy,
+    build_partition_query,
     derive_upper_bound,
     get_partition_strategy,
     is_supported_incremental_type_for_window,
@@ -52,6 +54,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _normalize_function_names,
     filter_postgres_incremental_fields,
     get_foreign_keys,
+    get_leading_index_columns,
     get_postgres_row_count,
     get_schemas,
 )
@@ -115,6 +118,7 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -122,7 +126,218 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
 
-    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Cannot build decimal array from values",
+            "ValueError: Cannot build decimal array from values",
+        ],
+    )
+    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Source column type changed",
+            "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
+        ],
+    )
+    def test_widened_integer_column_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+
+class TestPostgresSourceForPipelineSchemaResolution:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    def _make_inputs(self, schema_name: str):
+        return mock.MagicMock(
+            schema_id="00000000-0000-0000-0000-000000000000",
+            schema_name=schema_name,
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            team_id=1,
+            logger=mock.MagicMock(),
+        )
+
+    def _make_config(self, schema: str | None = None):
+        return mock.MagicMock(
+            user="u",
+            password="p",
+            database="db",
+            schema=schema,
+        )
+
+    def _make_schema_model(
+        self,
+        name: str,
+        schema_metadata: dict | None = None,
+        source_model=None,
+        sync_type_config: dict | None = None,
+    ):
+        schema = mock.MagicMock()
+        schema.name = name
+        schema.id = "00000000-0000-0000-0000-000000000000"
+        schema.is_cdc = False
+        schema.cdc_mode = None
+        schema.initial_sync_complete = True
+        schema.enabled_columns = None
+        schema.chunk_size_override = None
+        schema.schema_metadata = schema_metadata
+        schema.sync_type_config = sync_type_config or {}
+        schema.source = source_model or mock.MagicMock()
+        return schema
+
+    def test_dotted_schema_name_without_metadata_routes_to_correct_source_schema(self, source):
+        # Repro: row created before this PR has name="poblic.example_table" and no schema_metadata.
+        # source_for_pipeline must not fall through to config.schema or "public" — that produces
+        # `SELECT FROM "public"."poblic.example_table"`, an undefined relation.
+        schema_model = self._make_schema_model("poblic.example_table", schema_metadata=None)
+        inputs = self._make_inputs("poblic.example_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+
+            assert postgres_source_mock.called, "postgres_source was not invoked"
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "poblic", f"expected schema='poblic', got {kwargs['schema']!r}"
+            assert kwargs["table_names"] == ["example_table"], (
+                f"expected table_names=['example_table'], got {kwargs['table_names']!r}"
+            )
+
+    def test_schema_metadata_wins_over_dotted_name_inference(self, source):
+        # Metadata is the source of truth — explicit pin always beats name-splitting.
+        schema_model = self._make_schema_model(
+            "weird.name",
+            schema_metadata={"source_schema": "real_schema", "source_table_name": "real_table"},
+        )
+        inputs = self._make_inputs("weird.name")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "real_schema"
+            assert kwargs["table_names"] == ["real_table"]
+
+    def test_dwh_storage_key_drives_response_name_so_delta_writes_to_legacy_path(self, source):
+        # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
+        # the row carries `dwh_storage_key="example_table"`. `validate_schema_and_update_table` uses
+        # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
+        # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
+        # points at `.../example_table/` and HogQL reads from an empty location.
+        from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+        schema_model = self._make_schema_model(
+            "public.example_table",
+            schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
+            sync_type_config={"dwh_storage_key": "example_table"},
+        )
+        inputs = self._make_inputs("public.example_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            response = mock.MagicMock()
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = response
+
+            source.source_for_pipeline(config, inputs)
+
+            assert response.name == NamingConvention.normalize_identifier("example_table"), (
+                f"response.name must derive from dwh_storage_key to keep Delta writes anchored to the "
+                f"legacy folder; got {response.name!r}"
+            )
+
+    def test_response_name_uses_schema_name_when_no_storage_key(self, source):
+        # New (non-migrated) rows have no dwh_storage_key — response.name falls back to the row's
+        # current name so the Delta path matches `url_pattern` (also derived from the row's name).
+        from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+        schema_model = self._make_schema_model(
+            "poblic.new_table",
+            schema_metadata={"source_schema": "poblic", "source_table_name": "new_table"},
+            sync_type_config={},
+        )
+        inputs = self._make_inputs("poblic.new_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            response = mock.MagicMock()
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = response
+
+            source.source_for_pipeline(config, inputs)
+
+            assert response.name == NamingConvention.normalize_identifier("poblic.new_table")
+
+    def test_unqualified_name_falls_back_to_config_schema(self, source):
+        # Legacy row "example_table" with no metadata + config.schema="public" → ("public", "example_table").
+        schema_model = self._make_schema_model("example_table", schema_metadata=None)
+        inputs = self._make_inputs("example_table")
+        config = self._make_config(schema="public")
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "public"
+            assert kwargs["table_names"] == ["example_table"]
+
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_warehouse_imports(self, source):
+        # Multi-schema parity: warehouse mode now accepts blank `schema` (browse-all) just like
+        # direct mode. Each `ExternalDataSchema` row pins its own `(schema, table)` in metadata.
         config = source.parse_config(
             {
                 "host": "localhost",
@@ -134,10 +349,12 @@ class TestPostgresSourceNonRetryableErrors:
             }
         )
 
-        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
 
-        assert valid is False
-        assert error == "Schema is required for warehouse imports."
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
 
     def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
         config = source.parse_config(
@@ -477,6 +694,230 @@ class TestBuildQuery:
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
 
+    @pytest.mark.parametrize(
+        "case_name,enabled_columns,primary_keys,should_use_incremental,incremental_field,incremental_type,last_value,must_contain,must_not_contain,ordered",
+        [
+            (
+                "explicit_list_includes_pk",
+                ["email", "name"],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ['"email"', '"name"', '"id"'],
+                ["SELECT *"],
+                None,
+            ),
+            (
+                "preserves_user_order_pk_appended",
+                ["zeta", "alpha"],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                [],
+                None,
+                ['"zeta"', '"alpha"', '"id"'],
+            ),
+            (
+                "includes_incremental_field",
+                ["payload"],
+                ["id"],
+                True,
+                "updated_at",
+                IncrementalFieldType.Timestamp,
+                "2024-01-01",
+                ['"payload"', '"updated_at"', '"id"'],
+                None,
+                None,
+            ),
+            (
+                "none_is_select_star",
+                None,
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ["SELECT *"],
+                None,
+                None,
+            ),
+            (
+                "empty_keeps_only_pks_and_incremental",
+                [],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ['"id"'],
+                ["SELECT *"],
+                None,
+            ),
+            # Guard against an invalid `SELECT  FROM` when no columns can be retained.
+            (
+                "empty_with_no_pks_or_incremental_falls_back_to_star",
+                [],
+                None,
+                False,
+                None,
+                None,
+                None,
+                ["SELECT *"],
+                None,
+                None,
+            ),
+        ],
+    )
+    def test_enabled_columns_projection(
+        self,
+        case_name,
+        enabled_columns,
+        primary_keys,
+        should_use_incremental,
+        incremental_field,
+        incremental_type,
+        last_value,
+        must_contain,
+        must_not_contain,
+        ordered,
+    ):
+        query = _build_query(
+            "public",
+            "events" if should_use_incremental else "users",
+            should_use_incremental,
+            "table",
+            incremental_field,
+            incremental_type,
+            last_value,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+        )
+        rendered = self._render(query)
+        for substring in must_contain or []:
+            assert substring in rendered, f"[{case_name}] expected {substring!r} in {rendered!r}"
+        for substring in must_not_contain or []:
+            assert substring not in rendered, f"[{case_name}] expected {substring!r} NOT in {rendered!r}"
+        if ordered:
+            positions = [rendered.index(s) for s in ordered]
+            assert positions == sorted(positions), f"[{case_name}] expected {ordered} in order in {rendered!r}"
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            # Date cursors must be inclusive — saving cursor='2026-05-13' and re-querying with
+            # `>` skips every row that lands on 2026-05-13 after the cursor advanced.
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Timestamp, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = _build_query("public", "events", True, "table", "cursor", field_type, last_value)
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+        # The other operator never appears for the cursor column.
+        wrong = ">" if expected_operator == ">=" else ">="
+        assert f'"cursor" {wrong} ' not in rendered
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_count_query_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = _build_count_query("public", "events", True, "cursor", field_type, last_value)
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+
+    def test_windowed_mode_keeps_exclusive_lower_bound_for_date(self):
+        # iterate_date_windows feeds previous_hi as next_lo; `>=` would re-fetch every
+        # boundary date inside one run, so the upper_bound_inclusive path must stay `>`.
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "cursor",
+            IncrementalFieldType.Date,
+            date(2026, 5, 13),
+            upper_bound_inclusive=date(2026, 5, 14),
+        )
+        rendered = self._render(query)
+        assert '"cursor" > ' in rendered
+        assert '"cursor" >= ' not in rendered
+
+
+class TestBuildPartitionQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def test_full_refresh_targets_child_relation(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+        )
+        rendered = self._render(query)
+        assert '"public"."events_2026_01"' in rendered
+        assert "WHERE" not in rendered
+
+    def test_incremental_applies_cursor_filter(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2026-01-15",
+        )
+        rendered = self._render(query)
+        assert '"public"."events_2026_01"' in rendered
+        assert '"created_at" > ' in rendered
+        assert "'2026-01-15'" in rendered
+        assert "ORDER BY" in rendered
+
+    def test_incremental_raises_without_field(self):
+        with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
+            build_partition_query(
+                "public",
+                "events_2026_01",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=None,
+            )
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="cursor",
+            incremental_field_type=field_type,
+            db_incremental_field_last_value=last_value,
+        )
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+
 
 class TestBuildCountQuery:
     def _render(self, composed: sql.Composed) -> str:
@@ -528,6 +969,14 @@ class TestIsPartitionedTable:
             for stmt in setup_ddl:
                 dj_cursor.execute(stmt)
             assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
+
+
+class TestPartitionedTableChunkSizing:
+    """Incremental reads use per-child partition queries; no parent FETCH chunk cap."""
+
+    def test_no_partitioned_fetch_cap_exported(self) -> None:
+        assert not hasattr(partitioned_tables_pkg, "PARTITIONED_TABLE_MAX_CHUNK_SIZE")
+        assert "PARTITIONED_TABLE_MAX_CHUNK_SIZE" not in partitioned_tables_pkg.__all__
 
 
 class TestGetEstimatedRowCountForPartitionedTable:
@@ -1039,6 +1488,67 @@ class TestGetPrimaryKeys:
 
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
+
+
+class TestGetLeadingIndexColumns:
+    """Unit tests for the leading-index-column helper used to flag unindexed
+    incremental fields in the source-setup wizard. The helper queries
+    ``pg_index``/``pg_attribute``; we mock the cursor to verify that:
+    - rows are bucketed by table
+    - tables in the input list with no rows return empty sets (so the UI
+      warning fires for tables without any indexes)
+    - empty input is short-circuited
+    """
+
+    def _mock_connection(self, fetched_rows: list[tuple[str, str]]):
+        cursor = mock.MagicMock()
+        cursor.__iter__.return_value = iter(fetched_rows)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection, cursor
+
+    def test_groups_columns_by_table(self):
+        connection, _ = self._mock_connection(
+            [
+                ("orders", "created_at"),
+                ("orders", "id"),
+                ("users", "id"),
+            ]
+        )
+        result = get_leading_index_columns(connection, "public", ["orders", "users", "logs"])
+        assert result == {
+            "orders": {"created_at", "id"},
+            "users": {"id"},
+        }
+        assert "logs" not in result  # caller distinguishes "no index" via missing key
+
+    def test_returns_empty_dict_for_empty_input(self):
+        # No connection cursor should be opened when there are no tables.
+        connection = mock.MagicMock()
+        result = get_leading_index_columns(connection, "public", [])
+        assert result == {}
+        connection.cursor.assert_not_called()
+
+    def test_returns_none_when_query_raises(self):
+        # Permission errors on system catalogs (rare, but possible with
+        # restricted roles) must not leak out — the caller defaults to
+        # `is_indexed=True` and skips the warning when discovery fails.
+        connection = mock.MagicMock()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("permission denied for table pg_index")
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+        connection.cursor.return_value = cursor_context
+
+        result = get_leading_index_columns(connection, "public", ["orders"])
+        assert result is None
 
 
 class TestHasDuplicatePrimaryKeys:

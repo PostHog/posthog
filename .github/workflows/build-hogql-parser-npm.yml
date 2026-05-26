@@ -11,7 +11,7 @@ permissions:
     pull-requests: write
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
             published-version: ${{ steps.check-package-version.outputs.published-version }}
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -72,7 +72,7 @@ jobs:
         if: needs.check-package-version.outputs.is-new-version == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup Emscripten for WASM build
               uses: ./.github/actions/setup-emsdk
@@ -99,7 +99,7 @@ jobs:
             contents: read
             id-token: write
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Download dist artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -127,7 +127,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ steps.app-token.outputs.token }}

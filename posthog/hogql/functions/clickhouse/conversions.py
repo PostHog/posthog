@@ -48,14 +48,25 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
     "toFloatOrDefault": HogQLFunctionMeta(
-        "toFloat64OrDefault",
-        1,
+        # ClickHouse's toFloat64OrDefault requires the default value to already be
+        # Float64 — passing e.g. an integer 0 raises "Default value type should be
+        # same as cast type". Cast the default so any numeric/string literal works.
+        "toFloat64OrDefault({0}, accurateCast({1}, 'Float64'))",
         2,
+        2,
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+        # The default arg (second) may be an integer or float literal — the
+        # template casts it to Float64 either way, so both must resolve.
         signatures=[
             ((DecimalType(), FloatType()), FloatType()),
+            ((DecimalType(), IntegerType()), FloatType()),
             ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(), IntegerType()), FloatType()),
             ((FloatType(), FloatType()), FloatType()),
+            ((FloatType(), IntegerType()), FloatType()),
             ((StringType(), FloatType()), FloatType()),
+            ((StringType(), IntegerType()), FloatType()),
         ],
     ),
     "toDecimal": HogQLFunctionMeta(

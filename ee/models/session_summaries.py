@@ -1,6 +1,6 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -50,6 +50,18 @@ class SessionSummaryVisualConfirmationResult:
         )
 
 
+FailedSessionCategory = Literal["skipped", "summarization_failed", "patterns_failed"]
+
+
+@dataclass(frozen=True)
+class FailedSessionInfo:
+    """A session dropped from the group summary, with a short reason for the UI."""
+
+    session_id: str
+    category: FailedSessionCategory
+    reason: str
+
+
 @dataclass(frozen=True)
 class SessionSummaryRunMeta:
     """Metadata about the run of the summary generation"""
@@ -57,6 +69,7 @@ class SessionSummaryRunMeta:
     model_used: str
     visual_confirmation: bool
     visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
+    failed_sessions: list[FailedSessionInfo] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -175,6 +188,41 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
             limit=limit,
             has_next=has_next,
         )
+
+    def get_outcomes_bulk(
+        self,
+        team_id: int,
+        session_ids: list[str],
+        *,
+        extra_summary_context: ExtraSummaryContext | None = None,
+    ) -> dict[str, dict | None]:
+        """Latest persisted session_outcome dict per session_id, scoped to team.
+
+        Callers use the dict's keys to know which sessions were summarised (regardless of
+        outcome presence) and the values to read the outcome itself. Sessions whose latest
+        summary's `extra_summary_context` does not match the requested context are silently
+        dropped (the post-`distinct` filter picks the latest row per session, so an older
+        matching summary is also discarded if a newer non-matching one exists). Sessions
+        whose summary exists but has no outcome stored map to None.
+        """
+        queryset = self.filter(team_id=team_id, session_id__in=session_ids)
+        if extra_summary_context is not None:
+            queryset = queryset.filter(extra_summary_context__isnull=False)
+        else:
+            queryset = queryset.filter(extra_summary_context__isnull=True)
+        rows = (
+            queryset.order_by("session_id", "-created_at")
+            .distinct("session_id")
+            .values_list("session_id", "summary__session_outcome", "extra_summary_context")
+        )
+        # SQL filter is broad ("has context" / "no context"); exact-match happens in Python below.
+        expected_context = _normalize_context(extra_summary_context) if extra_summary_context is not None else None
+        outcomes: dict[str, dict | None] = {}
+        for session_id, outcome, context in rows:
+            if expected_context is not None and context != expected_context:
+                continue
+            outcomes[session_id] = outcome if isinstance(outcome, dict) else None
+        return outcomes
 
     def summaries_exist(
         self,

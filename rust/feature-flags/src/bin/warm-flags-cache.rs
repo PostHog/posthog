@@ -311,12 +311,23 @@ async fn warm_team(
     team_id: TeamId,
     ttl_seconds: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cache = build_flags_cache(pg_reader, team_id).await?;
+    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await
+}
+
+async fn persist_flags_cache(
+    writer: &HyperCacheWriter,
+    team_id: TeamId,
+    cache: &feature_flags::flags::flag_models::HypercacheFlagsWrapper,
+    ttl_seconds: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let key = KeyType::int(team_id);
-    let result = build_flags_cache(pg_reader, team_id).await?;
+    let json = serde_json::to_string(cache)?;
 
-    let json = serde_json::to_string(&result)?;
-    writer.set(&key, &json, ttl_seconds).await?;
-
+    // Use set_with_etag (not set): set() unconditionally DELs the :etag key
+    // via delete_etag, and FlagDefinitionsCache keys on (team_id, etag), so
+    // a missing etag forces the in-memory cache bypass on every /flags request.
+    writer.set_with_etag(&key, &json, ttl_seconds).await?;
     Ok(())
 }
 
@@ -804,5 +815,94 @@ mod tests {
         let msg = result.unwrap();
         assert!(msg.contains("999"), "message should cite the IDs: {msg}");
         assert!(msg.contains("1000"), "message should cite the IDs: {msg}");
+    }
+
+    /// Regression for the warmer overwriting Django's etag. set() unconditionally
+    /// DELs `<key>:etag`, which silently re-arms the FlagDefinitionsCache slow
+    /// path for every team the warmer touches. Lock down that persist_flags_cache
+    /// (a) writes the etag key alongside the payload, and (b) never DELs it.
+    #[tokio::test]
+    async fn test_persist_flags_cache_writes_etag_and_skips_del() {
+        use async_trait::async_trait;
+        use common_hypercache::HyperCacheConfig;
+        use common_redis::{MockRedisClient, MockRedisValue};
+        use common_s3::{S3Client, S3Error};
+        use feature_flags::flags::flag_models::HypercacheFlagsWrapper;
+
+        struct DummyS3Client;
+        #[async_trait]
+        impl S3Client for DummyS3Client {
+            async fn get_string(&self, _bucket: &str, key: &str) -> Result<String, S3Error> {
+                Err(S3Error::NotFound(key.to_string()))
+            }
+            async fn put_string(
+                &self,
+                _bucket: &str,
+                _key: &str,
+                _value: &str,
+            ) -> Result<(), S3Error> {
+                Ok(())
+            }
+            async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), S3Error> {
+                Ok(())
+            }
+        }
+
+        let team_id: TeamId = 42;
+        let data_key = "posthog:1:cache/teams/42/feature_flags/flags.json";
+        let etag_key = "posthog:1:cache/teams/42/feature_flags/flags.json:etag";
+
+        let mut redis = MockRedisClient::new();
+        redis.set_ret(data_key, Ok(()));
+        redis.set_ret(etag_key, Ok(()));
+        let redis = Arc::new(redis);
+
+        let config = HyperCacheConfig::new(
+            HYPERCACHE_NAMESPACE.to_string(),
+            HYPERCACHE_OBJECT_NAME.to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let writer = HyperCacheWriter::new(redis.clone(), Arc::new(DummyS3Client), config);
+
+        let cache = HypercacheFlagsWrapper {
+            flags: vec![],
+            evaluation_metadata: Default::default(),
+            cohorts: None,
+        };
+
+        persist_flags_cache(&writer, team_id, &cache, 604800)
+            .await
+            .expect("persist_flags_cache should succeed against the mocks");
+
+        let calls = redis.get_calls();
+
+        // Pipeline writes go through `pipeline_setex` in the mock. Both keys must
+        // appear — that's the contract this regression locks down.
+        let etag_setex = calls
+            .iter()
+            .find(|c| c.op == "pipeline_setex" && c.key == etag_key)
+            .expect("expected pipeline_setex on etag key");
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.op == "pipeline_setex" && c.key == data_key),
+            "expected pipeline_setex on data key"
+        );
+        match &etag_setex.value {
+            MockRedisValue::StringWithTTLAndFormat(_, ttl, _) => assert_eq!(*ttl, 604800),
+            other => panic!("expected StringWithTTLAndFormat, got {other:?}"),
+        }
+
+        // No DEL against the etag — set() would have issued one. Cover both
+        // direct and pipeline forms so a future writer refactor can't sneak
+        // the bug back via execute_pipeline.
+        let etag_del = calls
+            .iter()
+            .find(|c| (c.op == "del" || c.op == "pipeline_del") && c.key == etag_key);
+        assert!(
+            etag_del.is_none(),
+            "etag key was deleted ({etag_del:?}); set_with_etag must not delete the etag it just wrote"
+        );
     }
 }

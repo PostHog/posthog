@@ -101,22 +101,92 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             ["data_warehouse_series_unsupported_breakdown"],
         )
 
-    def test_disallows_multi_breakdowns_for_data_warehouse_series(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "two_hogql_breakdowns",
+                [
+                    Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="plan", type=MultipleBreakdownType.HOGQL),
+                ],
+            ),
+            (
+                "hogql_and_data_warehouse",
+                [
+                    Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                ],
+            ),
+            (
+                "two_data_warehouse_breakdowns",
+                [
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                    Breakdown(property="region", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                ],
+            ),
+            (
+                "three_supported_breakdowns",
+                [
+                    Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                    Breakdown(property="region", type=MultipleBreakdownType.HOGQL),
+                ],
+            ),
+        ]
+    )
+    def test_allows_multi_breakdowns_with_supported_types(self, _name: str, breakdowns: list[Breakdown]) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[
-                    Breakdown(property="$browser", type=BreakdownType.EVENT),
-                    Breakdown(property="$geoip_country_code", type=BreakdownType.PERSON),
-                ]
+            breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
+        )
+
+        ValidateDataWarehouseBreakdown().validate(self._context(query))
+
+    @parameterized.expand(
+        [
+            (
+                "event_and_person",
+                [
+                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                    Breakdown(property="$geoip_country_code", type=MultipleBreakdownType.PERSON),
+                ],
             ),
+            (
+                "hogql_and_event",
+                [
+                    Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                ],
+            ),
+            (
+                "data_warehouse_and_person",
+                [
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                    Breakdown(property="$geoip_country_code", type=MultipleBreakdownType.PERSON),
+                ],
+            ),
+            (
+                "hogql_and_data_warehouse_person_property",
+                [
+                    Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY),
+                ],
+            ),
+        ]
+    )
+    def test_disallows_multi_breakdowns_with_any_unsupported_type(
+        self, _name: str, breakdowns: list[Breakdown]
+    ) -> None:
+        query = TrendsQuery(
+            series=self._data_warehouse_series(),
+            breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
         )
 
         with self.assertRaises(ValidationError) as context:
             ValidateDataWarehouseBreakdown().validate(self._context(query))
 
         self.assertIn(
-            "Multi-breakdowns not supported for trends insights with a data warehouse series.",
+            "Event based breakdowns are not supported for trends insights with a data warehouse series.",
             str(context.exception),
         )
         self.assertEqual(

@@ -3,6 +3,10 @@ export interface RoleBasedMessage {
     content: string | { type: string; content: string } | MultiModalContentItem[]
 }
 
+export interface StringContentObject {
+    content: string
+}
+
 export interface OpenAIToolCall {
     type: string
     id?: string
@@ -258,10 +262,20 @@ export interface ImageContentItem {
     image: string
 }
 
+export interface FunctionContentItem {
+    type: 'function'
+    id?: string
+    function: {
+        name: string
+        arguments: string | Record<string, unknown> | null
+    }
+}
+
 export type MultiModalContentItem =
     | string
     | TextContentItem
     | ImageContentItem
+    | FunctionContentItem
     | OpenAIImageURLMessage
     | OpenAIFileMessage
     | OpenAIAudioMessage

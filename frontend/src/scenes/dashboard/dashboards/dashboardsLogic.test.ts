@@ -167,28 +167,94 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('shows correct dashboards when searching', async () => {
-        expectLogic(logic, () => {
-            logic.actions.setFilters({ search: 'needl' })
-        }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => {
-                return dashboards.length === 1 && dashboards[0].name === 'needle'
-            }),
+    it('uses server-side search results when a search term is set', async () => {
+        // Search is executed server-side (Postgres trigram word similarity); the logic
+        // delegates ranking to the API and uses the returned list as-is. We mock the search
+        // endpoint and assert the selector swaps the in-memory list for the response.
+        const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': (req) => {
+                    if (req.url.searchParams.get('search')) {
+                        return [200, { count: 1, next: null, previous: null, results: [needleDashboard] }]
+                    }
+                    return [200, { count: 7, next: null, previous: null, results: allDashboards }]
+                },
+            },
         })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('needl')
+        }).toDispatchActions(['loadSearchedDashboardsSuccess'])
+
+        expect(logic.values.dashboards).toHaveLength(1)
+        expect(logic.values.dashboards[0].name).toBe('needle')
     })
 
-    it.each([['Nova'], ['nova'], ['NOVA']])(
-        'search matches a token at the end of a long dashboard name — case "%s"',
-        (search) => {
-            expectLogic(logic, () => {
-                logic.actions.setFilters({ search })
-            }).toMatchValues({
-                dashboards: truth((dashboards: DashboardType[]) => {
-                    return dashboards.length === 1 && dashboards[0].name === 'VMS Feature - History Browser - Nova'
-                }),
-            })
-        }
-    )
+    it('does not refetch when only pinned / shared / createdBy change', async () => {
+        // Pinned/shared/createdBy stay client-side over the in-memory list — only search
+        // and tags drive the server fetch. (Tag changes only refetch when a search is
+        // active; that's covered by a separate test below.)
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': () => {
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ pinned: true })
+            logic.actions.setFilters({ shared: true })
+            logic.actions.setFilters({ createdBy: 'someone-uuid' })
+        }).toNotHaveDispatchedActions(['loadSearchedDashboards'])
+    })
+
+    it('sends tag filters to the server alongside search', async () => {
+        // Server-side tag filtering keeps MCP/API clients in sync with the UI and ensures
+        // the limit:200 cap operates on the right population (pre-tag-filtered, not post).
+        let lastRequestUrl: URL | null = null
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': (req) => {
+                    lastRequestUrl = req.url
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ tags: ['finance', 'q4'] })
+            logic.actions.setSearch('sales')
+        }).toDispatchActions(['loadSearchedDashboardsSuccess'])
+
+        expect(lastRequestUrl).not.toBeNull()
+        expect(lastRequestUrl!.searchParams.get('search')).toBe('sales')
+        expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance', 'q4'])
+    })
+
+    it('refetches when tags change while a search is active', async () => {
+        let requestCount = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': () => {
+                    requestCount += 1
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('sales')
+        }).toDispatchActions(['loadSearchedDashboardsSuccess'])
+        const afterSearch = requestCount
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ tags: ['finance'] })
+        }).toDispatchActions(['loadSearchedDashboardsSuccess'])
+
+        expect(requestCount).toBe(afterSearch + 1)
+    })
 
     it('syncs search to URL when setSearch is called', async () => {
         await expectLogic(logic, () => {

@@ -1,6 +1,6 @@
-import { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
+import type { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
 
-export { OkResultWithContext }
+export type { OkResultWithContext }
 
 /**
  * Batch processing result type.

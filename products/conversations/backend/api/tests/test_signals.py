@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.db import transaction
 
+from parameterized import parameterized
+
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
@@ -340,3 +342,78 @@ class TestTicketMessageSignals(BaseTest):
         self._create_team_message("Private note", is_private=True)
 
         mock_invalidate.assert_not_called()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketCreatedEventSignal(BaseTest):
+    """Tests for the post_save signal that emits `$conversation_ticket_created`."""
+
+    def _make_ticket(self, **overrides) -> Ticket:
+        defaults = {
+            "team": self.team,
+            "widget_session_id": str(uuid.uuid4()),
+            "distinct_id": "user-123",
+            "channel_source": Channel.WIDGET,
+            "status": "new",
+        }
+        defaults.update(overrides)
+        return Ticket.objects.create_with_number(**defaults)
+
+    @parameterized.expand(
+        [
+            ("widget", Channel.WIDGET, {}),
+            (
+                "email",
+                Channel.EMAIL,
+                {
+                    "distinct_id": "customer@example.com",
+                    "anonymous_traits": {"name": "Customer", "email": "customer@example.com"},
+                    "email_from": "customer@example.com",
+                    "email_subject": "Help",
+                },
+            ),
+            (
+                "slack",
+                Channel.SLACK,
+                {"slack_channel_id": "C123", "slack_thread_ts": "1700000000.000100"},
+            ),
+            (
+                "teams",
+                Channel.TEAMS,
+                {"teams_channel_id": "19:abc@thread.tacv2", "teams_conversation_id": "19:def@thread.tacv2"},
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_ticket_creation_emits_event_for_channel(self, _name, channel_source, extra, mock_capture, mock_on_commit):
+        ticket = self._make_ticket(channel_source=channel_source, **extra)
+
+        mock_capture.assert_called_once()
+        emitted = mock_capture.call_args.args[0]
+        assert emitted.id == ticket.id
+        assert emitted.channel_source == channel_source
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_ticket_update_does_not_emit_event(self, mock_capture, mock_on_commit):
+        ticket = self._make_ticket()
+        mock_capture.reset_mock()
+
+        ticket.status = "open"
+        ticket.save()
+
+        mock_capture.assert_not_called()
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_emit_swallows_capture_exceptions(self, mock_capture, mock_on_commit):
+        """Analytics failures must not break ticket creation.
+
+        With `transaction.on_commit` mocked to fire synchronously, the RuntimeError
+        would propagate out of `_make_ticket` if the signal handler didn't swallow
+        it — so the assertion that `_make_ticket` returns is the swallow check.
+        """
+        mock_capture.side_effect = RuntimeError("capture is down")
+
+        ticket = self._make_ticket()
+
+        assert ticket.id is not None
+        mock_capture.assert_called_once()

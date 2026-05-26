@@ -2,6 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
@@ -11,6 +12,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
@@ -110,6 +112,42 @@ cohort_calculation_history: PostgresTable = PostgresTable(
         "started_at": DateTimeDatabaseField(name="started_at"),
         "finished_at": DateTimeDatabaseField(name="finished_at"),
         "error_code": StringDatabaseField(name="error_code"),
+    },
+)
+
+accounts: PostgresTable = PostgresTable(
+    name="accounts",
+    postgres_table_name="customer_analytics_account",
+    access_scope="customer_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_id": StringDatabaseField(name="external_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "properties": StringJSONDatabaseField(name="properties"),
+        "stripe_customer_id": ExpressionField(
+            name="stripe_customer_id",
+            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
+        ),
+        "hubspot_deal_id": ExpressionField(
+            name="hubspot_deal_id",
+            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
+        ),
+        "billing_id": ExpressionField(
+            name="billing_id",
+            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
+        ),
+        "sfdc_id": ExpressionField(
+            name="sfdc_id",
+            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
+        ),
+        "zendesk_id": ExpressionField(
+            name="zendesk_id",
+            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
+        ),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
     },
 )
 
@@ -405,6 +443,30 @@ integrations: PostgresTable = PostgresTable(
         "errors": StringDatabaseField(name="errors"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "created_by_id": IntegerDatabaseField(name="created_by_id"),
+    },
+)
+
+integration_repository_cache: PostgresTable = PostgresTable(
+    name="integration_repository_cache",
+    postgres_table_name="posthog_integrationrepositorycacheentry",
+    access_scope="integration",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "integration_id": IntegerDatabaseField(name="integration_id", nullable=True),
+        "user_integration_id": IntegerDatabaseField(name="user_integration_id", nullable=True),
+        "full_name": StringDatabaseField(name="full_name"),
+        "description": StringDatabaseField(name="description", nullable=True),
+        "topics": StringJSONDatabaseField(name="topics"),
+        "archived": BooleanDatabaseField(name="archived"),
+        "fork": BooleanDatabaseField(name="fork"),
+        "primary_language": StringDatabaseField(name="primary_language", nullable=True),
+        "default_branch": StringDatabaseField(name="default_branch"),
+        "default_branch_sha": StringDatabaseField(name="default_branch_sha"),
+        "readme": StringDatabaseField(name="readme"),
+        "tree_paths": StringDatabaseField(name="tree_paths"),
+        "tree_truncated": BooleanDatabaseField(name="tree_truncated"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
 
@@ -743,6 +805,21 @@ error_tracking_releases: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_symbol_sets: PostgresTable = PostgresTable(
+    name="error_tracking_symbol_sets",
+    postgres_table_name="posthog_errortrackingsymbolset",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ref": StringDatabaseField(name="ref"),
+        "release_id": StringDatabaseField(name="release_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_used": DateTimeDatabaseField(name="last_used", nullable=True),
+        "failure_reason": StringDatabaseField(name="failure_reason", nullable=True),
+    },
+)
+
 logs_views: PostgresTable = PostgresTable(
     name="logs_views",
     postgres_table_name="logs_logsview",
@@ -821,6 +898,99 @@ support_tickets: PostgresTable = PostgresTable(
         "sla_due_at": DateTimeDatabaseField(name="sla_due_at", nullable=True),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+review_queues: PostgresTable = PostgresTable(
+    name="review_queues",
+    postgres_table_name="llm_analytics_reviewqueue",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+review_queue_items: PostgresTable = PostgresTable(
+    name="review_queue_items",
+    postgres_table_name="llm_analytics_reviewqueueitem",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "queue_id": UUIDDatabaseField(name="queue_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_reviews: PostgresTable = PostgresTable(
+    name="trace_reviews",
+    postgres_table_name="llm_analytics_tracereview",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "reviewed_by_id": IntegerDatabaseField(name="reviewed_by_id", nullable=True),
+        "comment": StringDatabaseField(name="comment", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_review_scores: PostgresTable = PostgresTable(
+    name="trace_review_scores",
+    postgres_table_name="llm_analytics_tracereviewscore",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "review_id": UUIDDatabaseField(name="review_id"),
+        "definition_id": UUIDDatabaseField(name="definition_id"),
+        "definition_version": UUIDDatabaseField(name="definition_version"),
+        "definition_version_number": IntegerDatabaseField(name="definition_version_number"),
+        "definition_config": StringJSONDatabaseField(name="definition_config"),
+        "categorical_values": StringArrayDatabaseField(name="categorical_values", nullable=True),
+        "numeric_value": DecimalDatabaseField(name="numeric_value", nullable=True),
+        "boolean_value": BooleanDatabaseField(name="boolean_value", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
+score_definitions: PostgresTable = PostgresTable(
+    name="score_definitions",
+    postgres_table_name="llm_analytics_scoredefinition",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "kind": StringDatabaseField(name="kind"),
+        "archived": BooleanDatabaseField(name="archived"),
+        "current_version_id": UUIDDatabaseField(name="current_version_id", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
     },
 )
 
@@ -951,6 +1121,7 @@ sandbox_environments: PostgresTable = PostgresTable(
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "accounts": TableNode(name="accounts", table=accounts),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
@@ -977,6 +1148,7 @@ class SystemTables(TableNode):
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_symbol_sets": TableNode(name="error_tracking_symbol_sets", table=error_tracking_symbol_sets),
         "error_tracking_suppression_rules": TableNode(
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
         ),
@@ -990,12 +1162,18 @@ class SystemTables(TableNode):
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "integrations": TableNode(name="integrations", table=integrations),
+        "integration_repository_cache": TableNode(
+            name="integration_repository_cache", table=integration_repository_cache
+        ),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "logs_alerts": TableNode(name="logs_alerts", table=logs_alerts),
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
+        "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
+        "review_queues": TableNode(name="review_queues", table=review_queues),
+        "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
@@ -1005,5 +1183,7 @@ class SystemTables(TableNode):
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
+        "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
+        "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
     }

@@ -16,7 +16,7 @@ const PROD_INTEREST_TO_PRODUCT: Record<WebsiteBrowsingHistoryProdInterest, Produ
     'llm-analytics': ProductKey.LLM_ANALYTICS,
     workflows: ProductKey.WORKFLOWS,
     'revenue-analytics': null,
-    logs: null,
+    logs: ProductKey.LOGS,
     endpoints: null,
 }
 
@@ -30,7 +30,7 @@ const PROD_INTEREST_LABELS: Record<WebsiteBrowsingHistoryProdInterest, string> =
     'error-tracking': 'Error tracking',
     surveys: 'Surveys',
     'data-warehouse': 'Data warehouse',
-    'llm-analytics': 'LLM analytics',
+    'llm-analytics': 'AI observability',
     'revenue-analytics': 'Revenue analytics',
     workflows: 'Workflows',
     logs: 'Logs',

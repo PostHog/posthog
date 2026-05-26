@@ -13,7 +13,7 @@ from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
 class ValidateDataWarehouseBreakdown:
-    """Multi-property breakdowns and event based breakdown types can't be used together with data warehouse series."""
+    """Event based breakdown types can't be used together with data warehouse series."""
 
     code = "data_warehouse_series_unsupported_breakdown"
 
@@ -35,13 +35,7 @@ class ValidateDataWarehouseBreakdown:
 
         if has_multi_breakdown(breakdown_filter):
             assert breakdown_filter.breakdowns is not None  # type checking
-            if len(breakdown_filter.breakdowns) > 1:
-                raise ValidationError(
-                    f"Multi-breakdowns not supported for {insight_name} with a data warehouse series.",
-                    code=self.code,
-                )
-
-            if breakdown_filter.breakdowns[0].type not in supported_multi_types:
+            if any(breakdown.type not in supported_multi_types for breakdown in breakdown_filter.breakdowns):
                 raise ValidationError(
                     f"Event based breakdowns are not supported for {insight_name} with a data warehouse series.",
                     code=self.code,

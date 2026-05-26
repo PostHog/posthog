@@ -292,8 +292,11 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
         help_text="List of ProseMirror step JSON objects to apply.",
     )
     content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
-    text_content = serializers.CharField(required=False, default="", help_text="Plain text for search indexing.")
-    title = serializers.CharField(required=False, help_text="Updated notebook title.")
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
     cursor_head = serializers.IntegerField(
         required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
     )
@@ -756,13 +759,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             client_id=data["client_id"],
             steps_json=data["steps"],
             last_seen_version=data["version"],
+            last_saved_version=notebook.version,
             user_id=user.pk,
             user_name=user_name,
             cursor_head=data.get("cursor_head"),
         )
 
+        content = data["content"]
+
         if result.status == "accepted":
-            content = data["content"]
+            notebook_before = Notebook.objects.get(pk=notebook.pk)
             Notebook.objects.filter(pk=notebook.pk).update(
                 content=annotate_python_nodes(content) if isinstance(content, dict) else content,
                 text_content=data.get("text_content", ""),
@@ -772,13 +778,43 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 last_modified_by=request.user,
             )
             notebook.refresh_from_db()
+
+            # Snapshot diffs into the activity logs for history
+            changes = changes_between("Notebook", previous=notebook_before, current=notebook)
+            log_notebook_activity(
+                activity="updated",
+                notebook=notebook,
+                organization_id=cast(UUIDT, user.current_organization_id),
+                team_id=notebook.team_id,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                changes=changes,
+            )
+
             return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
+        # Snapshot the rejected save attempt so user has a recovery path
+        log_notebook_activity(
+            activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
+            notebook=notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="Notebook",
+                    field="content",
+                    action="changed",
+                    before=notebook.content,
+                    after=content,
+                ),
+            ],
+        )
+
         if result.status == "stale":
-            return Response(
-                {"code": "conflict_stale", "detail": "Reload the notebook."},
-                status=410,
-            )
+            # Stream was trimmed (MAXLEN/TTL).
+            return Response({"code": "conflict_stale"}, status=410)
 
         # Carries the missed steps so the client can reconcile without depending on SSE
         assert result.steps_since is not None  # status == "conflict" guarantees this

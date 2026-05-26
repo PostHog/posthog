@@ -73,13 +73,15 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 # - STRIPE_APP_CLIENT_ID: The app's public client ID, used in the OAuth authorize redirect URL
 # - STRIPE_APP_SANDBOX_CLIENT_ID: Separate client ID Stripe issues for sandbox installs of the same app
 # - STRIPE_APP_OVERRIDE_AUTHORIZE_URL: Optional override for testing (e.g., with a channel link URL)
-# - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during token exchange/refresh
+# - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during live token exchange/refresh
+# - STRIPE_APP_SANDBOX_SECRET_KEY: API secret key used to redeem sandbox-issued OAuth codes (sk_test_*)
 # - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication for Stripe to authenticate with PostHog APIs
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_SANDBOX_CLIENT_ID = get_from_env("STRIPE_APP_SANDBOX_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
+STRIPE_APP_SANDBOX_SECRET_KEY = get_from_env("STRIPE_APP_SANDBOX_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
@@ -96,6 +98,20 @@ CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", ""
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
 
+# ElevenLabs (Max hands-free mode)
+# STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
+# TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
+ELEVENLABS_API_KEY = get_from_env("ELEVENLABS_API_KEY", "")
+ELEVENLABS_API_BASE_URL = get_from_env("ELEVENLABS_API_BASE_URL", "https://api.elevenlabs.io")
+# Rachel is ElevenLabs' default voice — neutral, clear at gym pace. Override if you want a
+# different feel without redeploying.
+ELEVENLABS_VOICE_ID = get_from_env("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+# Turbo v2.5 has ~300ms TTFB latency, sits in the free tier, and sounds clean enough for
+# gym-pace narration. Flash v2.5 is marginally faster but requires Creator ($22/mo) or above
+# on the ElevenLabs side, so devs running on free quota hit a 402 from the TTS proxy.
+# Override at the env level if you're on a paid tier and want the extra polish.
+ELEVENLABS_TTS_MODEL_ID = get_from_env("ELEVENLABS_TTS_MODEL_ID", "eleven_turbo_v2_5")
+
 # PandaDoc (for legal documents: BAA/DPA). One template per document variant.
 # Each call needs the matching template id, so we keep them as separate env vars —
 # rotating one (e.g., when Legal updates the DPA copy) doesn't touch the others.
@@ -104,9 +120,3 @@ PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
 PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
-
-# Slack incoming-webhook URL for internal legal-document notifications. The URL
-# is bound to a single channel at creation time in Slack's app admin, so there's
-# no channel to configure and no bot token to manage. Separate from the per-org
-# Slack integration used in products/slack_app.
-SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL = get_from_env("SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL", "")

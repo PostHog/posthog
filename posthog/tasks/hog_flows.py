@@ -5,14 +5,17 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.models.action.action import Action
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
+
+from products.actions.backend.models.action import Action
 
 logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def refresh_affected_hog_flows(team_id: Optional[int] = None, action_id: Optional[int] = None) -> int:
     from posthog.models.hog_flow.hog_flow import HogFlow
 

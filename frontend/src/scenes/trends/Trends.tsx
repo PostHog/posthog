@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -23,7 +24,33 @@ const TrendsCalendarHeatMap = lazy(() =>
 )
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
-const TrendsLineChart = lazy(() => import('./viz/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart })))
+const TrendsLineChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart').then((m) => ({
+        default: m.TrendsLineChart,
+    }))
+)
+const TrendsBarChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart').then((m) => ({
+        default: m.TrendsBarChart,
+    }))
+)
+const StickinessLineChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/StickinessLineChart/StickinessLineChart').then((m) => ({
+        default: m.StickinessLineChart,
+    }))
+)
+const TrendsPieChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart').then((m) => ({
+        default: m.TrendsPieChart,
+    }))
+)
+const TrendsLifecycleChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart').then(
+        (m) => ({
+            default: m.TrendsLifecycleChart,
+        })
+    )
+)
 
 interface Props {
     view: InsightType
@@ -38,9 +65,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
+        useValues(trendsDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const commonProps = {
@@ -50,19 +76,35 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
+    const hogChartsTrendsEnabled =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS] && !isLifecycle && !isStickiness
+    const hogChartsStickinessEnabled =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS] && isStickiness
+    const hogChartsLifecycleEnabled =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_LIFECYCLE] && isLifecycle
+
     const renderViz = (): JSX.Element | undefined => {
+        if (hogChartsLifecycleEnabled) {
+            return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
+        }
         if (
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph
         ) {
-            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) {
+            if (hogChartsTrendsEnabled) {
                 return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
+            }
+            if (hogChartsStickinessEnabled) {
+                return <StickinessLineChart context={context} />
             }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            if (hogChartsTrendsEnabled) {
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+            }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.BoldNumber) {
@@ -80,9 +122,17 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
+            if (hogChartsTrendsEnabled) {
+                return (
+                    <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
+                )
+            }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
+            if (hogChartsTrendsEnabled) {
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+            }
             return <ActionsHorizontalBar {...commonProps} />
         }
         if (display === ChartDisplayType.WorldMap) {
@@ -111,7 +161,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         <>
             {series && (
                 <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
-                    <Suspense fallback={null}>{renderViz()}</Suspense>
+                    <Suspense
+                        fallback={
+                            <WrappingLoadingSkeleton fullWidth>
+                                <span className="block w-full h-72" />
+                            </WrappingLoadingSkeleton>
+                        }
+                    >
+                        {renderViz()}
+                    </Suspense>
                 </div>
             )}
             {!embedded &&

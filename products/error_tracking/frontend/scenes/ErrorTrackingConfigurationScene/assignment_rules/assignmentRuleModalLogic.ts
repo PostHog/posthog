@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { rulesLogic } from '../rules/rulesLogic'
@@ -73,6 +73,7 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
                         event: '$exception',
                         select: ['count()', 'count(distinct properties.$exception_issue_id)'],
                         after: values.dateRange,
+                        tags: { productKey: ProductKey.ERROR_TRACKING },
                     }
 
                     if (properties.length > 0) {

@@ -4,8 +4,10 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AlertCalculationInterval,
@@ -14,7 +16,14 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+
+import {
+    blockSubmitWithoutHighFrequencyAlertsEntitlement,
+    getDefaultSimulationRange,
+    HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
+    isHighFrequencyAlertInterval,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
 import { alertLogic } from './alertLogic'
@@ -37,6 +46,9 @@ export type AlertFormType = Pick<
     | 'skip_weekend'
     | 'schedule_restriction'
     | 'detector_config'
+    | 'investigation_agent_enabled'
+    | 'investigation_gates_notifications'
+    | 'investigation_inconclusive_action'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -44,25 +56,13 @@ export type AlertFormType = Pick<
 }
 
 export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    const upper = alert?.threshold?.configuration?.bounds?.upper
     return (
-        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
-            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
-        alert?.threshold.configuration.bounds?.upper != null &&
-        !isNaN(alert?.threshold.configuration.bounds.upper)
+        (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition?.type === AlertConditionType.RELATIVE_INCREASE) &&
+        upper != null &&
+        !isNaN(upper)
     )
-}
-
-export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.HOURLY:
-            return '-48h'
-        case AlertCalculationInterval.DAILY:
-            return '-30d'
-        case AlertCalculationInterval.WEEKLY:
-            return '-12w'
-        case AlertCalculationInterval.MONTHLY:
-            return '-12m'
-    }
 }
 
 export interface AlertFormLogicProps {
@@ -71,8 +71,6 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
-    /** Must match the `alertLogic` instance keyed on the same alertId — read from `useFeatureFlag('ALERTS_HISTORY_CHART')` in the parent. */
-    historyChartEnabled: boolean
 }
 
 /**
@@ -84,8 +82,8 @@ export interface AlertFormLogicProps {
  * `logic.values` on an unmounted logic throws a `[KEA] Can not find path …` error. Check mount state
  * first and skip the merge (there's nothing to preserve for a brand-new alert).
  */
-function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChartEnabled: boolean): void {
-    const logic = alertLogic({ alertId: updatedAlert.id, historyChartEnabled })
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
+    const logic = alertLogic({ alertId: updatedAlert.id })
     const wasMounted = logic.isMounted()
     const previousAlert = wasMounted ? logic.values.alert : null
     const savedChecks = updatedAlert.checks ?? []
@@ -130,6 +128,13 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
             return AlertCalculationInterval.MONTHLY
         default:
             return AlertCalculationInterval.DAILY
+    }
+}
+
+function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+    return {
+        ...alert,
+        insight: insightId,
     }
 }
 
@@ -195,50 +200,64 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     forms(({ props, values }) => ({
         alertForm: {
-            defaults:
-                props.alert ??
-                ({
-                    id: undefined,
-                    name: values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
-                    created_by: null,
-                    created_at: '',
-                    enabled: true,
-                    config: {
-                        type: 'TrendsAlertConfig',
-                        series_index: 0,
-                        check_ongoing_interval: false,
-                    },
-                    threshold: {
-                        configuration: {
-                            type: InsightThresholdType.ABSOLUTE,
-                            bounds: getThresholdBounds(values.goalLines),
-                        },
-                    },
-                    condition: {
-                        type: AlertConditionType.ABSOLUTE_VALUE,
-                    },
-                    subscribed_users: [],
-                    checks: [],
-                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
-                    skip_weekend: false,
-                    schedule_restriction: null,
-                    detector_config: null,
-                    insight: props.insightId,
-                } as AlertFormType),
-            errors: (alert: AlertType | AlertFormType) =>
+            defaults: props.alert
+                ? alertToFormType(props.alert, props.insightId)
+                : ({
+                      id: undefined,
+                      name:
+                          values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
+                      created_by: null,
+                      created_at: '',
+                      enabled: true,
+                      config: {
+                          type: 'TrendsAlertConfig',
+                          series_index: 0,
+                          check_ongoing_interval: false,
+                      },
+                      threshold: {
+                          configuration: {
+                              type: InsightThresholdType.ABSOLUTE,
+                              bounds: getThresholdBounds(values.goalLines),
+                          },
+                      },
+                      condition: {
+                          type: AlertConditionType.ABSOLUTE_VALUE,
+                      },
+                      subscribed_users: [],
+                      checks: [],
+                      calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
+                      skip_weekend: false,
+                      schedule_restriction: null,
+                      detector_config: null,
+                      investigation_agent_enabled: false,
+                      investigation_gates_notifications: false,
+                      investigation_inconclusive_action: 'notify',
+                      insight: props.insightId,
+                  } as AlertFormType),
+            errors: (alert: AlertFormType) =>
                 ({
                     name: !alert.name ? 'You need to give your alert a name' : undefined,
                     schedule_restriction: quietHoursFormError(alert.schedule_restriction),
-                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
+                }) as DeepPartialMap<AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
+                if (
+                    blockSubmitWithoutHighFrequencyAlertsEntitlement(
+                        alert.calculation_interval,
+                        userLogic.values.hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+                    )
+                ) {
+                    lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                    throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                }
+
                 const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
-                    // can only skip weekends for hourly/daily alerts
+                    // can only skip weekends for sub-daily alerts
                     skip_weekend:
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
-                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                            isHighFrequencyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
                     config: {
@@ -246,6 +265,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                     detector_config: alert.detector_config ?? null,
+                    // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
+                    investigation_agent_enabled: alert.detector_config
+                        ? (alert.investigation_agent_enabled ?? false)
+                        : false,
+                    // Notification gating requires the investigation agent to be on.
+                    investigation_gates_notifications:
+                        alert.detector_config && alert.investigation_agent_enabled
+                            ? (alert.investigation_gates_notifications ?? false)
+                            : false,
+                    investigation_inconclusive_action: alert.investigation_inconclusive_action ?? 'notify',
                     schedule_restriction:
                         (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
                             ? alert.schedule_restriction
@@ -295,7 +324,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
                 try {
                     await flushPendingNotifications(updatedAlert.id)
-                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
                 } catch (postSaveError) {
@@ -303,8 +332,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
+                if (alert.id === undefined) {
+                    tryShowMCPHint('alerts.create')
+                }
 
-                return updatedAlert
+                return alertToFormType(updatedAlert, props.insightId)
             },
         },
     })),
@@ -341,7 +373,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -356,7 +388,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
