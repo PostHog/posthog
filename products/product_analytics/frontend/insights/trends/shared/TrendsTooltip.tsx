@@ -2,7 +2,8 @@ import { useCallback, useMemo } from 'react'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import type { TooltipContext } from 'lib/hog-charts'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { percentage } from 'lib/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
@@ -100,7 +101,9 @@ export function TrendsTooltip({
             if (!isPercentStackView) {
                 return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
             }
-            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
+            // hog-charts passes each segment as a 0..1 fraction (segment_height = top − bottom
+            // in expanded-stack space), so format it directly as a percentage.
+            return percentage(value)
         },
         [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
     )
