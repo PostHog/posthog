@@ -11,7 +11,7 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 - **Owned by**: web analytics team
 - **Population**: scheduled Dagster jobs in `products/web_analytics/dags/`
 - **Coverage**: stats table queries, web overview (partial)
-- **Adoption** (as of 2026-05): effectively zero — only one team has the modifier on in prod
+- **Adoption**: limited — modifier rollout is small in production
 
 ### Lazy computation
 
@@ -19,8 +19,8 @@ The newer general-purpose framework at `products/analytics_platform/backend/lazy
 
 - **Owned by**: web analytics team, riding on the analytics_platform framework
 - **Population**: synchronous, on first read miss; subsequent reads hit the cache
-- **Coverage** (today): `web_overview_query` and the PATHS (`WebStatsBreakdown.PAGE` + `includeBounceRate`) tile of `web_stats_table_query`. See `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` and `web_stats_paths_lazy_precompute.py`
-- **Adoption** (as of 2026-05): freshly enabled, org feature flag gates further rollout
+- **Coverage**: `web_overview_query`, `web_stats_table_query` (subset of breakdowns), the PATHS (`WebStatsBreakdown.PAGE` + `includeBounceRate`) tile of `web_stats_table_query`, and `web_vitals_path_breakdown_query`. See the [Family quick reference](#family-quick-reference) below.
+- **Adoption**: org feature flag gates further rollout
 
 ## When to use which
 
@@ -34,7 +34,101 @@ Both systems can coexist. The runner tries each in order; if both miss or are di
 | Background warming on a schedule                                      | v2                                                  |
 | First-read latency budget that includes a precompute cost (~1.3x raw) | lazy computation accepts this; v2 doesn't have it   |
 
-## Lazy computation for web overview (current production path)
+## How it works
+
+### Runner dispatch order
+
+Every web analytics runner that supports precompute checks lazy first, then v2, then falls back to raw. The exact set of checks differs per runner, but the dispatch order is uniform.
+
+```mermaid
+flowchart LR
+    Q[Web analytics query] --> R[Query runner]
+    R --> LZ{Lazy precompute<br/>eligible?}
+    LZ -- yes --> LR[Read from lazy<br/>preagg table]
+    LZ -- no --> V2{V2 modifier<br/>on?}
+    LR --> RESP([Response])
+    LR -. read fails .-> V2
+    V2 -- yes --> V2R[Read from v2<br/>preagg table]
+    V2 -- no --> RAW[Raw events scan]
+    V2R --> RESP
+    RAW --> RESP
+```
+
+A lazy _read_ failure deliberately falls through to v2/raw rather than surfacing the error — the caller never sees worse than the raw path. A lazy _gate rejection_ short-circuits before any work happens (no INSERT, no read).
+
+### Lazy precompute INSERT-on-read
+
+The lazy precompute framework (`products/analytics_platform/backend/lazy_computation/`) hashes the runner's INSERT placeholders into a `query_hash` and looks up READY `PreaggregationJob` rows for the requested `(team, query_hash, window)`. A miss triggers an INSERT to materialize the window's aggregate state into a family-specific table; a hit just returns the existing `job_id`s. Either way, the runner then reads the metric via `*MergeIf` aggregates filtered to its requested period.
+
+```mermaid
+sequenceDiagram
+    participant R as Query Runner
+    participant G as Eligibility Gate
+    participant F as lazy_computation framework
+    participant CH as ClickHouse
+    R->>G: can_use_lazy_precompute(runner)
+    alt gate rejects
+        G-->>R: False → fall through to v2/raw
+    else gate accepts
+        G-->>R: True
+        R->>F: ensure_precomputed(team, insert_query, window, ttl, table)
+        F->>F: hash placeholders → query_hash
+        F->>CH: SELECT PreaggregationJob WHERE query_hash=? AND covers window
+        alt READY job exists
+            CH-->>F: existing job_ids
+        else miss or expired
+            F->>CH: INSERT INTO &lt;family&gt;_preaggregated SELECT … (state aggregates)
+            F->>F: create PreaggregationJob row, status=READY
+            CH-->>F: new job_id
+        end
+        F-->>R: LazyComputationResult(job_ids, ready=True)
+        R->>CH: SELECT *MergeIf(state_col, period_filter)<br/>WHERE team_id=? AND job_id IN (…)
+        CH-->>R: aggregated rows
+        R-->>R: build response, set usedPreAggregatedTables=True
+    end
+```
+
+The `PreaggregationJob` row is the source-of-truth for "is this window cached?" The TTL (`LAZY_TTL_SECONDS`, varies by window recency) lives on the job row, not on the ClickHouse data — the data is dropped via `ttl_only_drop_parts` partitioned by `expires_at`.
+
+### Eligibility gate
+
+`can_use_lazy_precompute(runner)` is the gate every family calls. Shared checks live in [`products/web_analytics/backend/hogql_queries/web_analytics_lazy_precompute.py`](backend/hogql_queries/web_analytics_lazy_precompute.py) (used by overview + stats + vitals_paths) and [`web_lazy_precompute_common.py`](backend/hogql_queries/web_lazy_precompute_common.py) (used by stats_paths). Each family layers its own `extra_check` on top.
+
+```mermaid
+flowchart TD
+    S([can_use_lazy_precompute]) --> A{web-analytics-precompute-toggle<br/>flag enabled?}
+    A -- no --> X[OrgFeatureFlagDisabled]
+    A -- yes --> B{query.useWebAnalyticsPrecompute<br/>=== true?}
+    B -- no --> Y[PerQueryOptInNotSet]
+    B -- yes --> C{whole-hour tz<br/>or family opt-out?}
+    C -- no --> Z[NonIntegerTimezone]
+    C -- yes --> D{conversionGoal /<br/>sampling /<br/>sessionsV2 uuid?}
+    D -- yes --> W[ConversionGoalUnsupported /<br/>SamplingEnabled /<br/>SessionsV2UuidMode]
+    D -- no --> E{properties = ∅<br/>or one $host EXACT filter?}
+    E -- no --> V[TooManyFilters /<br/>UnsupportedFilterKey /<br/>UnsupportedFilterOperator /<br/>NonStringOrEmptyFilterValue /<br/>NonEventPropertyFilter]
+    E -- yes --> F{date_from + date_to set<br/>and range ≤ 90 days?}
+    F -- no --> U[MissingDateRange /<br/>DateRangeOverMax]
+    F -- yes --> G[extra_check<br/>family-specific]
+    G -- raises --> T[family-specific reason<br/>e.g. WrongBreakdown, MissingBounceRate, …]
+    G -- passes --> OK([accept → run lazy path])
+```
+
+The shared rollout gate is conservative on purpose — it refuses anything that would either materialize incorrect rows (timezone, conversion goals, sampling) or blow up the precompute footprint (date range, fan-out filters). When the gate refuses, the runner silently falls through to v2/raw — there is no user-visible degradation, only a missed cache opportunity. Rejection reasons are emitted as `web_analytics_lazy_precompute_rejected_total{family, reason}` Prometheus counter increments and a structured `INFO` log line, both keyed on the `LazyPrecomputeIneligible` subclass name.
+
+The shape of the gate (sub-hour timezone, no v2 UUID sessions, ≤1 filter, ≤90 days) was driven by a survey of historical query traffic — see [`evaluating-web-analytics-performance`](skills/evaluating-web-analytics-performance/SKILL.md) for the methodology.
+
+### Family quick reference
+
+| Family       | Read tag                      | Bucket        | Compare period | Sessions join? | Read mechanism  | Source                                                                                             |
+| ------------ | ----------------------------- | ------------- | -------------- | -------------- | --------------- | -------------------------------------------------------------------------------------------------- |
+| overview     | `web_overview_lazy_query`     | UTC hourly    | full           | yes (24h pad)  | `sync_execute`  | [`web_overview_lazy_precompute.py`](backend/hogql_queries/web_overview_lazy_precompute.py)         |
+| stats        | `web_stats_lazy_query`        | UTC hourly    | capped         | yes (24h pad)  | HogQL paginator | [`web_stats_lazy_precompute.py`](backend/hogql_queries/web_stats_lazy_precompute.py)               |
+| stats_paths  | `web_stats_paths_lazy_query`  | UTC hourly    | budget-aware   | yes (24h pad)  | `sync_execute`  | [`web_stats_paths_lazy_precompute.py`](backend/hogql_queries/web_stats_paths_lazy_precompute.py)   |
+| vitals_paths | `web_vitals_paths_lazy_query` | team-tz daily | none           | no             | HogQL direct    | [`web_vitals_paths_lazy_precompute.py`](backend/hogql_queries/web_vitals_paths_lazy_precompute.py) |
+
+The "compare period" column describes how each family handles the dashboard's compare-to-previous filter: **full** (precompute the previous window too, read both), **capped** (cap `prev_range_end` to avoid `job_id` collision, clear `previous_*` if the cap collapses the window), **budget-aware** (skip previous when `ensure_duration_ms` blows a per-request budget), **none** (the family doesn't support compare at all).
+
+## Lazy computation for web overview
 
 `WebOverviewQueryRunner._calculate` runs three checks in order:
 
@@ -58,7 +152,7 @@ Partition key on `expires_at` rather than `time_window_start` so `ttl_only_drop_
 
 Buckets are **UTC hourly**. The read converts the team's local request window to UTC and filters bucket boundaries on hour edges. This means:
 
-- **Whole-hour-offset timezones** (UTC, PT, ET, JST, etc. — ~99% of teams) read exact-to-the-hour data.
+- **Whole-hour-offset timezones** (UTC, PT, ET, JST, etc. — the vast majority of teams) read exact-to-the-hour data.
 - **Half-hour-offset timezones** (IST `+5:30`, Newfoundland `-3:30`, Nepal `+5:45`, Iran `+3:30`) cannot be served correctly by UTC hourly buckets — the `can_use_lazy_precompute` gate refuses them via `is_integer_timezone()`. They fall through to v2/raw.
 
 ### Sessions that straddle bucket boundaries
@@ -69,23 +163,13 @@ A session that starts at 23:30 UTC with an event at 00:15 UTC the next day spans
 
 To fix this, the INSERT widens the event scan forward by `SESSION_FORWARD_PAD_MINUTES` (currently 24 h) past the job's `[time_window_min, time_window_max)` window. The `HAVING` clause keeps each session attributed to its actual start hour — over-scan adds INSERT cost but cannot produce duplicate rows in any bucket. Forward-only is sufficient because the HAVING keeps only sessions whose `min(session.$start_timestamp)` falls inside the window; every event of such a session has `timestamp >= time_window_min`, so backward scanning never picks anything that survives HAVING.
 
-The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effectively 100% of population sessions (measured p99 ≈ 79 min, with a long tail). Sessions exceeding 24 h are documented as undercounted on cross-boundary days. The long-term fix is to drive the INSERT from `raw_sessions` (bounded by the embedded UUIDv7 timestamp), which removes the pad entirely.
+The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effectively the whole session population. Sessions exceeding 24 h are documented as undercounted on cross-boundary days. The long-term fix is to drive the INSERT from `raw_sessions` (bounded by the embedded UUIDv7 timestamp), which removes the pad entirely.
 
 ### Eligibility gate
 
-`can_use_lazy_precompute(runner)` in `web_overview_lazy_precompute.py`. Refuses when any of:
+`can_use_lazy_precompute(runner)` in `web_overview_lazy_precompute.py`. Inherits every shared refusal listed in the [eligibility flowchart](#eligibility-gate) above; web overview adds no family-specific rejections of its own.
 
-- The `web-analytics-precompute-toggle` PostHog feature flag is off for the team's organization
-- Team timezone has a non-whole-hour UTC offset
-- `query.conversionGoal` is set
-- `query.sampling.enabled` is True
-- `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
-- `query.properties` contains more than one filter
-- The single filter is not `EventPropertyFilter(key="$host", operator="exact", value=<non-empty string>)`
-- Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
-- Either date_from or date_to is None
-
-When the gate returns False the runner silently falls through to v2 / raw. **Today there is no telemetry on gate rejections** — operators tuning the rollout have to read the source to know why a team isn't seeing the lazy path. A `web_overview_lazy_gate_rejected_total{reason}` counter would close that gap (open issue).
+When the gate returns False the runner silently falls through to v2 / raw. Rejection reasons are emitted as `web_analytics_lazy_precompute_rejected_total{family, reason}` Prometheus counter increments (label values match the `LazyPrecomputeIneligible` subclass name) plus a structured `INFO` log.
 
 ### TTL schedule
 
@@ -118,36 +202,56 @@ If we later move back to HogQL (after the consistency story is settled), the Hog
 ### Observability
 
 - **Read query**: tagged `query_type="web_overview_lazy_query"` in `system.query_log.log_comment`.
-- **INSERT query**: tagged `query_type="web_overview_lazy_insert"` (via the framework's `query_type` kwarg added in this commit family).
+- **INSERT query**: tagged `query_type="web_overview_lazy_insert"` (via the framework's `query_type` kwarg).
 - **Failures**: `web_overview_lazy_precompute_failed_total{error_type}` Prometheus counter (bounded by Python exception class).
 - **Cache warmer**: the DAG at `products/web_analytics/dags/cache_warming.py` recognizes both `web_overview_query` and `web_overview_lazy_query`.
-- **Adoption / latency**: see [`evaluating-web-analytics-performance`](https://github.com/PostHog/posthog/blob/master/.agents/skills/) or query `system.query_log` directly.
+- **Adoption / latency**: see [`evaluating-web-analytics-performance`](skills/evaluating-web-analytics-performance/SKILL.md) or query `system.query_log` directly.
 
 ### Known limitations / open issues
 
-1. **No gate-rejection telemetry** — operators can't see why a team isn't seeing the lazy path. Counter pending.
-2. **`error_type` Prometheus label is too coarse** — `ServerException` from CH could mean quorum / memory / schema. Should bucket by CH error code.
-3. **UUID session mode rejected**, not handled. Re-typing `uniq_sessions_state` to `(uniq, UUID)` would lift this; tracked as a follow-up.
-4. **Empty `*MergeIf` rows are treated as legitimate empty windows.** Empty `sync_execute` result on this query shape is almost always a driver/transport error rather than "no data"; should be treated as failure + fall through.
-5. **HogQL `top_level_settings`** on `WebOverviewPreaggregatedTable` is currently unused (read bypasses HogQL); kept as a hook if we re-route through HogQL later.
+1. **`error_type` Prometheus label is too coarse** — `ServerException` from CH could mean quorum / memory / schema. Should bucket by CH error code.
+2. **UUID session mode rejected**, not handled. Re-typing `uniq_sessions_state` to `(uniq, UUID)` would lift this; tracked as a follow-up.
+3. **Empty `*MergeIf` rows are treated as legitimate empty windows.** Empty `sync_execute` result on this query shape is almost always a driver/transport error rather than "no data"; should be treated as failure + fall through.
+4. **HogQL `top_level_settings`** on `WebOverviewPreaggregatedTable` is currently unused (read bypasses HogQL); kept as a hook if we re-route through HogQL later.
 
-## Adding lazy computation to another web analytics query family
+## Lazy computation for the stats table
 
-Reference implementation: `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py`.
+`WebStatsTableQueryRunner._calculate` checks lazy precompute first, then v2, then raw. Lazy serves a subset of breakdowns where the precomputed shape (one row per `(time_window_start, breakdown_value)` with `uniq_users_state` + `sum_pageviews_state`) is a faithful representation of the raw query.
 
-Roughly:
+### Schema
 
-1. **Schema** — new CH table under `posthog/clickhouse/preaggregation/`. ReplacingMergeTree with `(team_id, job_id, time_window_start)` ORDER BY, sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`. Register in `posthog/clickhouse/schema.py` test fixtures.
-2. **Migration** — `posthog/clickhouse/migrations/0XXX_<name>.py`. Sharded + distributed CREATE on `NodeRole.DATA`.
-3. **HogQL table** — `posthog/hogql/database/schema/<name>.py`. Register in `posthog/hogql/database/database.py`.
-4. **`LazyComputationTable` enum** — add a value in `products/analytics_platform/backend/lazy_computation/lazy_computation_executor.py`.
-5. **Insert query** — HogQL template using `{time_window_min}`/`{time_window_max}` placeholders. Add a session-boundary pad if the query has session-level joins.
-6. **Read** — `sync_execute` with parameterized SQL, settings = `{"load_balancing": "in_order", "optimize_skip_unused_shards": 1}`. Filter by `team_id` AND `job_id IN (...)` in the WHERE clause.
-7. **Runner integration** — add a `can_use_*` gate and an `execute_*_read` orchestrator; short-circuit in `_calculate` before the v2/raw fallthrough.
-8. **Tests** — round-trip (lazy == raw) parameterized over team timezones, gate fallthrough for each disqualifying condition, half-hour-offset fallthrough, cache hit (second call doesn't create new jobs).
-9. **Cache warmer** — add the new `query_type` to the warmer DAG's allowlist in `products/web_analytics/dags/cache_warming.py`.
+`web_stats_preaggregated` (sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`, ReplacingMergeTree with `computed_at` as the version column). One row per `(team_id, job_id, time_window_start, breakdown_by, breakdown_value)`:
 
-Roadmap order in `~/notes/work/posthog/web-analytics/investigations/2026-05-19-lazy-computation-candidates.md`: `web_overview_query` (shipped), `stats_table_path_bounce_query` (shipped — this PR), `stats_table_main_query` (next), then `web_goals_query` deferred for custom-goal-definition complexity.
+- `breakdown_by String` — names which breakdown the row was computed for (`InitialChannelType`, `Browser`, `Country`, …). Lets several breakdowns coexist in the same table without ambiguity.
+- `breakdown_value String` — the decoded value. Tuple/float breakdowns (REGION, CITY, VIEWPORT, TIMEZONE) are JSON-encoded into the column and decoded back to their native shape on read.
+- `uniq_users_state AggregateFunction(uniq, UUID)` — persons in the bucket.
+- `sum_pageviews_state AggregateFunction(sum, Int64)` — pageview/screen count.
+
+### Supported breakdowns
+
+The family-specific `extra_check` rejects breakdowns the precompute table can't represent. The current allowlist (in `web_stats_lazy_precompute.SUPPORTED_BREAKDOWNS`) covers low-cardinality dimensions that fit well within the read budget: channel type, referring domain, every UTM dimension and the source-medium-campaign concat, browser, OS, viewport, device type, country, region, city, timezone. Path-shaped breakdowns (PAGE/INITIAL_PAGE/EXIT_PAGE/PREVIOUS_PAGE/FRUSTRATION_METRICS/LANGUAGE) and the `EXIT_CLICK` URL breakdown route to the dedicated paths runner or stay on the raw path.
+
+The extra check also rejects:
+
+- `query.includeBounceRate`, `query.includeAvgTimeOnPage`, or `query.includeScrollDepth` — those columns aren't materialized in the stats table (the paths runner owns the bounce variant).
+- `orderBy` fields the lazy read can't produce — only `VISITORS` and `VIEWS` survive the gate. Refusing other fields prevents the in-Python sort from silently rewriting to `visitors` and diverging from the raw path's ordering.
+
+### Read path
+
+HogQL via the runner's paginator (`runner.paginator.execute_hogql_query`). The read template projects `uniqMergeIf` / `sumMergeIf` across current and previous periods, with a `sum(...) OVER ()` window function carrying the `fill_total` denominator onto every paginated row. ORDER BY / LIMIT / OFFSET are mutated into the AST from the runner's query so pagination happens SQL-side, not in Python.
+
+Modifiers are copied from the runner with `convertToProjectTimezone=False` forced — the printer would otherwise wrap `time_window_start` in `toTimeZone(..., team_tz)`, which breaks the direct comparison against the UTC `cur_start` / `cur_end` constants the runner builds.
+
+### Compare-period handling (capped)
+
+Stats caps `prev_range_end = min(prev_range_end, time_range_start)` to prevent overlap between current and previous job ids. If the cap collapses the previous window (e.g., "today vs. earlier today" on a non-UTC-boundary day), the runner clears `previous_start_utc` / `previous_end_utc` to `None` so the read's `*MergeIf(..., prev_*)` returns 0 instead of comparing against a corrupted range.
+
+### Observability
+
+- **Read query**: tagged `query_type="web_stats_lazy_query"`.
+- **INSERT query**: tagged `query_type=f"web_stats_{breakdownBy}_lazy_insert"` — per-breakdown labels so a hot-breakdown can be isolated in `system.query_log` without re-grouping by JSON-extracted fields.
+- **Failures**: `web_stats_lazy_precompute_failed_total{error_type}` Prometheus counter.
+- **Cache warmer**: `web_stats_lazy_query` is in the warmer DAG allowlist.
 
 ## Lazy computation for the PATHS tile
 
@@ -166,20 +270,25 @@ The state is `Nullable(Float64)` so the `if(..., NULL)` expression in the INSERT
 
 ### Eligibility gate
 
-`can_use_lazy_precompute(runner)` in `web_stats_paths_lazy_precompute.py`. Shares the common gate (`web_lazy_precompute_common.py`) with web overview — same org flag, same timezone / sampling / UUID-mode / filter rules. Adds PATHS-specific refusals:
+`can_use_lazy_precompute(runner)` in `web_stats_paths_lazy_precompute.py`. Shares the common gate (`web_lazy_precompute_common.py`) — same org flag, same timezone / sampling / UUID-mode / filter rules. Adds PATHS-specific refusals:
 
-- `query.breakdownBy != WebStatsBreakdown.PAGE`
+- `query.breakdownBy != WebStatsBreakdown.PAGE` and `!= INITIAL_PAGE`
 - `query.includeBounceRate` is False (the lazy table is purpose-built for bounce-augmented paths)
 - `query.includeAvgTimeOnPage` is True (not yet wired)
 - `query.includeScrollDepth` is True (not yet wired)
+- `orderBy` outside `{VISITORS, VIEWS, BOUNCE_RATE}` (the in-Python sort would silently rewrite to `visitors` otherwise)
 
 ### Read path
 
 Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / `sumMergeIf` / `avgMergeIf` covering both current and previous periods. The runner builds the standard `WebStatsTableQueryResponse` (breakdown_value + visitor/views/bounce-rate tuples + ui_fill_fraction + cross_sell). Sorting, paging, and fill-fraction are computed in Python over the materialized result set, matching `PathBounceStrategy` defaults (visitors DESC, then breakdown_value ASC; `WebAnalyticsOrderByFields` overrides honored for VISITORS / VIEWS / BOUNCE_RATE).
 
+### Compare-period handling (budget-aware)
+
+The PATHS precompute INSERT is expensive (one row per session per pathname). If the current-period `ensure_precomputed` already took more than `ENSURE_BUDGET_MS` wall-clock, the previous-period ensure is skipped and the previous metrics return as 0 — the runner emits `web_stats_paths_lazy_precompute_compare_budget_exceeded` so adoption tracking can see the trade. This trades comparison fidelity for end-to-end response latency on the slow first read.
+
 ### Known follow-ups
 
-- INITIAL_PAGE + bounce (entry-pathname tab) is a different SQL shape — separate precompute table or shared one with an entry-only state column.
+- INITIAL_PAGE + bounce (entry-pathname tab) reuses the same precompute table by feeding the entry breakdown into both sides of the `equals(breakdown_value, entry_breakdown_value)` bounce attribution — see `_breakdown_value_expr` and `_entry_breakdown_value_expr`.
 - `usedLazyPrecompute` is set on the response; the frontend's `PreAggregatedBadge` already keys off `usedPreAggregatedTables` so users see the badge without further wiring. Distinguishing lazy from v2 in the UI is a separate follow-up.
 
 ## Lazy computation for the web vitals path-breakdown tile
@@ -191,7 +300,7 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 
 ### Schema
 
-`web_vitals_paths_preaggregated` (sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`, `ReplicatedReplacingMergeTree` with `computed_at` as the version column). One row per `(team, job, hour, path)`, four state columns — one per Web Vitals metric:
+`web_vitals_paths_preaggregated` (sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`, `ReplicatedReplacingMergeTree` with `computed_at` as the version column). One row per `(team, job, day, path)`, four state columns — one per Web Vitals metric:
 
 - `inp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
 - `lcp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
@@ -200,13 +309,13 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 
 Each state holds one reservoir covering all three percentiles. Reads pick the queried percentile via `arrayElement(quantilesMergeIf(0.75, 0.90, 0.99)(state, range_filter), pct_index)`. Same reservoir algorithm as the raw `quantile(p)` — exact when unsaturated, within sampling noise once it is.
 
-Four columns vs. a metric discriminator: ARRAY JOIN would fan one event into four rows, but the new ClickHouse analyzer rejects bare `events.properties` references inside the ARRAY JOIN source array (the source array is resolved before the FROM alias scope). Four columns let the INSERT stay a single `FROM events GROUP BY (hour, path)`, no fan-out, and each metric tab reads exactly one column.
+Four columns vs. a metric discriminator: ARRAY JOIN would fan one event into four rows, but the new ClickHouse analyzer rejects bare `events.properties` references inside the ARRAY JOIN source array (the source array is resolved before the FROM alias scope). Four columns let the INSERT stay a single `FROM events GROUP BY (day, path)`, no fan-out, and each metric tab reads exactly one column.
 
 ### Bucketing and timezones
 
 **Daily, team-tz aligned.** Bucket key is `toStartOfDay(timestamp, team_tz)` — start of the team's local day. The underlying Unix timestamp stored in `time_window_start` is the UTC instant of that local midnight, so reads filter against the team-tz date range converted to UTC and get exact alignment.
 
-This differs from web overview / web stats which use UTC-hourly buckets:
+This differs from web overview / web stats / paths which use UTC-hourly buckets:
 
 - The path-breakdown tile only consumes day-aligned date ranges from the dashboard filter, so a daily bucket is sufficient and ~24× smaller than hourly.
 - Bucketing in the team's tz means **half-hour-offset timezones** (IST +5:30, Newfoundland -3:30, Nepal +5:45, Iran +3:30) are supported too — this runner opts out of the shared `is_integer_timezone` gate.
@@ -235,7 +344,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, per-query opt-in not set, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, per-query opt-in not set, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days. The vitals runner also adds a day-alignment check that refuses sub-day filters.
 
 ### Observability
 
@@ -250,17 +359,37 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 2. **Adding a metric** (e.g. TTFB) is a schema change — add the column to `web_vitals_paths_preaggregated`, the HogQL table registration, the INSERT template, and the `_METRIC_STATE_COLUMN` map.
 3. **Bands are computed in ClickHouse from the runtime thresholds**, not stored — so a threshold change is free on the read side.
 
+## Adding lazy computation to another web analytics query family
+
+Reference implementations: `web_overview_lazy_precompute.py` (the canonical shape), `web_stats_paths_lazy_precompute.py` (extra eligibility + non-trivial response shape), `web_vitals_paths_lazy_precompute.py` (team-tz bucketing).
+
+Roughly:
+
+1. **Schema** — new CH table under `posthog/clickhouse/preaggregation/`. ReplacingMergeTree with `(team_id, job_id, time_window_start, …)` ORDER BY, sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`. Register in `posthog/clickhouse/schema.py` test fixtures.
+2. **Migration** — `posthog/clickhouse/migrations/0XXX_<name>.py`. Sharded + distributed CREATE on `NodeRole.DATA`.
+3. **HogQL table** — `posthog/hogql/database/schema/<name>.py`. Register in `posthog/hogql/database/database.py`.
+4. **`LazyComputationTable` enum** — add a value in `products/analytics_platform/backend/lazy_computation/lazy_computation_executor.py`.
+5. **Insert query** — HogQL template using `{time_window_min}` / `{time_window_max}` placeholders. Add a session-boundary pad if the query has session-level joins (see `SESSION_FORWARD_PAD_MINUTES`); skip it if the query has no session join (see vitals_paths).
+6. **Read** — `sync_execute` with parameterized SQL and `settings={"load_balancing": "in_order", "optimize_skip_unused_shards": 1}` for the consistency story; or HogQL `execute_hogql_query` when you need modifier control (`convertToProjectTimezone=False`) or SQL-side pagination (`runner.paginator.execute_hogql_query` + AST mutation). Filter by `team_id` AND `job_id IN (...)` in the WHERE clause either way.
+7. **Runner integration** — add a `can_use_*` gate and an `execute_*_read` orchestrator; short-circuit in `_calculate` before the v2/raw fallthrough. Reject any query shape the precompute table can't faithfully represent — silent fall-through is the only safe degradation.
+8. **Tests** — round-trip (lazy == raw) parameterized over team timezones, gate fallthrough for each disqualifying condition, half-hour-offset fallthrough (unless the family opts out), cache hit (second call doesn't create new jobs).
+9. **Cache warmer** — add the new `query_type` to the warmer DAG's allowlist in `products/web_analytics/dags/cache_warming.py`.
+
 ## Related code
 
-- `posthog/hogql_queries/web_analytics/web_overview.py` — runner
-- `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` — overview lazy path
-- `posthog/hogql_queries/web_analytics/web_overview_pre_aggregated.py` — overview v2 path
-- `posthog/hogql_queries/web_analytics/stats_table.py` — stats table runner
-- `posthog/hogql_queries/web_analytics/web_stats_paths_lazy_precompute.py` — PATHS lazy path
-- `posthog/hogql_queries/web_analytics/web_lazy_precompute_common.py` — shared eligibility gate + helpers
+- [`products/web_analytics/backend/hogql_queries/web_overview.py`](backend/hogql_queries/web_overview.py) — overview runner
+- [`products/web_analytics/backend/hogql_queries/web_overview_lazy_precompute.py`](backend/hogql_queries/web_overview_lazy_precompute.py) — overview lazy path
+- `products/web_analytics/backend/hogql_queries/web_overview_pre_aggregated.py` — overview v2 path
+- [`products/web_analytics/backend/hogql_queries/stats_table.py`](backend/hogql_queries/stats_table.py) — stats table runner
+- [`products/web_analytics/backend/hogql_queries/web_stats_lazy_precompute.py`](backend/hogql_queries/web_stats_lazy_precompute.py) — stats lazy path
+- [`products/web_analytics/backend/hogql_queries/web_stats_paths_lazy_precompute.py`](backend/hogql_queries/web_stats_paths_lazy_precompute.py) — PATHS lazy path
+- [`products/web_analytics/backend/hogql_queries/web_analytics_lazy_precompute.py`](backend/hogql_queries/web_analytics_lazy_precompute.py) — shared eligibility gate (overview + stats + vitals_paths)
+- [`products/web_analytics/backend/hogql_queries/web_lazy_precompute_common.py`](backend/hogql_queries/web_lazy_precompute_common.py) — shared eligibility gate (stats_paths)
+- [`products/web_analytics/backend/hogql_queries/web_vitals_path_breakdown.py`](backend/hogql_queries/web_vitals_path_breakdown.py) — vitals runner
+- [`products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py`](backend/hogql_queries/web_vitals_paths_lazy_precompute.py) — vitals lazy path
 - `posthog/clickhouse/preaggregation/web_overview_preaggregated_sql.py` — overview schema
+- `posthog/clickhouse/preaggregation/web_stats_preaggregated_sql.py` — stats schema
 - `posthog/clickhouse/preaggregation/web_stats_paths_preaggregated_sql.py` — PATHS schema
-- `products/web_analytics/backend/hogql_queries/web_vitals_path_breakdown.py` — vitals runner
-- `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
 - `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
-- `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README
+- [`products/analytics_platform/backend/lazy_computation/`](../analytics_platform/backend/lazy_computation/) — framework + CONSISTENCY.md + README
+- [`skills/evaluating-web-analytics-performance/SKILL.md`](skills/evaluating-web-analytics-performance/SKILL.md) — query-log playbook for verifying rollouts and attributing tail latency
