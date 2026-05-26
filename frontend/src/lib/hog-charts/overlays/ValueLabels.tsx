@@ -23,6 +23,11 @@ const LABEL_BORDER = 2
 const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
 
+/** Total rendered height of a value label (text box + border). Chart wrappers reserve this
+ *  much plot-area headroom via `extraMargins` so labels on bars that reach the axis don't
+ *  get clipped by the chart's `overflow: hidden` wrapper. */
+export const VALUE_LABEL_HEIGHT = LABEL_HEIGHT
+
 interface Candidate {
     key: string
     seriesIndex: number

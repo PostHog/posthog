@@ -27,6 +27,9 @@ interface UseChartMarginsOptions {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
+    /** Added on top of the auto-computed margins. Used by wrappers to reserve headroom for
+     *  overlays (e.g. value labels on bars that reach the axis top). */
+    extraMargins?: Partial<ChartMargins>
 }
 
 function widestCategoryLabelWidth(
@@ -73,6 +76,7 @@ export function useChartMargins({
     xTickFormatter,
     yTickFormatter,
     axisOrientation = 'vertical',
+    extraMargins,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
@@ -109,6 +113,11 @@ export function useChartMargins({
         return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter) / 2)
     }, [labels, xTickFormatter, hideXAxis, isHorizontal, series, yTickFormatter])
 
+    const extraTop = extraMargins?.top ?? 0
+    const extraRight = extraMargins?.right ?? 0
+    const extraBottom = extraMargins?.bottom ?? 0
+    const extraLeft = extraMargins?.left ?? 0
+
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis
             ? COLLAPSED_AXIS_MARGIN
@@ -122,7 +131,12 @@ export function useChartMargins({
               ) + (normalizedYAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const right = Math.max(rightFloor, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
-        return { top: DEFAULT_MARGINS.top, right, bottom, left }
+        return {
+            top: DEFAULT_MARGINS.top + extraTop,
+            right: right + extraRight,
+            bottom: bottom + extraBottom,
+            left: left + extraLeft,
+        }
     }, [
         hideXAxis,
         hideYAxis,
@@ -131,5 +145,9 @@ export function useChartMargins({
         xLabelHalfWidth,
         normalizedXAxisLabel,
         normalizedYAxisLabel,
+        extraTop,
+        extraRight,
+        extraBottom,
+        extraLeft,
     ])
 }

@@ -82,6 +82,26 @@ describe('useChartMargins', () => {
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
     })
 
+    describe('extraMargins', () => {
+        it('adds to each side of the auto-computed margins', () => {
+            const base = render()
+            const padded = render({ extraMargins: { top: 30, right: 10, bottom: 20, left: 5 } })
+            expect(padded.top).toBe(base.top + 30)
+            expect(padded.right).toBe(base.right + 10)
+            expect(padded.bottom).toBe(base.bottom + 20)
+            expect(padded.left).toBe(base.left + 5)
+        })
+
+        it('only adjusts sides that are provided', () => {
+            const base = render()
+            const topOnly = render({ extraMargins: { top: 28 } })
+            expect(topOnly.top).toBe(base.top + 28)
+            expect(topOnly.right).toBe(base.right)
+            expect(topOnly.bottom).toBe(base.bottom)
+            expect(topOnly.left).toBe(base.left)
+        })
+    })
+
     describe('horizontal orientation', () => {
         it('sizes the left margin from the widest category label, not value-tick width', () => {
             const longCategoryLabels = ['shortest', 'a-considerably-longer-label']

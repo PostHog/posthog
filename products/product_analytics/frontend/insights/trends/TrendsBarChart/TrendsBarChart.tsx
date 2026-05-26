@@ -190,8 +190,10 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             yTickFormatter: aggregatedYTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
+            // Horizontal layout — bars grow rightward, so the value labels live past the right edge.
+            extraMargins: showValuesOnSeries ? { right: 28 } : undefined,
         }),
-        [yAxisScaleType, aggregatedYTickFormatter, trendsFilter?.xAxisLabel, trendsFilter?.yAxisLabel]
+        [yAxisScaleType, aggregatedYTickFormatter, trendsFilter?.xAxisLabel, trendsFilter?.yAxisLabel, showValuesOnSeries]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
