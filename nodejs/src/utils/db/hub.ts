@@ -10,7 +10,6 @@ import {
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../../ingestion/personhog'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -47,11 +46,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         ...defaultConfig,
         ...config,
     }
-
-    logger.info('🤔', `Connecting to Kafka...`)
-
-    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
-    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
     logger.info('👍', `Postgres Router ready`)
@@ -123,7 +117,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         redisPool,
         posthogRedisPool,
         cookielessRedisPool,
-        kafkaProducer,
         groupTypeManager,
         teamManager,
         groupRepository,
@@ -144,7 +137,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
     await Promise.allSettled([
-        hub.kafkaProducer.disconnect(),
         hub.redisPool.drain(),
         hub.posthogRedisPool.drain(),
         hub.cookielessRedisPool.drain(),

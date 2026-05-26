@@ -22,7 +22,13 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
+    isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
+import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
+import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -72,7 +78,8 @@ export function TaxonomicPropertyFilter({
     excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
-    exactMatchFeatureFlagCohortOperators,
+    excludedOperators,
+    selectingKeyOnly,
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
@@ -117,20 +124,19 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline =
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
+    const filterTaxonomicGroupType = filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined
+    const isKeyOnlyRow = isKeyOnlyForGroup(selectingKeyOnly, filterTaxonomicGroupType)
     const showOperatorValueSelect =
-        filter?.type &&
-        filter?.key &&
-        !(filter?.type === PropertyFilterType.HogQL) &&
-        // If we're in a feature flag, we don't want to show operators for cohorts because
-        // we don't support any cohort matching operators other than "in"
-        // See https://github.com/PostHog/posthog/pull/25149/
-        !(filter?.type === PropertyFilterType.Cohort && exactMatchFeatureFlagCohortOperators)
+        filter?.type && filter?.key && !(filter?.type === PropertyFilterType.HogQL) && !isKeyOnlyRow
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
+    const menuRebuildEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -162,7 +168,7 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
+            groupType={filterTaxonomicGroupType}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
@@ -176,6 +182,8 @@ export function TaxonomicPropertyFilter({
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
+            excludedOperators={excludedOperators}
+            selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
         />
     )
@@ -249,6 +257,87 @@ export function TaxonomicPropertyFilter({
                       />
                   )
 
+    const legacyDropdown = (
+        <LemonDropdown
+            overlay={taxonomicFilter}
+            placement="bottom-start"
+            visible={dropdownOpen}
+            onClickOutside={closeDropdown}
+        >
+            <LemonButton
+                type="secondary"
+                icon={!valuePresent ? <IconPlusSmall /> : undefined}
+                data-attr={'property-select-toggle-' + index}
+                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
+                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                size={size}
+                truncate={true}
+                tooltip={
+                    <>
+                        {filterContent ?? (addText || 'Add filter')}
+                        {addFilterDocLink && (
+                            <>
+                                <br />
+                                <Link to={addFilterDocLink} target="_blank">
+                                    Read the docs
+                                </Link>
+                            </>
+                        )}
+                    </>
+                }
+            >
+                {filterContent ?? (addText || 'Add filter')}
+            </LemonButton>
+        </LemonDropdown>
+    )
+
+    // The rebuilt menu is a self-contained popover, so it only replaces the
+    // row-branch dropdown variant. The truly inline mode is already routed
+    // away via `showInitialSearchInline`; `disablePopover` still renders a
+    // button + dropdown here, so it's fine to swap.
+    //
+    // `selectingKeyOnly` rows keep the classic filter — the rebuilt menu
+    // doesn't model key-only selection semantics yet, and silently swapping
+    // would change what `onChange` commits.
+    //
+    // The rebuilt menu carries its own toggle inside its trigger wrapper, so
+    // it needs no extra DOM and inherits the row's layout exactly. The
+    // legacy path gets a thin positioned wrapper to host the floating toggle.
+    const editablePicker = !menuRebuildEnabled ? (
+        legacyDropdown
+    ) : useNewMenu && !isKeyOnlyRow ? (
+        <TaxonomicPopoverMenu
+            groupType={filterTaxonomicGroupType ?? groupTypes[0]}
+            value={cohortOrOtherValue}
+            groupTypes={groupTypes}
+            onChange={(value, _groupType, item, group) => taxonomicOnChange(group, value, item)}
+            renderValue={() => <span className="truncate">{filterContent}</span>}
+            placeholder={addText || 'Add filter'}
+            metadataSource={metadataSource}
+            eventNames={eventNames}
+            schemaColumns={schemaColumns}
+            excludedProperties={excludedProperties}
+            propertyAllowList={propertyAllowList}
+            optionsFromProp={taxonomicFilterOptionsFromProp}
+            hideBehavioralCohorts={hideBehavioralCohorts}
+            endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
+            enableKeywordShortcuts
+            triggerButtonProps={{
+                type: 'secondary',
+                size,
+                truncate: true,
+                sideIcon: null,
+                icon: !valuePresent ? <IconPlusSmall /> : undefined,
+            }}
+        />
+    ) : (
+        <span className="relative inline-flex max-w-full min-w-0">
+            {legacyDropdown}
+            <TaxonomicMenuToggle />
+        </span>
+    )
+
     return (
         <div
             className={clsx('TaxonomicPropertyFilter', {
@@ -295,41 +384,7 @@ export function TaxonomicPropertyFilter({
                     )}
                     <div className="TaxonomicPropertyFilter__row-items">
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
-                        {editable ? (
-                            <LemonDropdown
-                                overlay={taxonomicFilter}
-                                placement="bottom-start"
-                                visible={dropdownOpen}
-                                onClickOutside={closeDropdown}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    icon={!valuePresent ? <IconPlusSmall /> : undefined}
-                                    data-attr={'property-select-toggle-' + index}
-                                    sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
-                                    onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                                    size={size}
-                                    truncate={true}
-                                    tooltip={
-                                        <>
-                                            {filterContent ?? (addText || 'Add filter')}
-                                            {addFilterDocLink && (
-                                                <>
-                                                    <br />
-                                                    <Link to={addFilterDocLink} target="_blank">
-                                                        Read the docs
-                                                    </Link>
-                                                </>
-                                            )}
-                                        </>
-                                    }
-                                >
-                                    {filterContent ?? (addText || 'Add filter')}
-                                </LemonButton>
-                            </LemonDropdown>
-                        ) : (
-                            filterContent
-                        )}
+                        {editable ? editablePicker : filterContent}
                         {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>

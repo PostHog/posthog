@@ -214,7 +214,7 @@ class Person(models.Model):
             return self._distinct_ids
         return [
             id[0]
-            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person=self, team_id=self.team_id)
             .order_by("id")
             .values_list("distinct_id")
@@ -250,7 +250,9 @@ class Person(models.Model):
             # Delete PersonDistinctId records with explicit team_id for partition pruning.
             # Django's Collector.delete() generates: DELETE FROM posthog_persondistinctid WHERE person_id IN (...)
             # which misses team_id and would scan all partitions on a partitioned table.
-            PersonDistinctId.objects.filter(team_id=person_team_id, person_id=person_pk).delete()
+            PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                team_id=person_team_id, person_id=person_pk
+            ).delete()  # nosemgrep: no-direct-persons-db-orm
 
             # Now delete the Person itself with explicit team_id for partition pruning
             db_connection = connections[using]
@@ -264,7 +266,9 @@ class Person(models.Model):
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
-        PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
+        PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
+            person=self, distinct_id=distinct_id, team_id=self.team_id
+        )  # nosemgrep: no-direct-persons-db-orm
 
     # :DEPRECATED: This should happen through the plugin server
     def _add_distinct_ids(self, distinct_ids: list[str]) -> None:
@@ -290,7 +294,12 @@ class Person(models.Model):
         ``max_splits`` of them). If ``main_distinct_id`` is also None, properties are
         wiped from the original person and the first distinct_id becomes the main.
         """
-        original_person = Person.objects.only("id", "team_id", "uuid", "version").get(team_id=self.team_id, pk=self.pk)
+        # nosemgrep: no-direct-persons-db-orm
+        original_person = Person.objects.only(
+            "id", "team_id", "uuid", "version"
+        ).get(  # nosemgrep: no-direct-persons-db-orm
+            team_id=self.team_id, pk=self.pk
+        )  # nosemgrep: no-direct-persons-db-orm
         distinct_ids = original_person.distinct_ids
         original_person_version = original_person.version or 0
 
@@ -366,7 +375,7 @@ class Person(models.Model):
         """Lock and return PDIs for the given distinct_ids. Raises if any are missing."""
         locked = {
             person_distinct_id.distinct_id: person_distinct_id
-            for person_distinct_id in PersonDistinctId.objects.select_for_update().filter(
+            for person_distinct_id in PersonDistinctId.objects.select_for_update().filter(  # nosemgrep: no-direct-persons-db-orm
                 team_id=self.team_id, person=self, distinct_id__in=distinct_ids
             )
         }
@@ -397,7 +406,7 @@ class Person(models.Model):
         """
         new_person_by_uuid = {}
         for new_uuid in new_uuid_by_distinct_id.values():
-            new_person, _created = Person.objects.update_or_create(
+            new_person, _created = Person.objects.update_or_create(  # nosemgrep: no-direct-persons-db-orm
                 uuid=new_uuid,
                 team_id=self.team_id,
                 defaults={"version": original_person_version + 101},
@@ -427,7 +436,9 @@ class Person(models.Model):
             # This ensures the split distinct_id overrides any deleted distinct_id.
             person_distinct_id.version = (person_distinct_id.version or 0) + 101
 
-        PersonDistinctId.objects.bulk_update(list(locked_pdis.values()), ["person_id", "version"])
+        PersonDistinctId.objects.bulk_update(  # nosemgrep: no-direct-persons-db-orm
+            list(locked_pdis.values()), ["person_id", "version"]
+        )  # nosemgrep: no-direct-persons-db-orm
 
     def _publish_split_to_kafka(
         self,
@@ -617,13 +628,13 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
             return list(set(ids[:first_ids_limit] + ids[-last_ids_limit:]))
 
         first_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person=person, team=team)
             .order_by("id")
             .values_list("distinct_id", flat=True)[:first_ids_limit]
         )
         last_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person=person, team=team)
             .order_by("-id")
             .values_list("distinct_id", flat=True)[:last_ids_limit]

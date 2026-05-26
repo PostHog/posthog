@@ -597,7 +597,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
                             ? {
                                   identifier: Scene.UserInterviews,
-                                  label: 'User interviews',
+                                  label: 'User research',
                                   icon: <IconChat />,
                                   tag: 'alpha' as const,
                                   to: urls.userInterviews(),
@@ -605,11 +605,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             : null,
                         {
                             identifier: 'LLMAnalytics',
-                            label: 'LLM analytics',
+                            label: 'AI observability',
                             icon: <IconLlmAnalytics />,
                             to: urls.llmAnalyticsDashboard(),
-                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                            tooltipDocLink: 'https://posthog.com/docs/ai-observability/dashboard',
                         },
+                        featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]
+                            ? {
+                                  identifier: 'MCPAnalytics',
+                                  label: 'MCP analytics',
+                                  icon: <IconLlmAnalytics />,
+                                  to: urls.mcpAnalyticsDashboard(),
+                                  tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
+                              }
+                            : null,
                         {
                             identifier: Scene.Logs,
                             label: 'Logs',

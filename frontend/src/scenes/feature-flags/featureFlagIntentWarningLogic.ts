@@ -77,13 +77,23 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                     return new Set()
                 }
 
+                // A broad condition only shadows later conditions targeting the same entity type.
+                // Mixed-targeting flags can have condition sets aimed at users (null) or different
+                // group types, which are evaluated independently when their context is provided.
+                const flagAggregation = featureFlag?.filters?.aggregation_group_type_index ?? null
                 const unreachable = new Set<number>()
-                let foundBroad = false
+                const broadAggregations = new Set<number | null>()
                 for (let i = 0; i < groups.length; i++) {
-                    if (foundBroad) {
+                    const group = groups[i]
+                    // Distinguish "not provided" (undefined → inherit flag-level) from "explicitly user-targeted" (null).
+                    const aggregation =
+                        group.aggregation_group_type_index !== undefined
+                            ? group.aggregation_group_type_index
+                            : flagAggregation
+                    if (broadAggregations.has(aggregation)) {
                         unreachable.add(i)
-                    } else if (isGroupBroad(groups[i])) {
-                        foundBroad = true
+                    } else if (isGroupBroad(group)) {
+                        broadAggregations.add(aggregation)
                     }
                 }
                 return unreachable
@@ -115,14 +125,6 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                         issues.add(
                             'Persist across authentication requires server-side state that local evaluation cannot access'
                         )
-                    }
-
-                    const aggregationIndices = groups.map((g) => g.aggregation_group_type_index ?? null)
-                    if (
-                        aggregationIndices.length > 1 &&
-                        !aggregationIndices.every((a) => a === aggregationIndices[0])
-                    ) {
-                        issues.add('Mixed user and group targeting is not currently supported by local evaluation')
                     }
 
                     for (const group of groups) {

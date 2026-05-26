@@ -18,9 +18,11 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     filter_redshift_incremental_fields,
+    get_leading_sortkey_columns_for_schemas as get_redshift_leading_sortkey_columns_for_schemas,
     get_primary_keys_for_schemas as get_redshift_primary_keys_for_schemas,
     get_redshift_row_count,
     get_schemas as get_redshift_schemas,
@@ -67,6 +69,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="redshift://user:password@my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com:5439/dev",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="host",
@@ -74,6 +77,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -81,6 +85,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="5439",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -88,6 +93,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="dev",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -95,6 +101,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="awsuser",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -102,6 +109,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -109,6 +117,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
@@ -135,10 +144,21 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "password authentication failed connection": None,
             "connection timeout expired": None,
             "Connection refused": None,
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INTEGER` → `BIGINT`)
+            # after the destination table was created with the narrower type. Delta Lake can't
+            # widen an existing column in place, so retrying won't help — the table must be
+            # reset and fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def get_schemas(
-        self, config: RedshiftSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: RedshiftSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -166,6 +186,16 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                 structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
                 detected_pks = {}
 
+            indexed_columns_by_table = get_redshift_leading_sortkey_columns_for_schemas(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+                table_names=list(db_schemas.keys()),
+            )
+
             if with_counts:
                 row_counts = get_redshift_row_count(
                     host=host,
@@ -181,6 +211,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_redshift_incremental_fields(columns)
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -188,6 +219,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
@@ -200,8 +232,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
                     columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(detected_pks.get(table_name), columns),
                 )
             )
 
@@ -243,7 +274,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
         return True, None
 
     def source_for_pipeline(self, config: RedshiftSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

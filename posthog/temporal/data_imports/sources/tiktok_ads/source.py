@@ -51,6 +51,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your TikTok Ads advertiser ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="tiktok_integration_id",
@@ -86,7 +87,12 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             return False, f"Failed to validate TikTok Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: TikTokAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: TikTokAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

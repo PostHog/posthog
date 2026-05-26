@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.constants import get_child_workflow_id, get_percentile_bucket_label
+from posthog.temporal.messaging.quantiles_storage import get_cached_quantiles_or_calculate
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationWorkflowInputs,
@@ -168,12 +169,10 @@ class RealtimeCohortSelectionResult:
 async def calculate_percentile_thresholds(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Calculate percentile thresholds directly from duration data."""
+    """Calculate percentile thresholds using cached quantiles to ensure consistency across workflows."""
 
     @database_sync_to_async
     def get_thresholds():
-        import statistics
-
         try:
             # Get cohorts with recent duration data (past 24 hours)
             recent_cohorts = Cohort.objects.filter(
@@ -188,27 +187,50 @@ async def calculate_percentile_thresholds(
 
             durations_list = list(recent_cohorts)
 
-            if len(durations_list) < 2:
-                return None
-
             # Calculate specific percentile thresholds
             min_percentile = inputs.min_percentile
             max_percentile = inputs.max_percentile
 
-            # Compute quantiles once to avoid duplicate allocation and sorting
-            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
+            # Get quantiles from cache or calculate atomically
+            # This ensures all workflows use the same percentile boundaries
+            # Check cache first even if current query has insufficient data
+            cached = get_cached_quantiles_or_calculate(durations_list)
+
+            if cached is None:
+                LOGGER.warning("Failed to get or calculate quantiles")
+                # Emit metric for monitoring quantiles unavailability.
+                # This runs inside an activity, so use the activity meter rather than the
+                # workflow meter (which would raise outside a workflow event loop).
+                try:
+                    quantiles_unavailable_counter = temporalio.activity.metric_meter().create_counter(
+                        "quantiles_unavailable", "Count of times quantiles were unavailable for percentile calculations"
+                    )
+                    quantiles_unavailable_counter.add(1)
+                except RuntimeError:
+                    # Not in activity context (e.g., during tests), skip metric
+                    pass
+                return None
+
+            quantiles = cached.quantiles
+            cached_max = cached.max_value
 
             # Special handling for p0: use 0 instead of calculating from data
             if min_percentile is None or min_percentile <= 0.0:
                 min_threshold = 0
+            elif min_percentile >= 99.9:
+                # p100 case - use cached max so all workflows sharing this cache entry
+                # get identical p100 boundaries even if current durations_list differs.
+                min_threshold = cached_max
             else:
+                # For percentiles 1-99, quantiles[0] is p1, quantiles[1] is p2, etc.
                 min_threshold = int(quantiles[int(min_percentile) - 1])
 
             # Calculate max threshold
             if max_percentile is None or max_percentile >= 99.9:
-                # p100 case - use actual maximum from data
-                max_threshold = int(max(durations_list))
+                # p100 case - use cached max for cross-workflow consistency.
+                max_threshold = cached_max
             else:
+                # For percentiles 1-99, quantiles[0] is p1, quantiles[1] is p2, etc.
                 max_threshold = int(quantiles[int(max_percentile) - 1])
 
             return QueryPercentileThresholds(
@@ -216,9 +238,9 @@ async def calculate_percentile_thresholds(
                 max_threshold_ms=max_threshold,
             )
 
-        except (statistics.StatisticsError, TypeError, ValueError) as e:
+        except (TypeError, ValueError, IndexError) as e:
             LOGGER.warning(
-                "Failed to calculate percentile thresholds from duration data",
+                "Failed to calculate percentile thresholds from cached quantiles",
                 error=str(e),
                 error_type=type(e).__name__,
             )

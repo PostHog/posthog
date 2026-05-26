@@ -1,8 +1,8 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
 import type { BaseChartContext } from '../core/chart-context'
-import { ChartContext } from '../core/chart-context'
+import { makeOverlayContext, renderOverlayInChart } from '../testing'
 import { ReferenceLine, ReferenceLines } from './ReferenceLine'
 
 const DIMENSIONS = {
@@ -17,20 +17,20 @@ const DIMENSIONS = {
 // Simple linear y-scale: 0 -> plotBottom (368), 100 -> plotTop (16)
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
-const CONTEXT: BaseChartContext = {
-    dimensions: DIMENSIONS,
-    labels: ['Mon', 'Tue', 'Wed'],
-    series: [],
-    scales: {
+const CONTEXT: BaseChartContext = makeOverlayContext(
+    {
         x: (label: string) => (({ Mon: 100, Tue: 400, Wed: 700 }) as Record<string, number | undefined>)[label],
         y: yScale,
         yTicks: () => [0, 50, 100],
     },
-    hoverIndex: -1,
-}
+    {
+        dimensions: DIMENSIONS,
+        labels: ['Mon', 'Tue', 'Wed'],
+    }
+)
 
-function renderInChart(node: React.ReactNode): ReturnType<typeof render> {
-    return render(<ChartContext.Provider value={CONTEXT}>{node}</ChartContext.Provider>)
+function renderInChart(node: React.ReactNode, ctx: BaseChartContext = CONTEXT): RenderResult {
+    return renderOverlayInChart(node, ctx)
 }
 
 function lineDiv(container: HTMLElement, side: 'top' | 'left'): HTMLDivElement | null {
@@ -113,11 +113,7 @@ describe('ReferenceLine', () => {
                     },
                 },
             }
-            const { container } = render(
-                <ChartContext.Provider value={multiAxisContext}>
-                    <ReferenceLine value={500} yAxisId="y1" />
-                </ChartContext.Provider>
-            )
+            const { container } = renderInChart(<ReferenceLine value={500} yAxisId="y1" />, multiAxisContext)
             const line = lineDiv(container, 'top')
             expect(line).not.toBeNull()
             // rightScale(500) = 192; width 2 → top = 191

@@ -227,7 +227,7 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description="""
 Generate a human-readable text representation of an LLM trace event.
 
-This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
+This endpoint converts AI observability events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
 into formatted text representations suitable for display, logging, or analysis.
 
 **Supported Event Types:**
@@ -258,7 +258,7 @@ into formatted text representations suitable for display, logging, or analysis.
 
 The response includes the formatted text and metadata about the rendering.
         """,
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @llma_track_latency("llma_text_repr")
     @monitor(feature=None, endpoint="llma_text_repr", method="POST")

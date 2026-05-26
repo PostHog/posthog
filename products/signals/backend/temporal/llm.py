@@ -4,11 +4,12 @@ from typing import Optional, TypeVar
 
 from django.conf import settings
 
-import tiktoken
 import structlog
 import posthoganalytics
 from anthropic.types import MessageParam
 from posthoganalytics.ai.anthropic import AsyncAnthropic
+
+from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
 logger = structlog.get_logger(__name__)
 
@@ -50,7 +51,7 @@ def get_async_anthropic_client() -> AsyncAnthropic:
 def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
     """Truncate a query string to fit within token limit for embedding."""
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
+        enc = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
         tokens = enc.encode(query)
         if len(tokens) <= max_tokens:
             return query

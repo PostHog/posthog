@@ -16,7 +16,7 @@ description: >
 
 Some PostHog features (group session summaries, single session summaries, replay AI search, error tracking AI debug, etc.) generate hundreds or thousands of LLM traces per week. Reading them by hand is not feasible. This skill covers the end-to-end pattern for turning that trace volume into a live Slack feed of canonical use cases — what users are actually doing with the feature.
 
-The workflow is **mixed, and leans UI**. Trace inspection and filter discovery (steps 1-2) are MCP-driven. Eval creation, dry-running, and enabling (steps 4-5) are MCP-driven _when_ `posthog:evaluation-*` tools are exposed to your agent — but they often aren't, in which case fall back to the UI (Data pipeline → destinations for the alert is always UI). Each step flags its UI fallback. Expect to finish in the UI even when you start from chat.
+The workflow is **mixed, and leans UI**. Trace inspection and filter discovery (steps 1-2) are MCP-driven. Eval creation, dry-running, and enabling (steps 4-5) are MCP-driven _when_ `posthog:llma-evaluation-*` tools are exposed to your agent — but they often aren't, in which case fall back to the UI (Data pipeline → destinations for the alert is always UI). Each step flags its UI fallback. Expect to finish in the UI even when you start from chat.
 
 ## When to use
 
@@ -33,7 +33,7 @@ This skill supports two different ways to scope an eval to "the feature you care
 
 **Pattern A — Feature-native trace_id prefix.** For standalone features that emit their own `$ai_trace_id` pattern (e.g. `session-summary:group:`, `replay-search:`, error-tracking-specific flows). Filter on the prefix.
 
-**Pattern B — PostHog AI agent mode.** For features the user interacts with _via_ PostHog AI in a specific agent mode (error tracking, product analytics, session replay, SQL, flags, surveys, LLM analytics). Filter on `ai_product = 'posthog_ai' AND agent_mode = '<mode>'`. This requires PR #55160 (merged April 2026) to be deployed, which threads `agent_mode` and `supermode` onto every `$ai_generation` emitted by the chat agent loop. A useful ergonomic side-effect: `agent_mode IS NOT NULL` is a reliable "user-facing chat turn" filter — batch jobs and tool-internal LLM calls go through different code paths and have `agent_mode=null`, so they're excluded for free.
+**Pattern B — PostHog AI agent mode.** For features the user interacts with _via_ PostHog AI in a specific agent mode (error tracking, product analytics, session replay, SQL, flags, surveys, AI observability). Filter on `ai_product = 'posthog_ai' AND agent_mode = '<mode>'`. This requires PR #55160 (merged April 2026) to be deployed, which threads `agent_mode` and `supermode` onto every `$ai_generation` emitted by the chat agent loop. A useful ergonomic side-effect: `agent_mode IS NOT NULL` is a reliable "user-facing chat turn" filter — batch jobs and tool-internal LLM calls go through different code paths and have `agent_mode=null`, so they're excluded for free.
 
 If the user asks "what are users trying to DO in [ET / replay / SQL / flags / surveys] mode of PostHog AI", that's Pattern B. If they ask "what use cases does [standalone feature] cover", that's Pattern A. Pick the pattern first — the prompt, filter, and Slack channel naming all follow from it.
 
@@ -56,13 +56,13 @@ If `$session_id` is missing on either event type, file a backend fix before cont
 | `posthog:query-llm-traces-list`                    | Find sample traces matching the feature's `$ai_trace_id` pattern                                                                                                                                                                                                  |
 | `posthog:query-llm-trace`                          | Inspect a specific trace's contents end-to-end                                                                                                                                                                                                                    |
 | `posthog:execute-sql`                              | Verify trace volume, session_id coverage, eval result distributions                                                                                                                                                                                               |
-| `posthog:evaluation-create`                        | (**often unexposed** — UI fallback: LLM analytics → Evaluations → New) Create the LLM-judge eval (disabled at first)                                                                                                                                              |
-| `posthog:evaluation-run`                           | (**often unexposed** — UI fallback: the eval's detail page has a "Run on event" button) Dry-run the eval against specific generations during prompt iteration                                                                                                     |
-| `posthog:evaluation-update`                        | (**often unexposed** — UI fallback: edit the eval in LLM analytics → Evaluations) Tweak the prompt / enable when ready                                                                                                                                            |
-| `posthog:llm-analytics-evaluation-summary-create`  | (**often unexposed** — UI fallback: the eval detail page has a "Summarize results" button) After the feed is running, get an AI summary of pass/N/A patterns to validate signal quality                                                                           |
+| `posthog:llma-evaluation-create`                   | (**often unexposed** — UI fallback: AI observability → Evaluations → New) Create the LLM-judge eval (disabled at first)                                                                                                                                           |
+| `posthog:llma-evaluation-run`                      | (**often unexposed** — UI fallback: the eval's detail page has a "Run on event" button) Dry-run the eval against specific generations during prompt iteration                                                                                                     |
+| `posthog:llma-evaluation-update`                   | (**often unexposed** — UI fallback: edit the eval in AI observability → Evaluations) Tweak the prompt / enable when ready                                                                                                                                         |
+| `posthog:llma-evaluation-summary-create`           | (**often unexposed** — UI fallback: the eval detail page has a "Summarize results" button) After the feed is running, get an AI summary of pass/N/A patterns to validate signal quality                                                                           |
 | `posthog:workflows-list` / `posthog:workflows-get` | (**often unexposed** — UI: Data pipeline → Workflows) Browse existing workflow configs — useful for cloning an existing feed's structure when setting up a new one. Read-only; no create/update tool is exposed yet, so step 6's Slack workflow setup is UI-only. |
 
-Before starting, **check which of the `posthog:evaluation-*` tools are actually exposed in your agent's MCP tool set.** If they aren't loaded, treat steps 4-5 as UI walkthroughs rather than tool calls.
+Before starting, **check which of the `posthog:llma-evaluation-*` tools are actually exposed in your agent's MCP tool set.** If they aren't loaded, treat steps 4-5 as UI walkthroughs rather than tool calls.
 
 ## Workflow
 
@@ -197,10 +197,10 @@ The negative example list ("No 'This is a...' preamble", etc.) is load-bearing r
 
 Create with `enabled: false` so it doesn't immediately fan out to all traces.
 
-**If `posthog:evaluation-create` is exposed**, use this payload:
+**If `posthog:llma-evaluation-create` is exposed**, use this payload:
 
 ```json
-posthog:evaluation-create
+posthog:llma-evaluation-create
 {
   "name": "[feature] use case feed",
   "description": "Extracts canonical use cases for [feature] for the #team-[area]-usage Slack feed",
@@ -230,14 +230,14 @@ posthog:evaluation-create
 
 Leave model choice to the user — LLM-judge cost scales linearly with event volume, and cheap-vs-capable is a real tradeoff they should make based on their own spend tolerance and signal-quality requirements. Don't pick for them.
 
-**UI fallback** (when `evaluation-create` isn't exposed): LLM analytics → Evaluations → New evaluation. Type = `LLM judge`, output = boolean + allow N/A, filters as above, enabled = off. Paste the prompt from step 3.
+**UI fallback** (when `llma-evaluation-create` isn't exposed): AI observability → Evaluations → New evaluation. Type = `LLM judge`, output = boolean + allow N/A, filters as above, enabled = off. Paste the prompt from step 3.
 
 Then dry-run against your sample traces.
 
-**If `posthog:evaluation-run` is exposed:**
+**If `posthog:llma-evaluation-run` is exposed:**
 
 ```json
-posthog:evaluation-run
+posthog:llma-evaluation-run
 {
   "evaluationId": "<uuid from create>",
   "target_event_id": "<a $ai_generation event id from step 2>",
@@ -247,7 +247,7 @@ posthog:evaluation-run
 
 **UI fallback:** on the eval detail page, use the "Run on event" button with the trace sample's event id.
 
-Look at the returned `$ai_evaluation_reasoning`. If it preambles, drifts, or describes the input, fix the prompt (via `evaluation-update` or by editing in the UI) and re-run. Iterate on 3-5 traces before enabling.
+Look at the returned `$ai_evaluation_reasoning`. If it preambles, drifts, or describes the input, fix the prompt (via `llma-evaluation-update` or by editing in the UI) and re-run. Iterate on 3-5 traces before enabling.
 
 Common failure modes during iteration:
 
@@ -262,17 +262,17 @@ Common failure modes during iteration:
 
 Once 3-5 sample runs produce clean Slack-ready output.
 
-**If `posthog:evaluation-update` is exposed:**
+**If `posthog:llma-evaluation-update` is exposed:**
 
 ```json
-posthog:evaluation-update
+posthog:llma-evaluation-update
 {
   "evaluationId": "<uuid>",
   "enabled": true
 }
 ```
 
-**UI fallback:** LLM analytics → Evaluations → open the eval → toggle enabled.
+**UI fallback:** AI observability → Evaluations → open the eval → toggle enabled.
 
 The eval will now run on every new matching `$ai_generation` event.
 
@@ -333,7 +333,7 @@ If the only values are `True`/`False`/`None` and `True` dominates, the UI `equal
     "type": "actions",
     "elements": [
       {
-        "url": "https://us.posthog.com/project/<project_id>/llm-analytics/traces/{event.properties.$ai_trace_id}?event={event.properties.$ai_target_event_id}",
+        "url": "https://us.posthog.com/project/<project_id>/ai-observability/traces/{event.properties.$ai_trace_id}?event={event.properties.$ai_target_event_id}",
         "text": { "text": "View Trace", "type": "plain_text" },
         "type": "button"
       },
@@ -369,7 +369,7 @@ Recommended flow: synthetic → sanity-check the block template renders → flip
 
 Once the workflow is enabled, trigger the feature yourself. Within a minute or two:
 
-1. The `$ai_generation` event should appear in LLM Analytics
+1. The `$ai_generation` event should appear in AI observability
 2. The eval should auto-run and emit an `$ai_evaluation` event
 3. The workflow should fire and the Slack post should land in the configured channel
 4. Click "View Trigger Session" — should land on the recording of you using the feature, not the replay homepage
@@ -401,17 +401,17 @@ Key observation from setup: the `agent_mode` tag reflects the mode at turn-time,
 
 Once the feed has been running for a day or two, sanity-check the eval output at scale.
 
-**If `posthog:llm-analytics-evaluation-summary-create` is exposed:**
+**If `posthog:llma-evaluation-summary-create` is exposed:**
 
 ```json
-posthog:llm-analytics-evaluation-summary-create
+posthog:llma-evaluation-summary-create
 {
   "evaluation_id": "<uuid>",
   "filter": "fail"
 }
 ```
 
-**UI fallback:** open the eval in LLM analytics → Evaluations → "Summarize results" button, filter = fail.
+**UI fallback:** open the eval in AI observability → Evaluations → "Summarize results" button, filter = fail.
 
 If the FAIL bucket is large, the classification step is too strict — relax it. If the PASS bucket has lots of generic reasonings, iterate on the prompt to enforce concreteness. The summary tool gives a quick read on this without you having to scroll through individual events.
 

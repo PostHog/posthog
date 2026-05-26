@@ -8,6 +8,7 @@ use tracing::{error, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
+    event_restrictions::Pipeline,
     payload::{decompress_payload, Compression},
 };
 
@@ -169,8 +170,33 @@ pub enum DataType {
 }
 
 impl DataType {
-    pub fn is_analytics_pipeline(self) -> bool {
-        matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
+    /// Classify an event by its name (and historical-migration flag) into a
+    /// `DataType`. Used by both v0's `process_single_event` and v1's
+    /// `apply_restrictions` so the analytics → exception → heatmap →
+    /// ingestion-warning split stays in one place.
+    ///
+    /// `SnapshotMain` is not produced here — replay events arrive on a
+    /// separate endpoint and never flow through analytics processing.
+    pub fn from_event_name(event_name: &str, historical_migration: bool) -> Self {
+        match (event_name, historical_migration) {
+            ("$$client_ingestion_warning", _) => Self::ClientIngestionWarning,
+            ("$exception", _) => Self::ExceptionErrorTracking,
+            ("$$heatmap", _) => Self::HeatmapMain,
+            (_, true) => Self::AnalyticsHistorical,
+            (_, false) => Self::AnalyticsMain,
+        }
+    }
+
+    /// Pipeline this event flows to, if any. Heatmaps, ingestion warnings,
+    /// and snapshots have their own dedicated topics and consumers; they
+    /// don't share Redis-backed restriction config with any other pipeline,
+    /// so they're not subject to `EventRestrictionService` lookups.
+    pub fn pipeline(self) -> Option<Pipeline> {
+        match self {
+            Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
+            Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
+            Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
+        }
     }
 }
 
@@ -226,6 +252,9 @@ pub struct ProcessedEventMetadata {
     pub redirect_to_dlq: bool,
     /// Redirect this event to a custom topic (set by event restrictions)
     pub redirect_to_topic: Option<String>,
+    /// Heatmap data on this event was redirected to the heatmaps topic and
+    /// must not be extracted again by the events pipeline.
+    pub skip_heatmap_processing: bool,
     /// Overflow routing decision stamped by the pipeline. `None` means the
     /// event stays on its default topic for its `data_type`. See
     /// [`OverflowReason`] for who sets this and what each variant maps to in

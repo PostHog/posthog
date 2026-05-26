@@ -25,6 +25,8 @@ from posthog.hogql.workload import WorkloadCollector
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
@@ -85,6 +87,15 @@ def prepare_ast_for_printing(
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
+
+    # Load property-level access control restrictions before type resolution so that
+    # FieldType.get_child() can block access to restricted properties during resolution.
+    if context.team_id is not None and context.restricted_properties is None:
+        with context.timings.measure("load_restricted_properties"):
+            context.restricted_properties = get_restricted_properties_for_team(
+                team_id=context.team_id,
+                user=context.user,
+            )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):

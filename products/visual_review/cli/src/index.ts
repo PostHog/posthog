@@ -17,7 +17,7 @@ import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
 
-const RETRY_STATUS_CODES = new Set([500, 502, 503, 504])
+const RETRY_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 const SUBMIT_API_RETRIES = 3
 const SUBMIT_API_RETRY_BASE_DELAY_MS = 1_000
 
@@ -39,6 +39,7 @@ program
     .option('--pr <number>', 'PR number')
     .option('--token <value>', 'Personal API token (Authorization: Bearer)')
     .option('--cookie <value>', 'Session cookie for authentication')
+    .option('--purpose <purpose>', 'Run purpose: review (gating, approvable) or observe (tracking only)', 'review')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -165,6 +166,7 @@ interface SubmitOptions {
     pr?: string
     token?: string
     cookie?: string
+    purpose?: string
     autoApprove?: boolean
 }
 
@@ -521,7 +523,10 @@ async function retrySubmitApiCall<T>(label: string, operation: () => Promise<T>)
                 throw error
             }
 
-            const delayMs = SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
+            const delayMs =
+                error.status === 429 && error.retryAfter
+                    ? error.retryAfter * 1000
+                    : SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
             log(
                 `${label} returned ${error.status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${SUBMIT_API_RETRIES})`
             )
@@ -597,8 +602,13 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // 3. Create run with full manifest — backend fetches baseline and classifies
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
+    // --auto-approve only makes sense on review runs; observe runs are non-approvable.
+    const purpose = options.autoApprove ? 'review' : (options.purpose ?? 'review')
+    if (options.autoApprove && options.purpose && options.purpose !== 'review') {
+        log(`Warning: --auto-approve forces purpose=review (got --purpose ${options.purpose})`)
+    }
     log(
-        `Creating run: type=${options.type}, ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`
+        `Creating run: type=${options.type}, ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${purpose}`
     )
 
     const result = await retrySubmitApiCall('Create run', () =>
@@ -608,7 +618,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
             commitSha: commit,
             branch,
             prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-            purpose: options.autoApprove ? 'review' : 'observe',
+            purpose,
             snapshots: snapshots.map((s) => ({
                 identifier: s.identifier,
                 content_hash: s.hash,

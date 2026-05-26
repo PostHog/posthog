@@ -1,3 +1,4 @@
+from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflow, investigate_anomaly_activity
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
@@ -10,10 +11,13 @@ from posthog.temporal.ai.posthog_code_slack_interactivity import (
 )
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflow,
+    block_posthog_code_task_if_no_personal_github_activity,
+    cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_routing_rule_activity,
     create_posthog_code_task_for_repo_activity,
+    discover_posthog_code_repository_via_agent_activity,
     forward_posthog_code_followup_activity,
     handle_posthog_code_rules_command_activity,
     post_posthog_code_internal_error_activity,
@@ -52,6 +56,7 @@ AI_WORKFLOWS = [
     SlackConversationRunnerWorkflow,
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackTerminateTaskWorkflow,
+    AnomalyInvestigationWorkflow,
 ]
 
 AI_ACTIVITIES = [
@@ -67,15 +72,19 @@ AI_ACTIVITIES = [
     handle_posthog_code_rules_command_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_routing_rule_activity,
+    cascade_posthog_code_repository_activity,
+    discover_posthog_code_repository_via_agent_activity,
     select_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
     post_posthog_code_no_repos_activity,
     post_posthog_code_repo_picker_activity,
+    block_posthog_code_task_if_no_personal_github_activity,
     create_posthog_code_task_for_repo_activity,
     forward_posthog_code_followup_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_internal_error_activity,
     process_posthog_code_terminate_task_activity,
+    investigate_anomaly_activity,
 ]
 
 __all__ = [

@@ -45,7 +45,6 @@ from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
-from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
 from posthog.utils import format_query_params_absolute_url
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
@@ -612,7 +611,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
-    delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
 
     deleted = ClassicBehaviorBooleanFieldSerializer()
@@ -628,7 +626,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "error",
             "team_id",
             "plugin_info",
-            "delivery_rate_24h",
             "created_at",
             "updated_at",
             "name",
@@ -640,7 +637,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "team_id",
             "plugin_info",
             "error",
-            "delivery_rate_24h",
             "created_at",
         ]
 
@@ -691,12 +687,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def get_plugin_info(self, plugin_config: PluginConfig):
         if "view" in self.context and self.context["view"].action != "list":
             return PluginSerializer(instance=plugin_config.plugin).data
-        else:
-            return None
-
-    def get_delivery_rate_24h(self, plugin_config: PluginConfig):
-        if "delivery_rates_1d" in self.context:
-            return self.context["delivery_rates_1d"].get(plugin_config.pk, None)
         else:
             return None
 
@@ -801,12 +791,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("order", "plugin_id")
-
-    def get_serializer_context(self) -> dict[str, Any]:
-        context = super().get_serializer_context()
-        if context["view"].action in ("retrieve", "list"):
-            context["delivery_rates_1d"] = TeamPluginsDeliveryRateQuery(self.team).run()
-        return context
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:

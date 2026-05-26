@@ -25,18 +25,21 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
             [] as ClusteringJob[],
             {
                 loadJobs: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
                 createJob: async (payload: Partial<ClusteringJob>) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.create(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`,
                         payload
                     )
                     lemonToast.success('Clustering job created')
                     // Reload to get server-assigned fields
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
@@ -44,11 +47,13 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
                 },
                 updateJob: async (payload: Partial<ClusteringJob> & { id: number }) => {
                     const { id, ...data } = payload
+                    // nosemgrep: prefer-codegen-api
                     await api.update(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${id}/`,
                         data
                     )
                     lemonToast.success('Clustering job updated')
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
@@ -81,6 +86,7 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
         },
         deleteJob: async ({ jobId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.delete(
                     `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${jobId}/`
                 )

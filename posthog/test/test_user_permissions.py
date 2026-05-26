@@ -26,9 +26,13 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-            }
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
+            },
+            {
+                "name": AvailableFeature.ROLE_BASED_ACCESS,
+                "key": AvailableFeature.ROLE_BASED_ACCESS,
+            },
         ]
         self.organization.save()
 
@@ -310,6 +314,44 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
+    def test_team_effective_membership_level_role_based_access_inert_without_role_based_access_feature(self):
+        """Role-backed project AccessControl rows must NOT take effect when the org lacks
+        ROLE_BASED_ACCESS — mirrors the UI gate on the project access settings page."""
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        # Make the team private and grant the role admin via project-level role override
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="admin",
+        )
+
+        # Without ROLE_BASED_ACCESS the role override is inert, so the private-team default ("none") applies
+        assert self.permissions().current_team.effective_membership_level is None
+
     def test_team_effective_membership_level_lower_project_membership_than_org_membership(self):
         """Test that users with admin org access maintain their admin level even with lower member project access"""
         from ee.models.rbac.access_control import AccessControl
@@ -448,7 +490,7 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         self.dashboard = Dashboard.objects.create(team=self.team)
@@ -605,7 +647,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
 
@@ -689,7 +731,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_dashboard_efficiency(self):
         self.organization.available_product_features = [
-            {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 

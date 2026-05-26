@@ -1,6 +1,7 @@
 import csv
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from posthog.test.base import (
     APIBaseTest,
@@ -11,8 +12,13 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
+from posthog.models.group.util import create_group
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -83,6 +89,47 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query: dict) -> list[dict]:
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
+
+    def run_actors_query(self, interval: int, query: dict[str, Any], actor: str = "person") -> list[list[Any]]:
+        query["kind"] = "RetentionQuery"
+        runner = ActorsQueryRunner(
+            team=self.team,
+            query={
+                "select": [actor, "appearances"],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "interval": interval,
+                    "source": query,
+                },
+            },
+        )
+        return runner.calculate().model_dump()["results"]
+
+    def _create_groups(self) -> dict[str, str]:
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        group_keys = {
+            "user-1": "org:1",
+            "user-2": "org:2",
+            "user-3": "org:3",
+            "user-4": "org:4",
+        }
+
+        for label, group_key in group_keys.items():
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=group_key,
+                properties={"name": label},
+            )
+
+        return group_keys
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_same_table(self):
@@ -161,6 +208,106 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    @parameterized.expand([("person",), ("group",)])
+    def test_retention_data_warehouse_actor_query_maps_back_to_actors(self, actor_type: str) -> None:
+        actor_ids = self._create_people() if actor_type == "person" else self._create_groups()
+        actor_column_name = "person_id" if actor_type == "person" else "organization_id"
+        actor_column_type = "UUID" if actor_type == "person" else "String"
+        actor_query_type = "person" if actor_type == "person" else "group"
+
+        signups_table_name = self._create_data_warehouse_table(
+            filename=f"warehouse_signups_{actor_type}.csv",
+            table_name=f"warehouse_signups_{actor_type}",
+            header=["id", actor_column_name, "signed_up_at"],
+            rows=[
+                [1, actor_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, actor_ids["user-2"], "2025-01-01 10:00:00"],
+                [3, actor_ids["user-3"], "2025-01-02 09:00:00"],
+                [4, actor_ids["user-4"], "2025-01-02 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                actor_column_name: actor_column_type,
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        renewals_table_name = self._create_data_warehouse_table(
+            filename=f"warehouse_renewals_{actor_type}.csv",
+            table_name=f"warehouse_renewals_{actor_type}",
+            header=["id", actor_column_name, "renewed_at"],
+            rows=[
+                [1, actor_ids["user-1"], "2025-01-02 12:00:00"],
+                [2, actor_ids["user-2"], "2025-01-03 12:00:00"],
+                [3, actor_ids["user-3"], "2025-01-03 13:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                actor_column_name: actor_column_type,
+                "renewed_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        query: dict[str, Any] = {
+            "dateRange": {
+                "date_from": "2025-01-01T00:00:00Z",
+                "date_to": "2025-01-05T00:00:00Z",
+            },
+            "retentionFilter": {
+                "period": "Day",
+                "totalIntervals": 4,
+                "targetEntity": {
+                    "id": signups_table_name,
+                    "name": signups_table_name,
+                    "type": "data_warehouse",
+                    "table_name": signups_table_name,
+                    "aggregation_target_field": actor_column_name,
+                    "timestamp_field": "signed_up_at",
+                },
+                "returningEntity": {
+                    "id": renewals_table_name,
+                    "name": renewals_table_name,
+                    "type": "data_warehouse",
+                    "table_name": renewals_table_name,
+                    "aggregation_target_field": actor_column_name,
+                    "timestamp_field": "renewed_at",
+                },
+            },
+        }
+
+        if actor_type == "group":
+            query["aggregation_group_type_index"] = 0
+
+        result = self.run_query(query=query)
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 1, 0],
+                    [2, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
+        actor_result = self.run_actors_query(interval=0, query=query, actor=actor_query_type)
+
+        self.assertEqual(len(actor_result), 2)
+
+        appearances_by_actor_id = {str(actor[0]["id"]): actor[1] for actor in actor_result}
+        self.assertEqual(appearances_by_actor_id[str(actor_ids["user-1"])], [0, 1])
+        self.assertEqual(appearances_by_actor_id[str(actor_ids["user-2"])], [0, 2])
+
+        if actor_type == "person":
+            self.assertCountEqual(
+                [tuple(actor[0]["distinct_ids"]) for actor in actor_result],
+                [("user-1",), ("user-2",)],
+            )
+        else:
+            self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:1", "org:2"])
+
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_different_tables(self):
         person_ids = self._create_people()
@@ -237,6 +384,264 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    def test_retention_data_warehouse_property_aggregation_different_tables(self) -> None:
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_property_aggregation_signups.csv",
+            table_name="warehouse_property_aggregation_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+                [3, person_ids["user-3"], "2025-01-02 09:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        payments_table_name = self._create_data_warehouse_table(
+            filename="warehouse_property_aggregation_payments.csv",
+            table_name="warehouse_property_aggregation_payments",
+            header=["id", "person_id", "paid_at", "amount"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 12:00:00", 50],
+                [2, person_ids["user-1"], "2025-01-02 12:00:00", 100],
+                [3, person_ids["user-2"], "2025-01-01 08:00:00", 999],
+                [4, person_ids["user-2"], "2025-01-01 11:00:00", 30],
+                [5, person_ids["user-3"], "2025-01-03 13:00:00", 200],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "paid_at": "DateTime64(3, 'UTC')",
+                "amount": "Float64",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {
+                        "id": payments_table_name,
+                        "name": payments_table_name,
+                        "type": "data_warehouse",
+                        "table_name": payments_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "paid_at",
+                    },
+                    "aggregationType": "sum",
+                    "aggregationProperty": "amount",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 0, 0],
+                    [1, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+        self.assertEqual(
+            pluck(result, "values", "aggregation_value"),
+            pad(
+                [
+                    [80, 100, 0, 0],
+                    [0, 200, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_data_warehouse_property_aggregation_same_table_different_events(self) -> None:
+        person_ids = self._create_people()
+        activity_table_name = self._create_data_warehouse_table(
+            filename="warehouse_property_aggregation_activity.csv",
+            table_name="warehouse_property_aggregation_activity",
+            header=["id", "person_id", "activity_type", "occurred_at", "amount"],
+            rows=[
+                [1, person_ids["user-1"], "signup", "2025-01-01 09:00:00", 0],
+                [2, person_ids["user-1"], "payment", "2025-01-01 12:00:00", 50],
+                [3, person_ids["user-1"], "payment", "2025-01-02 12:00:00", 100],
+                [4, person_ids["user-2"], "payment", "2025-01-01 08:00:00", 999],
+                [5, person_ids["user-2"], "signup", "2025-01-01 10:00:00", 0],
+                [6, person_ids["user-2"], "payment", "2025-01-01 11:00:00", 30],
+                [7, person_ids["user-3"], "signup", "2025-01-02 09:00:00", 0],
+                [8, person_ids["user-3"], "payment", "2025-01-03 13:00:00", 200],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+                "amount": "Float64",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": {
+                        "id": activity_table_name,
+                        "name": activity_table_name,
+                        "type": "data_warehouse",
+                        "table_name": activity_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "occurred_at",
+                        "properties": [
+                            {
+                                "key": "activity_type",
+                                "value": "signup",
+                                "operator": "exact",
+                                "type": "data_warehouse",
+                            }
+                        ],
+                    },
+                    "returningEntity": {
+                        "id": activity_table_name,
+                        "name": activity_table_name,
+                        "type": "data_warehouse",
+                        "table_name": activity_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "occurred_at",
+                        "properties": [
+                            {
+                                "key": "activity_type",
+                                "value": "payment",
+                                "operator": "exact",
+                                "type": "data_warehouse",
+                            }
+                        ],
+                    },
+                    "aggregationType": "sum",
+                    "aggregationProperty": "amount",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 0, 0],
+                    [1, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+        self.assertEqual(
+            pluck(result, "values", "aggregation_value"),
+            pad(
+                [
+                    [80, 100, 0, 0],
+                    [0, 200, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("sum", [40, 120]),
+            ("avg", [20, 60]),
+        ]
+    )
+    def test_retention_data_warehouse_property_aggregation_same_table(
+        self, aggregation_type: str, expected_aggregation_values: list[float]
+    ) -> None:
+        person_ids = self._create_people()
+        video_watches_table_name = self._create_data_warehouse_table(
+            filename="warehouse_video_watches.csv",
+            table_name="warehouse_video_watches",
+            header=["id", "person_id", "watched_at", "watch_duration"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00", 10],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00", 30],
+                [3, person_ids["user-1"], "2025-01-02 09:00:00", 20],
+                [4, person_ids["user-1"], "2025-01-02 10:00:00", 30],
+                [5, person_ids["user-2"], "2025-01-02 11:00:00", 70],
+                [6, person_ids["user-3"], "2025-01-02 12:00:00", 100],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "watched_at": "DateTime64(3, 'UTC')",
+                "watch_duration": "Float64",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": {
+                        "id": video_watches_table_name,
+                        "name": video_watches_table_name,
+                        "type": "data_warehouse",
+                        "table_name": video_watches_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "watched_at",
+                    },
+                    "returningEntity": {
+                        "id": video_watches_table_name,
+                        "name": video_watches_table_name,
+                        "type": "data_warehouse",
+                        "table_name": video_watches_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "watched_at",
+                    },
+                    "aggregationType": aggregation_type,
+                    "aggregationProperty": "watch_duration",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], expected_aggregation_values[0])
+        self.assertEqual(result[0]["values"][1]["count"], 2)
+        self.assertEqual(result[0]["values"][1]["aggregation_value"], expected_aggregation_values[1])
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_and_events(self):

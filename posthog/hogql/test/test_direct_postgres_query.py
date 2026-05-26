@@ -25,9 +25,9 @@ from posthog.hogql.query import (
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -358,6 +358,57 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("icu_collate_nl", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    @parameterized.expand(
+        [
+            (
+                "introspected_via_metadata",
+                {"available_table_functions": ["unnest"]},
+                "SELECT * FROM unnest(ARRAY[1, 2, 3])",
+                "unnest(",
+            ),
+            (
+                "hardcoded_range_without_metadata",
+                None,
+                "SELECT range FROM range(10)",
+                "range(10)",
+            ),
+        ]
+    )
+    def test_generate_sql_for_direct_postgres_table_function(
+        self,
+        _name: str,
+        connection_metadata: dict[str, Any] | None,
+        query: str,
+        expected_sql_fragment: str,
+    ):
+        source_kwargs: dict[str, Any] = {
+            "team": self.team,
+            "source_id": "source_id",
+            "connection_id": "connection_id",
+            "status": ExternalDataSource.Status.COMPLETED,
+            "source_type": "Postgres",
+            "access_method": ExternalDataSource.AccessMethod.DIRECT,
+            "prefix": "ph3",
+            "job_inputs": {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        }
+        if connection_metadata is not None:
+            source_kwargs["connection_metadata"] = connection_metadata
+        source = ExternalDataSource.objects.create(**source_kwargs)
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn(expected_sql_fragment, sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
@@ -1343,7 +1394,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
-    @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
     def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
         mock_tunnel = MagicMock()

@@ -6,7 +6,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
-import { AppContext, OrganizationType } from '~/types'
+import { AppContext } from '~/types'
 
 import {
     LanguageCode,
@@ -27,11 +27,6 @@ describe('messageActionsMenuLogic', () => {
         provider: 'openai',
     }
 
-    const aiApprovedOrg = {
-        ...MOCK_DEFAULT_ORGANIZATION,
-        is_ai_data_processing_approved: true,
-    } as OrganizationType
-
     beforeEach(() => {
         jest.resetAllMocks()
         window.localStorage.clear()
@@ -39,7 +34,7 @@ describe('messageActionsMenuLogic', () => {
 
         jest.spyOn(mockApi.llmAnalytics, 'translate').mockResolvedValue(mockTranslationResponse)
 
-        initKeaTests(true, undefined, undefined, aiApprovedOrg)
+        initKeaTests(true)
     })
 
     describe('reducers', () => {
@@ -253,7 +248,10 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('returns false when organization has not approved AI data processing', async () => {
-                initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
+                initKeaTests(true, undefined, undefined, {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                })
 
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
@@ -328,7 +326,10 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('throws error when data processing not accepted', async () => {
-                initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
+                initKeaTests(true, undefined, undefined, {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                })
 
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()

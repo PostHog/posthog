@@ -8,7 +8,9 @@ use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
-use capture_logs::service::{export_logs_http, export_traces_http, options_handler};
+use capture_logs::service::{
+    export_logs_http, export_metrics_http, export_traces_http, options_handler,
+};
 use common_metrics::setup_metrics_routes;
 use std::future::ready;
 use std::net::SocketAddr;
@@ -81,13 +83,24 @@ async fn main() {
 
     let health_registry = HealthRegistry::new("liveness");
 
-    let sink_liveness = health_registry
+    let logs_sink_liveness = health_registry
         .register("rdkafka".to_string(), Duration::from_secs(30))
         .await;
+    let traces_sink_liveness = health_registry
+        .register("rdkafka_traces".to_string(), Duration::from_secs(30))
+        .await;
+    let metrics_sink_liveness = health_registry
+        .register("rdkafka_metrics".to_string(), Duration::from_secs(30))
+        .await;
 
-    let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_liveness)
-        .await
-        .expect("failed to start Kafka sink");
+    let kafka_sink = KafkaSink::new(
+        config.kafka.clone(),
+        logs_sink_liveness,
+        traces_sink_liveness,
+        metrics_sink_liveness,
+    )
+    .await
+    .expect("failed to start Kafka sink");
 
     let management_router = Router::new()
         .route("/", get(index))
@@ -138,6 +151,14 @@ async fn main() {
         .route(
             "/i/v1/traces",
             post(export_traces_http).options(options_handler),
+        )
+        .route(
+            "/v1/metrics",
+            post(export_metrics_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/metrics",
+            post(export_metrics_http).options(options_handler),
         )
         .route(
             "/i/v1/logs/datadog",

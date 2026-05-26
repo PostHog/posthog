@@ -35,7 +35,7 @@ procs:
             capability: pinned
 
     backend:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
+        shell: 'bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
         groups:
             layer: Application
@@ -43,7 +43,7 @@ procs:
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
+        shell: 'bin/wait-for-docker && ./bin/start-celery worker'
         capability: celery_workers
         ready_pattern: 'celery@'
         groups:
@@ -51,7 +51,7 @@ procs:
             tech: Python
 
     celery-beat:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery beat'
+        shell: 'bin/wait-for-docker && ./bin/start-celery beat'
         capability: celery_scheduler
         ready_pattern: 'celery beat'
         groups:
@@ -67,7 +67,7 @@ procs:
             tech: Node
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, metrics, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:
@@ -86,8 +86,13 @@ procs:
             layer: Ingestion pipeline
             tech: Node
 
+    ingestion-metrics:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        capability: nodejs_metrics
+        ready_pattern: 'All systems go'
+
     ingestion-traces:
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6745 ./bin/posthog-node'
         capability: nodejs_traces
         ready_pattern: 'All systems go'
         groups:
@@ -147,6 +152,16 @@ procs:
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue --max-concurrent-workflow-tasks=1000 --max-concurrent-activities=1000"; \
             fi
         capability: temporal_workflows
+        groups:
+            layer: Processing
+            tech: Python
+
+    webhook-s3-sink:
+        shell: |-
+            bin/wait-for-docker && \
+            python manage.py run_webhook_s3_sink --consumer-group dwh-webhook-sink-dev --health-port 8091
+        capability: warehouse_webhook_sink
+        ready_pattern: 'webhook_s3_sink_starting'
         groups:
             layer: Processing
             tech: Python
@@ -234,6 +249,14 @@ procs:
             layer: Product services
             tech: Rust
 
+    flags-consumer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service flags-consumer
+        # POC skeleton — opt-in until the CDC consumer logic lands
+        autostart: false
+        ready_pattern: 'listening on *'
+
     hypercache-server:
         shell: |-
             bin/wait-for-docker && \
@@ -259,6 +282,16 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service property-defs-rs
         capability: property_definitions
+        ready_pattern: 'Subscribed to topic: *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
+
+    property-vals-rs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service property-vals-rs
+        capability: property_values
         ready_pattern: 'Subscribed to topic: *'
         groups:
             layer: Ingestion pipeline
@@ -293,6 +326,12 @@ procs:
         groups:
             layer: Ingestion pipeline
             tech: Rust
+
+    capture-logs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service capture-logs
+        capability: logs_ingestion
 
     batch-import-worker:
         shell: |-
@@ -402,7 +441,7 @@ procs:
             tech: Python
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
+        shell: 'bin/wait-for-docker && bin/hogli db:restore-schema-if-fresh && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:
@@ -410,7 +449,12 @@ procs:
             tech: Migrations
 
     migrate-clickhouse:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=clickhouse'
+        # Wait on posthog_instancesetting because Django queries that table at
+        # import time -- it's created by migrate-postgres. Without the guard,
+        # migrate-clickhouse races migrate-postgres on a fresh DB and crashes
+        # with ProgrammingError. phrocs has no depends_on field, so the
+        # dependency lives here in the shell command.
+        shell: 'bin/wait-for-docker && bin/wait-for-postgres-tables posthog_instancesetting && bin/migrate --scope=clickhouse'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:
@@ -439,6 +483,12 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+        # no capability - optional migration
+
+    migrate-flags-read-store:
+        shell: 'bin/wait-for-docker && bin/migrate --scope=flags-read-store'
+        autostart: false
+        ready_pattern: 'All migrations completed successfully'
         # no capability - optional migration
 
     generate-demo-data:
@@ -495,9 +545,9 @@ procs:
     warehouse-sources-load:
         shell: |-
             bin/wait-for-docker && \
-            python manage.py run_warehouse_sources_load --health-port 8090 --batch-size 100 --consumer-group warehouse-sources-load-dev
+            python manage.py run_warehouse_sources_load
         autostart: false
-        ready_pattern: 'health_server_started'
+        ready_pattern: 'batch_consumer_started'
         groups:
             layer: Tools
             tech: Python

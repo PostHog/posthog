@@ -28,7 +28,7 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install semantic-kernel openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                            pip install semantic-kernel openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>

@@ -1,6 +1,5 @@
 import { getDefaultCdpConfig } from '../cdp/config'
 import {
-    getDefaultKafkaMskProducerEnvConfig,
     getDefaultKafkaWarehouseProducerEnvConfig,
     getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
@@ -14,6 +13,7 @@ import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
 } from '../logs-ingestion/config'
+import { getDefaultMetricsIngestionConsumerConfig } from '../metrics-ingestion/config'
 import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
@@ -30,11 +30,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultLlmAnalyticsConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
+        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
-        ...getDefaultKafkaMskProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),

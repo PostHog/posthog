@@ -4,6 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import User
+
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
@@ -25,6 +27,7 @@ class TestLLMSkillAPI(APIBaseTest):
         compatibility: str = "",
         allowed_tools: list | None = None,
         metadata: dict | None = None,
+        created_by: User | None = None,
     ) -> LLMSkill:
         return LLMSkill.objects.create(
             team=self.team,
@@ -38,7 +41,7 @@ class TestLLMSkillAPI(APIBaseTest):
             compatibility=compatibility,
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
-            created_by=self.user,
+            created_by=created_by or self.user,
         )
 
     # --- Create ---
@@ -248,6 +251,42 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "skill-two"
 
+    def test_list_skills_filter_by_created_by_id(self, mock_feature_enabled):
+        other_user = self._create_user("other-skills-author@example.com")
+        self.create_skill(name="mine-one", description="Mine.")
+        self.create_skill(name="mine-two", description="Mine too.")
+        self.create_skill(name="theirs", description="Theirs.", created_by=other_user)
+
+        response = self.client.get(self._url() + f"?created_by_id={other_user.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert response.json()["count"] == 1
+        assert [r["name"] for r in results] == ["theirs"]
+
+    def test_list_skills_without_created_by_id_returns_all(self, mock_feature_enabled):
+        other_user = self._create_user("other-skills-author@example.com")
+        self.create_skill(name="mine", description="Mine.")
+        self.create_skill(name="theirs", description="Theirs.", created_by=other_user)
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
+
+    @parameterized.expand(
+        [
+            ("non_numeric", "abc"),
+            ("float", "1.5"),
+        ]
+    )
+    def test_list_skills_invalid_created_by_id_returns_400(self, mock_feature_enabled, _label, value):
+        self.create_skill(name="some-skill")
+
+        response = self.client.get(self._url() + f"?created_by_id={value}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     # --- Get by name ---
 
     def test_get_skill_by_name(self, mock_feature_enabled):
@@ -280,6 +319,41 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url("name/nonexistent"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("no_query_string", "", None),
+            ("with_version_query_string", "?version=1", 1),
+        ]
+    )
+    def test_get_skill_by_uuid_redirects_to_name(self, mock_feature_enabled, _label, query_suffix, _version):
+        skill = self.create_skill(name="uuid-redirect-target")
+        skill_id = str(skill.id)
+
+        response = self.client.get(self._url(f"name/{skill_id}{query_suffix}"))
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "uuid-redirect-target" in response["Location"]
+        assert skill_id not in response["Location"]
+        if query_suffix:
+            assert query_suffix.lstrip("?") in response["Location"]
+
+    def test_get_skill_by_uuid_not_found_returns_404(self, mock_feature_enabled):
+        import uuid
+
+        nonexistent_id = str(uuid.uuid4())
+        response = self.client.get(self._url(f"name/{nonexistent_id}"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_skill_with_uuid_shaped_name_returns_skill_not_redirect(self, mock_feature_enabled):
+        uuid_shaped_name = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        self.create_skill(name=uuid_shaped_name, body="# UUID-named skill")
+
+        response = self.client.get(self._url(f"name/{uuid_shaped_name}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == uuid_shaped_name
 
     # --- Publish new version ---
 

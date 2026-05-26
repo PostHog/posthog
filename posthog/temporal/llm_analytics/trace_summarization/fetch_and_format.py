@@ -7,9 +7,9 @@ import temporalio
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models.team import Team
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
@@ -79,29 +79,45 @@ def _fetch_and_format_trace(
 
 
 def _fetch_and_format_generation(
-    generation_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
+    generation_id: str,
+    trace_id: str,
+    team_id: int,
+    window_start: str,
+    window_end: str,
+    max_length: int | None = None,
 ) -> FetchResult | None:
     """Fetch generation event data and format text representation.
 
     Returns FetchResult or None if not found.
+
+    `trace_id` is required and used as a WHERE filter — it's the first variable
+    segment of the `ai_events` sorting key (`team_id, trace_id, timestamp`) and
+    of the sharding key, so adding it prunes the query to a single shard plus a
+    range scan instead of a fan-out across all shards. The caller
+    (`fetch_and_format_activity`) always has it set on `FetchAndFormatInput`.
     """
     team = Team.objects.get(id=team_id)
 
     start_dt_str = format_datetime_for_clickhouse(window_start)
     end_dt_str = format_datetime_for_clickhouse(window_end)
 
+    # Query the dedicated table first; the resolver rewrites + re-runs against the
+    # shared `events` table when ai_events returns zero rows. Heavy columns (`input`,
+    # `output`) live as native columns on ai_events and as stripped JSON on events
+    # post-cutover — only the migrated path can recover them for recent rows.
     query = parse_select(
         """
         SELECT
-            properties.$ai_model as model,
-            properties.$ai_provider as provider,
-            properties.$ai_input as input,
-            properties.$ai_output as output,
-            properties.$ai_input_tokens as input_tokens,
-            properties.$ai_output_tokens as output_tokens,
-            properties.$ai_latency as latency
-        FROM events
+            model,
+            provider,
+            input,
+            output,
+            input_tokens,
+            output_tokens,
+            latency
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
+            AND trace_id = {trace_id}
             AND timestamp >= toDateTime({start_dt}, 'UTC')
             AND timestamp < toDateTime({end_dt}, 'UTC')
             AND uuid = {generation_id}
@@ -110,15 +126,16 @@ def _fetch_and_format_generation(
     )
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_hogql_query(
-            query_type="GenerationForSummarization",
+        result = execute_with_ai_events_fallback(
             query=query,
             placeholders={
                 "start_dt": ast.Constant(value=start_dt_str),
                 "end_dt": ast.Constant(value=end_dt_str),
                 "generation_id": ast.Constant(value=generation_id),
+                "trace_id": ast.Constant(value=trace_id),
             },
             team=team,
+            query_type="GenerationForSummarization",
         )
 
     if not result.results:
@@ -209,7 +226,12 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
 
         if input.generation_id:
             result = await database_sync_to_async(_fetch_and_format_generation, thread_sensitive=False)(
-                input.generation_id, input.team_id, input.window_start, input.window_end, input.max_length
+                input.generation_id,
+                input.trace_id,
+                input.team_id,
+                input.window_start,
+                input.window_end,
+                input.max_length,
             )
         else:
             result = await database_sync_to_async(_fetch_and_format_trace, thread_sensitive=False)(

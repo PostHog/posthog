@@ -9,7 +9,7 @@ from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
@@ -21,41 +21,12 @@ from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict,
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
-
-# Compare operators that require enable_analyzer=1 for JOIN ON conditions
-_NON_EQUALITY_JOIN_OPS = frozenset(
-    {
-        ast.CompareOperationOp.Gt,
-        ast.CompareOperationOp.GtEq,
-        ast.CompareOperationOp.Lt,
-        ast.CompareOperationOp.LtEq,
-        ast.CompareOperationOp.NotEq,
-    }
-)
-
-
-class _HasNonEqualityComparison(TraversingVisitor):
-    """Traverses an expression tree to detect non-equality comparisons (>, >=, <, <=, !=)."""
-
-    found: bool = False
-
-    def visit_compare_operation(self, node: ast.CompareOperation):
-        if node.op in _NON_EQUALITY_JOIN_OPS:
-            self.found = True
-            return  # no need to keep traversing
-        super().visit_compare_operation(node)
-
-
-def _join_constraint_has_non_equality(expr: ast.Expr) -> bool:
-    checker = _HasNonEqualityComparison()
-    checker.visit(expr)
-    return checker.found
 
 
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
@@ -183,9 +154,15 @@ class ClickHousePrinter(BasePrinter):
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
+            # Look through aliases: an alias's declared type can be stale after a
+            # transform (e.g. the property-type swapper) rewrites its inner
+            # expression, so resolve the overload against the real expression.
+            first_arg = node.args[0] if len(node.args) > 0 else None
+            while isinstance(first_arg, ast.Alias):
+                first_arg = first_arg.expr
             first_arg_constant_type = (
-                node.args[0].type.resolve_constant_type(self.context)
-                if len(node.args) > 0 and node.args[0].type is not None
+                first_arg.type.resolve_constant_type(self.context)
+                if first_arg is not None and first_arg.type is not None
                 else None
             )
 
@@ -284,8 +261,7 @@ class ClickHousePrinter(BasePrinter):
             # Build rate lookup expressions
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
-            # Use if() around divisor to avoid division by zero with enable_analyzer=0
-            # (old analyzer evaluates all branches regardless of condition)
+            # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
             safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
             return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
 
@@ -326,18 +302,6 @@ class ClickHousePrinter(BasePrinter):
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
-
-        # ClickHouse requires enable_analyzer=1 for non-equality JOIN ON conditions (e.g. >=, <=, >, <, !=).
-        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION.
-        if (
-            node.constraint is not None
-            and node.constraint.constraint_type == "ON"
-            and _join_constraint_has_non_equality(node.constraint.expr)
-        ):
-            if self.settings is None:
-                self.settings = HogQLGlobalSettings(enable_analyzer=True)
-            elif self.settings.enable_analyzer is None:
-                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
 
         return super().visit_join_expr(node)
 
@@ -440,6 +404,91 @@ class ClickHousePrinter(BasePrinter):
             raise QueryError(f"Can't select a table when a column is expected: {'.'.join(map(str, node.chain))}")
 
         return self.visit(node.type)
+
+    def visit_field_type(self, type: ast.FieldType):
+        field_sql = super().visit_field_type(type)
+        return self._maybe_apply_json_drop_keys(type, field_sql)
+
+    def _get_materialized_property_source_for_property_type(
+        self, type: ast.PropertyType
+    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+        # If this property is restricted by property-level access control, skip the
+        # materialized-column / property-group shortcut and force the JSON-extract path
+        # below. The JSON column itself is wrapped by ``JSONDropKeys`` in
+        # ``_maybe_apply_json_drop_keys`` (see ``visit_field_type``), so the extracted
+        # value collapses to an empty string instead of leaking the materialized value.
+        if self._is_property_type_restricted(type):
+            return None
+        return super()._get_materialized_property_source_for_property_type(type)
+
+    def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
+        if not self.context.restricted_properties or len(type.chain) == 0:
+            return False
+        keys_to_drop = self._get_restricted_keys_for_table_type(type.field_type.table_type)
+        if not keys_to_drop:
+            return False
+        # Only the first chain element is a top-level key on the JSON blob; nested
+        # accesses (``properties.foo.bar``) are restricted iff their root key is.
+        return str(type.chain[0]) in keys_to_drop
+
+    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
+        """
+        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
+        """
+        if not self.context.restricted_properties:
+            return field_sql
+
+        from posthog.hogql.database.models import StringJSONDatabaseField
+
+        resolved_field = type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, StringJSONDatabaseField):
+            return field_sql
+
+        # Use the resolved DB column name, not ``type.name``. With column-alias table syntax
+        # (``FROM events AS e(uuid, event, ..., p)``) the AST field name is the alias (``p``),
+        # but ClickHouse resolves it back to the original column. Comparing ``type.name`` here
+        # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
+        # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
+        # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
+        if resolved_field.name not in ("properties", "person_properties"):
+            return field_sql
+
+        keys_to_drop = self._get_restricted_keys_for_table_type(type.table_type)
+        if not keys_to_drop:
+            return field_sql
+
+        keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
+        return f"JSONDropKeys({keys_placeholder})({field_sql})"
+
+    def _get_restricted_keys_for_table_type(self, table_type: ast.Type) -> set[str]:
+        """
+        Given a table type, returns the set of property names that should be stripped
+        from the JSON blob based on restricted_properties in the context.
+        """
+        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+
+        from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+        if not isinstance(table_type, ast.BaseTableType):
+            return set()
+
+        try:
+            table = table_type.resolve_database_table(self.context)
+        except Exception:
+            return set()
+
+        if isinstance(table, EventsPersonSubTable):
+            prop_def_type = PropertyDefinition.Type.PERSON
+        elif isinstance(table, EventsTable):
+            prop_def_type = PropertyDefinition.Type.EVENT
+        elif isinstance(table, (PersonsTable, RawPersonsTable)):
+            prop_def_type = PropertyDefinition.Type.PERSON
+        else:
+            return set()
+
+        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
 
     def _get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str
@@ -585,6 +634,46 @@ class ClickHousePrinter(BasePrinter):
                 return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
             else:
                 return f"notEquals({materialized_column_sql}, {constant_sql})"
+
+    _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
+        ast.CompareOperationOp.Lt: "less",
+        ast.CompareOperationOp.LtEq: "lessOrEquals",
+        ast.CompareOperationOp.Gt: "greater",
+        ast.CompareOperationOp.GtEq: "greaterOrEquals",
+    }
+
+    def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
+        """Rewrite ``<``, ``<=``, ``>``, ``>=`` on materialized string columns so minmax can fire.
+
+        Nullable: ``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``) but minmax-friendly.
+        Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
+        """
+        if node.op not in self._RANGE_OP_TO_CH_NAME:
+            return None
+
+        # property_to_expr always emits the column on the left, so we only need to handle that side.
+        if not (
+            (property_source := self._get_materialized_string_property_source(node.left))
+            and isinstance(node.right, ast.Constant)
+            and node.right.value is not None
+        ):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        op_name = self._RANGE_OP_TO_CH_NAME[node.op]
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(node.right)
+
+        if property_source.is_nullable:
+            return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+
+        # Non-nullable: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        sentinel_exclusions = " AND ".join(
+            f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
+        )
+        return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
 
     def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
         """
@@ -804,6 +893,137 @@ class ClickHousePrinter(BasePrinter):
             else:
                 return f"notIn({materialized_column_sql}, tuple({values_sql}))"
 
+    def _get_optimized_materialized_column_lower_in_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Optimized printed expression for `lower(<property>) IN (...)`, matching the lower() expression the
+        bloom_filter_lower / ngram_lower indexes are built on so ClickHouse can pick whichever one exists.
+        """
+        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return None
+
+        # HogQL `lower` is case-insensitive, so `LOWER(...)` keeps the user-typed casing on the Call
+        if not (isinstance(node.left, ast.Call) and node.left.name.lower() == "lower" and len(node.left.args) == 1):
+            return None
+
+        property_source = self._get_materialized_string_property_source(node.left.args[0])
+        if not isinstance(property_source, PrintableMaterializedColumn) or not (
+            property_source.has_bloom_filter_lower_index or property_source.has_ngram_lower_index
+        ):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        # IN values: a string constant, a tuple/array of constants, or a constant list (from a {placeholder})
+        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+            string_values: list[str] = [node.right.value]
+        elif isinstance(node.right, ast.Constant) and isinstance(node.right.value, (list, tuple)):
+            if not all(isinstance(value, str) for value in node.right.value):
+                return None
+            string_values = list(node.right.value)
+        elif isinstance(node.right, (ast.Tuple, ast.Array)):
+            string_values = []
+            for value in node.right.exprs:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    string_values.append(value.value)
+                else:
+                    return None
+        else:
+            return None
+
+        if len(string_values) == 0:
+            return None
+
+        # Bail if an IN value could collide with a stored NULL sentinel: nullable columns alias NULL to ''
+        # (via coalesce); non-nullable columns store NULL as '' or 'null'. 'null' is a real value when nullable.
+        null_sentinels = [""] if property_source.is_nullable else MAT_COL_NULL_SENTINELS
+        if any(value in null_sentinels for value in string_values):
+            return None
+
+        materialized_column_sql = str(property_source)
+        values_sql = ", ".join(self.context.add_value(value) for value in string_values)
+
+        # Match the index expression; coalesce() removes NULL so no ifNull / IS NOT NULL guard is needed
+        if property_source.is_nullable:
+            indexed_expr = f"lower(coalesce({materialized_column_sql}, ''))"
+        else:
+            indexed_expr = f"lower({materialized_column_sql})"
+
+        if node.op == ast.CompareOperationOp.In:
+            # has() with a constant array keeps the skip index usable (unlike in() under transform_null_in=1)
+            return f"has([{values_sql}], {indexed_expr})"
+        else:
+            return f"notIn({indexed_expr}, tuple({values_sql}))"
+
+    def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
+        """If the expression resolves to $session_id on the events table, return the table type."""
+        from posthog.hogql.database.schema.events import EventsTable
+
+        expr_type = resolve_field_type(node)
+
+        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
+            table_type = expr_type.table_type
+        elif (
+            isinstance(expr_type, ast.PropertyType)
+            and expr_type.chain == ["$session_id"]
+            and expr_type.field_type.name == "properties"
+        ):
+            table_type = expr_type.field_type.table_type
+        else:
+            return None
+
+        while isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            return table_type
+        return None
+
+    def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
+        op_name = {
+            ast.CompareOperationOp.Eq: "equals",
+            ast.CompareOperationOp.NotEq: "notEquals",
+            ast.CompareOperationOp.In: "in",
+            ast.CompareOperationOp.NotIn: "notIn",
+        }.get(node.op)
+        if op_name is None:
+            return None
+
+        session_id_table: ast.BaseTableType | None = None
+        constants: list[ast.Constant] = []
+
+        if table := self._get_events_session_id_table_type(node.left):
+            session_id_table = table
+            constants = self._extract_uuid_constants(node.right)
+        elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if table := self._get_events_session_id_table_type(node.right):
+                session_id_table = table
+                constants = self._extract_uuid_constants(node.left)
+
+        if session_id_table is None or not constants:
+            return None
+
+        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
+        wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
+
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return f"{op_name}({field_sql}, {wrapped[0]})"
+        return f"{op_name}({field_sql}, tuple({', '.join(wrapped)}))"
+
+    @staticmethod
+    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
+        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
+        if isinstance(node, ast.Constant):
+            return [node] if UUIDT.is_valid_uuid(node.value) else []
+        if isinstance(node, (ast.Tuple, ast.Array)):
+            result: list[ast.Constant] = []
+            for expr in node.exprs:
+                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
+                    return []
+                result.append(expr)
+            return result
+        return []
+
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
     ) -> str | None:
@@ -986,6 +1206,9 @@ class ClickHousePrinter(BasePrinter):
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
+        if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
+            return optimized_session_id
+
         if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
 
@@ -993,12 +1216,16 @@ class ClickHousePrinter(BasePrinter):
         # we can skip the nullIf wrapping to allow skip index usage.
         if optimized_materialized_column_compare := self._get_optimized_materialized_column_equals_operation(node):
             return optimized_materialized_column_compare
+        if optimized_materialized_range := self._get_optimized_materialized_column_range_operation(node):
+            return optimized_materialized_range
         if optimized_materialized_ilike := self._get_optimized_materialized_column_ilike_operation(node):
             return optimized_materialized_ilike
         if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
             return optimized_materialized_like
         if optimized_materialized_in := self._get_optimized_materialized_column_in_operation(node):
             return optimized_materialized_in
+        if optimized_materialized_lower_in := self._get_optimized_materialized_column_lower_in_operation(node):
+            return optimized_materialized_lower_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         # indexHint() is purely an optimizer directive — its result is always true,

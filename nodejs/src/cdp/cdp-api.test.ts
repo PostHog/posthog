@@ -1,4 +1,5 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -80,7 +81,10 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub.postgres)
 
         cdpDeps = createCdpConsumerDeps(hub)
-        api = new CdpApi(hub, cdpDeps)
+        api = new CdpApi(hub, cdpDeps, {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -641,10 +645,10 @@ describe('CDP API', () => {
 
         beforeEach(async () => {
             // The batch hogflow route now goes through the outputs registry, which in
-            // tests routes every CDP producer slot at `hub.kafkaProducer`. Spying on
-            // its `produce` intercepts the produced message without reconstructing
+            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
+            // on its `produce` intercepts the produced message without reconstructing
             // the api.
-            produceSpy = jest.spyOn(hub.kafkaProducer, 'produce')
+            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -781,7 +785,7 @@ describe('CDP API', () => {
 
         beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
 
             scheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),

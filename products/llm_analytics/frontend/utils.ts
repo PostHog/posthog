@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { isObject, isString } from 'lib/utils'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -34,6 +35,8 @@ import {
     OpenAIResponsesFunctionCallOutput,
     OpenAIResponsesReasoning,
     OpenAIToolCall,
+    StringContentObject,
+    TextContentItem,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
@@ -220,6 +223,58 @@ export function formatTokens(tokens: number): string {
     return tokens.toFixed(0)
 }
 
+/**
+ * Defensive narrowing for values pulled out of `LLMTraceEvent.properties` (typed
+ * as `Record<string, any>`). Returns the value when it's a string, otherwise
+ * `undefined` — safer than `as string | undefined` which silently lets numbers
+ * or objects through. Use this any time a `$ai_*` property is documented as a
+ * string by convention but the runtime data could vary.
+ */
+export function asString(value: unknown): string | undefined {
+    return isString(value) ? value : undefined
+}
+
+/**
+ * Reads the input payload from an event's properties.
+ * - `$ai_input`: emitted by every SDK integration on `$ai_generation`
+ *   (OpenAI, Anthropic, Gemini, and the framework wrappers).
+ * - `$ai_input_state`: emitted by framework wrappers (LangChain, OpenAI Agents,
+ *   Claude Agent SDK) on `$ai_span` events that wrap a non-generation step.
+ */
+export function readAiInput(properties: Record<string, any>): unknown {
+    return properties.$ai_input ?? properties.$ai_input_state
+}
+
+/**
+ * Reads the output payload from an event's properties.
+ * - `$ai_output_choices`: emitted by every SDK integration on `$ai_generation`.
+ * - `$ai_output_state`: emitted by framework wrappers (LangChain, OpenAI Agents,
+ *   Claude Agent SDK) on `$ai_span` events.
+ * - `$ai_output`: kept as a defensive fallback for events that the ingestion
+ *   pipeline treats as containing a heavy output payload
+ */
+export function readAiOutput(properties: Record<string, any>): unknown {
+    return properties.$ai_output_choices ?? properties.$ai_output_state ?? properties.$ai_output
+}
+
+export function eventLabel(event: LLMTraceEvent): string {
+    return asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
+}
+
+export function formatAiErrorForDisplay(value: unknown): string {
+    if (typeof value === 'string') {
+        return value || 'Unknown error'
+    }
+    if (value == null) {
+        return 'Unknown error'
+    }
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return String(value)
+    }
+}
+
 export function formatErrorRate(errorRate: number): string {
     const percentage = errorRate * 100
     if (percentage === 0) {
@@ -371,12 +426,59 @@ export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCal
     return toolsWithParsedArguments
 }
 
+export function isTextContentItem(item: unknown): item is TextContentItem {
+    return !!item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item
+}
+
 export function isAnthropicTextMessage(output: unknown): output is AnthropicTextMessage {
-    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text' && 'text' in output
+    return isTextContentItem(output)
+}
+
+export function hasStringContentField(value: unknown): value is StringContentObject {
+    return typeof value === 'object' && value !== null && 'content' in value && isString(value.content)
+}
+
+// Returns the user-visible string from a content part
+export function extractTextContent(item: unknown): string | undefined {
+    if (typeof item === 'string') {
+        return item
+    }
+    if (isTextContentItem(item)) {
+        return item.text
+    }
+    if (isVercelSDKTextMessage(item)) {
+        return item.content
+    }
+    if (isVercelSDKInputTextMessage(item)) {
+        return item.text
+    }
+    return undefined
 }
 
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
+}
+
+export function isToolStepItem(item: unknown): boolean {
+    if (
+        isAnthropicToolCallMessage(item) ||
+        isAnthropicToolResultMessage(item) ||
+        isVercelSDKToolCallMessage(item) ||
+        isVercelSDKToolResultMessage(item) ||
+        isOpenAIResponsesFunctionCall(item) ||
+        isOpenAIResponsesBuiltinToolCall(item)
+    ) {
+        return true
+    }
+    return (
+        typeof item === 'object' &&
+        item !== null &&
+        'type' in item &&
+        item.type === 'function' &&
+        'function' in item &&
+        typeof item.function === 'object' &&
+        item.function !== null
+    )
 }
 
 export function isAnthropicThinkingMessage(output: unknown): output is AnthropicThinkingMessage {
@@ -882,7 +984,7 @@ function parseStringifiedStructuredContent(content: string): string | MultiModal
 }
 
 /**
- * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
+ * Normalizes a message from an LLM provider into a format that is compatible with the PostHog AI observability schema.
  *
  * @param rawMessage - Original message from an LLM provider.
  * @param defaultRole - The default role to use if the message doesn't have one.
@@ -930,6 +1032,44 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'document')
         )
     ) {
+        const toolCalls: CompatToolCall[] = []
+        const remainingContent: MultiModalContentItem[] = []
+        for (const item of rawMessage.content) {
+            if (
+                item &&
+                typeof item === 'object' &&
+                'type' in item &&
+                item.type === 'function' &&
+                'function' in item &&
+                item.function &&
+                typeof item.function === 'object' &&
+                'name' in item.function &&
+                typeof item.function.name === 'string'
+            ) {
+                const fn = item.function as { name: string; arguments?: string | Record<string, unknown> }
+                toolCalls.push({
+                    type: 'function',
+                    id: 'id' in item && typeof item.id === 'string' ? item.id : undefined,
+                    function: {
+                        name: fn.name,
+                        arguments: parseToolArguments(fn.arguments ?? {}),
+                    },
+                })
+            } else {
+                remainingContent.push(item as MultiModalContentItem)
+            }
+        }
+
+        if (toolCalls.length > 0) {
+            return [
+                {
+                    role: roleToUse,
+                    content: remainingContent.length > 0 ? remainingContent : '',
+                    tool_calls: toolCalls,
+                },
+            ]
+        }
+
         return [
             {
                 role: roleToUse,
@@ -1159,17 +1299,37 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
     if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
+        // Prefer an explicit name (e.g. mcp_call.name), fall back to the item type.
+        const name =
+            'name' in rawMessage && typeof rawMessage.name === 'string' && rawMessage.name
+                ? rawMessage.name
+                : rawMessage.type
+
+        let functionArguments: Record<string, unknown> | string
+        if ('arguments' in rawMessage && rawMessage.arguments !== undefined && rawMessage.arguments !== null) {
+            const rawArgs = rawMessage.arguments
+            if (typeof rawArgs === 'string' || (typeof rawArgs === 'object' && !Array.isArray(rawArgs))) {
+                functionArguments = parseToolArguments(rawArgs as string | Record<string, unknown>)
+            } else {
+                functionArguments = { arguments: rawArgs }
+            }
+        } else {
+            // Strip `arguments` too in case it's explicitly null — it would otherwise leak into rest.
+            const { id: _id, type: _type, status: _status, name: _name, arguments: _args, ...rest } = rawMessage
+            functionArguments = rest
+        }
+
         return [
             {
                 role: 'assistant',
-                content: JSON.stringify(rawMessage),
+                content: '',
                 tool_calls: [
                     {
                         type: 'function',
                         id: rawMessage.id,
                         function: {
-                            name: rawMessage.type,
-                            arguments: {},
+                            name,
+                            arguments: functionArguments,
                         },
                     },
                 ],
@@ -1244,12 +1404,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     let cajoledContent: string // Let's do what we can
     if (typeof rawMessage === 'string') {
         cajoledContent = rawMessage
-    } else if (
-        typeof rawMessage === 'object' &&
-        rawMessage !== null &&
-        'content' in rawMessage &&
-        typeof rawMessage.content === 'string'
-    ) {
+    } else if (hasStringContentField(rawMessage)) {
         cajoledContent = rawMessage.content
     } else {
         cajoledContent = JSON.stringify(rawMessage)
@@ -1257,12 +1412,42 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     return [{ role: roleToUse, content: cajoledContent }]
 }
 
+// Synthetic role used by `normalizeMessages` to surface the `$ai_tools` payload
+// as a pseudo-message
+export const AVAILABLE_TOOLS_ROLE = 'available tools'
+
+// Returns the tool names invoked across events in chronological order (duplicates preserved)
+export function getToolNamesCalled(events: LLMTraceEvent[]): string[] {
+    const sorted = [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    const names: string[] = []
+    // Pulls from `$ai_span_name` on instrumented `$ai_span` events
+    // and from `tool_calls[].function.name` on normalized `$ai_generation` outputs
+    for (const event of sorted) {
+        if (event.event === '$ai_span') {
+            const spanName = event.properties.$ai_span_name
+            if (typeof spanName === 'string' && spanName) {
+                names.push(spanName)
+            }
+        } else if (event.event === '$ai_generation') {
+            for (const msg of normalizeMessages(event.properties.$ai_output_choices, 'assistant')) {
+                for (const tc of msg.tool_calls ?? []) {
+                    const name = tc.function?.name
+                    if (typeof name === 'string' && name) {
+                        names.push(name)
+                    }
+                }
+            }
+        }
+    }
+    return names
+}
+
 export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
     const normalizedMessages: CompatMessage[] = []
 
     if (tools) {
         normalizedMessages.push({
-            role: 'available tools',
+            role: AVAILABLE_TOOLS_ROLE,
             content: '',
             tools,
         })
@@ -1301,6 +1486,54 @@ function simulateNaiveTruncation(raw: unknown): string {
 export function parsePartialJSON(json: string): unknown {
     const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
     return PartialJSON.parse(json, flags)
+}
+
+export function isEmptyJSONStructure(value: unknown): boolean {
+    return (
+        (Array.isArray(value) && value.length === 0) ||
+        (isObject(value) && Object.keys(value as Record<string, unknown>).length === 0)
+    )
+}
+
+export type ToolArgumentsForDisplay =
+    | { kind: 'empty' }
+    | { kind: 'parsed'; value: object }
+    | { kind: 'raw'; value: string }
+
+/**
+ * Tool-call arguments arrive in a few shapes: a JSON-stringified string (raw OpenAI),
+ * a parsed object (post-normalization or hand-authored), null/undefined (no args),
+ * or an empty container. Normalizes them into a tagged union for rendering.
+ */
+export function parseToolArgumentsForDisplay(rawArgs: unknown): ToolArgumentsForDisplay {
+    if (rawArgs === null || rawArgs === undefined || rawArgs === '') {
+        return { kind: 'empty' }
+    }
+    if (typeof rawArgs === 'string') {
+        // Treat literal empty containers as intentional "no args". Anything else that
+        // happens to parse to an empty object (e.g. partial-json salvaging broken input)
+        // falls through to raw, so the user still sees what they sent.
+        const trimmed = rawArgs.trim()
+        if (trimmed === '{}' || trimmed === '[]') {
+            return { kind: 'empty' }
+        }
+        try {
+            const parsed = parsePartialJSON(rawArgs)
+            if (typeof parsed === 'object' && parsed !== null && !isEmptyJSONStructure(parsed)) {
+                return { kind: 'parsed', value: parsed }
+            }
+            return { kind: 'raw', value: rawArgs }
+        } catch {
+            return { kind: 'raw', value: rawArgs }
+        }
+    }
+    if (typeof rawArgs === 'object') {
+        if (isEmptyJSONStructure(rawArgs)) {
+            return { kind: 'empty' }
+        }
+        return { kind: 'parsed', value: rawArgs as object }
+    }
+    return { kind: 'raw', value: String(rawArgs) }
 }
 
 export function parseJSONPreview(raw: unknown): unknown {

@@ -270,6 +270,7 @@ export function InsightTooltip({
 
     columns.push({
         key: 'datum',
+        className: 'datum-column',
         width: 200,
         title: <span className="whitespace-nowrap">{title}</span>,
         sticky: true,
