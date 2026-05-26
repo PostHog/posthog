@@ -977,7 +977,3 @@ environment:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
-    phrocs:
-        bin_script: phrocs
-        description: 'TODO: add description for phrocs'
-        hidden: true
