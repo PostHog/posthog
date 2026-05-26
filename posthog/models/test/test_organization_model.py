@@ -99,28 +99,21 @@ class TestOrganization(BaseTest):
             )
             self.assertFalse(explicit_org.default_anonymize_ips)
 
-    def test_default_is_ai_training_opted_in_based_on_deployment(self):
-        # EU deployment should default to opted out (False)
-        with self.settings(CLOUD_DEPLOYMENT="EU"):
-            eu_org, _, _ = Organization.objects.bootstrap(self.user, name="EU Org")
-            self.assertFalse(eu_org.is_ai_training_opted_in)
-
-        # US deployment should default to opted in (True)
-        with self.settings(CLOUD_DEPLOYMENT="US"):
-            us_org, _, _ = Organization.objects.bootstrap(self.user, name="US Org")
-            self.assertTrue(us_org.is_ai_training_opted_in)
-
-        # No deployment setting should default to opted in (True)
-        with self.settings(CLOUD_DEPLOYMENT=None):
-            no_deployment_org, _, _ = Organization.objects.bootstrap(self.user, name="No Deployment Org")
-            self.assertTrue(no_deployment_org.is_ai_training_opted_in)
-
-        # Explicit value should override deployment setting
-        with self.settings(CLOUD_DEPLOYMENT="EU"):
-            explicit_org, _, _ = Organization.objects.bootstrap(
-                self.user, name="Explicit EU Org Opted In", is_ai_training_opted_in=True
-            )
-            self.assertTrue(explicit_org.is_ai_training_opted_in)
+    @parameterized.expand(
+        [
+            ("eu_defaults_to_opted_out", "EU", None, False),
+            ("us_defaults_to_opted_in", "US", None, True),
+            ("unset_deployment_defaults_to_opted_in", None, None, True),
+            ("explicit_value_overrides_eu_default", "EU", True, True),
+        ]
+    )
+    def test_default_is_ai_training_opted_in_based_on_deployment(
+        self, _name, cloud_deployment, explicit_value, expected
+    ):
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            extra_kwargs = {} if explicit_value is None else {"is_ai_training_opted_in": explicit_value}
+            org, _, _ = Organization.objects.bootstrap(self.user, name=_name, **extra_kwargs)
+            self.assertEqual(org.is_ai_training_opted_in, expected)
 
     def test_update_available_product_features_ignored_if_usage_info_exists(self):
         with self.is_cloud(False):
