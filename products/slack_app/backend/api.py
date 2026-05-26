@@ -844,6 +844,27 @@ def select_repository(
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_found_match=False)
 
+    # Walk the most recent thread messages newest-first for an explicit `org/repo`
+    # token. Follow-up mentions often drop the repo because the requester already
+    # stated it earlier in the thread — e.g. after a personal-GitHub connect prompt,
+    # the re-mention is just "should be there now". Picking up the most recent
+    # explicit reference matches that intent without waiting on the rule-matcher or
+    # the picker. Capped at the last few messages so long threads don't reach back
+    # to an unrelated repo from much earlier in the conversation.
+    _THREAD_SCAN_LIMIT = 10
+    for msg in reversed(thread_messages[-_THREAD_SCAN_LIMIT:]):
+        thread_text = msg.get("text") or ""
+        if not thread_text or thread_text == event_text:
+            continue
+        repo_from_thread = _extract_explicit_repo(thread_text, all_repos)
+        if repo_from_thread:
+            return RepoDecision(
+                mode="auto",
+                repository=repo_from_thread,
+                reason="thread_explicit_mention",
+                llm_found_match=False,
+            )
+
     if user_id and channel:
         from posthog.models.user_repo_preference import UserRepoPreference
 
