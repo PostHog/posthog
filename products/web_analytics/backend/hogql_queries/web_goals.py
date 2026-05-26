@@ -240,7 +240,13 @@ WHERE {periods_expression}
                 index = 3
 
             if index is not None:
-                results.sort(key=lambda x: x[index], reverse=self.query.orderBy[1] == "DESC")
+                # Sort by the current-period scalar only — `x[index]` is a
+                # `(current, previous)` tuple and `previous` is `None` when
+                # `include_previous=False`. Python's stable sort falls
+                # through to compare the second element on ties, and
+                # `None < int` raises `TypeError`. Indexing `[0]` keeps the
+                # comparison on the scalar current value only.
+                results.sort(key=lambda x: x[index][0], reverse=self.query.orderBy[1] == "DESC")
 
         return WebGoalsQueryResponse(
             columns=[
@@ -310,7 +316,13 @@ WHERE {periods_expression}
             elif self.query.orderBy[0] == WebAnalyticsOrderByFields.CONVERSION_RATE:
                 index = 3
             if index is not None:
-                results.sort(key=lambda x: x[index], reverse=self.query.orderBy[1] == "DESC")
+                # Sort by the current-period scalar only — `x[index]` is a
+                # `(current, previous)` tuple and `previous` is `None` when
+                # `include_previous=False`. Python's stable sort falls
+                # through to compare the second element on ties, and
+                # `None < int` raises `TypeError`. Indexing `[0]` keeps the
+                # comparison on the scalar current value only.
+                results.sort(key=lambda x: x[index][0], reverse=self.query.orderBy[1] == "DESC")
 
         return WebGoalsQueryResponse(
             columns=[

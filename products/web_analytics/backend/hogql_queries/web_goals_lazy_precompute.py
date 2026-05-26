@@ -213,7 +213,19 @@ def _build_insert_query(actions: Sequence) -> str:
     # the read-after-write CI flake — so a type error would only surface in
     # production through the failure counter and silent fall-through to the
     # live path.
-    count_aliases = ",\n            ".join(f"countIf({{action_{n}_expr}}) AS count_{n}" for n in range(len(actions)))
+    # `countIf` is bounded by the per-job time window so events that occur
+    # in the SESSION_FORWARD_PAD_MINUTES tail (past `time_window_max`) do
+    # NOT contribute to this job's counts. The pad lets `min(start_timestamp)`
+    # see late events for correct session-start anchoring, but counting them
+    # here would overcount conversions for sessions starting near the end of
+    # the user's selected range — the live runner counts goals with
+    # `countIf(action_expr AND timestamp IN current_period)`, so the lazy
+    # match it event-by-event rather than aggregating the whole session's
+    # event tail into the start-hour bucket.
+    count_aliases = ",\n            ".join(
+        f"countIf(and({{action_{n}_expr}}, timestamp >= {{time_window_min}}, timestamp < {{time_window_max}})) AS count_{n}"
+        for n in range(len(actions))
+    )
     array_join_pairs = ",\n            ".join(
         f"tuple({{action_{n}_id}}, toInt64(count_{n}))" for n in range(len(actions))
     )
