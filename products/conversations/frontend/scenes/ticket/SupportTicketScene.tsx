@@ -44,6 +44,22 @@ export const scene: SceneExport<{ ticketId: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
+function buildSlackThreadUrl(
+    slackChannelId: string,
+    slackThreadTs: string,
+    slackTeamDomain: string | null | undefined,
+    slackTeamId: string | null | undefined
+): string {
+    const messageId = `p${slackThreadTs.replace('.', '')}`
+    if (slackTeamDomain) {
+        return `https://${slackTeamDomain}.slack.com/archives/${slackChannelId}/${messageId}`
+    }
+    if (slackTeamId) {
+        return `https://app.slack.com/client/${slackTeamId}/${slackChannelId}/thread/${slackChannelId}-${slackThreadTs.replace('.', '')}`
+    }
+    return `https://slack.com/archives/${slackChannelId}/${messageId}`
+}
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
@@ -266,13 +282,17 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 </div>
                             )}
                             {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_team_id &&
                                 ticket?.slack_channel_id &&
                                 ticket?.slack_thread_ts && (
                                     <div className="flex justify-between items-center">
                                         <span className="text-muted-alt">Slack thread</span>
                                         <Link
-                                            to={`https://app.slack.com/client/${ticket.slack_team_id}/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
+                                            to={buildSlackThreadUrl(
+                                                ticket.slack_channel_id,
+                                                ticket.slack_thread_ts,
+                                                ticket.slack_team_domain,
+                                                ticket.slack_team_id
+                                            )}
                                             target="_blank"
                                             className="text-xs"
                                         >

@@ -1,1 +1,1 @@
-0036_github_issues_channel
+0037_slack_config_slack_team_domain
