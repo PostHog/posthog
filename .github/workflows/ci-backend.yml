@@ -631,30 +631,12 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            - name: Preserve CI Docker helper during rollout
-              run: |
-                  # Temporary during rollout: this job checks out `master`,
-                  # which does not include the latest Docker wait helpers yet.
-                  cp bin/ci-wait-for-docker /tmp/ci-wait-for-docker
-                  chmod +x /tmp/ci-wait-for-docker
-                  cp bin/wait-for-docker /tmp/wait-for-docker
-                  chmod +x /tmp/wait-for-docker
-
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   clean: false
-
-            - name: Restore CI Docker helper during rollout
-              run: |
-                  # Temporary during rollout: restore the helpers after the
-                  # checkout to `master` removes them from the workspace.
-                  cp /tmp/ci-wait-for-docker bin/ci-wait-for-docker
-                  chmod +x bin/ci-wait-for-docker
-                  cp /tmp/wait-for-docker bin/wait-for-docker
-                  chmod +x bin/wait-for-docker
 
             - name: Install python dependencies for master
               run: |
@@ -663,7 +645,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait db redis7 clickhouse
+              run: bin/ci-wait-for-docker wait --only db redis7 clickhouse
 
             - name: Run migrations up to master
               run: |
@@ -1217,7 +1199,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait db
+              run: bin/ci-wait-for-docker wait --only db
 
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
