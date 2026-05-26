@@ -2000,22 +2000,18 @@ def postgres_source(
 
 # psycopg's `Cursor.execute` accepts `sql.Composable`/`bytes` in addition to `str`, so it
 # does not satisfy the narrow `_CursorLike(execute(query: str, ...))` protocol on the base.
-# Use `Any` for the cursor type variable — the impl annotates `psycopg.Cursor` on each
-# method signature where it matters.
+# Use `Any` for the cursor type variable.
 class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psycopg.Connection, Any]):
-    """Postgres driver implementation paired with `PostgresSource`.
+    """Minimal `SQLSourceImplementation` stub paired with `PostgresSource`.
 
-    Postgres keeps multi-schema discovery, column selection, and CDC dispatch on
-    `PostgresSource` itself — this impl exposes the per-connection listing and
-    per-cursor metadata primitives so they can be called against a single
-    pre-opened connection (and so the SQLSource contract is satisfied). The
-    non-CDC streaming sync path is delegated to the module-level
-    `postgres_source(...)` helper.
+    `PostgresSource` overrides `get_schemas` and `source_for_pipeline` end to
+    end — multi-schema discovery, `enabled_columns` column selection, CDC
+    dispatch, SSL cutoff, and storage-key naming all live there because none of
+    them fit `SourceInputs` or the base template. This impl only exists to
+    satisfy the `SQLSource` type contract; only the four abstract methods are
+    implemented. A deeper migration that pushes Postgres onto the base template
+    would extend `SourceInputs` and is tracked as future work.
     """
-
-    # ------------------------------------------------------------------
-    # Connection lifecycle
-    # ------------------------------------------------------------------
 
     @contextmanager
     def connect(
@@ -2036,10 +2032,6 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
             ) as conn:
                 yield conn
 
-    # ------------------------------------------------------------------
-    # Listing — batch queries run once during schema discovery
-    # ------------------------------------------------------------------
-
     def get_columns(
         self,
         conn: psycopg.Connection,
@@ -2049,114 +2041,8 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         discovered = _schemas_from_conn(conn, config.schema, names)
         return {display_name: discovered_schema.columns for display_name, discovered_schema in discovered.items()}
 
-    def get_primary_keys(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        tables: list[str],
-    ) -> dict[str, list[str] | None]:
-        result: dict[str, list[str] | None] = dict.fromkeys(tables)
-        if not tables:
-            return result
-        schema = config.schema or "public"
-        try:
-            pks = get_primary_key_columns(conn, schema, tables)
-        except Exception as e:
-            structlog.get_logger().warning("Failed to detect primary keys for Postgres schemas", exc_info=e)
-            return result
-        for table_name, pk_cols in pks.items():
-            result[table_name] = pk_cols
-        return result
-
-    def get_foreign_keys(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        tables: list[str],
-    ) -> dict[str, list[tuple[str, str, str]]]:
-        return _foreign_keys_from_conn(conn, config.schema, tables or None)
-
-    def get_row_counts(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        tables: list[str],
-    ) -> dict[str, int | None]:
-        counts = _row_counts_from_conn(conn, config.schema, tables or None)
-        return {table: counts.get(table) for table in tables}
-
-    def get_leading_index_columns(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        tables: list[str],
-    ) -> dict[str, set[str]] | None:
-        if not tables:
-            return {}
-        schema = config.schema or "public"
-        return get_leading_index_columns(conn, schema, tables)
-
-    def get_cdc_support(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        tables: list[str],
-    ) -> dict[str, bool]:
-        pks = self.get_primary_keys(conn, config, tables)
-        return {table: bool(pks.get(table)) for table in tables}
-
     def get_incremental_filter(self) -> IncrementalFieldFilter:
         return filter_postgres_incremental_fields
-
-    # ------------------------------------------------------------------
-    # Per-cursor metadata — used during streaming sync
-    # ------------------------------------------------------------------
-
-    def get_primary_keys_for_table(
-        self,
-        cursor: psycopg.Cursor,
-        schema: str,
-        table_name: str,
-        logger: FilteringBoundLogger | None = None,
-    ) -> list[str] | None:
-        log = logger or structlog.get_logger()
-        return _get_primary_keys(cursor, schema, table_name, log)
-
-    def get_table_metadata(
-        self,
-        cursor: psycopg.Cursor,
-        schema: str,
-        table_name: str,
-        logger: FilteringBoundLogger | None = None,
-        probe_unconstrained_numeric_scale: bool = False,
-    ) -> Table[PostgreSQLColumn]:
-        log = logger or structlog.get_logger()
-        return _get_table(
-            cursor,
-            schema,
-            table_name,
-            log,
-            probe_unconstrained_numeric_scale=probe_unconstrained_numeric_scale,
-        )
-
-    def get_partition_settings(
-        self,
-        cursor: psycopg.Cursor,
-        schema: str,
-        table_name: str,
-        logger: FilteringBoundLogger,
-        partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-    ) -> PartitionSettings | None:
-        """Postgres computes partition settings directly from `pg_table_size`/`count(*)`
-        (or partitioned-table catalog estimates) rather than the base-class
-        `fetch_table_stats` math, since `pg_table_size` does not return a row count
-        in the same shape. Override to keep the existing helper authoritative.
-        """
-        return _get_partition_settings(cursor, schema, table_name, logger)
-
-    # ------------------------------------------------------------------
-    # Pipeline build
-    # ------------------------------------------------------------------
 
     def build_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         """Postgres syncs go through `PostgresSource.source_for_pipeline`, not this method.
