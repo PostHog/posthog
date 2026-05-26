@@ -1,9 +1,12 @@
+import { useValues } from 'kea'
+
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import type { FeatureFlagType } from '~/types'
 
 import { CreateDraftExperimentCard } from './ExperimentTabContent/CreateDraftExperimentCard'
 import { RelatedExperimentsTable } from './ExperimentTabContent/RelatedExperimentsTable'
+import { experimentTabLogic } from './experimentTabLogic'
 
 type ExperimentTabContentProps = {
     featureFlag: FeatureFlagType
@@ -14,6 +17,13 @@ export const ExperimentTabContent = ({
     featureFlag,
     multipleExperimentsBannerMessage,
 }: ExperimentTabContentProps): JSX.Element | null => {
+    /**
+     * we only operate with existing feature flags, so id will never be null.
+     */
+    const { relatedExperiments, relatedExperimentsLoading } = useValues(
+        experimentTabLogic({ featureFlagId: featureFlag.id! })
+    )
+
     const isValidMultivariateFlag =
         featureFlag.filters.multivariate &&
         featureFlag.filters.multivariate.variants.length > 1 &&
@@ -39,9 +49,10 @@ export const ExperimentTabContent = ({
 
     return (
         <div className="space-y-4">
-            <CreateDraftExperimentCard featureFlag={featureFlag} />
+            {relatedExperiments.length === 0 && <CreateDraftExperimentCard featureFlag={featureFlag} />}
             <RelatedExperimentsTable
-                featureFlag={featureFlag}
+                relatedExperiments={relatedExperiments}
+                relatedExperimentsLoading={relatedExperimentsLoading}
                 multipleExperimentsBannerMessage={multipleExperimentsBannerMessage}
             />
         </div>
