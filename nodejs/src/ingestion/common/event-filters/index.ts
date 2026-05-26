@@ -1,4 +1,5 @@
 export { EventFilterManager } from './manager'
+export type { EventFilterManagerHandle } from './manager'
 export { EventFiltersBatchAppMetrics } from './batch-app-metrics'
 export { evaluateFilterTree, treeHasConditions } from './evaluate'
 export { FilterNodeSchema, EventFilterRowSchema, EventFilterModeSchema } from './schema'

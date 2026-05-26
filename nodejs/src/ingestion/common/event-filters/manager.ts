@@ -9,20 +9,39 @@ import { EventFilterRowSchema, EventFilterRule } from './schema'
  * One filter per team. Uses BackgroundRefresher to load all active filters
  * (mode = 'dry_run' or 'live').
  */
+/**
+ * The `EventFilterManager` surface visible to callers that should not have
+ * access to its lifecycle methods (e.g. pipeline steps that receive the
+ * service from a `Lifecycle`'s stripped service map). Same shape as
+ * `EventFilterManager` minus `start`/`stop`.
+ */
+export type EventFilterManagerHandle = Omit<EventFilterManager, 'start' | 'stop'>
+
 export class EventFilterManager {
-    private refresher: BackgroundRefresher<Map<number, EventFilterRule>>
+    private refresher?: BackgroundRefresher<Map<number, EventFilterRule>>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(private postgres: PostgresRouter) {}
+
+    public async start(): Promise<void> {
         this.refresher = new BackgroundRefresher(async () => this.fetchAllFilters(), 60_000)
-
-        void this.refresher.get().catch((error) => {
+        // Prime the filter cache. Failures are logged but don't block start —
+        // `tryGet` will retry in the background on subsequent reads.
+        await this.refresher.get().catch((error) => {
             logger.error('Failed to initialize event filter config', { error })
         })
     }
 
+    public stop(): Promise<void> {
+        // Drop the refresher. Once the reference is gone, no further
+        // refreshes happen and the cache is GC'd. Subsequent `getFilter`
+        // calls return null (no filter applied).
+        this.refresher = undefined
+        return Promise.resolve()
+    }
+
     /** Returns the filter for a team, or null if disabled or has no conditions. Non-blocking. */
     getFilter(teamId: number): EventFilterRule | null {
-        const filter = this.refresher.tryGet()?.get(teamId) ?? null
+        const filter = this.refresher?.tryGet()?.get(teamId) ?? null
         if (filter && !treeHasConditions(filter.filter_tree)) {
             return null
         }

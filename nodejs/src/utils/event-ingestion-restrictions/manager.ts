@@ -9,6 +9,14 @@ import { EventContext, RestrictionFilters, RestrictionMap, RestrictionRule, Rest
 
 export type IngestionPipeline = 'analytics' | 'session_recordings' | 'errortracking' | 'clientwarnings'
 
+/**
+ * The `EventIngestionRestrictionManager` surface visible to callers that
+ * should not have access to its lifecycle methods (e.g. pipeline steps that
+ * receive the service from a `Lifecycle`'s stripped service map). Same
+ * shape as `EventIngestionRestrictionManager` minus `start`/`stop`.
+ */
+export type EventIngestionRestrictionManagerHandle = Omit<EventIngestionRestrictionManager, 'start' | 'stop'>
+
 const EMPTY_RESTRICTIONS: ReadonlySet<RestrictionType> = new Set()
 
 /*
@@ -31,7 +39,7 @@ export class EventIngestionRestrictionManager {
     private redisPool: GenericPool<Redis>
     private pipeline: IngestionPipeline
     private staticRestrictionMap: RestrictionMap = new RestrictionMap()
-    private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
+    private dynamicConfigRefresher?: BackgroundRefresher<RestrictionMap>
 
     constructor(
         redisPool: GenericPool<Redis>,
@@ -58,20 +66,34 @@ export class EventIngestionRestrictionManager {
         this.addStaticRestrictions(RestrictionType.SKIP_PERSON_PROCESSING, staticSkipPersonTokens)
         this.addStaticRestrictions(RestrictionType.FORCE_OVERFLOW, staticForceOverflowTokens)
         this.addStaticRestrictions(RestrictionType.REDIRECT_TO_DLQ, staticRedirectToDlqTokens)
+    }
 
+    public async start(): Promise<void> {
         this.dynamicConfigRefresher = new BackgroundRefresher(async () => {
             logger.debug('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
             return await this.buildRestrictionMap()
         })
-
-        // Initialize the restriction manager (includes static restrictions)
-        void this.dynamicConfigRefresher.get().catch((error) => {
+        // Prime the dynamic config cache. Failures are logged but don't block
+        // start — static restrictions still apply, and `tryGet` will retry in
+        // the background on subsequent reads.
+        await this.dynamicConfigRefresher.get().catch((error) => {
             logger.error('Failed to initialize event ingestion restriction config', { error })
         })
     }
 
+    public stop(): Promise<void> {
+        // Drop the refresher. BackgroundRefresher has no running timer to
+        // cancel — once the reference is gone, no further refreshes happen
+        // and the cache is GC'd. Subsequent `getAppliedRestrictions` calls
+        // fall back to the static restriction map.
+        this.dynamicConfigRefresher = undefined
+        return Promise.resolve()
+    }
+
     async forceRefresh(): Promise<void> {
-        await this.dynamicConfigRefresher.refresh()
+        if (this.dynamicConfigRefresher) {
+            await this.dynamicConfigRefresher.refresh()
+        }
     }
 
     // Pass headers directly - no need to construct a new object
@@ -79,7 +101,7 @@ export class EventIngestionRestrictionManager {
         if (!token) {
             return EMPTY_RESTRICTIONS
         }
-        const restrictionManager = this.dynamicConfigRefresher.tryGet() ?? this.staticRestrictionMap
+        const restrictionManager = this.dynamicConfigRefresher?.tryGet() ?? this.staticRestrictionMap
         return restrictionManager.getRestrictions(token, headers)
     }
 
