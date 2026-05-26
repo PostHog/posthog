@@ -10,12 +10,15 @@ import {
     pluginEvent,
 } from 'posthog-js/rrweb-types'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
+import { ceilMsToClosestSecond, downloadFile, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { getText } from 'scenes/comments/Comment'
 import {
@@ -50,6 +53,11 @@ import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
+import {
+    buildInspectorExportDocument,
+    formatInspectorExportDocumentForClipboard,
+    stringifyInspectorExportDocument,
+} from './playerInspectorExport'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { playerInspectorLogsLogic } from './playerInspectorLogsLogic'
 
@@ -344,7 +352,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             miniFiltersLogic,
             ['setMiniFilter', 'setSearchQuery'],
             sessionRecordingEventUsageLogic,
-            ['reportRecordingInspectorItemExpanded'],
+            ['reportRecordingInspectorCopyExported', 'reportRecordingInspectorItemExpanded'],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadFullEventData', 'setTrackedWindow', 'registerWindowId', 'loadEventsSuccess'],
             sessionRecordingPlayerLogic(props),
@@ -401,6 +409,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
     })),
     actions(() => ({
+        copyInspectorRow: (index: number) => ({ index }),
+        copyVisibleInspectorRows: true,
+        exportVisibleInspectorRowsJson: true,
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
@@ -1443,7 +1454,118 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (allItemsByItemType): boolean => allItemsByItemType['events']?.length > 0,
         ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
+        copyInspectorRow: async ({ index }) => {
+            const displayGroup = values.displayGroups[index]
+            if (!displayGroup) {
+                return
+            }
+
+            const document = buildInspectorExportDocument({
+                sessionRecordingId: props.sessionRecordingId,
+                exportedAt: dayjs().toISOString(),
+                items: values.items,
+                displayGroups: [displayGroup],
+                searchQuery: values.searchQuery,
+                miniFilters: values.miniFilters,
+                showOnlyMatching: values.showOnlyMatching,
+                groupRepeatedItems: values.groupRepeatedItems,
+                trackedWindow: values.trackedWindow,
+                logsHasMore: values.logsHasMore,
+            })
+
+            const copied = await copyToClipboard(formatInspectorExportDocumentForClipboard(document), 'inspector row')
+            if (!copied) {
+                return
+            }
+
+            actions.reportRecordingInspectorCopyExported({
+                action: 'copy_row',
+                format: 'text',
+                row_count: document.row_count,
+                item_count: document.item_count,
+                truncated_logs: document.truncated_logs,
+            })
+        },
+        copyVisibleInspectorRows: async () => {
+            if (!values.displayGroups.length) {
+                return
+            }
+
+            const document = buildInspectorExportDocument({
+                sessionRecordingId: props.sessionRecordingId,
+                exportedAt: dayjs().toISOString(),
+                items: values.items,
+                displayGroups: values.displayGroups,
+                searchQuery: values.searchQuery,
+                miniFilters: values.miniFilters,
+                showOnlyMatching: values.showOnlyMatching,
+                groupRepeatedItems: values.groupRepeatedItems,
+                trackedWindow: values.trackedWindow,
+                logsHasMore: values.logsHasMore,
+            })
+
+            const copied = await copyToClipboard(
+                formatInspectorExportDocumentForClipboard(document),
+                'visible inspector rows'
+            )
+            if (!copied) {
+                return
+            }
+
+            actions.reportRecordingInspectorCopyExported({
+                action: 'copy_visible_rows',
+                format: 'text',
+                row_count: document.row_count,
+                item_count: document.item_count,
+                truncated_logs: document.truncated_logs,
+            })
+        },
+        exportVisibleInspectorRowsJson: () => {
+            if (!values.displayGroups.length) {
+                return
+            }
+
+            const exportedAt = dayjs()
+            const document = buildInspectorExportDocument({
+                sessionRecordingId: props.sessionRecordingId,
+                exportedAt: exportedAt.toISOString(),
+                items: values.items,
+                displayGroups: values.displayGroups,
+                searchQuery: values.searchQuery,
+                miniFilters: values.miniFilters,
+                showOnlyMatching: values.showOnlyMatching,
+                groupRepeatedItems: values.groupRepeatedItems,
+                trackedWindow: values.trackedWindow,
+                logsHasMore: values.logsHasMore,
+            })
+            const filename = `replay-inspector-${props.sessionRecordingId}-${exportedAt.utc().format('YYYY-MM-DD-HHmmss')}Z.json`
+
+            try {
+                const file = new File([stringifyInspectorExportDocument(document)], filename, {
+                    type: 'application/json',
+                })
+                downloadFile(file)
+                actions.reportRecordingInspectorCopyExported({
+                    action: 'export_visible_rows_json',
+                    format: 'json',
+                    row_count: document.row_count,
+                    item_count: document.item_count,
+                    truncated_logs: document.truncated_logs,
+                })
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err)
+                lemonToast.error(`Could not export inspector rows: ${message}`)
+                actions.reportRecordingInspectorCopyExported({
+                    action: 'export_visible_rows_json',
+                    format: 'json',
+                    row_count: document.row_count,
+                    item_count: document.item_count,
+                    truncated_logs: document.truncated_logs,
+                    error: 'serialization_failed',
+                })
+            }
+        },
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const group = values.displayGroups[index]

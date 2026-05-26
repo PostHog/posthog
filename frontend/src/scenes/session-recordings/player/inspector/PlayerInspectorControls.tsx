@@ -7,14 +7,17 @@ import {
     IconChevronDown,
     IconChevronRight,
     IconComment,
+    IconCopy,
     IconDashboard,
+    IconDownload,
+    IconEllipsis,
     IconGear,
     IconInfo,
     IconLive,
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenu, LemonMenuItems, SideAction, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
@@ -284,8 +287,41 @@ export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { searchQuery, miniFiltersByKey } = useValues(miniFiltersLogic)
     const { setSearchQuery, setMiniFilter } = useActions(miniFiltersLogic)
+    const { displayGroups, logsHasMore } = useValues(playerInspectorLogic(logicProps))
+    const { copyVisibleInspectorRows, exportVisibleInspectorRowsJson } = useActions(playerInspectorLogic(logicProps))
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const isSharingMode = mode === SessionRecordingPlayerMode.Sharing
+    const hasVisibleRows = displayGroups.length > 0
+    const exportDisabledReason = hasVisibleRows ? undefined : 'There are no visible inspector rows to copy or export'
+    const exportTriggerTooltip = 'Copy or export the visible inspector rows'
+    const exportMenuItems: LemonMenuItems = [
+        logsHasMore && {
+            title: 'Backend logs are truncated — more logs are available',
+            items: [],
+            key: 'inspector-export-truncation-notice',
+        },
+        {
+            items: [
+                {
+                    label: 'Copy visible rows',
+                    icon: <IconCopy />,
+                    onClick: copyVisibleInspectorRows,
+                    disabledReason: exportDisabledReason,
+                    tooltip: 'Copy the currently visible rows as text',
+                    'data-attr': 'player-inspector-copy-visible-rows',
+                },
+                {
+                    label: 'Download JSON',
+                    icon: <IconDownload />,
+                    onClick: exportVisibleInspectorRowsJson,
+                    disabledReason: exportDisabledReason,
+                    tooltip: 'Download the visible rows as a JSON file',
+                    'data-attr': 'player-inspector-download-json',
+                },
+            ],
+        },
+    ]
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -299,14 +335,15 @@ export function PlayerInspectorControls(): JSX.Element {
     return (
         <div className="flex flex-col">
             <SettingsBar border="bottom" className="justify-end">
-                {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
+                {!isSharingMode && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
-                {featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] &&
-                    mode !== SessionRecordingPlayerMode.Sharing && <LogsFilterSettingsButton />}
-                {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
+                {featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] && !isSharingMode && (
+                    <LogsFilterSettingsButton />
+                )}
+                {!isSharingMode && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
-                    mode !== SessionRecordingPlayerMode.Sharing && (
+                    !isSharingMode && (
                         <SettingsToggle
                             data-attr="player-inspector-doctor-toggle"
                             title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
@@ -318,7 +355,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     )}
             </SettingsBar>
 
-            <div className="flex px-2 py-1">
+            <div className="flex px-2 py-1 gap-1">
                 <LemonInput
                     data-attr="player-inspector-search-input"
                     size="xsmall"
@@ -334,6 +371,18 @@ export function PlayerInspectorControls(): JSX.Element {
                         </Tooltip>
                     }
                 />
+                {!isSharingMode ? (
+                    <LemonMenu items={exportMenuItems} buttonSize="xsmall" placement="bottom-end">
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconEllipsis />}
+                            tooltip={exportTriggerTooltip}
+                            disabledReason={exportDisabledReason}
+                            aria-label="Copy or export inspector rows"
+                            data-attr="player-inspector-copy-export-menu"
+                        />
+                    </LemonMenu>
+                ) : null}
             </div>
         </div>
     )

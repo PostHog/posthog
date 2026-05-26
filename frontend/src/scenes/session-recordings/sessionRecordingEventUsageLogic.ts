@@ -36,6 +36,23 @@ interface RecordingViewedProps {
     snapshot_source: 'web' | 'mobile' | 'unknown'
 }
 
+type RecordingInspectorCopyExportAction = 'copy_row' | 'copy_visible_rows' | 'export_visible_rows_json'
+
+const RECORDING_INSPECTOR_COPY_EXPORT_EVENT_NAMES: Record<RecordingInspectorCopyExportAction, string> = {
+    copy_row: 'recording inspector row copied',
+    copy_visible_rows: 'recording inspector visible rows copied',
+    export_visible_rows_json: 'recording inspector visible rows exported',
+}
+
+export interface RecordingInspectorCopyExportProps {
+    action: RecordingInspectorCopyExportAction
+    format: 'text' | 'json'
+    row_count: number
+    item_count: number
+    truncated_logs: boolean
+    error?: 'serialization_failed'
+}
+
 export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLogicType>([
     path(['scenes', 'session-recordings', 'sessionRecordingEventUsageLogic']),
     connect(() => ({
@@ -63,6 +80,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             minifilterKey,
             enabled,
         }),
+        reportRecordingInspectorCopyExported: (properties: RecordingInspectorCopyExportProps) => properties,
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
         }),
@@ -145,6 +163,15 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         },
         reportRecordingInspectorMiniFilterViewed: ({ minifilterKey, enabled }) => {
             posthog.capture('recording inspector minifilter selected', { tab: 'replay-4000', enabled, minifilterKey })
+        },
+        reportRecordingInspectorCopyExported: ({ action, format, row_count, item_count, truncated_logs, error }) => {
+            posthog.capture(RECORDING_INSPECTOR_COPY_EXPORT_EVENT_NAMES[action], {
+                format,
+                row_count,
+                item_count,
+                truncated_logs,
+                ...(error ? { error } : {}),
+            })
         },
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })

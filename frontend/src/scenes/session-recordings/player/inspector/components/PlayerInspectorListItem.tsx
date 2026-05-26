@@ -10,6 +10,7 @@ import {
     IconChat,
     IconCloud,
     IconCollapse,
+    IconCopy,
     IconCursor,
     IconDashboard,
     IconExpand,
@@ -39,16 +40,18 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
-import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import {
     InspectorListItem,
     InspectorListItemConsole,
     InspectorListItemEvent,
+    InspectorListItemLog,
     playerInspectorLogic,
 } from '../playerInspectorLogic'
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
+import { ItemLog, ItemLogDetail } from './ItemLog'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
@@ -178,6 +181,12 @@ function RowItemTitle({
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLog item={item} groupCount={groupCount} />
+            ) : item.type === 'logs' ? (
+                <ItemLog
+                    item={item}
+                    groupCount={groupCount}
+                    groupedItems={groupedItems as InspectorListItemLog[] | undefined}
+                />
             ) : item.type === 'app-state' ? (
                 <ItemAppState item={item} />
             ) : item.type === 'events' ? (
@@ -221,10 +230,12 @@ function RowItemDetail({
     item,
     finalTimestamp,
     groupedItems,
+    sessionRecordingId,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupedItems?: InspectorListItem[]
+    sessionRecordingId: string
 }): JSX.Element | null {
     return (
         <div>
@@ -236,6 +247,12 @@ function RowItemDetail({
                 <ItemConsoleLogDetail
                     item={item}
                     groupedItems={groupedItems as InspectorListItemConsole[] | undefined}
+                />
+            ) : item.type === 'logs' ? (
+                <ItemLogDetail
+                    item={item}
+                    groupedItems={groupedItems as InspectorListItemLog[] | undefined}
+                    sessionId={sessionRecordingId}
                 />
             ) : item.type === 'events' ? (
                 <ItemEventDetail item={item} groupedItems={groupedItems as InspectorListItemEvent[] | undefined} />
@@ -252,13 +269,13 @@ function RowItemDetail({
 const ListItemTitle = memo(function ListItemTitle({
     item,
     index,
-    hoverRef,
+    showCopyAction,
     groupCount,
     groupedItems,
 }: {
     item: InspectorListItem
     index: number
-    hoverRef: React.RefObject<HTMLDivElement>
+    showCopyAction: boolean
     groupCount?: number
     groupedItems?: InspectorListItem[]
 }) {
@@ -266,9 +283,11 @@ const ListItemTitle = memo(function ListItemTitle({
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
     const { end, expandedItems } = useValues(playerInspectorLogic(logicProps))
-    const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
+    const { copyInspectorRow, setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
     const isExpanded = expandedItems.includes(index)
+    const isSharingMode =
+        (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Sharing
 
     // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
     // Ceiling second is used since this is what's displayed to the user.
@@ -284,7 +303,6 @@ const ListItemTitle = memo(function ListItemTitle({
         <div className="flex flex-row items-center w-full px-1">
             <div
                 className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
-                ref={hoverRef}
                 onClick={() => seekToEvent()}
             >
                 {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
@@ -340,6 +358,24 @@ const ListItemTitle = memo(function ListItemTitle({
                 </div>
             </div>
             {isExpanded && <RowItemMenu item={item} />}
+            {!isSharingMode ? (
+                <LemonButton
+                    icon={<IconCopy />}
+                    size="small"
+                    noPadding
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        copyInspectorRow(index)
+                    }}
+                    tooltip="Copy inspector row"
+                    aria-label="Copy inspector row"
+                    data-attr="copy-inspector-row"
+                    className={clsx(
+                        'shrink-0 focus:opacity-100',
+                        showCopyAction || isExpanded ? 'opacity-100' : 'opacity-0'
+                    )}
+                />
+            ) : null}
             {!notExpandable.includes(item.type) && (
                 <LemonButton
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
@@ -370,6 +406,7 @@ const ListItemDetail = memo(function ListItemDetail({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { end } = useValues(playerInspectorLogic(logicProps))
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
     return (
@@ -380,7 +417,12 @@ const ListItemDetail = memo(function ListItemDetail({
             )}
         >
             <div className="text-xs">
-                <RowItemDetail item={item} finalTimestamp={end} groupedItems={groupedItems} />
+                <RowItemDetail
+                    item={item}
+                    finalTimestamp={end}
+                    groupedItems={groupedItems}
+                    sessionRecordingId={sessionRecordingId}
+                />
                 <LemonDivider dashed />
 
                 <div
@@ -416,7 +458,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     const isExpanded = expandedItems.includes(index)
 
     const onLayoutDebounced = useDebouncedCallback(onLayout ?? (() => {}), 500)
-    const { ref, width, height } = useResizeObserver({})
+    const { ref: resizeRef, width, height } = useResizeObserver({})
 
     const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
@@ -449,25 +491,26 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
 
     return (
         <div
-            ref={ref}
+            ref={resizeRef}
             className={clsx(
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-accent',
-                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-surface-primary'
+                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <ListItemTitle
-                item={item}
-                index={index}
-                hoverRef={hoverRef}
-                groupCount={groupCount}
-                groupedItems={groupedItems}
-            />
+            <div ref={hoverRef} className={clsx('w-full', isHovering && 'bg-surface-primary')}>
+                <ListItemTitle
+                    item={item}
+                    index={index}
+                    showCopyAction={isHovering}
+                    groupCount={groupCount}
+                    groupedItems={groupedItems}
+                />
+            </div>
 
             {isExpanded ? <ListItemDetail item={item} index={index} groupedItems={groupedItems} /> : null}
         </div>
