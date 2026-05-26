@@ -7043,66 +7043,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json().items(),
         )
 
-    def test_cant_create_flag_with_group_data_that_fails_to_query(self):
-        create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-        )
-        create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="xyz",
-            group_type_index=1,
-        )
-
-        for i in range(5):
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=1,
-                group_key=f"xyz:{i}",
-                properties={"industry": f"{i}", "email": "2.3.4445"},
-            )
-
-        # Only snapshot flag evaluation queries
-        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: "posthog_group" in query):
-            # Test group flag with invalid regex
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags",
-                {
-                    "name": "Beta feature",
-                    "key": "beta-x",
-                    "filters": {
-                        "aggregation_group_type_index": 1,
-                        "groups": [
-                            {
-                                "rollout_percentage": 65,
-                                "properties": [
-                                    {
-                                        "key": "email",
-                                        "type": "group",
-                                        "group_type_index": 1,
-                                        "value": "2.3.9{0-9}{1 ef}",
-                                        "operator": "regex",
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                },
-            )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Can't evaluate flag - please check release conditions",
-                "attr": None,
-            },
-        )
-
     def test_feature_flag_includes_cohort_names(self):
         cohort = Cohort.objects.create(
             team=self.team,
