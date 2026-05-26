@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ];
         const RESPONSE_SIZE_BUCKETS: &[f64] = &[
             256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 16777216.0,
-            52428800.0,
+            67108864.0,
         ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
