@@ -8,6 +8,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_PAGE_SIZE, AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
@@ -50,15 +51,6 @@ export function AccountsTable(): JSX.Element {
                 ),
         },
         {
-            title: 'Notebooks',
-            key: 'notebooks',
-            dataIndex: 'notebooks',
-            render: (_, account) => {
-                const count = account.notebooks?.length ?? 0
-                return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
-            },
-        },
-        {
             title: 'CSM',
             key: 'csm',
             render: (_, account) => <RoleAssignmentCell account={account} role="csm" />,
@@ -81,6 +73,11 @@ export function AccountsTable(): JSX.Element {
             rowKey="id"
             loading={accountsLoading}
             columns={columns}
+            expandable={{
+                noIndent: true,
+                rowExpandable: (account) => (account.notebooks?.length ?? 0) > 0,
+                expandedRowRender: (account) => <AccountNotebooksExpansion accountId={account.id} />,
+            }}
             pagination={{
                 controlled: true,
                 currentPage,
