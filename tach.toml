@@ -103,6 +103,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools",
@@ -685,4 +686,18 @@ expose = [
 ]
 from = [
     "products.business_knowledge",
+]
+
+[[modules]]
+path = "products.wizard"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.wizard",
 ]

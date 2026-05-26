@@ -1534,6 +1534,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
+                                                  doPathCleaning: isPathCleaningEnabled,
                                               },
                                               embedded: false,
                                               showActions: true,
@@ -2050,6 +2051,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
+                                        },
+                                        // Web overview attributes session metrics to the session's start hour;
+                                        // mirror that here so visitor counts line up across the dashboard.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
                                         },
                                     },
                                 },

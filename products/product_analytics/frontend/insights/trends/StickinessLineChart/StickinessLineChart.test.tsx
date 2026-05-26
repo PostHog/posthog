@@ -30,9 +30,9 @@ describe('StickinessLineChart', () => {
         it('renders the chart from a StickinessQuery with one series', async () => {
             renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
 
-            // 3s timeout (vs `waitFor`'s 1s default) mirrors `chart.hoverTooltip` /
-            // `chart.clickAtIndex` in this file — chart mount + query resolve can exceed 1s under CI load.
-            await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 3000 })
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+            })
         })
     })
 
