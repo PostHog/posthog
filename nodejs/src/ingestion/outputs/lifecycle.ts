@@ -10,12 +10,12 @@ import { IngestionOutputs } from './ingestion-outputs'
 export class IngestionOutputsLifecycle<O extends string> {
     constructor(private readonly build: () => IngestionOutputs<O>) {}
 
-    async start(): Promise<{ service: IngestionOutputs<O>; stop: () => Promise<void> }> {
+    async start(): Promise<{ value: IngestionOutputs<O>; stop: () => Promise<void> }> {
         const outputs = this.build()
         const failures = await outputs.checkTopics()
         if (failures.length > 0) {
             throw new Error(`Output topic verification failed for: ${failures.join(', ')}`)
         }
-        return { service: outputs, stop: () => Promise.resolve() }
+        return { value: outputs, stop: () => Promise.resolve() }
     }
 }

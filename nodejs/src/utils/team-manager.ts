@@ -171,9 +171,9 @@ export class TeamManager {
 export class TeamManagerLifecycle {
     constructor(private postgres: PostgresRouter) {}
 
-    start(): Promise<{ service: TeamManager; stop: () => Promise<void> }> {
+    start(): Promise<{ value: TeamManager; stop: () => Promise<void> }> {
         return Promise.resolve({
-            service: new TeamManager(this.postgres),
+            value: new TeamManager(this.postgres),
             stop: () => Promise.resolve(),
         })
     }

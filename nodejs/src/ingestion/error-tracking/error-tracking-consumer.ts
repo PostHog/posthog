@@ -13,7 +13,10 @@ import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-ma
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerLifecycle,
+} from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
@@ -125,7 +128,9 @@ export class ErrorTrackingConsumer {
     >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
-    protected eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventIngestionRestrictionManagerLifecycle: EventIngestionRestrictionManagerLifecycle
+    protected eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
@@ -150,7 +155,7 @@ export class ErrorTrackingConsumer {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+        this.eventIngestionRestrictionManagerLifecycle = new EventIngestionRestrictionManagerLifecycle(deps.redisPool, {
             pipeline: 'errortracking',
         })
 
@@ -230,7 +235,9 @@ export class ErrorTrackingConsumer {
             cymbalUrl: this.config.cymbalBaseUrl,
         })
 
-        await this.eventIngestionRestrictionManager.start()
+        const started = await this.eventIngestionRestrictionManagerLifecycle.start()
+        this.eventIngestionRestrictionManager = started.value
+        this.stopEventIngestionRestrictionManager = started.stop
         // Initialize pipeline with dependencies
         await this.initializePipeline()
 
@@ -370,7 +377,7 @@ export class ErrorTrackingConsumer {
 
         await this.kafkaConsumer.disconnect()
 
-        await this.eventIngestionRestrictionManager.stop()
+        await this.stopEventIngestionRestrictionManager?.()
 
         logger.info('👍', `${this.name} - stopped`)
     }

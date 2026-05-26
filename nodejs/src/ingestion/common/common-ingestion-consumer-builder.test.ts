@@ -12,7 +12,7 @@ function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
 function makeLifecycle(): Lifecycle<{ outputs: IngestionOutputs<string> }> {
     return newLifecycleBuilder()
         .register('outputs', {
-            start: () => Promise.resolve({ service: makeOutputs(), stop: () => Promise.resolve() }),
+            start: () => Promise.resolve({ value: makeOutputs(), stop: () => Promise.resolve() }),
         })
         .build('consumer')
 }

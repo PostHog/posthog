@@ -21,14 +21,14 @@ export class EventFilterManager {
 
     constructor(private postgres: PostgresRouter) {}
 
-    async start(): Promise<{ service: EventFilterManagerHandle; stop: () => Promise<void> }> {
+    async start(): Promise<{ value: EventFilterManagerHandle; stop: () => Promise<void> }> {
         this.refresher = new BackgroundRefresher(async () => this.fetchAllFilters(), 60_000)
         // Prime the filter cache. Failures are logged but don't block start —
         // `tryGet` will retry in the background on subsequent reads.
         await this.refresher.get().catch((error) => {
             logger.error('Failed to initialize event filter config', { error })
         })
-        return { service: this, stop: () => this.stop() }
+        return { value: this, stop: () => this.stop() }
     }
 
     stop(): Promise<void> {

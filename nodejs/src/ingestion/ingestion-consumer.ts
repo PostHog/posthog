@@ -14,7 +14,10 @@ import {
     RedisPool,
 } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerLifecycle,
+} from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -126,7 +129,9 @@ export class IngestionConsumer {
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventFilterManager: EventFilterManager
-    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventIngestionRestrictionManagerLifecycle: EventIngestionRestrictionManagerLifecycle
+    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
@@ -158,7 +163,7 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+        this.eventIngestionRestrictionManagerLifecycle = new EventIngestionRestrictionManagerLifecycle(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
@@ -236,7 +241,9 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        await this.eventIngestionRestrictionManager.start()
+        const started = await this.eventIngestionRestrictionManagerLifecycle.start()
+        this.eventIngestionRestrictionManager = started.value
+        this.stopEventIngestionRestrictionManager = started.stop
         await this.eventFilterManager.start()
         await this.hogTransformer.start()
 
@@ -316,7 +323,7 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
         await this.eventFilterManager.stop()
-        await this.eventIngestionRestrictionManager.stop()
+        await this.stopEventIngestionRestrictionManager?.()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

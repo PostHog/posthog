@@ -33,7 +33,10 @@ import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerLifecycle,
+} from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -76,7 +79,9 @@ export class SessionRecordingIngester {
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
     private readonly fileStorage: SessionBatchFileStorage
-    private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private readonly eventIngestionRestrictionManagerLifecycle: EventIngestionRestrictionManagerLifecycle
+    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
@@ -150,9 +155,10 @@ export class SessionRecordingIngester {
 
         this.teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
-            pipeline: 'session_recordings',
-        })
+        this.eventIngestionRestrictionManagerLifecycle = new EventIngestionRestrictionManagerLifecycle(
+            this.restrictionRedisPool,
+            { pipeline: 'session_recordings' }
+        )
 
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
@@ -280,7 +286,9 @@ export class SessionRecordingIngester {
 
         await this.keyStore.start()
         await this.encryptor.start()
-        await this.eventIngestionRestrictionManager.start()
+        const started = await this.eventIngestionRestrictionManagerLifecycle.start()
+        this.eventIngestionRestrictionManager = started.value
+        this.stopEventIngestionRestrictionManager = started.stop
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
@@ -338,7 +346,7 @@ export class SessionRecordingIngester {
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         this.keyStore.stop()
-        await this.eventIngestionRestrictionManager.stop()
+        await this.stopEventIngestionRestrictionManager?.()
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 

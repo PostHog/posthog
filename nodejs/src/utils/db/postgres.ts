@@ -236,10 +236,10 @@ export class PostgresRouterManager {
         private readonly appName?: string
     ) {}
 
-    start(): Promise<{ service: PostgresRouter; stop: () => Promise<void> }> {
+    start(): Promise<{ value: PostgresRouter; stop: () => Promise<void> }> {
         const router = new PostgresRouter(this.config, this.appName)
         return Promise.resolve({
-            service: router,
+            value: router,
             stop: () => router.end(),
         })
     }

@@ -57,10 +57,10 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
 export class RedisPoolManager {
     constructor(private readonly config: RedisPoolConfig) {}
 
-    start(): Promise<{ service: RedisPool; stop: () => Promise<void> }> {
+    start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
         const pool = createRedisPoolFromConfig(this.config)
         return Promise.resolve({
-            service: pool,
+            value: pool,
             stop: async (): Promise<void> => {
                 await pool.drain()
                 await pool.clear()

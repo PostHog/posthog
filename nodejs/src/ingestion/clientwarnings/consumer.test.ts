@@ -29,21 +29,21 @@ describe('createClientWarningsConsumer', () => {
         // has to be type-correct — the Managers' bodies don't run.
         return newLifecycleBuilder()
             .register('postgres', {
-                start: () => Promise.resolve({ service: {} as PostgresRouter, stop: () => Promise.resolve() }),
+                start: () => Promise.resolve({ value: {} as PostgresRouter, stop: () => Promise.resolve() }),
             })
             .register('redisPool', {
-                start: () => Promise.resolve({ service: {} as RedisPool, stop: () => Promise.resolve() }),
+                start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
             })
             .register('teamManager', new TeamManagerLifecycle({} as PostgresRouter))
             .register('producerRegistry', {
                 start: () =>
                     Promise.resolve({
-                        service: {} as KafkaProducerRegistry<ProducerName>,
+                        value: {} as KafkaProducerRegistry<ProducerName>,
                         stop: () => Promise.resolve(),
                     }),
             })
             .register('staticDropEventTokens', {
-                start: () => Promise.resolve({ service: [] as string[], stop: () => Promise.resolve() }),
+                start: () => Promise.resolve({ value: [] as string[], stop: () => Promise.resolve() }),
             })
             .build('shared-test')
     }

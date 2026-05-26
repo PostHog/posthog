@@ -24,10 +24,10 @@ export class KafkaProducerRegistryLifecycle {
         private readonly config: ProducerRegistryConfig
     ) {}
 
-    async start(): Promise<{ service: KafkaProducerRegistry<ProducerName>; stop: () => Promise<void> }> {
+    async start(): Promise<{ value: KafkaProducerRegistry<ProducerName>; stop: () => Promise<void> }> {
         const registry = await createProducerRegistry(this.kafkaClientRack).build(this.config)
         return {
-            service: registry,
+            value: registry,
             stop: () => registry.disconnectAll(),
         }
     }

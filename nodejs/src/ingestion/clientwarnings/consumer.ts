@@ -1,6 +1,6 @@
 import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManagerLifecycle } from '../../utils/event-ingestion-restrictions'
 import { TeamManager } from '../../utils/team-manager'
 import { CommonIngestionConsumerConfig } from '../common/common-ingestion-consumer'
 import { createCommonIngestionConsumer } from '../common/common-ingestion-consumer-builder'
@@ -27,31 +27,31 @@ export function createClientWarningsConsumer(
     config: ClientWarningsConsumerConfig,
     sharedLifecycle: ClientWarningsSharedLifecycle
 ) {
-    const lifecycle = sharedLifecycle.chain('clientwarnings', (services, builder) =>
+    const lifecycle = sharedLifecycle.chain('clientwarnings', (container, builder) =>
         builder
             .register(
                 'eventIngestionRestrictionManager',
-                new EventIngestionRestrictionManager(services.redisPool, {
+                new EventIngestionRestrictionManagerLifecycle(container.redisPool, {
                     pipeline: 'clientwarnings',
-                    staticDropEventTokens: services.staticDropEventTokens,
+                    staticDropEventTokens: container.staticDropEventTokens,
                 })
             )
-            .register('eventFilterManager', new EventFilterManager(services.postgres))
+            .register('eventFilterManager', new EventFilterManager(container.postgres))
             .register(
                 'outputs',
-                new IngestionOutputsLifecycle(() => createOutputsRegistry().build(services.producerRegistry, config))
+                new IngestionOutputsLifecycle(() => createOutputsRegistry().build(container.producerRegistry, config))
             )
     )
 
     return createCommonIngestionConsumer({
         config,
         lifecycle,
-        pipeline: ({ services, outputs, promiseScheduler }) =>
+        pipeline: ({ container, outputs, promiseScheduler }) =>
             createClientWarningsPipeline({
                 outputs,
-                teamManager: services.teamManager,
-                eventIngestionRestrictionManager: services.eventIngestionRestrictionManager,
-                eventFilterManager: services.eventFilterManager,
+                teamManager: container.teamManager,
+                eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
+                eventFilterManager: container.eventFilterManager,
                 promiseScheduler,
             }),
     })

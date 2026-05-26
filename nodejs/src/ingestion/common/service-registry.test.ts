@@ -34,7 +34,7 @@ describe('Lifecycle', () => {
 
         expect(log).toEqual(['start:a', 'start:b'])
         expect(started.name).toBe('phase')
-        expect(started.services).toEqual({ a, b })
+        expect(started.container).toEqual({ a, b })
     })
 
     it('types each service without per-service start or stop', async () => {
@@ -42,16 +42,16 @@ describe('Lifecycle', () => {
         const a = makeService('a', log)
 
         const lifecycle = newLifecycleBuilder().register('a', adaptManagedService(a)).build('phase')
-        const { services } = await lifecycle.start()
+        const { container } = await lifecycle.start()
 
         // Compile-time check: neither `start` nor `stop` should exist on the
         // typed view. (The runtime object still has both — this is a typed
         // guard, not a wrapped object.) The `@ts-expect-error` lines will
         // FAIL the build if either method is ever re-exposed in the type.
         // @ts-expect-error -- start is intentionally hidden on the started view
-        const _start: unknown = services.a.start
+        const _start: unknown = container.a.start
         // @ts-expect-error -- stop is intentionally hidden on the started view
-        const _stop: unknown = services.a.stop
+        const _stop: unknown = container.a.stop
         expect(_start).toBe(a.start)
         expect(_stop).toBe(a.stop)
     })
@@ -62,11 +62,11 @@ describe('Lifecycle', () => {
         const b = makeService('b', log)
 
         const server = newLifecycleBuilder().register('a', adaptManagedService(a)).build('server')
-        const { services: serverServices, stop: stopServer } = await server.start()
+        const { container: serverContainer, stop: stopServer } = await server.start()
 
-        // Caller wires the next lifecycle using the prior services' business
+        // Caller wires the next lifecycle using the prior container's business
         // methods (not start/stop — those aren't exposed).
-        expect(serverServices.a).toBeDefined()
+        expect(serverContainer.a).toBeDefined()
         const consumer = newLifecycleBuilder().register('b', adaptManagedService(b)).build('consumer')
         const { stop: stopConsumer } = await consumer.start()
 
@@ -140,7 +140,7 @@ describe('Lifecycle', () => {
         const h2 = await lifecycle.start()
 
         expect(a.startCalls).toBe(1)
-        expect(h1.services).toBe(h2.services)
+        expect(h1.container).toBe(h2.container)
     })
 
     it('keeps services running until the last caller releases', async () => {
@@ -280,7 +280,7 @@ describe('Lifecycle', () => {
 
         expect(log).toEqual(['start:a', 'start:b'])
         expect(started.name).toBe('child')
-        expect(started.services).toEqual({ a, b })
+        expect(started.container).toEqual({ a, b })
 
         await started.stop()
         // Child first, then parent.

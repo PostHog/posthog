@@ -160,18 +160,18 @@ export class IngestionGeneralServer implements NodeServer {
         // and is owned by the lifecycle. The server extracts it from the
         // started services map to pass on to CDP services etc.
         const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-        const sharedServicesLifecycle = sharedInfraLifecycle.chain('shared', (services, builder) =>
+        const sharedServicesLifecycle = sharedInfraLifecycle.chain('shared', (container, builder) =>
             builder
-                .register('teamManager', new TeamManagerLifecycle(services.postgres))
+                .register('teamManager', new TeamManagerLifecycle(container.postgres))
                 .register('staticDropEventTokens', {
-                    start: () => Promise.resolve({ service: staticDropEventTokens, stop: () => Promise.resolve() }),
+                    start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
                 })
         )
 
         const sharedServices = await sharedServicesLifecycle.start()
-        this.postgres = sharedServices.services.postgres
-        this.redisPool = sharedServices.services.redisPool
-        const teamManager = sharedServices.services.teamManager
+        this.postgres = sharedServices.container.postgres
+        this.redisPool = sharedServices.container.redisPool
+        const teamManager = sharedServices.container.teamManager
         this.stopSharedServices = sharedServices.stop
         logger.info('👍', 'Postgres Router ready')
         logger.info('👍', 'Ingestion Redis ready')
@@ -245,7 +245,7 @@ export class IngestionGeneralServer implements NodeServer {
             // server reads it back from the started services. Outputs is
             // a typed view over it — built once here for analytics, and
             // separately by each consumer factory as needed.
-            const ingestionProducerRegistry = sharedServices.services.producerRegistry
+            const ingestionProducerRegistry = sharedServices.container.producerRegistry
             const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
             const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 

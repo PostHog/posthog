@@ -33,7 +33,7 @@ export interface ClientWarningsPipelineConfig {
     // The managers come from a started `Lifecycle`'s service map, where
     // `start` and `stop` are stripped from the type — the pipeline only
     // needs their business methods.
-    eventIngestionRestrictionManager: Omit<EventIngestionRestrictionManager, 'start' | 'stop'>
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventFilterManager: Omit<EventFilterManager, 'start' | 'stop'>
     promiseScheduler: PromiseScheduler
 }

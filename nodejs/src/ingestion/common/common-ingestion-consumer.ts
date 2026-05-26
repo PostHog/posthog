@@ -23,7 +23,7 @@ export interface IngestionBatchingPipeline {
 }
 
 export interface PipelineFactoryContext<S extends Record<string, object>, O extends string> {
-    services: S
+    container: S
     outputs: IngestionOutputs<O>
     promiseScheduler: PromiseScheduler
 }
@@ -33,11 +33,11 @@ export type PipelineFactory<S extends Record<string, object>, O extends string> 
 ) => IngestionBatchingPipeline
 
 /**
- * Constraint on a lifecycle's services map: must expose an `outputs`
- * service. Common consumers read `services.outputs` to call `checkTopics`
- * and to thread the outputs through to the pipeline factory.
+ * Constraint on a lifecycle's container: must expose an `outputs` entry.
+ * Common consumers read `container.outputs` to thread the outputs through
+ * to the pipeline factory.
  */
-export type ServicesWithOutputs<O extends string> = Record<string, object> & { outputs: IngestionOutputs<O> }
+export type ContainerWithOutputs<O extends string> = Record<string, object> & { outputs: IngestionOutputs<O> }
 
 export type CommonIngestionConsumerConfig = Pick<
     IngestionConsumerConfig,
@@ -63,7 +63,7 @@ const latestOffsetTimestampGauge = new Gauge({
  * On `stop()`: disconnects Kafka, tears the lifecycle down in reverse, and
  * drains the background promise scheduler.
  */
-export class CommonIngestionConsumer<S extends ServicesWithOutputs<O>, O extends string = string> {
+export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extends string = string> {
     private name: string
     private groupId: string
     private topic: string
@@ -102,8 +102,8 @@ export class CommonIngestionConsumer<S extends ServicesWithOutputs<O>, O extends
         this.startedLifecycle = await this.lifecycle.start()
         try {
             this.pipeline = this.pipelineFactory({
-                services: this.startedLifecycle.services,
-                outputs: this.startedLifecycle.services.outputs,
+                container: this.startedLifecycle.container,
+                outputs: this.startedLifecycle.container.outputs,
                 promiseScheduler: this.promiseScheduler,
             })
         } catch (err) {

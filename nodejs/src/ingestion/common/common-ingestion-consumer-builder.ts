@@ -2,12 +2,12 @@ import { HealthCheckResult } from '../../types'
 import {
     CommonIngestionConsumer,
     CommonIngestionConsumerConfig,
+    ContainerWithOutputs,
     PipelineFactory,
-    ServicesWithOutputs,
 } from './common-ingestion-consumer'
 import { Lifecycle } from './service-registry'
 
-export interface CreateCommonIngestionConsumerArgs<S extends ServicesWithOutputs<O>, O extends string> {
+export interface CreateCommonIngestionConsumerArgs<S extends ContainerWithOutputs<O>, O extends string> {
     config: CommonIngestionConsumerConfig
     /**
      * Pre-built (not started) Lifecycle holding the consumer-owned services.
@@ -20,7 +20,7 @@ export interface CreateCommonIngestionConsumerArgs<S extends ServicesWithOutputs
     healthcheck?: () => Promise<HealthCheckResult>
 }
 
-export function createCommonIngestionConsumer<S extends ServicesWithOutputs<O>, O extends string>(
+export function createCommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extends string>(
     args: CreateCommonIngestionConsumerArgs<S, O>
 ): CommonIngestionConsumer<S, O> {
     return new CommonIngestionConsumer<S, O>(args.config, args.lifecycle, args.pipeline, args.healthcheck)
