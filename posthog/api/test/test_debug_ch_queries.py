@@ -53,6 +53,20 @@ class TestDebugCHQuery(APIBaseTest):
         )
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
 
+    def test_slowest_queries_wildcard_pat_rejected(self):
+        # A full-access (`*`) PAT must NOT satisfy the query_performance:read requirement —
+        # this scope is INTERNAL and only programmatically-minted tokens carry it explicitly.
+        self.user.is_staff = True
+        self.user.save()
+        token = self._create_pat(scopes=["*"])
+        self.client.logout()
+
+        resp = self.client.get(
+            "/api/debug_ch_queries/slowest_queries/?hours=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN, resp.content)
+
     def test_slowest_queries_pat_with_scope_but_non_staff_rejected(self):
         # Scope grants the PAT past the scope check; is_staff still gates the action.
         self.assertFalse(self.user.is_staff)

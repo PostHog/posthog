@@ -36,7 +36,11 @@ class DebugCHQueries(viewsets.ViewSet):
     List recent CH queries initiated by this user.
     """
 
-    scope_object = "query_performance"
+    # `INTERNAL` (not `"query_performance"`) so a staff user's full-access (`*`) PAT
+    # cannot satisfy the scope check via the wildcard short-circuit in
+    # `APIScopePermission.has_permission`. The action below pins the explicit
+    # `query_performance:read` requirement, which only programmatically-minted PATs hold.
+    scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated, APIScopePermission]
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     required_scopes: Optional[list[str]] = None
