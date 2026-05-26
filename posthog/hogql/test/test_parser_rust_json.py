@@ -13,24 +13,8 @@ from posthog.hogql.parser import parse_expr, parse_program, parse_select
 
 from ._test_parser import parser_test_factory
 
-# Cases the Rust parser does not yet match C++ on, tracked for follow-up:
-#   - promoted_assignment_target_carries_position: the Rust parser does
-#     not yet emit per-node source positions (`start` / `end`) at all —
-#     every node comes back position-less. The shared suite tolerates
-#     this via `clear_locations`, but this test inspects raw positions.
-#     Closing it means threading byte offsets through the whole emit
-#     layer — a feature in its own right, not a local fix.
-_DEFERRED_EXACT: set[str] = {
-    "test_promoted_assignment_target_carries_position",
-}
-
 
 class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
-    def setUp(self) -> None:
-        super().setUp()
-        if self._testMethodName in _DEFERRED_EXACT:
-            self.skipTest("not yet matched by rust-json")
-
     def test_empty(self):
         # this test only exists to make pycharm recognise this class as a test class
         # the actual tests are in the parent class
@@ -1341,6 +1325,29 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             "p between (q) and r := (s) and (t)",  # no_pos NamedArgument last operand
             "m between (n) and o := (p) and q := (r) and (s)",
             "x between (1) and ((2) or (3)) and (4)",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
+    def test_between_parenthesized_group_high(self):
+        # `a and (b and c)` flattens to `And([a,b,c])` (cpp does too for a standalone
+        # expr), but in a BETWEEN body cpp keeps `(b and c)` as one high operand: the
+        # rightmost AND at paren-depth 0 is the one BEFORE the parens, so
+        # `1 between a and (b and c)` is `low=a, high=And(b,c)`. rust used to descend
+        # into the flattened inner AND and mis-split to `low=And(a,b), high=c`. The
+        # split now skips ANDs inside parens (paren-depth-0 rule).
+        for query in (
+            "1 between a and (b and c)",
+            "1 between a and ((b) and (c))",
+            "1 between a and (b and c and d)",
+            "1 between x and y and (b and c)",
+            "1 between a and (b or c)",
+            "1 between (a and b) and c",
+            "1 between a and (b and c) or d",
         ):
             self.assertEqual(
                 parse_expr(query, backend="cpp-json"),

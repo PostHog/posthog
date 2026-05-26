@@ -5840,10 +5840,233 @@ fn stamp_span_from_children<'a, E: Emitter + Clone>(
 /// - An `Or` node defers — walk children right-to-left so we find the
 ///   *latest* AND-bearing child. Reconstruct the Or above the split.
 /// - Anything else has no AND in it; return None.
+/// True when `node` is wholly wrapped in parentheses in the source. Parens are
+/// stripped at parse time and the node carries the INNER span, so we look
+/// OUTWARD: the nearest non-whitespace byte before `start` must be `(`, the
+/// nearest at/after `end` must be `)`, and that `(` must balance-match that
+/// exact `)` (so `(b) and (c)` — whose outer `(`/`)` belong to different pairs —
+/// is NOT treated as wholly parenthesized). The split must treat such a node as
+/// opaque: cpp picks the rightmost AND at paren-depth 0, so an AND inside
+/// `(...)` is never the BETWEEN separator (`1 between a and (b and c)` keeps
+/// `high = (b and c)`, not the inner AND). Skips string / quoted-identifier
+/// bodies and block comments so parens inside literals don't miscount.
+/// ASCII-gated (byte-scan); callers fall back to descend-anyway on non-ASCII.
+fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &E::Value,
+) -> bool {
+    let start = match pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref()) {
+        Some(s) => s,
+        None => return false,
+    };
+    let end = match pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref()) {
+        Some(e) => e,
+        None => return false,
+    };
+    let bytes = parser.src.as_bytes();
+    if start >= end || end > bytes.len() {
+        return false;
+    }
+    // Nearest non-whitespace byte before `start` must be an opening paren.
+    let mut lp = start;
+    loop {
+        if lp == 0 {
+            return false;
+        }
+        lp -= 1;
+        if !bytes[lp].is_ascii_whitespace() {
+            break;
+        }
+    }
+    if bytes[lp] != b'(' {
+        return false;
+    }
+    // Nearest non-whitespace byte at/after `end` must be a closing paren.
+    let mut rp = end;
+    while rp < bytes.len() && bytes[rp].is_ascii_whitespace() {
+        rp += 1;
+    }
+    if rp >= bytes.len() || bytes[rp] != b')' {
+        return false;
+    }
+    // The `(` at `lp` must balance-match the `)` at `rp` exactly.
+    let mut depth = 0i32;
+    let mut i = lp;
+    while i <= rp {
+        match bytes[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i <= rp {
+                    let c = bytes[i];
+                    if c == b'\\' {
+                        i += 2; // backslash escape
+                        continue;
+                    }
+                    if c == q {
+                        if i + 1 <= rp && bytes[i + 1] == q {
+                            i += 2; // doubled-quote escape
+                            continue;
+                        }
+                        break; // closing quote
+                    }
+                    i += 1;
+                }
+            }
+            b'/' if i + 1 <= rp && bytes[i + 1] == b'*' => {
+                i += 2;
+                while i + 1 <= rp && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1; // skip the `*`; the outer `i += 1` skips the `/`
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i == rp;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
+/// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a
+/// standalone expr), but in a BETWEEN body cpp keeps `(b and c)` as one high
+/// operand because the rightmost AND at paren-depth 0 is the one BEFORE the
+/// parens. The flattened node erases the grouping from its structure, so
+/// recover it from spans: scan from the node's start tracking paren-depth and
+/// split at the rightmost operand still at the node's base depth — the trailing
+/// deeper-nested operands are the parenthesized group (the high). Returns
+/// `(low, high)` only when such a trailing group exists (caller's normal split
+/// handles the rest). The group node gets the INNER span (its wrapping parens
+/// belong to the enclosing grammar, not the And/Or). ASCII-gated.
+fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &E::Value,
+    exprs: &[E::Value],
+    is_or: bool,
+) -> Option<(E::Value, E::Value)> {
+    if !parser.is_ascii_src || exprs.len() < 3 {
+        return None;
+    }
+    let node_start = pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref())?;
+    let starts: Vec<usize> = exprs
+        .iter()
+        .map(|e| pos_offset(&parser.emit, parser.emit.get_field(e, "start").as_ref()))
+        .collect::<Option<Vec<_>>>()?;
+    let ends: Vec<usize> = exprs
+        .iter()
+        .map(|e| pos_offset(&parser.emit, parser.emit.get_field(e, "end").as_ref()))
+        .collect::<Option<Vec<_>>>()?;
+    let bytes = parser.src.as_bytes();
+    let last_start = *starts.last().unwrap();
+    if node_start > starts[0] || last_start >= bytes.len() {
+        return None;
+    }
+    // For each junction k (gap between operand k and k+1) the AND/OR keyword sits
+    // at the gap's MINIMUM paren-depth — after any `)` closes, before any `(`
+    // opens. A junction at the node's base depth is a real top-level separator;
+    // deeper ones are inside parens. Scan once, sampling the running depth across
+    // each gap. (String / quoted-ident bodies and block comments are skipped so
+    // their parens don't miscount.)
+    let mut jmin = vec![i32::MAX; exprs.len() - 1];
+    let mut depth = 0i32;
+    let mut k_op = 0usize;
+    let mut i = node_start;
+    while i <= last_start {
+        while k_op + 1 < starts.len() && i >= starts[k_op + 1] {
+            k_op += 1;
+        }
+        let in_gap = k_op + 1 < exprs.len() && i >= ends[k_op];
+        match bytes[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i <= last_start {
+                    let c = bytes[i];
+                    if c == b'\\' {
+                        i += 2;
+                        continue;
+                    }
+                    if c == q {
+                        if i + 1 <= last_start && bytes[i + 1] == q {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'/' if i + 1 <= last_start && bytes[i + 1] == b'*' => {
+                i += 2;
+                while i + 1 <= last_start && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'(' => {
+                if in_gap {
+                    jmin[k_op] = jmin[k_op].min(depth);
+                }
+                depth += 1;
+            }
+            b')' => {
+                if in_gap {
+                    jmin[k_op] = jmin[k_op].min(depth);
+                }
+                depth -= 1;
+            }
+            _ => {
+                if in_gap {
+                    jmin[k_op] = jmin[k_op].min(depth);
+                }
+            }
+        }
+        i += 1;
+    }
+    let base = *jmin.iter().min().unwrap();
+    let mut split_idx = 0usize;
+    for (k, d) in jmin.iter().enumerate() {
+        if *d == base {
+            split_idx = k;
+        }
+    }
+    // A trailing parenthesized group needs 2+ operands after the split point;
+    // otherwise the normal "pop the last operand" split already matches.
+    if split_idx >= exprs.len() - 2 {
+        return None;
+    }
+    let build = |lo: usize, hi_excl: usize| -> E::Value {
+        let group: Vec<E::Value> = exprs[lo..hi_excl].to_vec();
+        if group.len() == 1 {
+            return group.into_iter().next().unwrap();
+        }
+        let n = if is_or {
+            parser.emit.or_(group.clone())
+        } else {
+            parser.emit.and_(group.clone())
+        };
+        // Span from the children (paren-extended per child), matching cpp's
+        // ctx — the group's OWN wrapping parens belong to the enclosing grammar.
+        stamp_span_from_children(parser, n, &group)
+    };
+    let low = build(0, split_idx + 1);
+    let high = build(split_idx + 1, exprs.len());
+    Some((low, high))
+}
+
 fn split_at_rightmost_and<'a, E: Emitter + Clone>(
     parser: &Parser<'a, E>,
     node: &E::Value,
 ) -> Option<BetweenSplit<E::Value>> {
+    // A parenthesized sub-expression is opaque to the rightmost-AND search:
+    // its ANDs sit at paren-depth > 0 and can't be the BETWEEN separator.
+    if parser.is_ascii_src && is_wholly_parenthesized(parser, node) {
+        return None;
+    }
     let node_name = parser.emit.node_kind(node);
     let node_name = node_name.as_deref();
     // `node`'s `end` is the end of the wrapper this frame hoists (Alias, cast,
@@ -5858,6 +6081,11 @@ fn split_at_rightmost_and<'a, E: Emitter + Clone>(
             .and_then(|v| parser.emit.as_list(&v))?;
         if exprs.len() < 2 {
             return None;
+        }
+        // A trailing parenthesized group (`a and (b and c)` -> And([a,b,c])) is
+        // the opaque high; split before it at the paren-depth-0 AND.
+        if let Some((low, high)) = try_trailing_paren_group_split(parser, node, &exprs, false) {
+            return Some((low, high, Vec::new()));
         }
         // Try descending the LAST element first — it may itself contain
         // a deeper AND that's the rightmost in source order. e.g.

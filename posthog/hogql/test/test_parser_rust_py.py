@@ -15,21 +15,8 @@ from posthog.hogql.parser import parse_select
 
 from ._test_parser import parser_test_factory
 
-# Same deferral as `rust-json`: PyEmitter's `with_pos` chain doesn't yet
-# propagate positions onto the promoted assignment target node. Underlying
-# parser logic is shared, so the gap is wired in `with_pos` rather than
-# in the per-backend AST shape.
-_DEFERRED_EXACT: set[str] = {
-    "test_promoted_assignment_target_carries_position",
-}
-
 
 class TestParserRustPy(parser_test_factory("rust-py")):  # type: ignore
-    def setUp(self) -> None:
-        super().setUp()
-        if self._testMethodName in _DEFERRED_EXACT:
-            self.skipTest("not yet matched by rust-py")
-
     def test_empty(self):
         # this test only exists to make pycharm recognise this class as a test class
         # the actual tests are in the parent class
