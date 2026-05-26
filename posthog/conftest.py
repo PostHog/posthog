@@ -45,13 +45,34 @@ def _timed(label: str):
                 pass
 
 
+_FIXTURE_TIMINGS: dict[str, float] = {}
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_fixture_setup(fixturedef, request):
+    # TEMP: time every fixture's own setup to find which one owns the multi-minute first-test gap.
+    start = time.perf_counter()
+    outcome = yield
+    if _TIME_DB_SETUP:
+        elapsed = time.perf_counter() - start
+        key = f"{fixturedef.argname} ({fixturedef.scope})"
+        if elapsed > _FIXTURE_TIMINGS.get(key, 0.0):
+            _FIXTURE_TIMINGS[key] = elapsed
+    return outcome
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    if not _DBSETUP_TIMINGS:
-        return
-    terminalreporter.write_line("")
-    terminalreporter.write_line("=== DB setup phase timings (temp instrumentation) ===")
-    for line in _DBSETUP_TIMINGS:
-        terminalreporter.write_line(line)
+    if _DBSETUP_TIMINGS:
+        terminalreporter.write_line("")
+        terminalreporter.write_line("=== DB setup phase timings (temp instrumentation) ===")
+        for line in _DBSETUP_TIMINGS:
+            terminalreporter.write_line(line)
+    slow = sorted(((v, k) for k, v in _FIXTURE_TIMINGS.items() if v >= 1.0), reverse=True)
+    if slow:
+        terminalreporter.write_line("")
+        terminalreporter.write_line("=== slowest fixture setups >=1s (temp instrumentation) ===")
+        for elapsed, key in slow[:25]:
+            terminalreporter.write_line(f"[FIXTURE] {key} {elapsed:.2f}s")
 
 
 def create_clickhouse_tables():
