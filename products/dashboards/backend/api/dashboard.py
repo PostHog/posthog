@@ -59,7 +59,6 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.alert import AlertConfiguration
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -72,6 +71,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
@@ -79,6 +79,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
+from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -262,6 +263,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "refresh_attempt",
+            # Denormalization for HogQL printing; combined with depth=1, leaving it
+            # in expands `team` into a full nested Team dict on every tile response.
+            "team",
         ]
         read_only_fields = ["id", "insight"]
         depth = 1
@@ -1040,7 +1044,10 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
-    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+    TEMPLATE_MAP = {
+        "llm-analytics": get_llm_analytics_default_template,
+        "mcp-analytics": get_mcp_analytics_default_template,
+    }
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
@@ -1261,12 +1268,23 @@ class DashboardsViewSet(
         response = Response(data)
         return response
 
+    def _validate_ai_feature_access(self) -> None:
+        """Validate that AI data processing is approved by the organization.
+
+        Mirrors `InsightsViewSet._validate_ai_feature_access`. The dashboard refresh
+        flow is `snapshot` -> `analyze_refresh_result`; both touch the same data the
+        OpenAI call ultimately sees, so both gate on this check.
+        """
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
+
     @action(methods=["POST"], detail=True)
     def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Snapshot the current dashboard state (from cache) for AI analysis.
         Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
         """
+        self._validate_ai_feature_access()
         dashboard = self.get_object()
 
         input_serializer = DashboardSnapshotSerializer(data=request.data)
@@ -1294,6 +1312,8 @@ class DashboardsViewSet(
         Generate AI analysis comparing before/after dashboard refresh.
         Expects cache_key in request body pointing to the stored 'before' state.
         """
+        self._validate_ai_feature_access()
+
         dashboard = self.get_object()
         cache_key = request.data.get("cache_key")
 
@@ -1312,7 +1332,7 @@ class DashboardsViewSet(
         after_results = self._get_cached_results_for_analysis(dashboard, request)
 
         # Generate AI analysis
-        analysis = generate_refresh_analysis(before_results, after_results, self.team.id)
+        analysis = generate_refresh_analysis(before_results, after_results, dashboard)
 
         if not analysis:
             return Response({"result": "No significant changes detected in the dashboard data."})

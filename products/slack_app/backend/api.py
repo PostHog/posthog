@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
+from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
@@ -49,6 +50,21 @@ logger = structlog.get_logger(__name__)
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
+
+# Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
+# per install, so tenants who connected the Slack integration before the full scope set
+# was requested in prod (2026-05-04, #57177) must reconnect before mentions can work.
+POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
+    {
+        "app_mentions:read",
+        "users:read",
+        "users:read.email",
+        "chat:write",
+        "channels:history",
+        "groups:history",
+        "reactions:write",
+    }
+)
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -135,6 +151,10 @@ def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
     return f"posthog_code_slack_user_info:{integration_id}:{slack_user_id}"
 
 
+def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str) -> str:
+    return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
+
+
 def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
     return {
         "user": {
@@ -213,6 +233,78 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
         cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return user_info
     return {}
+
+
+def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
+    from products.slack_app.backend.models import SlackUserProfileCache
+
+    try:
+        profile = SlackUserProfileCache.objects.filter(
+            integration_id=integration.id,
+            email__iexact=normalized_email,
+        ).first()
+    except DatabaseError:
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        return None
+    return profile.slack_user_id if profile else None
+
+
+def lookup_slack_user_id_by_email(
+    slack: SlackIntegration,
+    integration: Integration,
+    email: str,
+) -> str | None:
+    """Resolve a Slack user ID from a PostHog user email.
+
+    Uses ``SlackUserProfileCache`` (populated by ``resolve_slack_user`` and prior lookups),
+    then ``users.lookupByEmail``. Results are cached per integration + email.
+    """
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+
+    cache_key = _slack_user_id_by_email_cache_key(integration.id, normalized_email)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    slack_user_id = _get_slack_user_id_by_email_from_db(integration, normalized_email)
+    if slack_user_id:
+        cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return slack_user_id
+
+    try:
+        user_info = _normalize_slack_response(slack.client.users_lookupByEmail(email=email))
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        if error_code != "users_not_found":
+            logger.warning(
+                "slack_user_id_by_email_lookup_failed",
+                integration_id=integration.id,
+                email=email,
+                error=error_code,
+            )
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    if not user_info.get("ok"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    user = user_info.get("user")
+    if not isinstance(user, dict) or not user.get("id"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    slack_user_id = str(user["id"])
+    _persist_slack_user_info(integration, slack_user_id, user_info)
+    cache.set(
+        _slack_user_info_cache_key(integration.id, slack_user_id),
+        user_info,
+        timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
+    )
+    cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+    return slack_user_id
 
 
 def _post_slack_user_feedback(
@@ -674,9 +766,13 @@ def _collect_thread_messages(
         return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
 
     messages = []
-    for msg in raw_messages:
+    for index, msg in enumerate(raw_messages):
         # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
-        if our_bot_id and msg.get("bot_id") == our_bot_id:
+        # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
+        # always the originating message (e.g. a PostHog alert) that's the actual context
+        # for the task. Filtering it by bot_id breaks workspaces where the alerting Slack
+        # app and the `@PostHog` code app share an installation identity.
+        if index > 0 and our_bot_id and msg.get("bot_id") == our_bot_id:
             continue
 
         user_id = msg.get("user")
@@ -747,6 +843,27 @@ def select_repository(
     explicit_repo = _extract_explicit_repo(event_text, all_repos)
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_found_match=False)
+
+    # Walk the most recent thread messages newest-first for an explicit `org/repo`
+    # token. Follow-up mentions often drop the repo because the requester already
+    # stated it earlier in the thread — e.g. after a personal-GitHub connect prompt,
+    # the re-mention is just "should be there now". Picking up the most recent
+    # explicit reference matches that intent without waiting on the rule-matcher or
+    # the picker. Capped at the last few messages so long threads don't reach back
+    # to an unrelated repo from much earlier in the conversation.
+    _THREAD_SCAN_LIMIT = 10
+    for msg in reversed(thread_messages[-_THREAD_SCAN_LIMIT:]):
+        thread_text = msg.get("text") or ""
+        if not thread_text or thread_text == event_text:
+            continue
+        repo_from_thread = _extract_explicit_repo(thread_text, all_repos)
+        if repo_from_thread:
+            return RepoDecision(
+                mode="auto",
+                repository=repo_from_thread,
+                reason="thread_explicit_mention",
+                llm_found_match=False,
+            )
 
     if user_id and channel:
         from posthog.models.user_repo_preference import UserRepoPreference
@@ -1139,6 +1256,41 @@ def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
         return False
 
 
+def _notify_missing_slack_scopes(
+    slack: SlackIntegration,
+    event: dict,
+    missing: frozenset[str],
+) -> None:
+    """Tell the user the install is missing scopes and how to fix it.
+
+    `chat:write` has been part of the base Slack scope set since the integration existed,
+    so the feedback post itself is safe to attempt even when other scopes are absent.
+    """
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts") or event.get("ts", "")
+    slack_user_id = event.get("user", "")
+    integration = slack.integration
+
+    logger.warning(
+        "posthog_code_slack_missing_scopes",
+        integration_id=integration.id,
+        team_id=integration.team_id,
+        missing=sorted(missing),
+    )
+
+    if not channel or not thread_ts or not slack_user_id:
+        return
+
+    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    text = (
+        ":warning: PostHog can't reply because the Slack integration is missing required "
+        f"permissions: `{', '.join(sorted(missing))}`.\n"
+        f"A project admin needs to reconnect Slack from project settings: {settings_url}"
+    )
+
+    _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1176,6 +1328,11 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
                 )
+                return ROUTE_HANDLED_LOCALLY
+            slack = SlackIntegration(local_match)
+            missing_scopes = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
+            if missing_scopes:
+                _notify_missing_slack_scopes(slack, event, missing_scopes)
                 return ROUTE_HANDLED_LOCALLY
             if _resolve_pending_repo_picker_from_followup(event, local_match):
                 return ROUTE_HANDLED_LOCALLY

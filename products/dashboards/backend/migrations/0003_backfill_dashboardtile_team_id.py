@@ -5,19 +5,26 @@ def backfill_team_id(apps, schema_editor) -> None:
     """
     Backfill DashboardTile.team_id from dashboard.team_id in batches.
 
-    Idempotent: only operates on rows where team_id IS NULL, so reruns after a
-    partial failure simply pick up where the previous run stopped. Each batch
-    commits its own transaction (`RunPython` honors the migration's atomic
-    flag, which is True by default and produces a single transaction — but
-    psycopg's autocommit-on-cursor below avoids holding row locks across the
-    full backfill).
+    The whole backfill runs in the migration's single transaction (Django's
+    default `atomic = True`). Batching keeps individual `UPDATE` statements
+    small — bounded memory, bounded statement runtime — rather than splitting
+    the work into independent commits.
+
+    Uses keyset pagination (`id__gt=last_id`) so each batch query only scans
+    forward from the previous batch's last id. Without this, every iteration
+    would re-walk the PK index from id=0 filtering `team_id IS NULL`, and since
+    there is no partial index on that predicate the final batches would
+    approach a full table scan.
     """
     DashboardTile = apps.get_model("dashboards", "DashboardTile")
     batch_size = 5000
+    last_id = 0
 
     while True:
         batch_ids = list(
-            DashboardTile.objects.filter(team_id__isnull=True).order_by("id").values_list("id", flat=True)[:batch_size]
+            DashboardTile.objects.filter(team_id__isnull=True, id__gt=last_id)
+            .order_by("id")
+            .values_list("id", flat=True)[:batch_size]
         )
         if not batch_ids:
             break
@@ -34,6 +41,8 @@ def backfill_team_id(apps, schema_editor) -> None:
                 [batch_ids],
             )
 
+        last_id = batch_ids[-1]
+
 
 class Migration(migrations.Migration):
     """
@@ -44,8 +53,6 @@ class Migration(migrations.Migration):
     independently — keep the backfill out of any release that also touches
     the column shape.
     """
-
-    atomic = False
 
     dependencies = [
         ("dashboards", "0002_add_dashboardtile_team_id_column"),

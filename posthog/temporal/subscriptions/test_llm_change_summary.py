@@ -706,3 +706,33 @@ class TestGenerateChangeSummary:
         assert captured["properties"]["team_id"] == 42
         assert captured["properties"]["ai_product"] == "subscriptions"
         assert captured["groups"] == {"project": "42"}
+
+
+class TestAnnotationsSection:
+    def test_change_prompt_omits_annotations_block_when_empty(self):
+        previous = [_make_state(1, "Pageviews", "avg 100/day")]
+        current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
+
+        messages = build_prompt_messages(previous, current)
+
+        assert "Annotations during this period" not in messages[1]["content"]
+
+    @pytest.mark.parametrize(
+        "builder_name,marker_text",
+        [
+            ("build_prompt_messages", "rolled out new home page"),
+            ("build_initial_prompt_messages", "release v2"),
+        ],
+    )
+    def test_both_builders_include_annotations_block_when_provided(self, builder_name, marker_text):
+        previous = [_make_state(1, "Pageviews", "avg 100/day")]
+        current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
+        annotations_section = f"Annotations during this period (...):\n- 2025-04-14 (project): {marker_text}\n\n"
+
+        if builder_name == "build_prompt_messages":
+            messages = build_prompt_messages(previous, current, annotations_section=annotations_section)
+        else:
+            messages = build_initial_prompt_messages(current, annotations_section=annotations_section)
+
+        assert marker_text in messages[1]["content"]
+        assert "Annotations during this period" in messages[1]["content"]
