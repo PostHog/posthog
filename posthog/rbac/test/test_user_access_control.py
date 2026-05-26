@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 from rest_framework import serializers
@@ -1862,13 +1862,15 @@ class TestAccessControlMissingEE(BaseTest):
         assert list(result) == list(qs)
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestBlockedResourceIdsByScope(BaseTest):
     """
     Tests the deny-set precedence used by HogQL system tables.
 
     These exercise UserAccessControl.blocked_resource_ids_by_scope directly,
     which is also the single source of truth for the HogQL printer guard and
-    the cache-key fingerprint in query_runner.py.
+    the cache-key fingerprint in query_runner.py. Behavior is gated by the
+    `hogql-object-access-control` feature flag, mocked on at the class level.
     """
 
     def setUp(self):

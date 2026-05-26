@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
+import posthoganalytics
 from opentelemetry import trace
 from rest_framework import serializers
 
@@ -885,6 +886,17 @@ class UserAccessControl:
         if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
             return {}
         if not EE_AVAILABLE or not self._team:
+            return {}
+        if not posthoganalytics.feature_enabled(
+            "hogql-object-access-control",
+            str(self._team.uuid),
+            groups={"organization": str(self._team.organization_id), "project": str(self._team.id)},
+            group_properties={
+                "organization": {"id": str(self._team.organization_id)},
+                "project": {"id": str(self._team.id)},
+            },
+            send_feature_flag_events=False,
+        ):
             return {}
 
         rows = list(

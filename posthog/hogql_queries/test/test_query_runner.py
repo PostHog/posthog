@@ -332,6 +332,7 @@ class TestQueryRunner(BaseTest):
 
         assert "restricted_objects" not in runner.get_cache_payload()
 
+    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_cache_key_differs_when_user_is_restricted_from_object(self):
         """
         Cache-poisoning guard: an unrestricted user's cached result must not be
