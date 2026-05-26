@@ -456,4 +456,20 @@ mod tests {
         let result = handler_roundtrip(None, original.clone(), 4096, 4096).await;
         assert_eq!(result.unwrap(), original);
     }
+
+    #[tokio::test]
+    async fn extract_body_stream_error_returns_decoding_error() {
+        let error_stream = stream::once(async {
+            Err::<Bytes, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "simulated stream error",
+            ))
+        });
+        let body = Body::from_stream(error_stream);
+        let result = extract_body_with_timeout(body, 4096, None, TEST_CHUNK_SIZE_KB, "/test").await;
+        assert!(
+            matches!(result, Err(Error::RequestDecodingError(_))),
+            "stream error should surface as RequestDecodingError, got: {result:?}"
+        );
+    }
 }

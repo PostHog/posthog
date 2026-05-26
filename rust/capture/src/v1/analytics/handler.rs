@@ -130,3 +130,278 @@ fn raw_header_str<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("absent")
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::Router;
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    use crate::router;
+    use crate::v1::constants::*;
+    use crate::v1::test_utils::{batch_payload, compressed_payload, valid_event, TestStateBuilder};
+
+    fn test_app(state: router::State) -> Router {
+        Router::new()
+            .route(
+                "/i/v1/general/events",
+                axum::routing::post(super::handle_request),
+            )
+            .layer(axum::middleware::from_fn(
+                super::super::router::v1_common_headers,
+            ))
+            .with_state(state)
+    }
+
+    fn valid_request() -> axum::http::request::Builder {
+        Request::builder()
+            .method("POST")
+            .uri("/i/v1/general/events")
+            .header("Authorization", "Bearer phc_test_token")
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_ATTEMPT, "1")
+            .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
+            .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
+            .header("User-Agent", "test-agent/1.0")
+    }
+
+    async fn response_json(resp: axum::response::Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn happy_path_single_event() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let event = valid_event();
+        let uuid = event.uuid.clone();
+        let payload = batch_payload(&[event]);
+
+        let resp = app
+            .oneshot(valid_request().body(Body::from(payload)).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_json(resp).await;
+        let results = body["results"].as_object().unwrap();
+        assert_eq!(results[&uuid]["result"], "ok");
+    }
+
+    #[tokio::test]
+    async fn happy_path_batch() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let events = vec![valid_event(), valid_event(), valid_event()];
+        let uuids: Vec<String> = events.iter().map(|e| e.uuid.clone()).collect();
+        let payload = batch_payload(&events);
+
+        let resp = app
+            .oneshot(valid_request().body(Body::from(payload)).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_json(resp).await;
+        let results = body["results"].as_object().unwrap();
+        for uuid in &uuids {
+            assert_eq!(results[uuid]["result"], "ok");
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_authorization() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let payload = batch_payload(&[valid_event()]);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/i/v1/general/events")
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_ATTEMPT, "1")
+            .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
+            .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
+            .header("User-Agent", "test-agent/1.0")
+            .body(Body::from(payload))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn missing_required_headers() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let payload = batch_payload(&[valid_event()]);
+        // Only Authorization and Content-Type — missing SDK-Info, Attempt, etc.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/i/v1/general/events")
+            .header("Authorization", "Bearer phc_test_token")
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .header("User-Agent", "test-agent/1.0")
+            .body(Body::from(payload))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn empty_body() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let resp = app
+            .oneshot(valid_request().body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn malformed_json() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let garbage = b"not json at all {{{".to_vec();
+        let resp = app
+            .oneshot(valid_request().body(Body::from(garbage)).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn empty_batch() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let payload = br#"{"created_at":"2026-03-19T14:30:00Z","batch":[]}"#.to_vec();
+        let resp = app
+            .oneshot(valid_request().body(Body::from(payload)).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn gzip_compressed_payload() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let event = valid_event();
+        let uuid = event.uuid.clone();
+        let raw = batch_payload(&[event]);
+        let compressed = compressed_payload(&raw, "gzip");
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/i/v1/general/events")
+            .header("Authorization", "Bearer phc_test_token")
+            .header("Content-Type", "application/json")
+            .header("Content-Encoding", "gzip")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_ATTEMPT, "1")
+            .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
+            .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
+            .header("User-Agent", "test-agent/1.0")
+            .body(Body::from(compressed))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_json(resp).await;
+        assert_eq!(body["results"][&uuid]["result"], "ok");
+    }
+
+    #[tokio::test]
+    async fn zstd_compressed_payload() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let event = valid_event();
+        let uuid = event.uuid.clone();
+        let raw = batch_payload(&[event]);
+        let compressed = compressed_payload(&raw, "zstd");
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/i/v1/general/events")
+            .header("Authorization", "Bearer phc_test_token")
+            .header("Content-Type", "application/json")
+            .header("Content-Encoding", "zstd")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_ATTEMPT, "1")
+            .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
+            .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
+            .header("User-Agent", "test-agent/1.0")
+            .body(Body::from(compressed))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_json(resp).await;
+        assert_eq!(body["results"][&uuid]["result"], "ok");
+    }
+
+    #[tokio::test]
+    async fn unsupported_encoding() {
+        let ts = TestStateBuilder::new().build();
+        let app = test_app(ts.state);
+
+        let payload = batch_payload(&[valid_event()]);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/i/v1/general/events")
+            .header("Authorization", "Bearer phc_test_token")
+            .header("Content-Type", "application/json")
+            .header("Content-Encoding", "lz4")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_ATTEMPT, "1")
+            .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
+            .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
+            .header("User-Agent", "test-agent/1.0")
+            .body(Body::from(payload))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    #[tokio::test]
+    async fn service_unavailable_no_sink() {
+        let mut ts = TestStateBuilder::new().build();
+        ts.state.v1_sink_router = None;
+        let app = test_app(ts.state);
+
+        let payload = batch_payload(&[valid_event()]);
+        let resp = app
+            .oneshot(valid_request().body(Body::from(payload)).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+}

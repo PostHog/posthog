@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Router;
 use common_redis::RedisClient;
 use tracing::{info, warn};
@@ -30,6 +32,7 @@ pub struct LifecycleHandles {
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
+    pub v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
 }
@@ -47,10 +50,13 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         (None, None)
     } else if config.s3_fallback_enabled {
         let kafka = manager.register("kafka-sink", sink_opts.clone().is_advisory(true));
-        let s3 = manager.register("s3-sink", sink_opts);
+        let s3 = manager.register("s3-sink", sink_opts.clone());
         (Some(s3), Some(kafka))
     } else {
-        (Some(manager.register("kafka-sink", sink_opts)), None)
+        (
+            Some(manager.register("kafka-sink", sink_opts.clone())),
+            None,
+        )
     };
 
     let event_restrictions =
@@ -58,6 +64,27 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             Some(manager.register("event-restrictions", lifecycle::ComponentOptions::new()))
         } else {
             None
+        };
+
+    let v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
+        if !config.capture_v1_sinks.is_empty() {
+            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "fatal: failed to parse CAPTURE_V1_SINKS='{}': {e:#}",
+                        config.capture_v1_sinks
+                    )
+                })
+                .into_iter()
+                .map(|name| {
+                    (
+                        name,
+                        manager.register(name.lifecycle_tag(), sink_opts.clone()),
+                    )
+                })
+                .collect()
+        } else {
+            HashMap::new()
         };
 
     let readiness = manager.readiness_handler();
@@ -68,6 +95,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         sink,
         advisory,
         event_restrictions,
+        v1_sinks,
         readiness,
         liveness,
     }
@@ -77,6 +105,7 @@ pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
     pub sink: Arc<dyn Event + Send + Sync>,
+    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
@@ -86,6 +115,7 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         sink: sink_handle,
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
+        v1_sinks: v1_sink_handles,
         readiness,
         liveness,
     } = handles;
@@ -255,6 +285,15 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         None
     };
 
+    let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
+        Some(
+            create_v1_sink_router(&config, v1_sink_handles)
+                .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
+        )
+    } else {
+        None
+    };
+
     let app = router::router(
         crate::time::SystemTime {},
         readiness,
@@ -283,6 +322,7 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         replay_overflow_limiter,
+        v1_sink_router.clone(),
     );
 
     info!(
@@ -294,8 +334,54 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         app,
         server_handle: server,
         sink: sink_for_flush,
+        v1_sink_router,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
+}
+
+fn create_v1_sink_router(
+    config: &Config,
+    handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
+) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
+    let sinks_cfg = crate::v1::sinks::load_sinks(&config.capture_v1_sinks)
+        .context("failed to parse CAPTURE_V1_SINKS")?;
+    sinks_cfg
+        .validate()
+        .context("v1 sink config validation failed")?;
+
+    let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
+        HashMap::new();
+
+    for (name, cfg) in sinks_cfg.configs {
+        let handle = handles
+            .get(&name)
+            .cloned()
+            .with_context(|| format!("missing lifecycle handle for v1 sink '{name}'"))?;
+
+        let producer = crate::v1::sinks::kafka::producer::KafkaProducer::new(
+            name,
+            &cfg.kafka,
+            handle.clone(),
+            config.capture_mode.as_tag(),
+        )
+        .with_context(|| format!("failed to create v1 kafka producer for sink '{name}'"))?;
+
+        let kafka_sink = crate::v1::sinks::kafka::sink::KafkaSink::new(
+            name,
+            Arc::new(producer),
+            cfg,
+            config.capture_mode,
+            handle,
+        );
+        sink_map.insert(name, Box::new(kafka_sink));
+    }
+
+    let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
+    info!(
+        sinks = config.capture_v1_sinks.as_str(),
+        "V1 sink router initialized"
+    );
+    Ok(Arc::new(router))
 }
 
 async fn create_sink(
@@ -414,4 +500,51 @@ fn create_event_restriction_service(
     );
 
     Some(service)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn create_v1_sink_router_fails_on_invalid_config() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("CAPTURE_V1_SINKS", "msk"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
+            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
+                .unwrap()
+                .into_iter()
+                .map(|name| {
+                    (
+                        name,
+                        manager.register(name.lifecycle_tag(), lifecycle::ComponentOptions::new()),
+                    )
+                })
+                .collect();
+
+        let err = create_v1_sink_router(&config, handles)
+            .err()
+            .expect("should fail with invalid config");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("msk"),
+            "error should name the failing sink: {msg}"
+        );
+    }
 }
