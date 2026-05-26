@@ -31,6 +31,7 @@ import type {
     ErrorTrackingIssueQueryRequestApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
+    ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
@@ -67,6 +68,7 @@ import type {
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
+    PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseApi,
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
@@ -622,14 +624,14 @@ export const getErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) =
 export const errorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueWriteApi?: ErrorTrackingIssueWriteApi,
     options?: RequestInit
 ): Promise<ErrorTrackingIssueFullApi> => {
     return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueWriteApi),
     })
 }
 
@@ -640,14 +642,14 @@ export const getErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: st
 export const errorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFullApi?: NonReadonly<PatchedErrorTrackingIssueFullApi>,
+    patchedErrorTrackingIssueWriteApi?: PatchedErrorTrackingIssueWriteApi,
     options?: RequestInit
 ): Promise<ErrorTrackingIssueFullApi> => {
     return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingIssueFullApi),
+        body: JSON.stringify(patchedErrorTrackingIssueWriteApi),
     })
 }
 

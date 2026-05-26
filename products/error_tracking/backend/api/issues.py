@@ -79,6 +79,11 @@ class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
 
 
 DEPRECATED_ISSUE_STATUSES = frozenset({ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
+SUPPORTED_WRITE_STATUSES = (
+    ErrorTrackingIssue.Status.ACTIVE,
+    ErrorTrackingIssue.Status.RESOLVED,
+    ErrorTrackingIssue.Status.SUPPRESSED,
+)
 
 
 class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
@@ -158,6 +163,26 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
         return updated_instance
 
 
+class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SUPPORTED_WRITE_STATUSES,
+        required=False,
+        help_text="Issue status to set. Deprecated archived and pending_release values are rejected.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional issue display name.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional issue description.",
+    )
+
+
 class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -228,6 +253,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .prefetch_related("cohorts__cohort")
             .filter(team_id=self.team.id)
         )
+
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
+    def update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request)
+
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
+    def partial_update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request)
+
+    def _update_issue(self, request: request.Request) -> Response:
+        issue = self.get_object()
+        request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        serializer = self.get_serializer(issue, data=request_serializer.validated_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
 
     @action(methods=["GET"], detail=False)
     def exists(self, request, **kwargs):

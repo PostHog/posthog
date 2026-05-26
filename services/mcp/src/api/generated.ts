@@ -14129,6 +14129,39 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - active
+    * `resolved` - resolved
+    * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueWriteStatusEnum = typeof ErrorTrackingIssueWriteStatusEnum[keyof typeof ErrorTrackingIssueWriteStatusEnum];
+
+
+    export const ErrorTrackingIssueWriteStatusEnum = {
+      Active: 'active',
+      Resolved: 'resolved',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueWrite {
+      /** Issue status to set. Deprecated archived and pending_release values are rejected.
+
+      * `active` - active
+      * `resolved` - resolved
+      * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWriteStatusEnum;
+      /**
+         * Optional issue display name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Optional issue description.
+         * @nullable
+         */
+      description?: string | null;
+    }
+
+    /**
      * * `archived` - archived
     * `active` - active
     * `resolved` - resolved
@@ -26292,6 +26325,25 @@ export namespace Schemas {
       external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+    }
+
+    export interface PatchedErrorTrackingIssueWrite {
+      /** Issue status to set. Deprecated archived and pending_release values are rejected.
+
+      * `active` - active
+      * `resolved` - resolved
+      * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWriteStatusEnum;
+      /**
+         * Optional issue display name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Optional issue description.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedErrorTrackingRelease {

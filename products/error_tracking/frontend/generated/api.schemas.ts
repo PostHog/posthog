@@ -580,6 +580,58 @@ export interface PaginatedErrorTrackingIssueFullListApi {
 }
 
 /**
+ * * `active` - active
+ * `resolved` - resolved
+ * `suppressed` - suppressed
+ */
+export type ErrorTrackingIssueWriteStatusEnumApi =
+    (typeof ErrorTrackingIssueWriteStatusEnumApi)[keyof typeof ErrorTrackingIssueWriteStatusEnumApi]
+
+export const ErrorTrackingIssueWriteStatusEnumApi = {
+    Active: 'active',
+    Resolved: 'resolved',
+    Suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssueWriteApi {
+    /** Issue status to set. Deprecated archived and pending_release values are rejected.
+
+  * `active` - active
+  * `resolved` - resolved
+  * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWriteStatusEnumApi
+    /**
+     * Optional issue display name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Optional issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+export interface PatchedErrorTrackingIssueWriteApi {
+    /** Issue status to set. Deprecated archived and pending_release values are rejected.
+
+  * `active` - active
+  * `resolved` - resolved
+  * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWriteStatusEnumApi
+    /**
+     * Optional issue display name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Optional issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+/**
  * @nullable
  */
 export type PatchedErrorTrackingIssueFullApiCohort = {
