@@ -112,6 +112,9 @@ overrides:
   fast-xml-parser@^5: '>=5.3.5'
 
 patchedDependencies:
+  '@modelcontextprotocol/sdk@1.29.0':
+    hash: 5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c
+    path: patches/@modelcontextprotocol__sdk@1.29.0.patch
   agents@0.10.2:
     hash: d2811608515ef2256607ba5211a7109d23a505c0cf274f212fa0bc28b38e25aa
     path: patches/agents@0.10.2.patch
@@ -3588,13 +3591,13 @@ importers:
         version: 2.0.2(hono@4.12.18)
       '@modelcontextprotocol/ext-apps':
         specifier: ^1.5.0
-        version: 1.6.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)
+        version: 1.6.0(@modelcontextprotocol/sdk@1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+        version: 1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.0.9
-        version: '@posthog/mcp@0.0.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)'
+        version: '@posthog/mcp@0.0.9(@modelcontextprotocol/sdk@1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -30396,15 +30399,15 @@ snapshots:
       '@lezer/lr': 1.4.2
       json5: 2.2.3
 
-  '@modelcontextprotocol/ext-apps@1.6.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)':
+  '@modelcontextprotocol/ext-apps@1.6.0(@modelcontextprotocol/sdk@1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@modelcontextprotocol/sdk': 1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       zod: 4.3.6
     optionalDependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
+  '@modelcontextprotocol/sdk@1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.18)
       ajv: 8.18.0
@@ -32345,9 +32348,9 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.0.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)':
+  '@posthog/mcp@0.0.9(@modelcontextprotocol/sdk@1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@modelcontextprotocol/sdk': 1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       posthog-node: 5.33.3(rxjs@7.8.1)
     transitivePeerDependencies:
       - rxjs
@@ -37664,7 +37667,7 @@ snapshots:
     dependencies:
       '@babel/plugin-proposal-decorators': 7.29.0(@babel/core@7.29.0)
       '@cfworker/json-schema': 4.1.1
-      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@modelcontextprotocol/sdk': 1.29.0(patch_hash=5d62021f73cc61edb96197ad8152630c05ce7ce99594dbfc423598fdca5b4e9c)(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@rolldown/plugin-babel': 0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.15)(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
       ai: 6.0.77(zod@4.3.6)
       cron-schedule: 6.0.0
