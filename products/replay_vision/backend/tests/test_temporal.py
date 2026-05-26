@@ -1150,12 +1150,11 @@ async def test_emit_classifier_tags_produces_kafka_payload() -> None:
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
         ) as mock_se_cls,
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.get_producer"
-        ) as mock_producer_factory,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
+        ) as mock_producer_scope,
     ):
         mock_se_cls.return_value.get_metadata.return_value = fake_metadata
-        producer = MagicMock()
-        mock_producer_factory.return_value = producer
+        producer = mock_producer_scope.return_value.__enter__.return_value
 
         await emit_classifier_tags_activity(inputs)
 
@@ -1216,13 +1215,12 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
         ) as mock_se_cls,
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.get_producer"
-        ) as mock_producer_factory,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
+        ) as mock_producer_scope,
     ):
         mock_se_cls.return_value.get_metadata.return_value = fake_metadata
-        producer = MagicMock()
+        producer = mock_producer_scope.return_value.__enter__.return_value
         producer.produce.return_value = failed_result
-        mock_producer_factory.return_value = producer
 
         with pytest.raises(RuntimeError, match="broker timeout"):
             await emit_classifier_tags_activity(inputs)
