@@ -459,6 +459,61 @@ export function isAnthropicToolCallMessage(output: unknown): output is Anthropic
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
 }
 
+// There are more tags that point to an internal-only scaffold message, but these are the most common
+// ones, i.e. the ones we can most confidently hide by default.
+const SCAFFOLD_TAG_ALLOWLIST: ReadonlySet<string> = new Set([
+    'system-reminder',
+    'system_reminder',
+    'system_reminder_message',
+    'attached_context',
+    'voice_mode',
+])
+
+// Regex for the case where an entire message body consists of exactly one balanced XML wrapper.
+// We don't accept content that contains multiple top-level wrappers nor leading/trailing text
+const SCAFFOLD_WRAPPER_REGEX = /^\s*<([a-z][a-z0-9_-]*)>[\s\S]*?<\/\1>\s*$/
+
+// Reduces content to a single text body (flat string, single typed-parts text part,
+// or legacy `{content: string}`); returns `undefined` for multi-part / unknown shapes.
+function extractSoleTextContent(content: CompatMessage['content']): string | undefined {
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        if (content.length !== 1) {
+            return undefined
+        }
+        return extractTextContent(content[0])
+    }
+    if (hasStringContentField(content)) {
+        return content.content
+    }
+    return undefined
+}
+
+// Returns the matched scaffold tag iff `message` is a user-role message whose entire
+// content is one balanced wrapper from `SCAFFOLD_TAG_ALLOWLIST` (e.g.
+// `<system_reminder>foo</system_reminder>`)
+export function getScaffoldTagName(message: CompatMessage): string | undefined {
+    if (message.role !== 'user') {
+        return undefined
+    }
+    const body = extractSoleTextContent(message.content)
+    if (!body) {
+        return undefined
+    }
+    const match = SCAFFOLD_WRAPPER_REGEX.exec(body)
+    if (!match) {
+        return undefined
+    }
+    const tag = match[1]
+    return SCAFFOLD_TAG_ALLOWLIST.has(tag) ? tag : undefined
+}
+
+export function isInternalScaffoldMessage(message: CompatMessage): boolean {
+    return getScaffoldTagName(message) !== undefined
+}
+
 export function isToolStepItem(item: unknown): boolean {
     if (
         isAnthropicToolCallMessage(item) ||

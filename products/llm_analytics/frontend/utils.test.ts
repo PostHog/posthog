@@ -7,6 +7,7 @@ import {
     costContextFromTrace,
     formatAiErrorForDisplay,
     formatLLMEventTitle,
+    getScaffoldTagName,
     getSessionID,
     getSessionStartTimestamp,
     getToolNamesCalled,
@@ -14,6 +15,7 @@ import {
     hasStringContentField,
     isEmptyJSONStructure,
     isLangChainMessage,
+    isInternalScaffoldMessage,
     isTextContentItem,
     isToolStepItem,
     looksLikeXml,
@@ -1131,6 +1133,176 @@ describe('AI observability utils', () => {
             expect(looksLikeXml('a < b and c > d')).toBe(false)
             expect(looksLikeXml('plain text')).toBe(false)
             expect(looksLikeXml('{"foo":"bar"}')).toBe(false)
+        })
+    })
+
+    describe('getScaffoldTagName / isInternalScaffoldMessage', () => {
+        // The shape these tests pin: typed-parts content with a single text item
+        // whose entire body is a balanced scaffold wrapper.
+        const typedParts = (text: string): CompatMessage['content'] =>
+            [{ type: 'text', text }] as unknown as CompatMessage['content']
+
+        it.each<[name: string, body: string, expected: string]>([
+            // String content
+            ['flat string with system-reminder (kebab)', '<system-reminder>foo</system-reminder>', 'system-reminder'],
+            ['flat string with system_reminder (snake)', '<system_reminder>foo</system_reminder>', 'system_reminder'],
+            [
+                'flat string with system_reminder_message',
+                '<system_reminder_message>foo</system_reminder_message>',
+                'system_reminder_message',
+            ],
+            [
+                'flat string with attached_context',
+                '<attached_context>foo bar baz</attached_context>',
+                'attached_context',
+            ],
+            ['flat string with voice_mode', '<voice_mode>off</voice_mode>', 'voice_mode'],
+            [
+                'multi-line scaffold body',
+                '<system_reminder>\nyou are an agent\nmode: foo\n</system_reminder>',
+                'system_reminder',
+            ],
+            ['leading/trailing whitespace tolerated', '   \n<voice_mode>off</voice_mode>\n  ', 'voice_mode'],
+        ])('returns the tag name for: %s', (_, body, expected) => {
+            const message: CompatMessage = { role: 'user', content: body }
+            expect(getScaffoldTagName(message)).toBe(expected)
+            expect(isInternalScaffoldMessage(message)).toBe(true)
+        })
+
+        it('matches the typed-parts shape (single text item)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: typedParts('<system_reminder>be concise</system_reminder>'),
+            }
+            expect(getScaffoldTagName(message)).toBe('system_reminder')
+        })
+
+        it('matches the {type, content: string} wrapper shape (Vercel SDK legacy)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: {
+                    type: 'text',
+                    content: '<system-reminder>foo</system-reminder>',
+                } as unknown as CompatMessage['content'],
+            }
+            expect(getScaffoldTagName(message)).toBe('system-reminder')
+        })
+
+        // ---- negative cases: role gate ----
+
+        it('returns undefined for an assistant-role message even with a scaffold wrapper', () => {
+            // Models can legitimately emit `<system_reminder>` in their reply. Don't hide.
+            const message: CompatMessage = {
+                role: 'assistant',
+                content: '<system_reminder>foo</system_reminder>',
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for a system-role message (system messages are filtered upstream anyway)', () => {
+            const message: CompatMessage = {
+                role: 'system',
+                content: '<system_reminder>foo</system_reminder>',
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        // ---- negative cases: allowlist gate ----
+
+        it.each<[name: string, body: string]>([
+            ['unrelated tag <thinking> — model may emit as visible content', '<thinking>let me think</thinking>'],
+            ['unrelated tag <summary>', '<summary>the user wants X</summary>'],
+            ['unrelated tag <analysis>', '<analysis>foo</analysis>'],
+            ['unrelated tag <reasoning>', '<reasoning>foo</reasoning>'],
+            ['unrelated tag <answer>', '<answer>The capital of France is Paris.</answer>'],
+            ['unrelated tag not in allowlist', '<useful-context>foo</useful-context>'],
+            ['unrelated tag <relevance-scores>', '<relevance-scores>0.9</relevance-scores>'],
+            ['generic single-word <task>', '<task>foo</task>'],
+            ['HTML structural <pre>', '<pre>code block</pre>'],
+            ['HTML structural <code>', '<code>print("hi")</code>'],
+        ])('returns undefined for non-allowlisted tag: %s', (_, body) => {
+            const message: CompatMessage = { role: 'user', content: body }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+            expect(isInternalScaffoldMessage(message)).toBe(false)
+        })
+
+        // ---- negative cases: shape gate ----
+
+        it('returns undefined when text content has leading text before the wrapper', () => {
+            // User wrote actual text alongside a wrapper-shaped substring. Don't hide.
+            const message: CompatMessage = {
+                role: 'user',
+                content: 'foo <system_reminder>bar</system_reminder>',
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined when text content has trailing text after the wrapper', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: '<system_reminder>foo</system_reminder> bar',
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined when content has two sibling wrappers (multi-block, not single)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: '<system_reminder>foo</system_reminder>\n<voice_mode>off</voice_mode>',
+            }
+            // Conservative — coalescing multi-wrapper bodies is out of scope.
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for typed-parts with more than one item', () => {
+            // Two text items, even if each is itself a scaffold wrapper. The renderer
+            // would lose information if we collapsed this; keep it visible.
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'text', text: '<system_reminder>foo</system_reminder>' },
+                    { type: 'text', text: '<voice_mode>off</voice_mode>' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for typed-parts with a non-text item (image, tool_use, …)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: [{ type: 'image_url', image_url: { url: 'x' } }] as unknown as CompatMessage['content'],
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        // ---- negative cases: case-sensitivity + tag-mismatch guards ----
+
+        it('returns undefined for uppercase tag names (scaffold tags are lowercase by convention)', () => {
+            const message: CompatMessage = { role: 'user', content: '<System_Reminder>foo</System_Reminder>' }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined when open and close tag names differ', () => {
+            // Malformed XML — the backref enforces consistency.
+            const message: CompatMessage = {
+                role: 'user',
+                content: '<system_reminder>foo</voice_mode>',
+            }
+            expect(getScaffoldTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for empty content', () => {
+            expect(getScaffoldTagName({ role: 'user', content: '' })).toBeUndefined()
+            expect(getScaffoldTagName({ role: 'user', content: [] })).toBeUndefined()
+            expect(getScaffoldTagName({ role: 'user', content: null as unknown as string })).toBeUndefined()
+        })
+
+        it('handles typed-parts content with a multi-line attached_context wrapper', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: typedParts('<attached_context>\nfoo\n\nbar: baz\nqux: 123\n</attached_context>'),
+            }
+            expect(getScaffoldTagName(message)).toBe('attached_context')
         })
     })
 
