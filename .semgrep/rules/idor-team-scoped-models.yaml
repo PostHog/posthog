@@ -130,6 +130,7 @@ rules:
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
+                              |TeamWorkflowsConfig
                               |FileSystem
                               |GithubCommentMapping
                               |GitHubSyncConfig
@@ -356,6 +357,7 @@ rules:
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
+                        |TeamWorkflowsConfig
                         |FileSystem
                         |GithubCommentMapping
                         |GitHubSyncConfig
