@@ -194,7 +194,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         consoleWarnSpy.mockRestore()
     })
 
-    it('loadAllSessionEvents toggles bulkLoadInFlight true then false', async () => {
+    it('loadAllSessionEvents toggles bulkLoading true then false', async () => {
         const traces = [traceSummary('trace-1')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
         logic = llmAnalyticsSessionDataLogic(props)
@@ -207,21 +207,20 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         mockApi.query.mockReturnValue(pending as any)
 
         logic.actions.loadAllSessionEvents()
-        expect(logic.values.bulkLoadInFlight).toBe(true)
+        expect(logic.values.bulkLoading).toBe(true)
 
         resolveQuery({ results: [] })
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.bulkLoadInFlight).toBe(false)
+        expect(logic.values.bulkLoading).toBe(false)
     })
 
-    it('loadAllSessionEvents on failure sets bulkLoadError and clears in-flight without per-trace fallback', async () => {
+    it('loadAllSessionEvents on failure sets bulkLoadError and clears in-flight', async () => {
         const traces = [traceSummary('trace-1'), traceSummary('trace-2')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
         logic = llmAnalyticsSessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockRejectedValueOnce(new Error('clickhouse timeout'))
-        const loadFullTraceSpy = jest.spyOn(logic.actions, 'loadFullTrace')
         // Swallow expected console.error from the listener's catch block.
         const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
@@ -229,11 +228,12 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
             logic.actions.loadAllSessionEvents()
         }).toFinishAllListeners()
 
-        expect(logic.values.bulkLoadInFlight).toBe(false)
+        expect(logic.values.bulkLoading).toBe(false)
         expect(logic.values.bulkLoadError).toBe('clickhouse timeout')
-        // Critical: no automatic per-trace fallback (would re-introduce the N HTTP calls
-        // we explicitly removed AND mask systemic failures).
-        expect(loadFullTraceSpy).not.toHaveBeenCalled()
+        // No fallback path exists — the manual per-trace `loadFullTrace`
+        // action was removed in the bulk-loader cleanup. The error banner +
+        // retry button at the scene level is the only recovery surface.
+        expect(logic.values.fullTraces).toEqual({})
 
         consoleSpy.mockRestore()
     })
@@ -291,29 +291,6 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         expect(bulkLoadSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('preserves the per-trace loadFullTrace action surface so summarizeTrace can still fall back', () => {
-        // The bulk loader is the primary path for populating `fullTraces`, but
-        // the `summarizeTrace` listener still needs `loadFullTrace` as a
-        // fallback when a trace is missing from the bulk cache (e.g. paginated
-        // traces or a failed bulk query). Pin the action shape so a future
-        // refactor doesn't accidentally remove the fallback wiring.
-        const traces = [traceSummary('trace-1')]
-        const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
-        logic.mount()
-
-        expect(typeof logic.actions.loadFullTrace).toBe('function')
-        expect(typeof logic.actions.loadFullTraceSuccess).toBe('function')
-        expect(typeof logic.actions.loadFullTraceFailure).toBe('function')
-        expect(typeof logic.actions.summarizeTrace).toBe('function')
-
-        // The reducer still accepts loadFullTraceSuccess so the fallback can
-        // populate fullTraces if it ever runs.
-        const mockTrace = traceSummary('fallback-trace')
-        logic.actions.loadFullTraceSuccess('fallback-trace', mockTrace)
-        expect(logic.values.fullTraces['fallback-trace']).toEqual(mockTrace)
-    })
-
     it('loadAllSessionEvents handles empty results without erroring', async () => {
         const traces = [traceSummary('trace-1'), traceSummary('trace-2')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
@@ -332,6 +309,6 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         expect(logic.values.fullTraces['trace-1'].events).toEqual([])
         expect(logic.values.fullTraces['trace-2'].events).toEqual([])
         expect(logic.values.bulkLoadError).toBeNull()
-        expect(logic.values.bulkLoadInFlight).toBe(false)
+        expect(logic.values.bulkLoading).toBe(false)
     })
 })

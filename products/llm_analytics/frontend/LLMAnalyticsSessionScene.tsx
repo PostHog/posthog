@@ -102,7 +102,7 @@ function SessionSceneWrapper(): JSX.Element {
         nextDataLoading,
         summariesLoading,
         bulkLoadError,
-        bulkLoadInFlight,
+        bulkLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
     const { summarizeAllTraces, loadNextData, loadAllSessionEvents } = useActions(llmAnalyticsSessionDataLogic)
@@ -180,7 +180,7 @@ function SessionSceneWrapper(): JSX.Element {
                     action={{
                         children: 'Retry',
                         onClick: loadAllSessionEvents,
-                        loading: bulkLoadInFlight,
+                        loading: bulkLoading,
                     }}
                 >
                     <div className="space-y-1">
@@ -275,13 +275,12 @@ function SessionTurnView({
     showSessionSummarization: boolean
     traceSearchParams: Record<string, unknown>
 }): JSX.Element {
-    const { traceSummaries, loadingFullTraces, fullTraces, stepsExpandedTraceIds, expandedGenerationIds } =
+    const { traceSummaries, fullTraces, bulkLoading, stepsExpandedTraceIds, expandedGenerationIds } =
         useValues(llmAnalyticsSessionDataLogic)
-    const { toggleSteps, toggleGenerationExpanded, loadFullTrace } = useActions(llmAnalyticsSessionDataLogic)
+    const { toggleSteps, toggleGenerationExpanded } = useActions(llmAnalyticsSessionDataLogic)
 
     const trace = turn.trace
     const summary: TraceSummary | undefined = traceSummaries[trace.id]
-    const isLoading = loadingFullTraces.has(trace.id)
     const stepsShown = stepsExpandedTraceIds.has(trace.id)
     const fullTrace = fullTraces[trace.id]
     const baseTraceParams = {
@@ -306,7 +305,7 @@ function SessionTurnView({
                         <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
                     )}
 
-                    <TurnBody turn={turn} isLoading={isLoading} onLoad={() => loadFullTrace(trace.id)} />
+                    <TurnBody turn={turn} isLoading={bulkLoading} />
 
                     {turn.tools.length > 0 && (
                         <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted">
@@ -396,15 +395,7 @@ function TurnSummaryLine({ summary, summaryUrl }: { summary: TraceSummary; summa
     )
 }
 
-function TurnBody({
-    turn,
-    isLoading,
-    onLoad,
-}: {
-    turn: SessionTurn
-    isLoading: boolean
-    onLoad: () => void
-}): JSX.Element {
+function TurnBody({ turn, isLoading }: { turn: SessionTurn; isLoading: boolean }): JSX.Element {
     if (isLoading) {
         return (
             <div className="flex items-center gap-2 text-muted text-sm py-2">
@@ -413,16 +404,7 @@ function TurnBody({
             </div>
         )
     }
-    if (!turn.isLoaded) {
-        return (
-            <div className="py-2">
-                <LemonButton size="small" type="secondary" onClick={onLoad}>
-                    Show conversation
-                </LemonButton>
-            </div>
-        )
-    }
-    if (!turn.userVisibleTurn) {
+    if (!turn.isLoaded || !turn.userVisibleTurn) {
         return <div className="text-muted text-sm py-2">No conversational turn to render in this trace.</div>
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
