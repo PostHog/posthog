@@ -965,7 +965,7 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import _is_bot_authored_app_mention, _parse_rules_command
 
     if _parse_rules_command(event_text):
         return False
@@ -979,6 +979,21 @@ def forward_posthog_code_followup_activity(
     from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 
     log = structlog.get_logger(__name__)
+
+    # Defense in depth: the webhook entry point also drops bot-authored mentions, but
+    # if anything slips through we must still not reply with the "only the original
+    # requester…" message — that's how a foreign bot (e.g. an incident bot that
+    # re-edits its message and keeps text-mentioning @PostHog) turns into a runaway
+    # reply storm on every reassessment.
+    if _is_bot_authored_app_mention(inputs.event):
+        log.info(
+            "posthog_code_followup_bot_authored_dropped",
+            channel=channel,
+            thread_ts=thread_ts,
+            bot_id=inputs.event.get("bot_id"),
+            app_id=inputs.event.get("app_id"),
+        )
+        return True
 
     try:
         mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(

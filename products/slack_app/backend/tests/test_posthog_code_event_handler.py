@@ -98,6 +98,65 @@ class TestPostHogCodeEventHandler(TestCase):
         else:
             mock_route.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("bot_id_only", {"bot_id": "B0ALERT"}),
+            ("bot_profile_only", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}),
+            ("app_id_only", {"app_id": "A0ALERT"}),
+            ("subtype_bot_message", {"subtype": "bot_message"}),
+            ("slackbot_user", {"user": "USLACKBOT"}),
+        ]
+    )
+    @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_bot_authored_app_mention_is_dropped_without_routing(
+        self,
+        _name,
+        bot_marker: dict,
+        mock_config,
+        mock_route,
+    ):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        event: dict = {
+            "type": "app_mention",
+            "text": "<@U_BOT> incident: ...",
+            "channel": "C001",
+            "user": "U123",
+            "ts": "1234.5678",
+            **bot_marker,
+        }
+        payload = {"type": "event_callback", "team_id": "T12345", "event": event}
+        response = self._post_event(payload)
+        # 200 (not 202): we explicitly ack-and-drop bot-authored mentions so neither
+        # the local handler nor the secondary region attempts to reply.
+        assert response.status_code == 200
+        mock_route.assert_not_called()
+
+    @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_bot_authored_link_shared_is_still_routed(
+        self,
+        mock_config,
+        mock_route,
+    ):
+        # Unfurling alert URLs posted by PostHog's notifications integration (a bot)
+        # is the whole point of link_shared — the bot-author filter must not apply.
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "handled_locally"
+        payload = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "event": {
+                "type": "link_shared",
+                "channel": "C001",
+                "bot_id": "B0NOTIF",
+                "links": [{"url": "https://posthog.com/insights/abc"}],
+            },
+        }
+        response = self._post_event(payload)
+        assert response.status_code == 202
+        mock_route.assert_called_once()
+
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):

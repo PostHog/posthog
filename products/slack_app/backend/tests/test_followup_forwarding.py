@@ -602,6 +602,34 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "Only the person who started" in call_kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
+    def test_bot_authored_followup_is_silently_dropped(self, mock_slack_cls):
+        # An incident bot edits its message every N minutes and the message body
+        # contains <@PostHog>. Without this guard we'd post "Only the person who
+        # started this task…" on every reassessment and bury the thread.
+        self._create_mapping(mentioning_user="U_ALICE")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event={
+                "channel": "C123",
+                "ts": "1234.5678",
+                "user": "U_INCIDENT_BOT",
+                "text": "<@BOT> incident: ...",
+                "bot_id": "B0ALERT",
+                "app_id": "A0ALERT",
+            },
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+        )
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_INCIDENT_BOT", "<@BOT> incident: ...", "1234.5679"
+        )
+        # True = "handled; don't run the new-task flow either".
+        assert result is True
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
+
+    @patch("posthog.models.integration.SlackIntegration")
     def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
         self.task_run.state = {}
         self.task_run.save()

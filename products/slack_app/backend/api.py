@@ -48,6 +48,27 @@ logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
+# Slack delivers an `app_mention` event whenever a message body contains <@OurBotID>.
+# Other apps (e.g. incident bots like Mendral, alert reposters, our own notifications
+# integration quoting a PR description that contains "@PostHog/...") will trip this
+# even though no human is asking us anything. Replying to those would create a bot-
+# to-bot loop: the foreign bot re-edits/re-posts the message on every reassessment,
+# Slack fires another app_mention, we reply again, and the thread fills up.
+# Filter such events at the entry point — link_shared is exempt because unfurling
+# bot-posted links (PostHog alert URLs etc.) is the expected behavior.
+_APP_MENTION_BOT_AUTHOR_KEYS = ("bot_id", "bot_profile", "app_id")
+
+
+def _is_bot_authored_app_mention(event: dict[str, Any]) -> bool:
+    if any(event.get(key) for key in _APP_MENTION_BOT_AUTHOR_KEYS):
+        return True
+    if event.get("subtype") == "bot_message":
+        return True
+    if event.get("user") == "USLACKBOT":
+        return True
+    return False
+
+
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
@@ -1275,8 +1296,22 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         event = data.get("event", {})
         slack_team_id = data.get("team_id", "")
         event_id = data.get("event_id")
+        inner_event_type = event.get("type")
 
-        if event.get("type") in HANDLED_EVENT_TYPES:
+        if inner_event_type == "app_mention" and _is_bot_authored_app_mention(event):
+            # Ack and drop. Don't proxy either — the secondary region would just
+            # filter it too, so the proxy hop is pure waste.
+            logger.info(
+                "posthog_code_event_bot_authored_app_mention_ignored",
+                slack_team_id=slack_team_id,
+                event_id=event_id,
+                channel=event.get("channel"),
+                bot_id=event.get("bot_id"),
+                app_id=event.get("app_id"),
+            )
+            return HttpResponse(status=200)
+
+        if inner_event_type in HANDLED_EVENT_TYPES:
             result = route_posthog_code_event_to_relevant_region(request, event, slack_team_id, event_id=event_id)
             if result == ROUTE_PROXY_FAILED:
                 return HttpResponse(status=502)
