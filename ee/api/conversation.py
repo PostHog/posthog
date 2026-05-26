@@ -19,6 +19,7 @@ from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -185,12 +186,19 @@ class QueueMessageUpdateSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
 
 
+class ConversationPagination(LimitOffsetPagination):
+    # Bound list requests so a single user's history cannot run unbounded.
+    default_limit = 100
+    max_limit = 100
+
+
 @extend_schema(tags=["max"])
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
+    pagination_class = ConversationPagination
 
     def _queue_conversation_id(self) -> str:
         if not self.lookup_url_kwarg:

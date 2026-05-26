@@ -617,6 +617,22 @@ class TestConversation(APIBaseTest):
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
 
+    def test_list_conversations_caps_page_size(self):
+        for i in range(105):
+            Conversation.objects.create(
+                user=self.user,
+                team=self.team,
+                title=f"Conversation {i}",
+                type=Conversation.Type.ASSISTANT,
+            )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/?limit=10000")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            body = response.json()
+            self.assertEqual(len(body["results"]), 100)
+            self.assertEqual(body["count"], 105)
+
     @override_settings(DEBUG=False)
     def test_get_throttles_returns_empty_for_create_action(self):
         """Test that get_throttles returns empty list for create action (throttling is handled in check_throttles)."""

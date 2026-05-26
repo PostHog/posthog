@@ -25,6 +25,7 @@ class Conversation(UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["updated_at"]),
+            models.Index(fields=["user", "-updated_at"], name="ee_conv_user_updated_at_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
