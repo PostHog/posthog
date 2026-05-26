@@ -16,6 +16,7 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
     buildSegmentResolveValue,
     buildStackedPositionValue,
+    computeDivergingStackData,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -97,6 +98,7 @@ function BarChartInner<Meta = unknown>({
         barTrack = false,
         axisOrientation = 'vertical',
         xTickFormatter,
+        divergingStack = false,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
@@ -105,10 +107,10 @@ function BarChartInner<Meta = unknown>({
             return computePercentStackData(series, labels)
         }
         if (barLayout === 'stacked') {
-            return computeStackData(series, labels)
+            return divergingStack ? computeDivergingStackData(series, labels) : computeStackData(series, labels)
         }
         return undefined
-    }, [barLayout, series, labels])
+    }, [barLayout, series, labels, divergingStack])
 
     // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
     // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
@@ -143,11 +145,23 @@ function BarChartInner<Meta = unknown>({
         (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
             // For stacked/percent, the value-axis domain must reflect cumulative sums, not
             // individual series ranges — pass a synthetic series whose data is each layer's top.
+            // Diverging stacks also need each layer's bottom so negative columns extend the domain
+            // below 0 (the bottom of a positive-only stack is always 0, but a diverging stack with
+            // negative values pushes the bottom below 0).
             let stackedSeries: Series[] | undefined
             if (stackedData && barLayout === 'stacked') {
-                stackedSeries = coloredSeries.map((s) => {
+                stackedSeries = coloredSeries.flatMap((s) => {
                     const band = stackedData.get(s.key)
-                    return band ? { ...s, data: band.top } : s
+                    if (!band) {
+                        return [s]
+                    }
+                    if (divergingStack) {
+                        return [
+                            { ...s, data: band.top },
+                            { ...s, key: `${s.key}__bottom`, data: band.bottom },
+                        ]
+                    }
+                    return [{ ...s, data: band.top }]
                 })
             }
 
@@ -185,7 +199,7 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal]
+        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack]
     )
 
     const drawStatic = useCallback(

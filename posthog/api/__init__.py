@@ -438,11 +438,18 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
+environment_accounts_router = environments_router.register(
     r"accounts",
     customer_analytics.AccountViewSet,
     "environment_accounts",
     ["team_id"],
+)
+
+environment_accounts_router.register(
+    r"notebooks",
+    customer_analytics.AccountNotebookViewSet,
+    "environment_account_notebooks",
+    ["team_id", "account_id"],
 )
 
 projects_router.register(
