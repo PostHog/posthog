@@ -29,6 +29,7 @@ import { HOMEPAGE_TAB_ID } from './constants'
 function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
     useEffect(() => {
@@ -123,7 +124,10 @@ function IdleInput(): JSX.Element {
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
-                            <HandsFreeButton tabId={HOMEPAGE_TAB_ID} />
+                            {/* Mirror HomepageAiInput's consent gate — without it, clicking the mic
+                                would mint an ElevenLabs token and open the Scribe WebSocket before
+                                the AI-mode transition can render the data-processing approval prompt. */}
+                            {dataProcessingAccepted && <HandsFreeButton tabId={HOMEPAGE_TAB_ID} />}
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
                                     onClick={() => {
