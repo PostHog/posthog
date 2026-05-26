@@ -43,20 +43,7 @@ export const PIPELINE_KIND_LABELS: Record<PipelineKind, string> = {
     plugin: 'Plugin destinations (deprecated)',
 }
 
-type PaginatedLike<T> = { next?: string | null; results: T[] }
-
 type PluginDestinationConfig = { id: number; name?: string | null }
-
-async function fetchAllPages<T>(initial: PaginatedLike<T>): Promise<T[]> {
-    let all: T[] = [...initial.results]
-    let next = initial.next
-    while (next) {
-        const page: PaginatedLike<T> = await api.get(next)
-        all = all.concat(page.results)
-        next = page.next
-    }
-    return all
-}
 
 function displayName(name: string | null | undefined): string {
     return name?.trim() || '(unnamed)'
@@ -90,7 +77,10 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                         limit: 100,
                                     }
                                 )
-                                const hfs = await fetchAllPages<HogFunctionMinimalApi>(initial)
+                                const hfs: HogFunctionMinimalApi[] = [
+                                    ...initial.results,
+                                    ...(await api.loadPaginatedResults<HogFunctionMinimalApi>(initial.next ?? null)),
+                                ]
                                 for (const hf of hfs) {
                                     items.push({
                                         id: `hog_function:${hf.id}`,
@@ -104,10 +94,9 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 console.warn(`Failed to load hog functions for team ${team.id}`, e)
                             }
                             try {
-                                const initial: PaginatedLike<PluginDestinationConfig> = await api.get(
+                                const pcs = await api.loadPaginatedResults<PluginDestinationConfig>(
                                     `api/projects/${team.id}/pipeline_destination_configs/?limit=100`
                                 )
-                                const pcs = await fetchAllPages<PluginDestinationConfig>(initial)
                                 for (const pc of pcs) {
                                     items.push({
                                         id: `plugin_config:${pc.id}`,
@@ -127,7 +116,10 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                     let batchExportItems: PipelineItem[] = []
                     try {
                         const initial: PaginatedBatchExportListApi = await batchExportsList(org.id, { limit: 100 })
-                        const bes = await fetchAllPages<BatchExportApi>(initial)
+                        const bes: BatchExportApi[] = [
+                            ...initial.results,
+                            ...(await api.loadPaginatedResults<BatchExportApi>(initial.next ?? null)),
+                        ]
                         batchExportItems = bes.map<PipelineItem>((be) => ({
                             id: `batch_export:${be.id}`,
                             name: displayName(be.name),
