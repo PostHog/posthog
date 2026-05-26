@@ -367,7 +367,7 @@ export function SessionRecordingsPlaylistTopSettings({
         for (const playerLogic of sessionRecordingPlayerLogic.findAllMounted()) {
             playerLogic.actions.setPause()
         }
-        loadCollectionsForBulkAdd()
+        loadCollectionsForBulkAdd(null)
         setIsAddToCollectionModalOpen(true)
     }
 

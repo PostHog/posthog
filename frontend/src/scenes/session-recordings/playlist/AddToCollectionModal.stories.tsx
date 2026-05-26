@@ -37,7 +37,7 @@ const StoryWrapper = ({ initialSearch }: { initialSearch?: string }): JSX.Elemen
 
     useEffect(() => {
         setSelectedRecordingsIds(['rec-1', 'rec-2', 'rec-3'])
-        loadCollectionsForBulkAdd()
+        loadCollectionsForBulkAdd(null)
         setIsAddToCollectionModalOpen(true)
         if (initialSearch) {
             setAddToCollectionSearch(initialSearch)
