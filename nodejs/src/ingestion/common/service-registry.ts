@@ -1,10 +1,10 @@
 import { logger } from '../../utils/logger'
 
 /**
- * Owns the lifecycle of a single value. `start()` produces the value plus a
+ * Owns the scope of a single value. `start()` produces the value plus a
  * `stop` callback that tears it down. Anyone holding the value only sees
  * the business interface — the start/stop pair stays with the Manager.
- * This lets the lifecycle plumb dependencies (services, pools, config)
+ * This lets the scope plumb dependencies (services, pools, config)
  * through a single container without each entry needing to wear a
  * start/stop hat.
  */
@@ -21,37 +21,37 @@ interface RegisteredManager {
 }
 
 /**
- * Per-lifecycle accumulator. `register` records a `Manager` for each entry;
- * the corresponding value lands in the container only after the lifecycle
+ * Per-scope accumulator. `register` records a `Manager` for each entry;
+ * the corresponding value lands in the container only after the scope
  * starts. Until then, the builder is just a typed recipe.
  */
-export class LifecycleBuilder<S extends Record<string, object> = Record<never, object>> {
+export class ScopeBuilder<S extends Record<string, object> = Record<never, object>> {
     private constructor(readonly managers: ReadonlyArray<RegisteredManager>) {}
 
-    static empty(): LifecycleBuilder<Record<never, object>> {
-        return new LifecycleBuilder<Record<never, object>>([])
+    static empty(): ScopeBuilder<Record<never, object>> {
+        return new ScopeBuilder<Record<never, object>>([])
     }
 
     register<Name extends string, M extends Manager<object>>(
         name: Name & (Name extends keyof S ? never : Name),
         manager: M
-    ): LifecycleBuilder<S & Record<Name, ValueOf<M>>> {
-        return new LifecycleBuilder<S & Record<Name, ValueOf<M>>>([
+    ): ScopeBuilder<S & Record<Name, ValueOf<M>>> {
+        return new ScopeBuilder<S & Record<Name, ValueOf<M>>>([
             ...this.managers,
             { name, manager: manager as Manager<unknown> },
         ])
     }
 
-    build(name: string): Lifecycle<S> {
+    build(name: string): Scope<S> {
         const runner = new ManagerRunner(name, this.managers)
-        return new Lifecycle<S>(name, () => runner.getContainer() as S, runner)
+        return new Scope<S>(name, () => runner.getContainer() as S, runner)
     }
 }
 
 /**
  * Legacy service shape — exposes `start()/stop()` directly on the
  * business object. Prefer the `Manager<T>` shape for new code; this is
- * kept for adapter use so existing services can be wired into a lifecycle
+ * kept for adapter use so existing services can be wired into a scope
  * without refactoring their interface.
  */
 export interface ConsumerManagedService {
@@ -61,7 +61,7 @@ export interface ConsumerManagedService {
 
 /**
  * Adapts a legacy service to the `Manager` shape. The adapted service is
- * exposed in the lifecycle's container without its `start`/`stop`
+ * exposed in the scope's container without its `start`/`stop`
  * methods.
  */
 export function adaptManagedService<T extends ConsumerManagedService>(svc: T): Manager<Omit<T, 'start' | 'stop'>> {
@@ -77,11 +77,11 @@ export function adaptManagedService<T extends ConsumerManagedService>(svc: T): M
 }
 
 /**
- * Returned by `Lifecycle.start()`. The handle's `stop` removes this caller
+ * Returned by `Scope.start()`. The handle's `stop` removes this caller
  * from the refcount and is single-shot — calling it twice has no effect
  * after the first call.
  */
-export interface StartedLifecycle<S extends Record<string, object>> {
+export interface StartedScope<S extends Record<string, object>> {
     readonly name: string
     readonly container: S
     readonly stop: () => Promise<void>
@@ -106,30 +106,29 @@ class ManagerRunner implements Runner {
     private containerCache?: Record<string, object>
 
     constructor(
-        private readonly lifecycleName: string,
+        private readonly scopeName: string,
         private readonly entries: ReadonlyArray<RegisteredManager>
     ) {}
 
     async start(): Promise<void> {
         const started: Array<{ name: string; value: object; stop: () => Promise<void> }> = []
         for (const entry of this.entries) {
-            logger.info(`Lifecycle[${this.lifecycleName}]: starting ${entry.name}`)
+            logger.info(`Scope[${this.scopeName}]: starting ${entry.name}`)
             try {
                 const { value, stop } = await entry.manager.start()
                 started.push({ name: entry.name, value: value as object, stop })
             } catch (err) {
                 logger.error(
-                    `Lifecycle[${this.lifecycleName}]: ${entry.name} start failed, rolling back ${started.length} started value(s)`,
+                    `Scope[${this.scopeName}]: ${entry.name} start failed, rolling back ${started.length} started value(s)`,
                     { error: err }
                 )
                 for (let i = started.length - 1; i >= 0; i--) {
                     try {
                         await started[i].stop()
                     } catch (rollbackErr) {
-                        logger.error(
-                            `Lifecycle[${this.lifecycleName}]: ${started[i].name} stop failed during rollback`,
-                            { error: rollbackErr }
-                        )
+                        logger.error(`Scope[${this.scopeName}]: ${started[i].name} stop failed during rollback`, {
+                            error: rollbackErr,
+                        })
                     }
                 }
                 throw err
@@ -144,11 +143,11 @@ class ManagerRunner implements Runner {
         this.started = []
         this.containerCache = undefined
         for (let i = entries.length - 1; i >= 0; i--) {
-            logger.info(`Lifecycle[${this.lifecycleName}]: stopping ${entries[i].name}`)
+            logger.info(`Scope[${this.scopeName}]: stopping ${entries[i].name}`)
             try {
                 await entries[i].stop()
             } catch (err) {
-                logger.error(`Lifecycle[${this.lifecycleName}]: ${entries[i].name} stop failed`, { error: err })
+                logger.error(`Scope[${this.scopeName}]: ${entries[i].name} stop failed`, { error: err })
                 throw err
             }
         }
@@ -156,52 +155,50 @@ class ManagerRunner implements Runner {
 
     getContainer(): Record<string, object> {
         if (!this.containerCache) {
-            throw new Error('lifecycle not started')
+            throw new Error('scope not started')
         }
         return this.containerCache
     }
 }
 
 /**
- * Runs a child lifecycle on top of a parent lifecycle. On `start`: start
+ * Runs a child scope on top of a parent scope. On `start`: start
  * (or refcount onto) the parent, resolve its container, hand it to the
- * configure callback to build a child lifecycle, then start the child.
+ * configure callback to build a child scope, then start the child.
  * On `stop`: stop the child then release the parent. The parent boot is
- * shared across all chains rooted at it via the parent's own refcount.
+ * shared across all nests rooted at it via the parent's own refcount.
  */
-class ChainedRunner<SParent extends Record<string, object>, SChild extends Record<string, object>> implements Runner {
-    private parentHandle?: StartedLifecycle<SParent>
-    private childHandle?: StartedLifecycle<SChild>
+class NestedRunner<SParent extends Record<string, object>, SChild extends Record<string, object>> implements Runner {
+    private parentHandle?: StartedScope<SParent>
+    private childHandle?: StartedScope<SChild>
     private containerCache?: SParent & SChild
 
     constructor(
-        private readonly parent: Lifecycle<SParent>,
+        private readonly parent: Scope<SParent>,
         private readonly configure: (
             parentContainer: SParent,
-            builder: LifecycleBuilder<Record<never, object>>
-        ) => LifecycleBuilder<SChild>,
+            builder: ScopeBuilder<Record<never, object>>
+        ) => ScopeBuilder<SChild>,
         private readonly childName: string
     ) {}
 
     async start(): Promise<void> {
-        logger.info(`Lifecycle[${this.childName}]: acquiring parent ${this.parent.name}`)
+        logger.info(`Scope[${this.childName}]: acquiring parent ${this.parent.name}`)
         const parentHandle = await this.parent.start()
         try {
-            const childLifecycle = this.configure(parentHandle.container, LifecycleBuilder.empty()).build(
-                this.childName
-            )
-            const childHandle = await childLifecycle.start()
+            const childScope = this.configure(parentHandle.container, ScopeBuilder.empty()).build(this.childName)
+            const childHandle = await childScope.start()
             this.parentHandle = parentHandle
             this.childHandle = childHandle
             this.containerCache = { ...parentHandle.container, ...childHandle.container }
         } catch (err) {
-            logger.error(`Lifecycle[${this.childName}]: chain start failed, releasing parent ${this.parent.name}`, {
+            logger.error(`Scope[${this.childName}]: nest start failed, releasing parent ${this.parent.name}`, {
                 error: err,
             })
             try {
                 await parentHandle.stop()
             } catch (parentStopErr) {
-                logger.error(`Lifecycle[${this.childName}]: parent ${this.parent.name} stop failed during rollback`, {
+                logger.error(`Scope[${this.childName}]: parent ${this.parent.name} stop failed during rollback`, {
                     error: parentStopErr,
                 })
             }
@@ -221,7 +218,7 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
             }
         } finally {
             if (parentHandle) {
-                logger.info(`Lifecycle[${this.childName}]: releasing parent ${this.parent.name}`)
+                logger.info(`Scope[${this.childName}]: releasing parent ${this.parent.name}`)
                 await parentHandle.stop()
             }
         }
@@ -229,7 +226,7 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
 
     getContainer(): SParent & SChild {
         if (!this.containerCache) {
-            throw new Error(`chained lifecycle "${this.childName}" is not started`)
+            throw new Error(`nested scope "${this.childName}" is not started`)
         }
         return this.containerCache
     }
@@ -264,33 +261,33 @@ class CallerSet {
 // ---------------------------------------------------------------------------
 // State machine.
 
-interface LifecycleContext {
+interface ScopeContext {
     runStart(): Promise<void>
     runStop(): Promise<void>
     callerCount(): number
 }
 
 type Outcome =
-    | { kind: 'transition'; next: LifecycleState }
+    | { kind: 'transition'; next: ScopeState }
     | { kind: 'wait'; on: Promise<unknown> }
     | { kind: 'done' }
-    | { kind: 'failed'; next: LifecycleState; error: unknown }
+    | { kind: 'failed'; next: ScopeState; error: unknown }
 
-interface LifecycleState {
-    onStart(ctx: LifecycleContext): Outcome
-    onStop(ctx: LifecycleContext): Outcome
+interface ScopeState {
+    onStart(ctx: ScopeContext): Outcome
+    onStop(ctx: ScopeContext): Outcome
 }
 
-class StoppedState implements LifecycleState {
-    onStart(ctx: LifecycleContext): Outcome {
+class StoppedState implements ScopeState {
+    onStart(ctx: ScopeContext): Outcome {
         return { kind: 'transition', next: new StartingState(ctx.runStart()) }
     }
-    onStop(_ctx: LifecycleContext): Outcome {
+    onStop(_ctx: ScopeContext): Outcome {
         return { kind: 'done' }
     }
 }
 
-class StartingState implements LifecycleState {
+class StartingState implements ScopeState {
     private settled: 'pending' | 'ok' | { error: unknown } = 'pending'
     private readonly waitOn: Promise<void>
 
@@ -305,10 +302,10 @@ class StartingState implements LifecycleState {
         )
     }
 
-    onStart(_ctx: LifecycleContext): Outcome {
+    onStart(_ctx: ScopeContext): Outcome {
         return this.snapshot()
     }
-    onStop(_ctx: LifecycleContext): Outcome {
+    onStop(_ctx: ScopeContext): Outcome {
         return this.snapshot()
     }
 
@@ -323,11 +320,11 @@ class StartingState implements LifecycleState {
     }
 }
 
-class StartedState implements LifecycleState {
-    onStart(_ctx: LifecycleContext): Outcome {
+class StartedState implements ScopeState {
+    onStart(_ctx: ScopeContext): Outcome {
         return { kind: 'done' }
     }
-    onStop(ctx: LifecycleContext): Outcome {
+    onStop(ctx: ScopeContext): Outcome {
         if (ctx.callerCount() === 0) {
             return { kind: 'transition', next: new StoppingState(ctx.runStop()) }
         }
@@ -335,7 +332,7 @@ class StartedState implements LifecycleState {
     }
 }
 
-class StoppingState implements LifecycleState {
+class StoppingState implements ScopeState {
     private settled: 'pending' | 'ok' | { error: unknown } = 'pending'
     private readonly waitOn: Promise<void>
 
@@ -350,14 +347,14 @@ class StoppingState implements LifecycleState {
         )
     }
 
-    onStart(_ctx: LifecycleContext): Outcome {
+    onStart(_ctx: ScopeContext): Outcome {
         if (this.settled === 'pending') {
             return { kind: 'wait', on: this.waitOn }
         }
         return { kind: 'transition', next: new StoppedState() }
     }
 
-    onStop(_ctx: LifecycleContext): Outcome {
+    onStop(_ctx: ScopeContext): Outcome {
         if (this.settled === 'pending') {
             return { kind: 'wait', on: this.waitOn }
         }
@@ -369,17 +366,17 @@ class StoppingState implements LifecycleState {
 }
 
 class StateMachine {
-    private state: LifecycleState = new StoppedState()
+    private state: ScopeState = new StoppedState()
 
-    async start(ctx: LifecycleContext): Promise<void> {
+    async start(ctx: ScopeContext): Promise<void> {
         await this.drive((s) => s.onStart(ctx))
     }
 
-    async stop(ctx: LifecycleContext): Promise<void> {
+    async stop(ctx: ScopeContext): Promise<void> {
         await this.drive((s) => s.onStop(ctx))
     }
 
-    private async drive(action: (state: LifecycleState) => Outcome): Promise<void> {
+    private async drive(action: (state: ScopeState) => Outcome): Promise<void> {
         while (true) {
             const outcome = action(this.state)
             if (outcome.kind === 'transition') {
@@ -400,14 +397,14 @@ class StateMachine {
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle: assembles the pieces.
+// Scope: assembles the pieces.
 
-export class Lifecycle<S extends Record<string, object> = Record<never, object>> {
+export class Scope<S extends Record<string, object> = Record<never, object>> {
     private readonly machine = new StateMachine()
     private readonly callers = new CallerSet()
     private readonly containerProvider: () => S
     private readonly runner: Runner
-    private readonly ctx: LifecycleContext
+    private readonly ctx: ScopeContext
 
     constructor(
         readonly name: string,
@@ -423,39 +420,39 @@ export class Lifecycle<S extends Record<string, object> = Record<never, object>>
         }
     }
 
-    async start(): Promise<StartedLifecycle<S>> {
+    async start(): Promise<StartedScope<S>> {
         const release = this.callers.register()
-        logger.info(`Lifecycle[${this.name}]: start requested (callers=${this.callers.size()})`)
+        logger.info(`Scope[${this.name}]: start requested (callers=${this.callers.size()})`)
         try {
             await this.machine.start(this.ctx)
         } catch (err) {
             release()
-            logger.error(`Lifecycle[${this.name}]: start failed`, { error: err })
+            logger.error(`Scope[${this.name}]: start failed`, { error: err })
             throw err
         }
-        logger.info(`Lifecycle[${this.name}]: started`)
+        logger.info(`Scope[${this.name}]: started`)
         return this.makeHandle(release)
     }
 
     /**
-     * Build a child lifecycle on top of this one. The `configure` callback
-     * receives this lifecycle's started container and a fresh builder, and
+     * Build a child scope on top of this one. The `configure` callback
+     * receives this scope's started container and a fresh builder, and
      * returns the builder with the child's entries registered. The returned
-     * lifecycle's container is `parent ∪ child`.
+     * scope's container is `parent ∪ child`.
      *
-     * On `start`: this lifecycle is started (or refcounted onto), then the
+     * On `start`: this scope is started (or refcounted onto), then the
      * callback runs with the resolved container and the child is started.
-     * On `stop`: the child is stopped, then this lifecycle is released.
+     * On `stop`: the child is stopped, then this scope is released.
      */
-    chain<S2 extends Record<string, object>>(
+    nest<S2 extends Record<string, object>>(
         name: string,
-        configure: (parentContainer: S, builder: LifecycleBuilder<Record<never, object>>) => LifecycleBuilder<S2>
-    ): Lifecycle<S & S2> {
-        const runner = new ChainedRunner<S, S2>(this, configure, name)
-        return new Lifecycle<S & S2>(name, () => runner.getContainer(), runner)
+        configure: (parentContainer: S, builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S2>
+    ): Scope<S & S2> {
+        const runner = new NestedRunner<S, S2>(this, configure, name)
+        return new Scope<S & S2>(name, () => runner.getContainer(), runner)
     }
 
-    private makeHandle(release: () => boolean): StartedLifecycle<S> {
+    private makeHandle(release: () => boolean): StartedScope<S> {
         return {
             name: this.name,
             container: this.containerProvider(),
@@ -463,19 +460,19 @@ export class Lifecycle<S extends Record<string, object> = Record<never, object>>
                 if (!release()) {
                     return
                 }
-                logger.info(`Lifecycle[${this.name}]: stop requested (callers=${this.callers.size()})`)
+                logger.info(`Scope[${this.name}]: stop requested (callers=${this.callers.size()})`)
                 try {
                     await this.machine.stop(this.ctx)
                 } catch (err) {
-                    logger.error(`Lifecycle[${this.name}]: stop failed`, { error: err })
+                    logger.error(`Scope[${this.name}]: stop failed`, { error: err })
                     throw err
                 }
-                logger.info(`Lifecycle[${this.name}]: stopped`)
+                logger.info(`Scope[${this.name}]: stopped`)
             },
         }
     }
 }
 
-export function newLifecycleBuilder(): LifecycleBuilder<Record<never, object>> {
-    return LifecycleBuilder.empty()
+export function newScopeBuilder(): ScopeBuilder<Record<never, object>> {
+    return ScopeBuilder.empty()
 }

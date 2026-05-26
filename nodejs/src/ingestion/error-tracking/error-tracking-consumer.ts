@@ -15,7 +15,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consume
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import {
     EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerLifecycle,
+    EventIngestionRestrictionManagerScope,
 } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
@@ -128,7 +128,7 @@ export class ErrorTrackingConsumer {
     >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
-    private eventIngestionRestrictionManagerLifecycle: EventIngestionRestrictionManagerLifecycle
+    private eventIngestionRestrictionManagerScope: EventIngestionRestrictionManagerScope
     protected eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
     protected overflowRedirectService?: OverflowRedirectService
@@ -155,7 +155,7 @@ export class ErrorTrackingConsumer {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.eventIngestionRestrictionManagerLifecycle = new EventIngestionRestrictionManagerLifecycle(deps.redisPool, {
+        this.eventIngestionRestrictionManagerScope = new EventIngestionRestrictionManagerScope(deps.redisPool, {
             pipeline: 'errortracking',
         })
 
@@ -235,7 +235,7 @@ export class ErrorTrackingConsumer {
             cymbalUrl: this.config.cymbalBaseUrl,
         })
 
-        const started = await this.eventIngestionRestrictionManagerLifecycle.start()
+        const started = await this.eventIngestionRestrictionManagerScope.start()
         this.eventIngestionRestrictionManager = started.value
         this.stopEventIngestionRestrictionManager = started.stop
         // Initialize pipeline with dependencies

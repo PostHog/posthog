@@ -35,7 +35,7 @@ import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from 
 import { PostgresRouter } from '../utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerLifecycle,
+    EventIngestionRestrictionManagerScope,
 } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -79,7 +79,7 @@ export class SessionRecordingIngester {
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
     private readonly fileStorage: SessionBatchFileStorage
-    private readonly eventIngestionRestrictionManagerLifecycle: EventIngestionRestrictionManagerLifecycle
+    private readonly eventIngestionRestrictionManagerScope: EventIngestionRestrictionManagerScope
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
     private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
@@ -155,7 +155,7 @@ export class SessionRecordingIngester {
 
         this.teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManagerLifecycle = new EventIngestionRestrictionManagerLifecycle(
+        this.eventIngestionRestrictionManagerScope = new EventIngestionRestrictionManagerScope(
             this.restrictionRedisPool,
             { pipeline: 'session_recordings' }
         )
@@ -286,7 +286,7 @@ export class SessionRecordingIngester {
 
         await this.keyStore.start()
         await this.encryptor.start()
-        const started = await this.eventIngestionRestrictionManagerLifecycle.start()
+        const started = await this.eventIngestionRestrictionManagerScope.start()
         this.eventIngestionRestrictionManager = started.value
         this.stopEventIngestionRestrictionManager = started.stop
 

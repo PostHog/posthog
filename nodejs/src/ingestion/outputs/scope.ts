@@ -1,13 +1,13 @@
 import { IngestionOutputs } from './ingestion-outputs'
 
 /**
- * Lifecycle owner for an `IngestionOutputs` derived from already-running
+ * Scope owner for an `IngestionOutputs` derived from already-running
  * infrastructure (typically a shared Kafka producer registry). `start()`
  * resolves the outputs via the `build` callback and verifies that every
  * output's topic is reachable; `stop()` is a no-op because the producer
  * registry's own Manager owns the connection lifetimes.
  */
-export class IngestionOutputsLifecycle<O extends string> {
+export class IngestionOutputsScope<O extends string> {
     constructor(private readonly build: () => IngestionOutputs<O>) {}
 
     async start(): Promise<{ value: IngestionOutputs<O>; stop: () => Promise<void> }> {

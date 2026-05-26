@@ -35,7 +35,7 @@ export interface EventIngestionRestrictionManagerOptions {
  * - OR within each filter type (value in set)
  * - Empty filter = matches all (neutral in AND)
  *
- * Constructed by `EventIngestionRestrictionManagerLifecycle.start()` with a
+ * Constructed by `EventIngestionRestrictionManagerScope.start()` with a
  * primed background refresher; the class itself has no lifecycle methods.
  */
 export class EventIngestionRestrictionManager {
@@ -65,7 +65,7 @@ export class EventIngestionRestrictionManager {
  * cache, and constructs the manager with everything ready. The returned
  * manager has no lifecycle of its own.
  */
-export class EventIngestionRestrictionManagerLifecycle {
+export class EventIngestionRestrictionManagerScope {
     constructor(
         private readonly redisPool: GenericPool<Redis>,
         private readonly options: EventIngestionRestrictionManagerOptions = {}

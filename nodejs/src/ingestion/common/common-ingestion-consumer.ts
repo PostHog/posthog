@@ -12,7 +12,7 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
 import { createOkContext } from '../pipelines/helpers'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
-import { Lifecycle, StartedLifecycle } from './service-registry'
+import { Scope, StartedScope } from './service-registry'
 
 type MessageInput = { message: Message }
 type MessageContext = { message: Message }
@@ -33,7 +33,7 @@ export type PipelineFactory<S extends Record<string, object>, O extends string> 
 ) => IngestionBatchingPipeline
 
 /**
- * Constraint on a lifecycle's container: must expose an `outputs` entry.
+ * Constraint on a scope's container: must expose an `outputs` entry.
  * Common consumers read `container.outputs` to thread the outputs through
  * to the pipeline factory.
  */
@@ -56,11 +56,11 @@ const latestOffsetTimestampGauge = new Gauge({
 })
 
 /**
- * Generic ingestion consumer wired to a service `Lifecycle`, an outputs map,
- * and a pipeline factory. On `start()`: brings up the lifecycle, verifies
- * output topics (rolling the lifecycle back on failure), constructs the
+ * Generic ingestion consumer wired to a service `Scope`, an outputs map,
+ * and a pipeline factory. On `start()`: brings up the scope, verifies
+ * output topics (rolling the scope back on failure), constructs the
  * pipeline with the started services, then connects the Kafka consumer.
- * On `stop()`: disconnects Kafka, tears the lifecycle down in reverse, and
+ * On `stop()`: disconnects Kafka, tears the scope down in reverse, and
  * drains the background promise scheduler.
  */
 export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extends string = string> {
@@ -72,11 +72,11 @@ export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extend
     isStopping = false
 
     private pipeline?: IngestionBatchingPipeline
-    private startedLifecycle?: StartedLifecycle<S>
+    private startedScope?: StartedScope<S>
 
     constructor(
         private config: CommonIngestionConsumerConfig,
-        private lifecycle: Lifecycle<S>,
+        private scope: Scope<S>,
         private pipelineFactory: PipelineFactory<S, O>,
         private healthcheckFn?: () => Promise<HealthCheckResult>
     ) {
@@ -99,20 +99,20 @@ export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extend
     }
 
     async start(): Promise<void> {
-        this.startedLifecycle = await this.lifecycle.start()
+        this.startedScope = await this.scope.start()
         try {
             this.pipeline = this.pipelineFactory({
-                container: this.startedLifecycle.container,
-                outputs: this.startedLifecycle.container.outputs,
+                container: this.startedScope.container,
+                outputs: this.startedScope.container.outputs,
                 promiseScheduler: this.promiseScheduler,
             })
         } catch (err) {
             try {
-                await this.startedLifecycle.stop()
+                await this.startedScope.stop()
             } catch {
                 // best-effort cleanup; propagate the original error
             }
-            this.startedLifecycle = undefined
+            this.startedScope = undefined
             throw err
         }
 
@@ -130,9 +130,9 @@ export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extend
 
         await this.kafkaConsumer?.disconnect()
 
-        if (this.startedLifecycle) {
-            await this.startedLifecycle.stop()
-            this.startedLifecycle = undefined
+        if (this.startedScope) {
+            await this.startedScope.stop()
+            this.startedScope = undefined
         }
         await this.promiseScheduler.waitForAll()
 

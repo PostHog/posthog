@@ -25,8 +25,8 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { KafkaProducerRegistryLifecycle } from '../ingestion/common/outputs/registry'
-import { newLifecycleBuilder } from '../ingestion/common/service-registry'
+import { KafkaProducerRegistryScope } from '../ingestion/common/outputs/registry'
+import { newScopeBuilder } from '../ingestion/common/service-registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -49,7 +49,7 @@ import { RedisPoolManager, createRedisPoolFromConfig } from '../utils/db/redis'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
-import { TeamManagerLifecycle } from '../utils/team-manager'
+import { TeamManagerScope } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -139,7 +139,7 @@ export class IngestionGeneralServer implements NodeServer {
         //    ownership.
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        const sharedInfraLifecycle = newLifecycleBuilder()
+        const sharedInfraScope = newScopeBuilder()
             .register('postgres', new PostgresRouterManager(this.config, this.config.PLUGIN_SERVER_MODE!))
             .register(
                 'redisPool',
@@ -149,10 +149,7 @@ export class IngestionGeneralServer implements NodeServer {
                     poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                 })
             )
-            .register(
-                'producerRegistry',
-                new KafkaProducerRegistryLifecycle(this.config.KAFKA_CLIENT_RACK, this.config)
-            )
+            .register('producerRegistry', new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config))
             .build('shared-infra')
 
         // `teamManager` is built inside the chain via its Manager so it
@@ -160,15 +157,15 @@ export class IngestionGeneralServer implements NodeServer {
         // and is owned by the lifecycle. The server extracts it from the
         // started services map to pass on to CDP services etc.
         const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-        const sharedServicesLifecycle = sharedInfraLifecycle.chain('shared', (container, builder) =>
+        const sharedServicesScope = sharedInfraScope.nest('shared', (container, builder) =>
             builder
-                .register('teamManager', new TeamManagerLifecycle(container.postgres))
+                .register('teamManager', new TeamManagerScope(container.postgres))
                 .register('staticDropEventTokens', {
                     start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
                 })
         )
 
-        const sharedServices = await sharedServicesLifecycle.start()
+        const sharedServices = await sharedServicesScope.start()
         this.postgres = sharedServices.container.postgres
         this.redisPool = sharedServices.container.redisPool
         const teamManager = sharedServices.container.teamManager
@@ -241,7 +238,7 @@ export class IngestionGeneralServer implements NodeServer {
                 return consumer.service
             })
         } else {
-            // Producer registry is owned by `sharedInfraLifecycle`; the
+            // Producer registry is owned by `sharedInfraScope`; the
             // server reads it back from the started services. Outputs is
             // a typed view over it — built once here for analytics, and
             // separately by each consumer factory as needed.
@@ -283,7 +280,7 @@ export class IngestionGeneralServer implements NodeServer {
                         : this.config
                     const consumer = createClientWarningsConsumer(
                         { ...this.config, ...consumerConfig },
-                        sharedServicesLifecycle
+                        sharedServicesScope
                     )
                     await consumer.start()
                     return consumer.service

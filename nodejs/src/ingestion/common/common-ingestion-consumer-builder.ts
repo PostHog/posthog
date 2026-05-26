@@ -5,17 +5,17 @@ import {
     ContainerWithOutputs,
     PipelineFactory,
 } from './common-ingestion-consumer'
-import { Lifecycle } from './service-registry'
+import { Scope } from './service-registry'
 
 export interface CreateCommonIngestionConsumerArgs<S extends ContainerWithOutputs<O>, O extends string> {
     config: CommonIngestionConsumerConfig
     /**
-     * Pre-built (not started) Lifecycle holding the consumer-owned services.
+     * Pre-built (not started) Scope holding the consumer-owned services.
      * Must expose `outputs` in its services map — the consumer reads it
      * for topic verification and threads it through to the pipeline
      * factory.
      */
-    lifecycle: Lifecycle<S>
+    scope: Scope<S>
     pipeline: PipelineFactory<S, O>
     healthcheck?: () => Promise<HealthCheckResult>
 }
@@ -23,5 +23,5 @@ export interface CreateCommonIngestionConsumerArgs<S extends ContainerWithOutput
 export function createCommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extends string>(
     args: CreateCommonIngestionConsumerArgs<S, O>
 ): CommonIngestionConsumer<S, O> {
-    return new CommonIngestionConsumer<S, O>(args.config, args.lifecycle, args.pipeline, args.healthcheck)
+    return new CommonIngestionConsumer<S, O>(args.config, args.scope, args.pipeline, args.healthcheck)
 }

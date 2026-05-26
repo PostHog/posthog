@@ -16,7 +16,7 @@ import {
 import { PostgresRouter } from '../utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerLifecycle,
+    EventIngestionRestrictionManagerScope,
 } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
@@ -129,7 +129,7 @@ export class IngestionConsumer {
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventFilterManager: EventFilterManager
-    private eventIngestionRestrictionManagerLifecycle: EventIngestionRestrictionManagerLifecycle
+    private eventIngestionRestrictionManagerScope: EventIngestionRestrictionManagerScope
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
@@ -163,7 +163,7 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManagerLifecycle = new EventIngestionRestrictionManagerLifecycle(deps.redisPool, {
+        this.eventIngestionRestrictionManagerScope = new EventIngestionRestrictionManagerScope(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
@@ -241,7 +241,7 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        const started = await this.eventIngestionRestrictionManagerLifecycle.start()
+        const started = await this.eventIngestionRestrictionManagerScope.start()
         this.eventIngestionRestrictionManager = started.value
         this.stopEventIngestionRestrictionManager = started.stop
         await this.eventFilterManager.start()

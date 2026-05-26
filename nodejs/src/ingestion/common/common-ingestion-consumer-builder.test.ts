@@ -1,7 +1,7 @@
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from './common-ingestion-consumer'
 import { createCommonIngestionConsumer } from './common-ingestion-consumer-builder'
-import { Lifecycle, newLifecycleBuilder } from './service-registry'
+import { Scope, newScopeBuilder } from './service-registry'
 
 function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     return {
@@ -9,8 +9,8 @@ function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     } as unknown as IngestionOutputs<string>
 }
 
-function makeLifecycle(): Lifecycle<{ outputs: IngestionOutputs<string> }> {
-    return newLifecycleBuilder()
+function makeScope(): Scope<{ outputs: IngestionOutputs<string> }> {
+    return newScopeBuilder()
         .register('outputs', {
             start: () => Promise.resolve({ value: makeOutputs(), stop: () => Promise.resolve() }),
         })
@@ -29,10 +29,10 @@ function makeConfig(overrides: Partial<CommonIngestionConsumerConfig> = {}): Com
 }
 
 describe('createCommonIngestionConsumer', () => {
-    it('returns a CommonIngestionConsumer wired to the supplied lifecycle and pipeline factory', () => {
+    it('returns a CommonIngestionConsumer wired to the supplied scope and pipeline factory', () => {
         const consumer = createCommonIngestionConsumer({
             config: makeConfig(),
-            lifecycle: makeLifecycle(),
+            scope: makeScope(),
             pipeline: () => ({ feed: jest.fn(), next: jest.fn() }),
         })
 
@@ -44,12 +44,12 @@ describe('createCommonIngestionConsumer', () => {
 
         createCommonIngestionConsumer({
             config: makeConfig(),
-            lifecycle: makeLifecycle(),
+            scope: makeScope(),
             pipeline: factory,
         })
 
         // Construction alone does not invoke the pipeline factory — the
-        // consumer's `start()` does, after the lifecycle has been started.
+        // consumer's `start()` does, after the scope has been started.
         expect(factory).not.toHaveBeenCalled()
     })
 })

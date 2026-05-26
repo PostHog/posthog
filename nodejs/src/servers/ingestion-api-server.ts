@@ -58,7 +58,7 @@ import { RedisOverflowRepository } from '../ingestion/utils/overflow-redirect/ov
 import { HealthCheckResultOk, PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { EventIngestionRestrictionManagerLifecycle } from '../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManagerScope } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
@@ -290,7 +290,7 @@ export class IngestionApiServer implements NodeServer {
             })
         }
 
-        const { value: eventIngestionRestrictionManager } = await new EventIngestionRestrictionManagerLifecycle(
+        const { value: eventIngestionRestrictionManager } = await new EventIngestionRestrictionManagerScope(
             this.redisPool,
             {
                 pipeline: 'analytics',

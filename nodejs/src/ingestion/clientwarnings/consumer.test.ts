@@ -1,12 +1,12 @@
 import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { TeamManagerLifecycle } from '../../utils/team-manager'
+import { TeamManagerScope } from '../../utils/team-manager'
 import { CommonIngestionConsumer } from '../common/common-ingestion-consumer'
 import { ProducerName } from '../common/outputs'
-import { newLifecycleBuilder } from '../common/service-registry'
+import { newScopeBuilder } from '../common/service-registry'
 import { IngestionOutputsConfig } from '../config'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
-import { ClientWarningsConsumerConfig, ClientWarningsSharedLifecycle, createClientWarningsConsumer } from './consumer'
+import { ClientWarningsConsumerConfig, ClientWarningsSharedScope, createClientWarningsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
 
 jest.mock('./pipeline')
@@ -23,18 +23,18 @@ describe('createClientWarningsConsumer', () => {
         }
     }
 
-    function makeSharedLifecycle(): ClientWarningsSharedLifecycle {
+    function makeSharedScope(): ClientWarningsSharedScope {
         // The consumer factory chains off this lifecycle but doesn't start
         // it (start happens inside `consumer.start()`), so the shape only
         // has to be type-correct — the Managers' bodies don't run.
-        return newLifecycleBuilder()
+        return newScopeBuilder()
             .register('postgres', {
                 start: () => Promise.resolve({ value: {} as PostgresRouter, stop: () => Promise.resolve() }),
             })
             .register('redisPool', {
                 start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
             })
-            .register('teamManager', new TeamManagerLifecycle({} as PostgresRouter))
+            .register('teamManager', new TeamManagerScope({} as PostgresRouter))
             .register('producerRegistry', {
                 start: () =>
                     Promise.resolve({
@@ -56,12 +56,12 @@ describe('createClientWarningsConsumer', () => {
     })
 
     it('returns a CommonIngestionConsumer', () => {
-        const consumer = createClientWarningsConsumer(makeConfig(), makeSharedLifecycle())
+        const consumer = createClientWarningsConsumer(makeConfig(), makeSharedScope())
         expect(consumer).toBeInstanceOf(CommonIngestionConsumer)
     })
 
     it('defers pipeline construction until start time', () => {
-        createClientWarningsConsumer(makeConfig(), makeSharedLifecycle())
+        createClientWarningsConsumer(makeConfig(), makeSharedScope())
 
         // The pipeline factory runs inside `consumer.start()`, after the
         // lifecycle's services come up — not at consumer construction time.
@@ -71,7 +71,7 @@ describe('createClientWarningsConsumer', () => {
     it('exposes a service descriptor whose id derives from the configured topic', () => {
         const consumer = createClientWarningsConsumer(
             { ...makeConfig(), INGESTION_CONSUMER_CONSUME_TOPIC: 'client_warnings' },
-            makeSharedLifecycle()
+            makeSharedScope()
         )
         expect(consumer.service.id).toBe('ingestion-consumer-client_warnings')
     })

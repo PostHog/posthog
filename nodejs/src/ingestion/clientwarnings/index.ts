@@ -1,3 +1,3 @@
 export { createClientWarningsConsumer } from './consumer'
-export type { ClientWarningsConsumerConfig, ClientWarningsSharedLifecycle } from './consumer'
+export type { ClientWarningsConsumerConfig, ClientWarningsSharedScope } from './consumer'
 export { createClientWarningsPipeline } from './pipeline'
