@@ -1,25 +1,18 @@
-import type { Series, TimeSeriesBarChartConfig, TooltipConfig, YAxisConfig } from 'lib/hog-charts'
+import type { TimeSeriesBarChartConfig, TooltipConfig } from 'lib/hog-charts'
 
 import {
-    type BuildStickinessSeriesOpts,
-    buildStickinessMainSeries,
-    type StickinessResultLike,
-    stickinessPercentFormatter,
+    buildStickinessYAxisConfig,
+    type StickinessYAxisScaleType,
 } from '../StickinessLineChart/stickinessChartTransforms'
 
-/** One bar series per stickiness result. Data is pre-percent (share of series total)
- *  via `buildStickinessMainSeries`, matching the legacy `showPercentView` parity. */
-export function buildStickinessBarSeries<R extends StickinessResultLike, M = unknown>(
-    results: R[],
-    opts: BuildStickinessSeriesOpts<R, M>
-): Series<M>[] {
-    return results.map((r, index) => buildStickinessMainSeries(r, index, opts))
-}
+// Re-export so call sites don't need to know the shared helper lives next to the line port.
+export { buildStickinessSeries as buildStickinessBarSeries } from '../StickinessLineChart/stickinessChartTransforms'
 
 export interface BuildStickinessBarTimeSeriesConfigOpts {
-    yAxisScaleType?: string | null
-    /** ActionsBar → stacked; ActionsUnstackedBar → grouped. Matches the legacy
-     *  `isStacked = display !== ActionsUnstackedBar` decision in ActionsLineGraph. */
+    yAxisScaleType?: StickinessYAxisScaleType
+    /** ActionsBar → stacked; ActionsUnstackedBar → grouped. Same `isGrouped` framing
+     *  as `TrendsBarChart`; opposite polarity of the legacy `isStacked` flag in
+     *  `ActionsLineGraph`. */
     isGrouped: boolean
     showGrid?: boolean
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
@@ -29,14 +22,9 @@ export interface BuildStickinessBarTimeSeriesConfigOpts {
 export function buildStickinessBarTimeSeriesConfig(
     opts: BuildStickinessBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig {
-    const yAxis: YAxisConfig = {
-        scale: opts.yAxisScaleType === 'log10' ? 'log' : 'linear',
-        showGrid: opts.showGrid ?? true,
-        tickFormatter: stickinessPercentFormatter,
-    }
     return {
         // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
-        yAxis,
+        yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
         valueLabels: opts.valueLabels,
         barLayout: opts.isGrouped ? 'grouped' : 'stacked',
         tooltip: opts.tooltip,
