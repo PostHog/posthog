@@ -13,7 +13,7 @@
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
-        WHERE equals(groups.team_id, 99999)
+        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.properties___industry)]) AS prop_index,
@@ -48,7 +48,7 @@
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
-        WHERE equals(groups.team_id, 99999)
+        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.`properties___does not exist`)]) AS prop_index,
@@ -83,7 +83,7 @@
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
-        WHERE equals(groups.team_id, 99999)
+        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.properties___employee_count)]) AS prop_index,

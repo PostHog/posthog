@@ -2972,7 +2972,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE equals(groups.team_id, 99999)
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
@@ -3407,7 +3407,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE equals(groups.team_id, 99999)
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
@@ -4096,7 +4096,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE equals(groups.team_id, 99999)
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
@@ -4531,7 +4531,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE equals(groups.team_id, 99999)
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props

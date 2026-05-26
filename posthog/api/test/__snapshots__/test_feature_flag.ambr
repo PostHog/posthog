@@ -48,7 +48,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(index, 0), equals(key, 'special-workspace'))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(equals(groups.key, 'special-workspace'), 0))
@@ -82,7 +82,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(index, 0), ilike(key, '%org:%'))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(ilike(groups.key, '%org:%'), 0))
@@ -133,7 +133,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(index, 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
@@ -180,7 +180,7 @@
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
-     WHERE equals(groups.team_id, 99999)
+     WHERE and(equals(groups.team_id, 99999), equals(index, 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
