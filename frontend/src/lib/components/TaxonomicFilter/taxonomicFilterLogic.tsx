@@ -50,7 +50,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isString, objectsEqual, pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getDistinctPrimaryPropertiesForEvents } from 'lib/utils/primaryEventProperty'
 import {
     getEventDefinitionIcon,
     getPropertyDefinitionIcon,
@@ -321,8 +320,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['columnsJoinedToPersons'],
             featureFlagLogic,
             ['featureFlags'],
-            primaryEventPropertiesModel,
-            ['primaryProperties'],
             groupAnalyticsTaxonomicGroupsLogic,
             ['groupAnalyticsTaxonomicGroups', 'groupAnalyticsTaxonomicGroupNames'],
             cohortTaxonomicGroupsLogic,
@@ -481,21 +478,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
-        // Combined selector that returns both event names and the distinct primary properties
-        // for those events. Combined into a single selector so taxonomicGroups stays under
-        // kea's 16-dep tuple type limit; consumers destructure both fields.
-        eventNamesWithPrimaryProperties: [
-            (s) => [s.eventNames, s.primaryProperties],
+        // Combined into a single selector so taxonomicGroups stays under kea's 16-dep
+        // tuple type limit; consumers spread directly.
+        allGroupAnalyticsTaxonomicGroups: [
+            (s) => [s.groupAnalyticsTaxonomicGroups, s.groupAnalyticsTaxonomicGroupNames],
             (
-                eventNames: string[],
-                primaryProperties: Record<string, string>
-            ): {
-                eventNames: string[]
-                primaryPropertiesForContextEvents: string[]
-            } => ({
-                eventNames,
-                primaryPropertiesForContextEvents: getDistinctPrimaryPropertiesForEvents(eventNames, primaryProperties),
-            }),
+                groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
+                groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[]
+            ): TaxonomicFilterGroup[] => [...groupAnalyticsTaxonomicGroups, ...groupAnalyticsTaxonomicGroupNames],
         ],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
         dataWarehousePopoverFields: [
@@ -530,9 +520,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [
                 s.currentTeam,
                 s.currentProjectId,
-                s.groupAnalyticsTaxonomicGroups,
-                s.groupAnalyticsTaxonomicGroupNames,
-                s.eventNamesWithPrimaryProperties,
+                s.allGroupAnalyticsTaxonomicGroups,
+                s.eventNames,
                 s.schemaColumns,
                 (_, props) => props.schemaColumnsLoading,
                 s.hogQLExpressionTaxonomicGroups,
@@ -549,12 +538,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (
                 currentTeam: TeamType,
                 projectId: number | null,
-                groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
-                groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
-                eventNamesWithPrimaryProperties: {
-                    eventNames: string[]
-                    primaryPropertiesForContextEvents: string[]
-                },
+                allGroupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
+                eventNames: string[],
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
                 hogQLExpressionTaxonomicGroups: TaxonomicFilterGroup[],
@@ -568,7 +553,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 recentPinnedTaxonomicGroups: TaxonomicFilterGroup[],
                 replayTaxonomicGroups: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => {
-                const { eventNames } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
@@ -1132,8 +1116,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ...maxAIContextTaxonomicGroups,
                     ...suggestedFiltersTaxonomicGroups,
                     ...recentPinnedTaxonomicGroups,
-                    ...groupAnalyticsTaxonomicGroups,
-                    ...groupAnalyticsTaxonomicGroupNames,
+                    ...allGroupAnalyticsTaxonomicGroups,
                 ]
 
                 return groups
