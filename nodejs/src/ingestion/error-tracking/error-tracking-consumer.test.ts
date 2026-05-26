@@ -480,8 +480,6 @@ describe('ErrorTrackingConsumer', () => {
                 },
             })
 
-        // The pipeline produces via `.handleSideEffects(_, { await: false })`,
-        // so the mock observer only reflects emits once the scheduler drains.
         const drainProduces = () => consumer['promiseScheduler'].waitForAll()
 
         const producedCount = (): number =>

@@ -287,7 +287,7 @@ export class ErrorTrackingConsumer {
         }
 
         const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
-            // Per-stack cap runs before the team-global cap so a runaway issue
+            // Per-issue cap runs before the team-global cap so a runaway issue
             // gets dropped against its own bucket instead of draining the
             // team-global budget on its way out.
             {
@@ -299,11 +299,11 @@ export class ErrorTrackingConsumer {
                         return null
                     }
                     const sig = preCymbalGroupKey(input.event)
-                    return sig ? `${input.team.id}:exceptions:stack:${sig}` : null
+                    return sig ? `${input.team.id}:exceptions:issue:${sig}` : null
                 },
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
-                dropReason: 'rate_limited:per_stack',
+                dropReason: 'rate_limited:per_issue',
                 getBucketConfig: (input) => {
                     const settings = input.errorTrackingSettings!
                     const value = settings.perIssueRateLimitValue!
