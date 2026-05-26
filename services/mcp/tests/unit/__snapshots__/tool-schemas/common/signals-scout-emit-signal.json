@@ -58,7 +58,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Idempotency key. Re-using the same id within a run short-circuits without re-emitting."
+            "description": "Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal."
         },
         "hypothesis": {
             "anyOf": [
@@ -89,13 +89,15 @@
         "severity": {
             "anyOf": [
                 {
+                    "description": "* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Optional severity tag (`P0`-`P4`) — informational only."
+            "description": "Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4"
         },
         "time_range": {
             "anyOf": [
