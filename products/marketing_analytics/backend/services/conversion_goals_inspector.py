@@ -1,10 +1,11 @@
 """Inspect configured conversion goals: shape, last-30d counts, integrated split,
 and per-goal event breakdowns. Read-only.
 
-Unlike the dashboard's attribution math (`ConversionGoalProcessor`), this uses a
-fixed 30d window (ignoring the team's `attribution_window_days`) and, for
-ActionsNode goals, matches only the action's step events — property/URL filters
-are not applied. Both deviations are surfaced via `ConversionGoalSummary.is_approximate`.
+Goal matching mirrors the dashboard (ActionsNode uses `action_to_expr`, so URL/property
+filters apply). The deliberate difference: counts use a fixed 30d window and ignore the
+team's `attribution_window_days`/attribution model — answering "how many of these events
+happened, and were they UTM-tagged?", not "how much credit did each channel get?". Flagged
+via `ConversionGoalSummary.is_approximate`.
 """
 
 import re
@@ -20,13 +21,14 @@ import structlog
 from posthog.schema import DateRange
 
 from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.actions.backend.models.action import Action, ActionStepJSON
+from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.services.native_integrations import (
     NativeIntegration,
     build_combined_alias_map,
@@ -77,10 +79,8 @@ class ConversionGoalSummary:
     integrated_pct: float | None
     is_misconfigured: bool
     misconfig_reason: str | None
-    # True when the count is a fast-path approximation that may differ from the
-    # dashboard's attribution-windowed number. Set for ActionsNode goals whose
-    # action has property/URL step filters (we only match step events here),
-    # and always when `attribution_window_days != DEFAULT_LOOKBACK_DAYS`.
+    # True when this 30d count may differ from the dashboard's attribution-windowed
+    # number (attribution_window_days != 30). Goal matching itself is exact.
     is_approximate: bool = False
     approximation_reason: str | None = None
 
@@ -313,10 +313,8 @@ async def _summarize_goal(
     kind_raw: str = goal.get("kind") or "EventsNode"
     kind = cast(GoalKind, kind_raw)
 
-    # Always-on caveat: this is a 30d non-attribution-windowed count, used for
-    # quick "what is this number?" answers. Mark approximate when the team's
-    # attribution_window_days differs from our window so the LLM doesn't claim
-    # the dashboard would agree.
+    # 30d, non-attribution-windowed count. Flag approximate when the team's window
+    # differs so the LLM doesn't claim the dashboard would agree.
     base_approximate = attribution_window_days != DEFAULT_LOOKBACK_DAYS
     base_reason = (
         f"fast {DEFAULT_LOOKBACK_DAYS}d count without attribution windowing; "
@@ -360,17 +358,7 @@ async def _summarize_goal(
                 misconfig_reason=action_error or f"Action {goal_id} no longer exists",
             )
         target_label = f"Action: {action.name}"
-        total, integrated, without_utm, unmatched_with_utm, has_step_filters = await _count_action_goal(
-            team, action, alias_map
-        )
-        action_is_approximate = base_approximate or has_step_filters
-        action_reason: str | None
-        if has_step_filters:
-            action_reason = (
-                "matches the action's step events only — property/URL filters from the action are not applied"
-            )
-        else:
-            action_reason = base_reason
+        total, integrated, without_utm, unmatched_with_utm = await _count_action_goal(team, action, alias_map)
         return _summary_with_split(
             goal_id,
             name,
@@ -380,8 +368,8 @@ async def _summarize_goal(
             integrated,
             without_utm,
             unmatched_with_utm,
-            is_approximate=action_is_approximate,
-            approximation_reason=action_reason,
+            is_approximate=base_approximate,
+            approximation_reason=base_reason,
         )
 
     if kind_raw == "DataWarehouseNode":
@@ -474,54 +462,36 @@ def _count_event_goal(
     `goal["event"]` may be None, meaning "match any event" (rare but valid)."""
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     event_name = goal.get("event")
-    if event_name:
-        return _execute_count_with_split(
-            team,
-            "event = {event_name}",
-            {"event_name": ast.Constant(value=event_name), "since": ast.Constant(value=since)},
-            alias_map,
+    where: ast.Expr = (
+        ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=event_name),
         )
-    # `goal["event"]` is None — "match any event".
-    return _execute_count_with_split(team, "1 = 1", {"since": ast.Constant(value=since)}, alias_map)
+        if event_name
+        else ast.Constant(value=True)  # `goal["event"]` is None — "match any event"
+    )
+    return _execute_count_with_split(team, where, {"since": ast.Constant(value=since)}, alias_map)
 
 
 @database_sync_to_async
 def _count_action_goal(
     team: Team, action: Action, alias_map: dict[str, NativeIntegration]
-) -> tuple[int, int, int, int, bool]:
-    """For ActionsNode: count events matching the action's step events, split by
-    utm_source. Property/URL filters are NOT applied — a fast approximation.
+) -> tuple[int, int, int, int]:
+    """For ActionsNode: count last 30d events matching the action's full definition
+    (`action_to_expr`, same as the dashboard), split by utm_source.
 
-    Returns (total, integrated, without_utm, unmatched_with_utm, has_step_filters).
-    `has_step_filters` is True when a step narrows by URL/properties; caller surfaces
-    it as the "approximate" caveat.
-    """
-    steps = action.steps
-    step_events = [s.event for s in steps if s.event]
-    has_step_filters = any(_step_has_filters(s) for s in steps)
-    if not step_events:
-        return 0, 0, 0, 0, has_step_filters
-
+    Returns (total, integrated, without_utm, unmatched_with_utm)."""
+    # No steps → `action_to_expr` returns `true`; short-circuit so we don't count
+    # the entire events table.
+    if not action.steps:
+        return 0, 0, 0, 0
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-    placeholders: dict[str, ast.Expr] = {
-        "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in step_events]),
-        "since": ast.Constant(value=since),
-    }
-    total, integrated, without_utm, unmatched_with_utm = _execute_count_with_split(
-        team, "event IN {events}", placeholders, alias_map
-    )
-    return total, integrated, without_utm, unmatched_with_utm, has_step_filters
-
-
-def _step_has_filters(step: ActionStepJSON) -> bool:
-    """True when an ActionStep narrows beyond plain `event=`. Anything other
-    than the bare event name (URL match, property filters, selector, text)
-    means our flat events-by-name count is approximate vs the dashboard."""
-    return bool(step.url or step.properties or step.selector or step.tag_name or step.href or step.text)
+    return _execute_count_with_split(team, action_to_expr(action), {"since": ast.Constant(value=since)}, alias_map)
 
 
 def _execute_count_with_split(
-    team: Team, where: str, placeholders: dict[str, ast.Expr], alias_map: dict[str, NativeIntegration]
+    team: Team, where: ast.Expr, placeholders: dict[str, ast.Expr], alias_map: dict[str, NativeIntegration]
 ) -> tuple[int, int, int, int]:
     """Returns (total, integrated, without_utm, unmatched_with_utm).
 
@@ -531,26 +501,27 @@ def _execute_count_with_split(
     values). The two non-integrated buckets have OPPOSITE fixes (UTM tagging vs.
     custom_source_mappings), so they're surfaced separately.
 
-    `where` is a trusted query fragment built by the caller; user values flow in
-    through `placeholders`. `norm_utm` mirrors `native_integrations.normalize()`
-    (lowercase + alphanumerics only) so a raw value matches the alias keys.
+    `where` is the goal-matching predicate (event comparison or `action_to_expr`).
+    `norm_utm` mirrors `native_integrations.normalize()` (lowercase + alphanumerics)
+    so a raw value matches the alias keys.
     """
-    hogql = f"""
+    hogql = """
         SELECT
             count() AS total,
-            countIf(norm_utm IN {{aliases}}) AS integrated,
+            countIf(norm_utm IN {aliases}) AS integrated,
             countIf(raw_utm = '') AS without_utm,
-            countIf(raw_utm != '' AND norm_utm NOT IN {{aliases}}) AS unmatched_with_utm
+            countIf(raw_utm != '' AND norm_utm NOT IN {aliases}) AS unmatched_with_utm
         FROM (
             SELECT
                 lower(trim(coalesce(properties.utm_source, ''))) AS raw_utm,
                 replaceRegexpAll(lower(trim(coalesce(properties.utm_source, ''))), '[^a-z0-9]', '') AS norm_utm
             FROM events
-            WHERE {where} AND timestamp >= {{since}}
+            WHERE {where} AND timestamp >= {since}
         )
     """
     query_placeholders: dict[str, ast.Expr] = {
         **placeholders,
+        "where": where,
         "aliases": ast.Tuple(exprs=[ast.Constant(value=key) for key in alias_map]),
     }
     with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
@@ -654,19 +625,19 @@ async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange
         action, _ = await _resolve_action(team, goal_id)
         if action is None:
             return []
-        step_events = await _action_step_events(action)
-        if not step_events:
+        match_expr = await _action_match_expr(action)
+        if match_expr is None:
             return []
         hogql = """
             SELECT uuid, timestamp, distinct_id, event,
                    properties.utm_source, properties.utm_campaign
             FROM events
-            WHERE event IN {events} AND timestamp >= {since} AND timestamp <= {until}
+            WHERE {match} AND timestamp >= {since} AND timestamp <= {until}
             ORDER BY timestamp DESC
             LIMIT {scan_limit}
         """
         placeholders = {
-            "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in step_events]),
+            "match": match_expr,
             "since": ast.Constant(value=since),
             "until": ast.Constant(value=until),
             "scan_limit": ast.Constant(value=EXPLAIN_EVENT_SCAN_LIMIT),
@@ -677,8 +648,12 @@ async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange
 
 
 @database_sync_to_async
-def _action_step_events(action: Action) -> list[str]:
-    return [s.event for s in action.steps if s.event]
+def _action_match_expr(action: Action) -> ast.Expr | None:
+    """The action's full match predicate (`action_to_expr`) for use against the
+    events table. None when the action has no steps (would otherwise match all)."""
+    if not action.steps:
+        return None
+    return action_to_expr(action)
 
 
 @database_sync_to_async

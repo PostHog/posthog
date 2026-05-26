@@ -71,7 +71,7 @@ class _InspectorMixin(APIBaseTest):
         self.mocks["config"].return_value = ([], 90, "last_touch")
         self.mocks["alias_map"].return_value = dict(canonical_source_aliases())
         self.mocks["event_count"].return_value = (0, 0, 0, 0)
-        self.mocks["action_count"].return_value = (0, 0, 0, 0, False)
+        self.mocks["action_count"].return_value = (0, 0, 0, 0)
         self.mocks["dw_count"].return_value = (0, None)
         self.mocks["resolve_action"].return_value = (None, None)
 
@@ -134,8 +134,7 @@ class TestListConversionGoals(_InspectorMixin):
         self.mocks["config"].return_value = ([_actions_goal("42")], 90, "last_touch")
         self.mocks["resolve_action"].return_value = (action_mock, None)
         # 50 total: 30 integrated, 12 without utm_source, 8 with unmatched utm_source.
-        # `has_step_filters=False` → not flagged approximate by the action's filters.
-        self.mocks["action_count"].return_value = (50, 30, 12, 8, False)
+        self.mocks["action_count"].return_value = (50, 30, 12, 8)
 
         response = await list_conversion_goals(self.team)
         goal = response.goals[0]
@@ -589,4 +588,67 @@ class TestListGoalNoGoalsClickhouse(ClickhouseTestMixin, BaseTest):
         response = await list_conversion_goals(self.team)
 
         assert response.goals == []
+
+
+# ActionsNode goals match the action's full definition (event + property/URL filters),
+# not just its step events — otherwise filtered actions overcount.
+class TestListActionGoalFiltersClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.action = Action.objects.create(
+            team=self.team,
+            name="Pro purchase",
+            steps_json=[
+                {
+                    "event": "purchase",
+                    "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+                }
+            ],
+        )
+        self.team.marketing_analytics_config.conversion_goals = [
+            {
+                "id": str(self.action.id),
+                "name": "Pro purchase",
+                "conversion_goal_id": str(self.action.id),
+                "conversion_goal_name": "Pro purchase",
+                "kind": "ActionsNode",
+                "schema_map": {},
+            }
+        ]
+        self.team.marketing_analytics_config.save()
+        # Two `purchase` events match (plan=pro); the `plan=free` one is excluded by
+        # the action's property filter. Step-event-only matching would count all three.
+        for distinct_id in ("u1", "u2"):
+            _create_event(
+                distinct_id=distinct_id,
+                event="purchase",
+                team=self.team,
+                properties={"plan": "pro", "utm_source": "google"},
+                timestamp=timezone.now() - timedelta(hours=1),
+            )
+        _create_event(
+            distinct_id="u3",
+            event="purchase",
+            team=self.team,
+            properties={"plan": "free", "utm_source": "google"},
+            timestamp=timezone.now() - timedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_list_action_goal_respects_property_filter(self) -> None:
+        response = await list_conversion_goals(self.team)
+
+        goal = response.goals[0]
+        assert goal.kind == "ActionsNode"
+        assert goal.is_misconfigured is False
+        # 2, not 3 — the `plan=free` purchase is excluded by the action filter.
+        assert goal.last_30d_count == 2
+        assert goal.integrated_count == 2
         assert response.has_misconfigured is False
