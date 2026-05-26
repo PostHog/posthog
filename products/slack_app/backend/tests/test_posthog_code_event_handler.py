@@ -121,7 +121,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
     def test_local_match_starts_temporal_workflow(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        # app_mention is always proxied from the primary, so local handling lives on the secondary region.
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -131,6 +132,29 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         mock_asyncio_run.assert_called_once()
+
+    @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
+    @patch("products.slack_app.backend.api.SLACK_PRIMARY_REGION_DOMAIN", "eu.posthog.com")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_always_proxies_from_primary_even_with_local_coding_agent(
+        self, mock_sync_connect, mock_asyncio_run, mock_proxy
+    ):
+        # Even when the primary region has a fully configured coding-agent integration,
+        # app_mention must be proxied to the secondary region — the secondary is the canonical
+        # owner of mention execution.
+        mock_proxy.return_value = True
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_PROXIED, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_PROXIED
+        mock_proxy.assert_called_once_with(request)
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
 
     @parameterized.expand(
         [
@@ -180,7 +204,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         _mock_flag,
         mock_get_repos,
     ):
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        # app_mention local handling now lives on the secondary region — the primary always proxies.
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         mock_get_repos.return_value = repo_list
         # The route runs _missing_posthog_code_slack_scopes against a real SlackIntegration
         # before the picker / workflow path. Since SlackIntegration is mocked wholesale here,
@@ -250,7 +275,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
     def test_local_match_flag_off_skips_workflow(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        # Flag check runs on the secondary region (where app_mention is handled locally).
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -443,7 +469,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
                 message_ts="1234.7777",
             )
 
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        # Scope check runs on the secondary region (where app_mention is handled locally).
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         event = {
             "type": "app_mention",
             "channel": "C001",

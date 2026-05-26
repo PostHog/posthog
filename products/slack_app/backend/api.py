@@ -447,6 +447,9 @@ def resolve_slack_user(
 # The secondary region does the same Integration lookup, but if it doesn't find a match either, it stops processing.
 # We use EU as the primary region, as it's more important to EU customers that their requests don't leave the EU,
 # than to US users that their requests don't leave the US.
+# Exception: app_mention events are always proxied from primary to secondary, regardless of any
+# local coding-agent integration on the primary. The secondary region is the canonical owner of
+# coding-agent execution for Slack mentions.
 SLACK_PRIMARY_REGION_DOMAIN = "eu.posthog.com"
 SLACK_SECONDARY_REGION_DOMAIN = "us.posthog.com"
 
@@ -1319,6 +1322,14 @@ def route_posthog_code_event_to_relevant_region(
         local_match = coding_agent_integration
     else:
         local_match = any_integration
+
+    # app_mention events are unconditionally proxied from the primary region to the secondary,
+    # even when a matching coding-agent integration exists locally. The secondary region owns
+    # all coding-agent execution for mentions; the primary's only role for app_mention is to
+    # forward. On the secondary region itself, fall through to the normal local-handling path.
+    if event_type == "app_mention" and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
+        success = proxy_slack_event_to_secondary_region(request)
+        return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
