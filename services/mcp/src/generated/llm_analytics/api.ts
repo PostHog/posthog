@@ -1510,7 +1510,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Create serializer — accepts bundled files as write-only input on POST.')
 
-export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')
+export const llmSkillsNameRetrievePathSkillIdentifierRegExp = new RegExp('^[^/]+$')
 
 export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1518,7 +1518,7 @@ export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    skill_name: zod.string().regex(llmSkillsNameRetrievePathSkillNameRegExp),
+    skill_identifier: zod.string().regex(llmSkillsNameRetrievePathSkillIdentifierRegExp),
 })
 
 export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
@@ -1529,7 +1529,7 @@ export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
 })
 
-export const llmSkillsNamePartialUpdatePathSkillNameRegExp = new RegExp('^[^/]+$')
+export const llmSkillsNamePartialUpdatePathSkillIdentifierRegExp = new RegExp('^[^/]+$')
 
 export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1537,7 +1537,7 @@ export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    skill_name: zod.string().regex(llmSkillsNamePartialUpdatePathSkillNameRegExp),
+    skill_identifier: zod.string().regex(llmSkillsNamePartialUpdatePathSkillIdentifierRegExp),
 })
 
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
@@ -1986,7 +1986,7 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. Pass `product=<ai_product>` to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`); omit it for an aggregate view. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
@@ -2024,10 +2024,10 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
         ),
     product: zod
         .string()
+        .min(1)
         .max(llmAnalyticsPersonalSpendListQueryProductMax)
-        .nullish()
         .describe(
-            'Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.'
+            'Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
         ),
     refresh: zod
         .boolean()

@@ -1,3 +1,5 @@
+import io
+import csv
 import hmac
 import json
 import hashlib
@@ -106,6 +108,63 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         response = self.client.post(self._generate_links_url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _generate_links_csv_url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/links_csv/"
+
+    def test_generate_links_csv_returns_csv_with_expected_columns_and_rows(self):
+        topic = self._create_topic()
+
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response["Content-Type"].startswith("text/csv"))
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn(".csv", response["Content-Disposition"])
+
+        reader = csv.DictReader(io.StringIO(response.content.decode("utf-8")))
+        self.assertEqual(
+            reader.fieldnames,
+            ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"],
+        )
+        rows = list(reader)
+        # One row per targeted interviewee (3 in the default _create_topic).
+        self.assertEqual(len(rows), 3)
+        # Email column is empty for distinct-id-only rows; URL column always populated.
+        for row in rows:
+            self.assertIn("/interview/", row["interview_url"])
+
+    def test_generate_links_csv_rejects_topic_with_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_generate_links_csv_sanitizes_formula_injection_without_breaking_emails(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            # Deliberately craft a malicious distinct ID starting with `=` — must be quoted.
+            interviewee_distinct_ids=["=cmd|/c calc!A1"],
+        )
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        body = response.content.decode("utf-8")
+        # Plain email is untouched (first char is a letter, not a formula trigger).
+        self.assertIn("alex@example.com", body)
+        self.assertNotIn("'alex@example.com", body)
+        # Formula-injection identifier is prefixed with a single quote.
+        self.assertIn("'=cmd|/c calc!A1", body)
+
+    def test_generate_links_csv_is_idempotent_with_existing_links(self):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        # Materialize via the JSON endpoint first; the CSV endpoint must return the same access token.
+        json_body = self.client.post(self._generate_links_url(str(topic.id))).json()
+        expected_url = json_body[0]["interview_url"]
+
+        csv_response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(csv_response.status_code, status.HTTP_200_OK)
+        self.assertIn(expected_url, csv_response.content.decode("utf-8"))
+        self.assertEqual(SharingConfiguration.objects.filter(interviewee_context__topic=topic).count(), 1)
 
 
 class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
@@ -649,8 +708,30 @@ class TestVapiWebhook(APIBaseTest):
             "/api/user_interviews/vapi_webhook/",
             data=self._end_of_call_payload(share.access_token),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="wrong",
+            HTTP_X_VAPI_SIGNATURE="a" * 64,  # right shape, wrong value
         )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("empty", ""),
+            ("too_short", "abc"),
+            ("non_hex", "z" * 64),
+            ("uppercase", "A" * 64),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_webhook_rejects_malformed_signature_pre_hmac(self, _name: str, value: Any):
+        share = self._create_share()
+        self.client.logout()
+        kwargs: dict[str, Any] = {
+            "data": self._end_of_call_payload(share.access_token),
+            "content_type": "application/json",
+        }
+        if value is not None:
+            kwargs["HTTP_X_VAPI_SIGNATURE"] = value
+        response = self.client.post("/api/user_interviews/vapi_webhook/", **kwargs)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")

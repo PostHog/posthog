@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -799,6 +799,138 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
+})
+
+/**
+ * Bulk delete feature flags by filter criteria or explicit IDs.
+
+Accepts either:
+- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+- {"ids": [...]} - Explicit list of flag IDs (no limit)
+
+Returns same format as bulk_delete for UI compatibility.
+
+Uses bulk operations for efficiency: database updates are batched and cache
+invalidation happens once at the end rather than per-flag.
+ */
+export const FeatureFlagsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .object({
+            active: zod
+                .enum(['true', 'false', 'STALE'])
+                .describe('* `true` - true\n* `false` - false\n* `STALE` - STALE')
+                .optional()
+                .describe('Filter by active state.\n\n* `true` - true\n* `false` - false\n* `STALE` - STALE'),
+            created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
+            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            type: zod
+                .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
+                .describe(
+                    '* `boolean` - boolean\n* `multivariant` - multivariant\n* `experiment` - experiment\n* `remote_config` - remote_config'
+                )
+                .optional()
+                .describe(
+                    'Filter by flag type.\n\n* `boolean` - boolean\n* `multivariant` - multivariant\n* `experiment` - experiment\n* `remote_config` - remote_config'
+                ),
+            evaluation_runtime: zod
+                .enum(['server', 'client', 'all'])
+                .describe('* `server` - Server\n* `client` - Client\n* `all` - All')
+                .optional()
+                .describe('Filter by evaluation runtime.\n\n* `server` - Server\n* `client` - Client\n* `all` - All'),
+            excluded_properties: zod
+                .string()
+                .optional()
+                .describe('JSON-encoded property filter to exclude. Same shape as the list endpoint.'),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            has_evaluation_contexts: zod
+                .boolean()
+                .optional()
+                .describe('When true, only matches flags with at least one evaluation context.'),
+        })
+        .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
+        .optional()
+        .describe(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs."
+        ),
+    ids: zod
+        .array(zod.number().min(1))
+        .optional()
+        .describe('Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.'),
+})
+
+/**
+ * Get feature flag keys by IDs.
+Accepts a list of feature flag IDs and returns a mapping of ID to key.
+ */
+export const FeatureFlagsBulkKeysCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.unknown())
+        .optional()
+        .describe(
+            'Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.'
+        ),
+})
+
+/**
+ * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const FeatureFlagsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(featureFlagsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+        ),
+    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })
 
 /**

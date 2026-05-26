@@ -1002,9 +1002,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
-            const mergedUiContext = uiContext
-                ? { ...values.compiledContext, ...uiContext }
-                : values.compiledContext || undefined
+            // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
+            // not just when active. Otherwise a typed turn following a spoken one inherits
+            // the earlier <voice_mode> system instruction from conversation history and
+            // keeps formatting for speech (no markdown, spelled-out numbers).
+            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
+            const mergedUiContext =
+                uiContext || voiceMode
+                    ? { ...values.compiledContext, ...uiContext, ...voiceMode }
+                    : values.compiledContext || undefined
             const billingContext =
                 values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
                     ? values.billingContext

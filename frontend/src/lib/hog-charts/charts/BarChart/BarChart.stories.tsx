@@ -47,6 +47,18 @@ export const Grouped: Story = {
     },
 }
 
+export const WithBarTrack: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barTrack: true, barCornerRadius: 6 }
+        return (
+            <Stage>
+                <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const Percent: Story = {
     render: () => {
         const theme = useReactiveTheme()

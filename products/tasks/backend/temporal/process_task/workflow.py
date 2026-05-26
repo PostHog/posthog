@@ -233,9 +233,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if remaining.total_seconds() > 0:
                 workflow.logger.info(
                     "Waiting for CI follow-up event",
-                    run_id=self.context.run_id,
-                    repetitions=self._ci_repetitions,
-                    delay_seconds=remaining.total_seconds(),
+                    extra={
+                        "run_id": self.context.run_id,
+                        "repetitions": self._ci_repetitions,
+                        "delay_seconds": remaining.total_seconds(),
+                    },
                 )
                 await workflow.sleep(remaining.total_seconds())
         else:
@@ -278,8 +280,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if task.exception():
                 workflow.logger.warning(
                     "Event wait task failed",
-                    run_id=self.context.run_id,
-                    error=str(task.exception()),
+                    extra={
+                        "run_id": self.context.run_id,
+                        "error": str(task.exception()),
+                    },
                 )
                 continue
             return task.result()
@@ -287,14 +291,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if isinstance(task_result, Exception):
                 workflow.logger.warning(
                     "Pending event wait task failed during cancellation",
-                    run_id=self.context.run_id,
-                    error=str(task_result),
+                    extra={
+                        "run_id": self.context.run_id,
+                        "error": str(task_result),
+                    },
                 )
             if isinstance(task_result, TaskEvent):
                 workflow.logger.info(
                     "Pending event wait task completed during cancellation",
-                    run_id=self.context.run_id,
-                    event=task_result.value,
+                    extra={
+                        "run_id": self.context.run_id,
+                        "event": task_result.value,
+                    },
                 )
                 return task_result
         raise RuntimeError("No event was completed successfully")
@@ -322,32 +330,38 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if not pr_context:
             workflow.logger.info(
                 "PR context is missing, stopping CI follow-up loop",
-                run_id=self.context.run_id,
+                extra={"run_id": self.context.run_id},
             )
             return CIFollowUpDecision.NO_PR
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
-                run_id=self.context.run_id,
-                pr_url=pr_context.pr_url,
-                pr_state=pr_context.pr_state,
+                extra={
+                    "run_id": self.context.run_id,
+                    "pr_url": pr_context.pr_url,
+                    "pr_state": pr_context.pr_state,
+                },
             )
             return CIFollowUpDecision.SKIP
         if self._pr_fingerprint != pr_context.fingerprint:
             workflow.logger.info(
                 "PR context has changed, running CI follow-up",
-                run_id=self.context.run_id,
-                pr_url=pr_context.pr_url,
-                pr_state=pr_context.pr_state,
+                extra={
+                    "run_id": self.context.run_id,
+                    "pr_url": pr_context.pr_url,
+                    "pr_state": pr_context.pr_state,
+                },
             )
             self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
         else:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
-                run_id=self.context.run_id,
-                pr_url=pr_context.pr_url,
-                pr_state=pr_context.pr_state,
+                extra={
+                    "run_id": self.context.run_id,
+                    "pr_url": pr_context.pr_url,
+                    "pr_state": pr_context.pr_state,
+                },
             )
             return CIFollowUpDecision.SKIP
 
@@ -432,7 +446,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         break
                     case TaskEvent.CI_FOLLOW_UP:
                         workflow.logger.info(
-                            "CI follow-up event triggered", run_id=self.context.run_id, repetitions=self._ci_repetitions
+                            "CI follow-up event triggered",
+                            extra={"run_id": self.context.run_id, "repetitions": self._ci_repetitions},
                         )
                         _deprecate_ci_follow_up_pr_context_patch()
                         follow_up_result = await self._should_run_ci_follow_up()
@@ -457,8 +472,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         if pending_followup_count > 0:
                             workflow.logger.info(
                                 "Pending follow-up message received, sending to sandbox",
-                                run_id=self.context.run_id,
-                                pending_followup_count=pending_followup_count,
+                                extra={
+                                    "run_id": self.context.run_id,
+                                    "pending_followup_count": pending_followup_count,
+                                },
                             )
                             if self._pending_followup is not None:
                                 pending_followup = self._pending_followup
@@ -471,7 +488,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             if self._should_skip_followup(message, artifact_ids):
                                 workflow.logger.warning(
                                     "empty_followup_skipped",
-                                    run_id=self.context.run_id,
+                                    extra={"run_id": self.context.run_id},
                                 )
                                 continue
 
@@ -483,7 +500,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
                         if self._heartbeat_received and not self._task_completed:
                             workflow.logger.info(
-                                "Heartbeat received, resetting inactivity timer", run_id=self.context.run_id
+                                "Heartbeat received, resetting inactivity timer",
+                                extra={"run_id": self.context.run_id},
                             )
                             self._heartbeat_received = False
                             continue
@@ -810,10 +828,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(
                 "emit_progress_failed",
-                run_id=self.context.run_id,
-                step=step,
-                status=status,
-                error=str(e),
+                extra={
+                    "run_id": self.context.run_id,
+                    "step": step,
+                    "status": status,
+                    "error": str(e),
+                },
             )
 
     async def _update_task_run_status(
@@ -857,8 +877,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(
                 "relay_sandbox_events_failed_non_fatal",
-                run_id=self.context.run_id,
-                error=str(e),
+                extra={
+                    "run_id": self.context.run_id,
+                    "error": str(e),
+                },
             )
 
     @staticmethod
@@ -944,9 +966,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         context = self._context
         workflow.logger.info(
             "send_followup_signal_received",
-            run_id=context.run_id if context is not None else None,
-            message_length=len(message or ""),
-            artifact_count=len(artifact_ids or []),
+            extra={
+                "run_id": context.run_id if context is not None else None,
+                "message_length": len(message or ""),
+                "artifact_count": len(artifact_ids or []),
+            },
         )
         pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
         # Always queue. `deprecate_patch` accepts existing non-deprecated
@@ -960,9 +984,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
-            run_id=self.context.run_id,
-            message_length=len(message or ""),
-            artifact_count=len(artifact_ids),
+            extra={
+                "run_id": self.context.run_id,
+                "message_length": len(message or ""),
+                "artifact_count": len(artifact_ids),
+            },
         )
         try:
             await workflow.execute_activity(
@@ -979,8 +1005,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(
                 "send_followup_to_sandbox_failed",
-                run_id=self.context.run_id,
-                error=str(e),
+                extra={
+                    "run_id": self.context.run_id,
+                    "error": str(e),
+                },
             )
             # Mark the run as failed so poll_for_turn sees a terminal status
             # immediately instead of waiting for the inactivity timeout.

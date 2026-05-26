@@ -252,6 +252,9 @@ pub struct ProcessedEventMetadata {
     pub redirect_to_dlq: bool,
     /// Redirect this event to a custom topic (set by event restrictions)
     pub redirect_to_topic: Option<String>,
+    /// Heatmap data on this event was redirected to the heatmaps topic and
+    /// must not be extracted again by the events pipeline.
+    pub skip_heatmap_processing: bool,
     /// Overflow routing decision stamped by the pipeline. `None` means the
     /// event stays on its default topic for its `data_type`. See
     /// [`OverflowReason`] for who sets this and what each variant maps to in

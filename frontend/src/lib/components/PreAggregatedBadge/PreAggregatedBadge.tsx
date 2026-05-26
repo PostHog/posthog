@@ -1,4 +1,4 @@
-import { IconBolt, IconSparkles } from '@posthog/icons'
+import { IconBolt, IconDatabaseBolt } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -18,9 +18,9 @@ const VARIANT_CONFIG: Record<
         Icon: IconBolt,
     },
     precomputed: {
-        tooltip: 'Served from precomputed cache',
-        iconClassName: 'text-success w-4 h-4',
-        Icon: IconSparkles,
+        tooltip: 'Loaded from a pre-computed dataset',
+        iconClassName: 'text-muted w-4 h-4',
+        Icon: IconDatabaseBolt,
     },
 }
 
