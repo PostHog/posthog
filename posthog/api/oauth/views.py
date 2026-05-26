@@ -46,7 +46,7 @@ from posthog.api.oauth.cimd import (
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthApplicationAuthBrand, OAuthGrant, OAuthRefreshToken
 from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -587,14 +587,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
-
-                if application.is_org_scoped:
-                    credentials["scoped_teams"] = []
-                else:
-                    # Legacy behavior: also scope to every team the user can access so old
-                    # clients that key off scoped_teams keep working until they migrate.
-                    team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                    credentials["scoped_teams"] = list(team_ids)
+                credentials["scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -813,8 +806,26 @@ class OAuthTokenView(TokenView):
 
                 if access_token_value:
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
-                    response_data["scoped_teams"] = access_token.scoped_teams or []
-                    response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    scoped_teams = list(access_token.scoped_teams or [])
+                    scoped_organizations = list(access_token.scoped_organizations or [])
+
+                    # Backwards compat for deployed PostHog Code (twig) clients: they read
+                    # scoped_teams from /oauth/token to populate the project selector. When
+                    # the app is org-scoped only, access_token.scoped_teams is empty in the
+                    # DB by design — derive teams from scoped_organizations so old clients
+                    # keep working without weakening the stored token scope.
+                    if (
+                        not scoped_teams
+                        and scoped_organizations
+                        and access_token.application
+                        and access_token.application.auth_brand == OAuthApplicationAuthBrand.TWIG.value
+                    ):
+                        scoped_teams = list(
+                            Team.objects.filter(organization_id__in=scoped_organizations).values_list("pk", flat=True)
+                        )
+
+                    response_data["scoped_teams"] = scoped_teams
+                    response_data["scoped_organizations"] = scoped_organizations
 
                     if region_info := get_region_info():
                         response_data.update(region_info)

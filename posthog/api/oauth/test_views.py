@@ -24,6 +24,7 @@ from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
     OAuthApplicationAccessLevel,
+    OAuthApplicationAuthBrand,
     OAuthGrant,
     OAuthRefreshToken,
 )
@@ -190,7 +191,6 @@ class TestOAuthAPI(APIBaseTest):
             hash_client_secret=True,
             algorithm="RS256",
             is_first_party=True,
-            is_org_scoped=True,
         )
 
         url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
@@ -205,32 +205,6 @@ class TestOAuthAPI(APIBaseTest):
         grant = OAuthGrant.objects.get(code=code)
 
         self.assertEqual(grant.scoped_teams, [])
-        self.assertIn(str(self.organization.id), grant.scoped_organizations)
-
-    def test_first_party_app_without_org_scoped_flag_backfills_teams(self):
-        first_party_app = OAuthApplication.objects.create(
-            name="First Party App Legacy",
-            client_id="first_party_legacy_client_id",
-            client_secret="first_party_legacy_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            user=self.user,
-            hash_client_secret=True,
-            algorithm="RS256",
-            is_first_party=True,
-            is_org_scoped=False,
-        )
-
-        url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
-
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
-        grant = OAuthGrant.objects.get(code=code)
-
-        self.assertIn(self.team.pk, grant.scoped_teams)
         self.assertIn(str(self.organization.id), grant.scoped_organizations)
 
     def test_authorize_missing_client_id(self):
@@ -2834,6 +2808,123 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertNotIn("posthog_region", data)
         self.assertNotIn("posthog_base_url", data)
+
+    def _create_first_party_app(self, *, slug: str, auth_brand: str) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=f"First Party App {slug}",
+            client_id=f"first_party_{slug}_client_id",
+            client_secret=f"first_party_{slug}_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=True,
+            auth_brand=auth_brand,
+        )
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_token_response_derives_scoped_teams_for_twig_brand(self):
+        twig_app = self._create_first_party_app(
+            slug="twig-derive",
+            auth_brand=OAuthApplicationAuthBrand.TWIG.value,
+        )
+        grant = OAuthGrant.objects.create(
+            application=twig_app,
+            user=self.user,
+            code="twig_derive_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": twig_app.client_id,
+                "client_secret": "first_party_twig-derive_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
+        self.assertIn(self.team.pk, data["scoped_teams"])
+
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        self.assertEqual(access_token.scoped_teams, [])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_token_response_does_not_derive_scoped_teams_for_non_twig_brand(self):
+        posthog_app = self._create_first_party_app(
+            slug="posthog-no-derive",
+            auth_brand=OAuthApplicationAuthBrand.POSTHOG.value,
+        )
+        grant = OAuthGrant.objects.create(
+            application=posthog_app,
+            user=self.user,
+            code="posthog_no_derive_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": posthog_app.client_id,
+                "client_secret": "first_party_posthog-no-derive_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
+        self.assertEqual(data["scoped_teams"], [])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_token_response_preserves_stored_scoped_teams_for_twig_brand(self):
+        twig_app = self._create_first_party_app(
+            slug="twig-preserve",
+            auth_brand=OAuthApplicationAuthBrand.TWIG.value,
+        )
+        grant = OAuthGrant.objects.create(
+            application=twig_app,
+            user=self.user,
+            code="twig_preserve_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": twig_app.client_id,
+                "client_secret": "first_party_twig-preserve_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
+        self.assertEqual(data["scoped_teams"], [self.team.pk])
 
 
 @override_settings(
