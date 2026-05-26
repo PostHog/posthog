@@ -89,6 +89,7 @@ export function QueryWindow({
         setSendRawQuery,
         openMaterializationModal,
         setSourceQuery,
+        formatQuery,
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
@@ -177,6 +178,16 @@ export function QueryWindow({
                             disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                         />
                         <QueryFiltersMenu />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => formatQuery()}
+                            disabledReason={queryInput?.trim() ? undefined : 'Nothing to format'}
+                            tooltip="Format SQL"
+                            data-attr="sql-editor-format-button"
+                        >
+                            Format
+                        </LemonButton>
                         {editingView ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}

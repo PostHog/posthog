@@ -10,11 +10,12 @@ import { combineUrl } from 'kea-router'
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import type { editor } from 'monaco-editor'
 
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { formatSQL } from 'lib/utils/formatSQL'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
@@ -76,6 +77,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
         onUpdateView: true,
+        formatQuery: true,
     }),
     reducers(({ props }) => ({
         queryInput: [
@@ -183,6 +185,37 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         onUpdateView: async () => {
             const types = props.queryResponse?.types ?? []
             actions.updateView(values.queryInput, types)
+        },
+        formatQuery: () => {
+            const original = values.queryInput
+            if (!original?.trim()) {
+                return
+            }
+
+            let formatted: string
+            try {
+                formatted = formatSQL(original)
+            } catch (e) {
+                lemonToast.error(`Could not format SQL: ${(e as Error).message ?? 'unknown error'}`)
+                return
+            }
+
+            if (formatted === original) {
+                return
+            }
+
+            const editor = props.editor
+            const model = editor?.getModel?.()
+            if (editor && model) {
+                editor.executeEdits('format-sql', [
+                    {
+                        range: model.getFullModelRange(),
+                        text: formatted,
+                    },
+                ])
+            } else {
+                actions.setQueryInput(formatted)
+            }
         },
     })),
 ])

@@ -33,6 +33,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, slugify } from 'lib/utils'
+import { formatSQL } from 'lib/utils/formatSQL'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
@@ -560,6 +561,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
         }),
         closeMaterializationModal: true,
+        formatQuery: true,
     })),
     propsChanged(({ actions, props, cache }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -853,6 +855,40 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             reportAIQueryPromptOpen: () => {
                 posthog.capture('ai_query_prompt_open')
+            },
+            formatQuery: () => {
+                const original = values.queryInput ?? ''
+                if (!original.trim()) {
+                    return
+                }
+
+                let formatted: string
+                try {
+                    formatted = formatSQL(original)
+                } catch (e) {
+                    lemonToast.error(`Could not format SQL: ${(e as Error).message ?? 'unknown error'}`)
+                    return
+                }
+
+                if (formatted === original) {
+                    return
+                }
+
+                const editor = props.editor
+                const model = editor?.getModel?.()
+                if (editor && model) {
+                    // executeEdits preserves Monaco's undo history, so the user can revert with Cmd+Z.
+                    editor.executeEdits('format-sql', [
+                        {
+                            range: model.getFullModelRange(),
+                            text: formatted,
+                        },
+                    ])
+                } else {
+                    actions.setQueryInput(formatted)
+                }
+
+                posthog.capture('sql-editor-formatted-query')
             },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor

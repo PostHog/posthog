@@ -61,8 +61,16 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, draftFromMetadataFix, saveAsView, onUpdateView } =
-        useActions(logic)
+    const {
+        setQueryInput,
+        saveQuery,
+        setPrompt,
+        draftFromPrompt,
+        draftFromMetadataFix,
+        saveAsView,
+        onUpdateView,
+        formatQuery,
+    } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
 
@@ -171,11 +179,20 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         />
                     </div>
                 </div>
-                <div className="flex flex-row px-px">
+                <div className="flex flex-row px-px gap-2">
                     {props.editorFooter ? (
                         props.editorFooter(hasErrors, error)
                     ) : (
                         <>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => formatQuery()}
+                                disabledReason={queryInput?.trim() ? undefined : 'Nothing to format'}
+                                tooltip="Format SQL"
+                                data-attr="hogql-query-editor-format"
+                            >
+                                Format
+                            </LemonButton>
                             <div className="flex-1">
                                 <LemonButton
                                     onClick={() => saveQuery()}

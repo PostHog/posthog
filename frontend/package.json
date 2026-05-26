@@ -249,6 +249,7 @@
         "rrule": "^2.8.1",
         "simple-statistics": "^7.8.8",
         "snappy-wasm": "^0.3.0",
+        "sql-formatter": "^15.4.0",
         "tailwind-merge": "^2.2.2",
         "torph": "^0.0.9",
         "ts-pattern": "catalog:",
