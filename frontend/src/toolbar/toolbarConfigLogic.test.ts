@@ -343,6 +343,66 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
         })
+
+        it('treats a 404 from the reachability probe as a soft-pass and proceeds with code exchange', async () => {
+            // Reverse-proxied customer deployments frequently don't forward
+            // /toolbar_oauth/check. The 404 still proves the host is reachable,
+            // DNS-resolvable, and CORS-permissive — exactly what the probe verifies —
+            // so we must not flip authStatus to 'error' or pop the config modal.
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: false, status: 404 } as any)
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () =>
+                        Promise.resolve({
+                            access_token: 'new-access',
+                            refresh_token: 'new-refresh',
+                            expires_in: 3600,
+                        }),
+                } as any)
+            })
+
+            localStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier: 'test-verifier', ts: Date.now() }))
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                refreshToken: 'new-refresh',
+                isAuthenticated: true,
+                uiHostConfigModalVisible: false,
+            })
+
+            // Token exchange should have been attempted against the same uiHost.
+            const tokenCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].includes('/oauth/token/')
+            )
+            expect(tokenCalls).toHaveLength(1)
+            window.history.pushState({}, '', '/')
+        })
+
+        it('keeps the hard-fail path for 5xx responses from the reachability probe', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: false, status: 502 } as any)
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as any)
+            })
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                authStatus: 'error',
+                uiHostConfigModalVisible: true,
+            })
+            window.history.pushState({}, '', '/')
+        })
     })
 
     describe('canonicalizeUiHost', () => {

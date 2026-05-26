@@ -643,13 +643,17 @@ function verifyUiHostReachability(
         signal: AbortSignal.timeout(5000),
     })
         .then((response) => {
-            if (!response.ok) {
+            // A 404 means the host responded, DNS resolved, and CORS allowed the
+            // request — which is everything this probe is actually verifying.
+            // Customer reverse proxies frequently don't forward /toolbar_oauth/check,
+            // so treat 404 as a soft-pass to avoid blocking the OAuth flow.
+            if (!response.ok && response.status !== 404) {
                 throw new Error(`HTTP ${response.status}`)
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
-                status: 'ok',
+                status: response.status === 404 ? 'endpoint_missing' : 'ok',
                 duration_ms: Date.now() - checkStart,
             })
 
