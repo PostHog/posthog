@@ -487,13 +487,23 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # references a column already dropped (stale metadata between
         # constraint and column catalogs) doesn't leak into
         # `detected_primary_keys` and corrupt downstream dedup.
+        #
+        # KEY_COLUMN_USAGE.column_name is sometimes returned as
+        # `<table>.<column>` and sometimes plain `<column>` depending on
+        # the BigQuery region / metadata version, hence the
+        # `removeprefix` below — the JOIN has to tolerate both shapes or
+        # half the rows get dropped.
         query = f"""
         SELECT tc.table_name, kcu.column_name
         FROM `{config.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
         JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
         JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
-        ON kcu.table_name = c.table_name AND kcu.column_name = c.column_name
+        ON kcu.table_name = c.table_name
+        AND (
+            kcu.column_name = c.column_name
+            OR kcu.column_name = CONCAT(kcu.table_name, '.', c.column_name)
+        )
         WHERE tc.constraint_type = 'PRIMARY KEY'
         """
 
