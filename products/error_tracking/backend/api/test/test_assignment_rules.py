@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from products.error_tracking.backend.api.utils import generate_match_all_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 
 VALID_FILTERS = {
@@ -232,6 +233,61 @@ class TestAssignmentRuleAPI(APIBaseTest):
         rule.refresh_from_db()
         assert rule.filters == new_filters
         assert rule.user_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("empty_values", {"type": "AND", "values": []}),
+            ("empty_nested_filter", {"type": "AND", "values": [{"type": "empty"}]}),
+            ("or_empty_nested_filter", {"type": "OR", "values": [{"type": "empty"}]}),
+            (
+                "deeply_nested_empty",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "empty"}]}]},
+            ),
+        ]
+    )
+    def test_create_with_no_op_filters_emits_match_all_bytecode(
+        self, _name: str, empty_filters: dict[str, Any]
+    ) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": empty_filters, "assignee": {"type": "user", "id": self.user.id}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        rule = ErrorTrackingAssignmentRule.objects.get(id=response.json()["id"])
+        assert rule.disabled_data is None
+        assert rule.bytecode == generate_match_all_bytecode()
+
+    @parameterized.expand(
+        [
+            ("empty_values", {"type": "AND", "values": []}),
+            ("empty_nested_filter", {"type": "AND", "values": [{"type": "empty"}]}),
+            ("or_empty_nested_filter", {"type": "OR", "values": [{"type": "empty"}]}),
+            (
+                "deeply_nested_empty",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "empty"}]}]},
+            ),
+        ]
+    )
+    def test_update_with_no_op_filters_emits_match_all_bytecode(
+        self, _name: str, empty_filters: dict[str, Any]
+    ) -> None:
+        rule = self._create_rule()
+
+        response = self.client.patch(
+            self._url(str(rule.id)),
+            data={"filters": empty_filters},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        rule.refresh_from_db()
+        assert rule.filters == empty_filters
+        assert rule.disabled_data is None
+        assert rule.bytecode == generate_match_all_bytecode()
 
     def test_update_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
         rule = self._create_rule()
