@@ -153,12 +153,7 @@ mod tests {
     }
 
     fn excluded(keys: &[&str]) -> ExcludedPropertyKeys {
-        keys.iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .join(",")
-            .parse()
-            .unwrap()
+        keys.join(",").parse().unwrap()
     }
 
     fn check_tuple_invariants(t: &TupleKey, expected_team: i64) {
