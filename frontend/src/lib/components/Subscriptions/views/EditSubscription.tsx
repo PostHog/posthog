@@ -22,10 +22,12 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
@@ -80,13 +82,29 @@ export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
 }
 
 function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
-    const { subscriptionCount } = useValues(subscriptionCountLogic)
+    const { subscriptionCount, subscriptionCountLoading } = useValues(subscriptionCountLogic)
+
+    // Wait for the count before deciding form-vs-paywall, otherwise the form flashes during the
+    // in-flight fetch and is yanked away once the count arrives. On fetch failure the loader settles
+    // with a null count and loading=false, so we fall through and fail open to the form.
+    if (subscriptionCount === null && subscriptionCountLoading) {
+        return (
+            <div className="py-8 flex-1 min-h-0 flex items-center justify-center">
+                <Spinner className="text-2xl" />
+            </div>
+        )
+    }
 
     if (isFreeTierCreateAtLimit(subscriptionCount)) {
         return (
             <UsageLimitPaywall
                 title="Subscription limit reached"
-                description="Delete an existing subscription or upgrade your plan to add more."
+                description={
+                    <>
+                        <Link to={urls.subscriptions()}>Delete an existing subscription</Link> or upgrade your plan to
+                        add more.
+                    </>
+                }
                 limit={FREE_LIMIT}
                 currentUsage={subscriptionCount ?? undefined}
                 unit="subscriptions allowed on your plan"
