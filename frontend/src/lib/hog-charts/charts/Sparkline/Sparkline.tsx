@@ -2,26 +2,21 @@ import React, { useEffect, useMemo } from 'react'
 
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useLatest } from '../../core/hooks/useLatest'
 import type { ChartTheme, LineChartConfig, Series } from '../../core/types'
 import { LineChart } from '../LineChart'
 
 export interface SparklineProps {
-    /** Series values. */
     data: number[]
-    /** Optional x-axis labels — when omitted, indices stand in. Sparkline never renders
-     *  them itself, but downstream consumers can read the hovered index and look the
-     *  label up. */
+    /** Optional x-axis labels — when omitted, indices stand in. Consumers can look up
+     *  the hovered index against their own labels. */
     labels?: string[]
     theme: ChartTheme
-    /** Line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
-    /** Height of the chart area in CSS pixels. Defaults to 120. */
     height?: number
-    /** Peak opacity of the gradient fill under the line (0–1). Defaults to 0.35. */
+    /** Peak opacity of the gradient fill under the line. Range 0–1. */
     fillOpacity?: number
-    /** Fires the hovered index, or -1 when not hovering. Consumers use this to drive
-     *  a hover-following headline; Sparkline itself owns the chart-context subscription
-     *  so callers never need to touch `useChartHover`. */
+    /** Fires the hovered index, or -1 when not hovering. */
     onHoverIndexChange?: (index: number) => void
     className?: string
     dataAttr?: string
@@ -57,7 +52,10 @@ function SparklineInner({
     dataAttr,
 }: Omit<SparklineProps, 'onError'>): React.ReactElement {
     const resolvedColor = color ?? theme.colors[0]
-    const resolvedLabels = useMemo<string[]>(() => labels ?? data.map((_, i) => String(i)), [labels, data])
+    const resolvedLabels = useMemo<string[]>(
+        () => labels ?? Array.from({ length: data.length }, (_, i) => String(i)),
+        [labels, data.length]
+    )
     const series = useMemo<Series[]>(
         () => [
             {
@@ -70,9 +68,10 @@ function SparklineInner({
         ],
         [data, resolvedColor, fillOpacity]
     )
+    const wrapperStyle = useMemo<React.CSSProperties>(() => ({ height }), [height])
 
     return (
-        <div className={`relative flex flex-col ${className ?? ''}`} style={{ height }} data-attr={dataAttr}>
+        <div className={`relative flex flex-col ${className ?? ''}`} style={wrapperStyle} data-attr={dataAttr}>
             <LineChart series={series} labels={resolvedLabels} theme={theme} config={SPARKLINE_CONFIG}>
                 {onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null}
             </LineChart>
@@ -82,8 +81,12 @@ function SparklineInner({
 
 function HoverWatcher({ onHoverChange }: { onHoverChange: (i: number) => void }): null {
     const { hoverIndex } = useChartHover()
+    const cb = useLatest(onHoverChange)
     useEffect(() => {
-        onHoverChange(hoverIndex)
-    }, [hoverIndex, onHoverChange])
+        cb.current(hoverIndex)
+    }, [hoverIndex, cb])
+    // Reset to -1 on unmount so a parent still mounted after Sparkline tears down
+    // doesn't keep showing the last positive hover index.
+    useEffect(() => () => cb.current(-1), [cb])
     return null
 }

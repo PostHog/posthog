@@ -65,8 +65,8 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
         /** Fade the fill vertically from the series color at the top of the plot to transparent
-         *  at the baseline. Ignored when `lowerData` is set or when the series uses dashed
-         *  `stroke.partial` (those branches need a solid fill / hatch). */
+         *  at the baseline. Ignored whenever the area has a bottom edge — stacking, `lowerData`,
+         *  or dashed `stroke.partial` (those branches need a solid fill / hatch). */
         gradient?: boolean
     }
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.
@@ -179,7 +179,8 @@ export interface ChartConfig {
      *  on layout context so overlays can default to a percent formatter. */
     isPercent?: boolean
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
+     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
     margins?: Partial<ChartMargins>
 }
 

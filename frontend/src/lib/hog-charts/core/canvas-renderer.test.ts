@@ -381,6 +381,19 @@ describe('hog-charts canvas-renderer', () => {
             drawArea(makeDrawContext(ctx, labels), series, undefined, [10, 20])
             expect(ctx.createLinearGradient).not.toHaveBeenCalled()
         })
+
+        it('lets the area extend below baseline when bottomValues is omitted (single-series negative case)', () => {
+            // LineChart now skips stacking for a single fillable series, so drawArea is called
+            // without bottomValues — meaning negative data is plotted against the raw scale,
+            // not clamped to the baseline by a stacked band's Math.max(0, raw).
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's', data: [10, -5, 20], color: '#22d3ee', fill: {} })
+            drawArea(makeDrawContext(ctx, labels), series)
+            const baseline = dimensions.plotTop + dimensions.plotHeight
+            const lineToYs = (ctx.lineTo as jest.Mock).mock.calls.map(([, y]) => y as number)
+            expect(lineToYs.some((y) => y > baseline)).toBe(true)
+        })
     })
 
     describe('drawArea — partial dashing', () => {

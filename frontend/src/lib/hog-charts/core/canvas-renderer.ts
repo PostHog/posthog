@@ -199,8 +199,8 @@ export function drawArea(
 
     ctx.globalAlpha = opacity
 
-    // Gradient is only applied to the simple (no dashed partial, no lowerData) path —
-    // hatch/dashed fills need a solid fill to stay legible.
+    // Gradient applies only to the un-stacked baseline fill; dashed-partial segments
+    // stay on a solid fill via the branch below.
     const useGradient = series.fill?.gradient && !bottomValues
     let gradient: CanvasGradient | null = null
     if (useGradient) {

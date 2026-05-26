@@ -11,7 +11,7 @@ const FLAT = [50, 52, 49, 51, 50, 53, 48, 50, 51, 49, 52, 50]
 const meta: Meta = { title: 'Components/HogCharts/Sparkline', parameters: { layout: 'centered' } }
 export default meta
 
-type Story = StoryObj<{}>
+type Story = StoryObj
 
 export const Default: Story = {
     render: () => {
@@ -57,13 +57,11 @@ export const Flat: Story = {
     },
 }
 
-/** Lower `fillOpacity` makes the gradient fade earlier; higher values keep more area visible. */
 export const FillOpacityVariants: Story = {
     render: () => {
         const theme = useReactiveTheme()
         return (
-            // eslint-disable-next-line react/forbid-dom-props
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: 360 }}>
+            <div className="flex flex-col gap-4 w-[360px]">
                 <Sparkline data={RISING} theme={theme} fillOpacity={0.1} />
                 <Sparkline data={RISING} theme={theme} fillOpacity={0.35} />
                 <Sparkline data={RISING} theme={theme} fillOpacity={0.7} />
