@@ -201,6 +201,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         joined_any: bool,
         table_start: usize,
     ) -> Result<E::Value, ParseError> {
+        // A trailing `sampleClause` binds here only for a tableExpr-pivot. Grammar has PIVOT at two levels: `tableExpr PIVOT (…)` (TableExprPivot, still a tableExpr, which feeds `JoinExprTable: tableExpr FINAL? sampleClause?`) and `joinExpr PIVOT (…)` (JoinExprPivot, a joinExpr). SAMPLE attaches only when the operand is a lone tableExpr: no JOIN happened and the atom isn't a parens-wrapped JOIN chain. Otherwise it's the statement-level `(USING? sampleClause)?`, left for `reject_select_level_sample`.
+        let operand_is_table_expr = !joined_any && !self.emit.has_field(&left, "next_join");
         // For the single-atom case (no JOIN happened) the chain is a
         // JoinExpr that only wraps a bare Field — unwrap to match cpp's
         // shape (PivotExpr's `table` is the bare Field). When the
@@ -235,11 +237,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
         // visitor's JoinExprPivot does the same).
         // Grammar order: `TableExprAlias` (alias + columnAliases) binds
-        // inside `tableExpr`, then `JoinExprTable` adds `FINAL?
-        // sampleClause?`.
+        // inside `tableExpr`, then `JoinExprTable` adds `FINAL?`.
         let (alias, column_aliases) = self.consume_table_alias_chain()?;
         let table_final = self.eat_kw(Kw::Final)?;
-        let sample = self.try_consume_sample()?;
+        // Table-level SAMPLE (`tableExpr FINAL? sampleClause?`) binds only to a tableExpr-pivot; a joinExpr-pivot's trailing SAMPLE is statement-level, left for `reject_select_level_sample`.
+        let sample = if operand_is_table_expr {
+            self.try_consume_sample()?
+        } else {
+            None
+        };
         let outer = self
             .emit
             .join_expr(wrapped, alias, None, column_aliases, table_final, sample);
@@ -292,7 +298,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             self.bump()?;
             seen_any_kw = true;
             // Each modifier keyword may appear at most once. cpp's
-            // ANTLR alts (`HogQLParser.g4:127–134`) each reference each
+            // ANTLR `joinOp` alts each reference each
             // keyword at most once; rust was silently OR-ing duplicates
             // into the boolean state, so `INNER INNER JOIN` /
             // `LEFT OUTER LEFT JOIN` slipped through.
@@ -331,8 +337,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             return Ok(None);
         }
 
-        // Grammar validation. The three `joinOp` alts (see
-        // `HogQLParser.g4:127–134`) partition the keyword set:
+        // Grammar validation. The three `joinOp` alts partition the
+        // keyword set:
         //   JoinOpInner   ⇒ INNER + at most one of ALL/ANY/ASOF; or
         //                   ANTI; or SEMI; or ASOF (ANTI|SEMI). No
         //                   LEFT/RIGHT/FULL/OUTER.
@@ -358,7 +364,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if outer && !(left || right || full) {
             return Err(self.err("OUTER requires LEFT/RIGHT/FULL"));
         }
-        // Within-category arity per `HogQLParser.g4:127–134`:
+        // Within-category arity per the `joinOp` alts:
         //   - At most one of ALL/ANY/ASOF in any alt (the grammar
         //     references the group as `(ALL|ANY|ASOF)?`, never twice).
         //   - ANTI and SEMI never together — inner-style admits `ANTI`,

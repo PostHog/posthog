@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api-error'
 import {
     assertNotReadOnly,
     isReadOnly,
@@ -136,15 +137,29 @@ describe('readOnlyGuard', () => {
     })
 
     describe('ReadOnlyModeError', () => {
-        it('has a sensible default detail message so caller error-fallback patterns produce truthful toasts', () => {
-            const err = new ReadOnlyModeError()
-            expect(err.detail).toBe('Read-only mode is on — change blocked. Use Max or the MCP to make this change.')
+        it('is an ApiError so existing catch blocks surface its detail', () => {
+            const err = new ReadOnlyModeError('POST')
+            expect(err).toBeInstanceOf(ApiError)
+            expect(err.status).toBe(403)
+            expect(err.code).toBe('read_only_blocked')
             expect(err.name).toBe('ReadOnlyModeError')
         })
 
-        it('accepts a custom message', () => {
-            const err = new ReadOnlyModeError('custom message')
-            expect(err.message).toBe('custom message')
+        it.each([
+            ['POST', 'create'],
+            ['PUT', 'edit'],
+            ['PATCH', 'edit'],
+            ['DELETE', 'delete'],
+        ] as const)('personalises the detail for %s (verb: %s)', (method, verb) => {
+            const err = new ReadOnlyModeError(method)
+            expect(err.detail).toBe(
+                `Read-only mode is on — that ${verb} was blocked. Ask Max or the MCP to make the change for you.`
+            )
+        })
+
+        it('falls back to a generic detail when constructed without a method', () => {
+            const err = new ReadOnlyModeError()
+            expect(err.detail).toContain('that change was blocked')
         })
     })
 
