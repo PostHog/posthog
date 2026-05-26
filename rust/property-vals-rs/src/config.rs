@@ -77,9 +77,6 @@ impl FromStr for TeamList {
     }
 }
 
-/// Property keys to skip during fan_out — pure write amplification on these
-/// (identifier-shaped properties like `$insert_id`, `$session_id`, `distinct_id`)
-/// is wasted work that nobody searches against in autocomplete.
 #[derive(Clone, Default)]
 pub struct ExcludedPropertyKeys {
     pub keys: Arc<HashSet<String>>,
