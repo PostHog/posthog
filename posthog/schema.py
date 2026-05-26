@@ -1040,6 +1040,17 @@ class CalendarHeatmapFilter(BaseModel):
             " in. No effect on `total` math (event counts are unchanged either way)."
         ),
     )
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=False,
+        description=(
+            "Per-query opt-in for the web analytics lazy precompute path. When true,"
+            " the runner will attempt to serve from `web_active_hours_preaggregated`"
+            " (gated by the `web-analytics-precompute-toggle` org feature flag) and"
+            " fall through to the raw scan on any cache miss. Intended for the web"
+            " analytics Active Hours tile only — setting it elsewhere has no effect"
+            " unless the team's org has the feature flag enabled."
+        ),
+    )
 
 
 class CalendarHeatmapMathType(StrEnum):

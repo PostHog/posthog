@@ -233,6 +233,27 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         return query
 
     def _calculate(self):
+        # Lazy precompute fast-path: scoped to the web analytics Active Hours
+        # tile via CalendarHeatmapFilter.useWebAnalyticsPrecompute + the org
+        # `web-analytics-precompute-toggle` feature flag. Any cache miss or
+        # ineligibility falls through to the raw HogQL path below.
+        from products.web_analytics.backend.hogql_queries.web_active_hours_lazy_precompute import (
+            can_use_lazy_precompute,
+            execute_lazy_precomputed_read,
+        )
+
+        if can_use_lazy_precompute(self):
+            lazy_result = execute_lazy_precomputed_read(self)
+            if lazy_result is not None:
+                # `timings` and `hogql` left as defaults: the lazy path runs
+                # four parameterized SELECTs via sync_execute rather than one
+                # HogQL query, so there's no single "hogql" string or
+                # `list[QueryTiming]` to surface here.
+                return CalendarHeatmapResponse(
+                    results=lazy_result,
+                    modifiers=self.modifiers,
+                )
+
         query = self.to_query()
         response = execute_hogql_query(
             query_type="calendar_heatmap_query",

@@ -134,6 +134,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
 from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.database.schema.web_active_hours_preaggregated import WebActiveHoursPreaggregatedTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
@@ -322,6 +323,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     ),
                     "web_goals_preaggregated": TableNode(
                         name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
+                    ),
+                    "web_active_hours_preaggregated": TableNode(
+                        name="web_active_hours_preaggregated", table=WebActiveHoursPreaggregatedTable()
                     ),
                 },
             ),

@@ -2153,8 +2153,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         // Web overview attributes session metrics to the session's start hour;
                                         // mirror that here so visitor counts line up across the dashboard.
+                                        // `useWebAnalyticsPrecompute` opts this tab into the active-hours lazy
+                                        // precompute path (gated by the org `web-analytics-precompute-toggle`
+                                        // feature flag); cache misses fall through to the raw HogQL scan.
                                         calendarHeatmapFilter: {
                                             bucketBySessionStart: true,
+                                            useWebAnalyticsPrecompute: true,
                                         },
                                     },
                                 },
@@ -2218,6 +2222,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         conversionGoal,
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
+                                        },
+                                        // `bucketBySessionStart` has no effect on the `total` math (events
+                                        // count the same per hour either way) but pass it for symmetry with
+                                        // the Unique users tab. `useWebAnalyticsPrecompute` opts this tab
+                                        // into the active-hours lazy precompute path.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
+                                            useWebAnalyticsPrecompute: true,
                                         },
                                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                     },

@@ -1492,6 +1492,15 @@ export type CalendarHeatmapFilter = {
      * @default false
      */
     bucketBySessionStart?: boolean
+    /**
+     * Per-query opt-in for the web analytics lazy precompute path. When true, the runner will
+     * attempt to serve from `web_active_hours_preaggregated` (gated by the
+     * `web-analytics-precompute-toggle` org feature flag) and fall through to the raw scan
+     * on any cache miss. Intended for the web analytics Active Hours tile only — setting it
+     * elsewhere has no effect unless the team's org has the feature flag enabled.
+     * @default false
+     */
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
