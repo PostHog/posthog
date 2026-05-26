@@ -50,7 +50,7 @@ def create_missing_capability_submission(
 
 def list_mcp_sessions(
     team: Team, limit: int, offset: int, search: str = "", order_by: str = ""
-) -> list[contracts.MCPSession]:
+) -> contracts.MCPSessionsPage:
     return logic.list_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
 
 

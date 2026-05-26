@@ -21,6 +21,9 @@ tools:
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
         enabled: false
+    file-download-batch-exports-logs-retrieve:
+        operation: file_download_batch_exports_logs_retrieve
+        enabled: false
     hog-flow-templates-logs-retrieve:
         operation: hog_flow_templates_logs_retrieve
         enabled: false

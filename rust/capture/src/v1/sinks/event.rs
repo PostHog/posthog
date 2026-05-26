@@ -27,10 +27,10 @@ pub trait Event: Send + Sync {
     /// `common_types`).
     fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
 
-    /// Resolve the partition key for this message into the supplied buffer.
-    /// Returns `Some(key)` for consistent routing, `None` to let the
-    /// transport decide (e.g. round-robin across partitions).
-    fn partition_key<'buf>(&self, ctx: &Context, buf: &'buf mut String) -> Option<&'buf str>;
+    /// Write the partition key for this event into `buf`.
+    /// Always writes unconditionally -- the sink decides whether to use it
+    /// or null it based on routing policy (e.g. force_disable_person_processing).
+    fn partition_key(&self, ctx: &Context, buf: &mut String);
 
     /// Serialize the event payload into a caller-provided buffer.
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()>;

@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery, StructDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
@@ -261,7 +261,7 @@ class ClickHousePrinter(BasePrinter):
             # Build rate lookup expressions
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
-            # Use if() around divisor for compatibility with legacy ClickHouse analyzer behavior.
+            # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
             safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
             return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
 
@@ -634,6 +634,46 @@ class ClickHousePrinter(BasePrinter):
                 return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
             else:
                 return f"notEquals({materialized_column_sql}, {constant_sql})"
+
+    _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
+        ast.CompareOperationOp.Lt: "less",
+        ast.CompareOperationOp.LtEq: "lessOrEquals",
+        ast.CompareOperationOp.Gt: "greater",
+        ast.CompareOperationOp.GtEq: "greaterOrEquals",
+    }
+
+    def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
+        """Rewrite ``<``, ``<=``, ``>``, ``>=`` on materialized string columns so minmax can fire.
+
+        Nullable: ``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``) but minmax-friendly.
+        Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
+        """
+        if node.op not in self._RANGE_OP_TO_CH_NAME:
+            return None
+
+        # property_to_expr always emits the column on the left, so we only need to handle that side.
+        if not (
+            (property_source := self._get_materialized_string_property_source(node.left))
+            and isinstance(node.right, ast.Constant)
+            and node.right.value is not None
+        ):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        op_name = self._RANGE_OP_TO_CH_NAME[node.op]
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(node.right)
+
+        if property_source.is_nullable:
+            return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+
+        # Non-nullable: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        sentinel_exclusions = " AND ".join(
+            f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
+        )
+        return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
 
     def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
         """
@@ -1176,6 +1216,8 @@ class ClickHousePrinter(BasePrinter):
         # we can skip the nullIf wrapping to allow skip index usage.
         if optimized_materialized_column_compare := self._get_optimized_materialized_column_equals_operation(node):
             return optimized_materialized_column_compare
+        if optimized_materialized_range := self._get_optimized_materialized_column_range_operation(node):
+            return optimized_materialized_range
         if optimized_materialized_ilike := self._get_optimized_materialized_column_ilike_operation(node):
             return optimized_materialized_ilike
         if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
@@ -1488,3 +1530,22 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)
+
+    def visit_property_type(self, type: ast.PropertyType) -> str:
+        # Respect the joined-subquery projection: if the property has already been
+        # projected through a subquery, defer to base which renders the subquery alias
+        # correctly, rather than re-resolving against the original struct column.
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return super().visit_property_type(type)
+
+        # Struct columns (e.g. Parquet structs from the data warehouse) are backed by a ClickHouse
+        # Tuple, not a JSON string. Emit chained tupleElement() calls instead of JSONExtractRaw(),
+        # which ClickHouse rejects on Tuple arguments. Closes #58480.
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StructDatabaseField):
+            expr = self.visit(type.field_type)
+            for link in type.chain:
+                expr = f"tupleElement({expr}, {self.context.add_value(str(link))})"
+            return expr
+
+        return super().visit_property_type(type)

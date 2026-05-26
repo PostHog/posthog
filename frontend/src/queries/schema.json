@@ -3141,7 +3141,7 @@
                 "aggregationPropertyType": {
                     "default": "event",
                     "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
@@ -4029,6 +4029,14 @@
                     "$ref": "#/definitions/integer",
                     "default": 1,
                     "description": "Smoothing intervals for the trend line."
+                },
+                "xAxisLabel": {
+                    "description": "Custom label rendered under the X axis.",
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "description": "Custom label rendered alongside the Y axis.",
+                    "type": "string"
                 },
                 "yAxisScaleType": {
                     "default": "linear",
@@ -9982,6 +9990,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
+                },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
                 }
@@ -10180,6 +10191,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -10270,8 +10284,10 @@
         "CalendarHeatmapFilter": {
             "additionalProperties": false,
             "properties": {
-                "dummy": {
-                    "type": "string"
+                "bucketBySessionStart": {
+                    "default": false,
+                    "description": "When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way).",
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -11946,6 +11962,9 @@
                                     "items": {},
                                     "type": "array"
                                 },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
+                                },
                                 "usedPreAggregatedTables": {
                                     "type": "boolean"
                                 }
@@ -12106,6 +12125,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -14576,6 +14598,13 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
+                },
+                "tags": {
+                    "description": "Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",
@@ -20988,6 +21017,18 @@
                 "optimizeProjections": {
                     "type": "boolean"
                 },
+                "parserMode": {
+                    "description": "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "enum": [
+                        "cpp_only",
+                        "cpp_with_rust_shadow",
+                        "rust_with_cpp_shadow",
+                        "rust_only",
+                        "rust_py_only",
+                        "rust_py_with_cpp_shadow"
+                    ],
+                    "type": "string"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
@@ -25915,6 +25956,9 @@
                         "$ref": "#/definitions/MaxNotebookContext"
                     },
                     "type": "array"
+                },
+                "voice_mode": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -29240,6 +29284,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
+                        },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
                         }
@@ -29400,6 +29447,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -30277,6 +30327,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
+                        },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
                         }
@@ -30437,6 +30490,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -33444,6 +33500,11 @@
                     "description": "The aggregation type to use for retention",
                     "enum": ["count", "sum", "avg"],
                     "type": "string"
+                },
+                "cohortLabelStartIndex": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations."
                 },
                 "cumulative": {
                     "type": "boolean"
@@ -38488,6 +38549,14 @@
                     "$ref": "#/definitions/integer",
                     "default": 1
                 },
+                "xAxisLabel": {
+                    "description": "Custom label rendered under the X axis.",
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "description": "Custom label rendered alongside the Y axis.",
+                    "type": "string"
+                },
                 "yAxisScaleType": {
                     "enum": ["log10", "linear"],
                     "type": "string"
@@ -38563,6 +38632,12 @@
                 "smoothing_intervals": {
                     "type": "number"
                 },
+                "x_axis_label": {
+                    "type": "string"
+                },
+                "y_axis_label": {
+                    "type": "string"
+                },
                 "y_axis_scale_type": {
                     "enum": ["log10", "linear"],
                     "type": "string"
@@ -38601,6 +38676,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
+                },
+                "calendarHeatmapFilter": {
+                    "$ref": "#/definitions/CalendarHeatmapFilter",
+                    "description": "Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise."
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -40089,7 +40168,7 @@
                     "type": "boolean"
                 },
                 "useWebAnalyticsPrecompute": {
-                    "description": "Opt this specific query into the web_overview_query precompute path. Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist for the gate to pass. *",
+                    "description": "Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
                     "type": "boolean"
                 },
                 "version": {
@@ -40429,6 +40508,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -40490,6 +40573,9 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
@@ -40857,6 +40943,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -40902,6 +40992,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

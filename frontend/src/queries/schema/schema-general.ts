@@ -451,6 +451,14 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?:
+        | 'cpp_only'
+        | 'cpp_with_rust_shadow'
+        | 'rust_with_cpp_shadow'
+        | 'rust_only'
+        | 'rust_py_only'
+        | 'rust_py_with_cpp_shadow'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1406,6 +1414,10 @@ export type TrendsFilter = {
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1440,8 +1452,14 @@ export type TrendsFilter = {
 }
 
 export type CalendarHeatmapFilter = {
-    // Reserved for future filter properties
-    dummy?: string
+    /**
+     * When true and the series math is `dau`/`unique_users`, each user contributes to the
+     * (day-of-week, hour) bucket of their session's first event only — matching the web overview
+     * session-start attribution. When false (default), the user contributes to every bucket
+     * they have any event in. No effect on `total` math (event counts are unchanged either way).
+     * @default false
+     */
+    bucketBySessionStart?: boolean
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1513,6 +1531,11 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
+    /**
+     * Properties specific to the calendar heatmap display variant. Only consulted when
+     * `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise.
+     */
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
@@ -1691,6 +1714,9 @@ export type RetentionFilter = {
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
+    /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
+     * @default 0 */
+    cohortLabelStartIndex?: integer
 }
 
 export interface RetentionValue {
@@ -1897,6 +1923,8 @@ export interface EndpointRequest {
     bucket_overrides?: Record<string, string>
     /** Set to true to soft-delete this endpoint */
     deleted?: boolean
+    /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
+    tags?: string[]
 }
 
 /**
@@ -2287,7 +2315,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    /** Opt this specific query into the web_overview_query precompute path. Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist for the gate to pass. **/
+    /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
     useWebAnalyticsPrecompute?: boolean
 }
 
@@ -2356,6 +2384,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeHost?: boolean
     limit?: integer
     offset?: integer
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown[]
@@ -2367,6 +2397,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2438,6 +2469,8 @@ export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVi
     // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
     // Values in between the two values are the threshold for needs_improvements
     thresholds: [number, number]
+    /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
@@ -2447,6 +2480,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 

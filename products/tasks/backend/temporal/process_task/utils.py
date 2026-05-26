@@ -239,16 +239,25 @@ def get_user_mcp_server_configs(
     token: str,
     team_id: int,
     user_id: int,
+    *,
+    interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
     """Fetch the user's MCP Store installations and return sandbox configs.
 
     Uses the mcp_store facade to get active installations, then builds
     McpServerConfig entries with full proxy URLs and auth headers.
 
+    The `x-posthog-mcp-consumer` header is set on every config so the agent's
+    identity propagates through the MCP Store proxy to whichever upstream MCP
+    the user installed. The PostHog MCP needs this to resolve single-exec mode
+    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
+    upstreams ignore the header.
+
     Returns an empty list on errors (non-fatal).
     """
     installations = get_active_installations(team_id, user_id)
     api_base = get_sandbox_api_url().rstrip("/")
+    consumer = _resolve_mcp_consumer(interaction_origin)
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -257,7 +266,10 @@ def get_user_mcp_server_configs(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[{"name": "Authorization", "value": f"Bearer {token}"}],
+                headers=[
+                    {"name": "Authorization", "value": f"Bearer {token}"},
+                    {"name": "x-posthog-mcp-consumer", "value": consumer},
+                ],
             )
         )
 

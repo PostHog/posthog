@@ -124,7 +124,8 @@ export const EXPERIMENT_DEFAULT_DURATION = 14 // days
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
-export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
+export const STALE_EVENT_DAYS = 30
+export const STALE_EVENT_SECONDS = STALE_EVENT_DAYS * 24 * 60 * 60
 
 /**
  * @deprecated should be removed once backend is updated
@@ -169,6 +170,7 @@ export const FEATURE_FLAGS = {
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
+    AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
     BATCH_EXPORT_EARLIEST_BACKFILL: 'batch-export-earliest-backfill', // owner: #team-batch-exports, allow backfilling from beginning of time
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
@@ -297,7 +299,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_LLM_PROMPTS: 'experiments-llm-prompts', // owner: @jurajmajerik #team-experiments
-    EXPERIMENTS_SHIP_VARIANT_RELEASE_MODE: 'experiments-ship-variant-release-mode', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
     EXPERIMENTS_TEMPLATES: 'experiments-templates', // owner: @rodrigoi #team-experiments
@@ -367,6 +368,7 @@ export const FEATURE_FLAGS = {
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
+    MAX_HANDS_FREE: 'max-hands-free', // owner: #team-posthog-ai
     MCP_ANALYTICS: 'mcp-analytics', // owner: #project-mcp-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_HINTS: 'mcp-hints', // owner: @rafaeelaudibert #team-growth, gates in-app MCP hint toasts and empty-state cards
@@ -414,8 +416,11 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
-    PRODUCT_ANALYTICS_HOG_CHARTS: 'product-analytics-hog-charts', // owner: @sampennington #team-product-analytics
-    PRODUCT_ANALYTICS_HOG_CHARTS_BAR: 'product-analytics-hog-charts-bar', // owner: @sampennington #team-product-analytics
+    PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL: 'product-analytics-hog-charts-funnel', // owner: @sampennington #team-product-analytics
+    PRODUCT_ANALYTICS_HOG_CHARTS_LIFECYCLE: 'product-analytics-hog-charts-lifecycle', // owner: @sampennington #team-product-analytics
+    PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION: 'product-analytics-hog-charts-retention', // owner: @sampennington #team-product-analytics
+    PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS: 'product-analytics-hog-charts-stickiness', // owner: @sampennington #team-product-analytics
+    PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS: 'product-analytics-hog-charts-trends', // owner: @sampennington #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
@@ -437,6 +442,7 @@ export const FEATURE_FLAGS = {
     PROVISION_MANAGED_WAREHOUSE_BETA: 'provision-managed-warehouse-beta', // owner: @EDsCODE #team-managed-warehouse
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
+    READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
@@ -508,6 +514,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_SESSION_PROPERTY_CHARTS: 'web-analytics-session-property-charts', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_TILE_HEADER_V2: 'web-analytics-tile-header-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
@@ -520,7 +527,15 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS)
+// Flags that affect globally-mounted UI (e.g. floating widgets in
+// AuthenticatedShell). Scene stories that opt into STORYBOOK_FEATURE_FLAGS
+// shouldn't accidentally enable these, because the resulting widgets render
+// in every snapshot and pollute visual regression.
+const STORYBOOK_OPT_OUT_FLAGS: FeatureFlagKey[] = [FEATURE_FLAGS.READ_ONLY_MODE]
+
+export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
+    (flag) => !STORYBOOK_OPT_OUT_FLAGS.includes(flag)
+)
 
 export const INSIGHT_VISUAL_ORDER = {
     trends: 10,

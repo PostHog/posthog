@@ -22,8 +22,14 @@ logger = structlog.get_logger(__name__)
 _PRIORITY_TEAM_ID = 2
 
 # Per-team cap for non-priority teams in a single batch. Stops one team from
-# monopolising the global LLM budget by emitting many unique conversation ids.
+# monopolising the global LLM budget by emitting many unique session ids.
 _PER_TEAM_CAP = 10
+
+# Placeholder written when an MCP session has no recordable tool-call intents.
+# Exported so downstream consumers (e.g. intent clustering) can filter it out
+# of their corpus — clustering an "empty" placeholder produces a meaningless
+# pseudo-cluster in real data.
+NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
 
 SYSTEM_PROMPT = (
     "You summarise what an AI agent was trying to accomplish during a single MCP session. "
@@ -40,7 +46,7 @@ SELECT JSONExtractString(properties, '$mcp_intent') AS intent
 FROM events
 WHERE team_id = %(team_id)s
     AND event = 'mcp_tool_call'
-    AND JSONExtractString(properties, '$mcp_conversation_id') = %(session_id)s
+    AND JSONExtractString(properties, '$mcp_session_id') = %(session_id)s
     AND JSONExtractString(properties, '$mcp_intent') != ''
 ORDER BY timestamp ASC
 LIMIT 200
@@ -146,7 +152,7 @@ async def _summarise_one(
     async with semaphore:
         intents = await _fetch_tool_call_intents(team_id, session_id)
         if not intents:
-            await _save_intent(team_id, session_id, "No agent intent was recorded for this session.")
+            await _save_intent(team_id, session_id, NO_INTENT_RECORDED_FALLBACK)
             return "no_intents"
 
         summary = await asyncio.to_thread(_summarize_intents_sync, intents)

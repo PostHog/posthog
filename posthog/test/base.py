@@ -784,6 +784,20 @@ class PostHogTestCase(SimpleTestCase):
                 func(*args, **kwargs)
 
 
+def no_memory_leak_check(method):
+    """Skip the `MemoryLeakTestMixin` re-run-and-measure loop for this test.
+
+    Use on tests whose body is intrinsically noisy from the mixin's
+    point of view — typically tests that assert a parser raises with a
+    verbose error string (the cpp backend's ANTLR error messages
+    accumulate per-call and trip the per-parse byte limit even though
+    nothing leaks). The decorated test method still runs, just once,
+    and skips the priming / measurement loop entirely.
+    """
+    method._no_memory_leak_check = True
+    return method
+
+
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
     """Parsing more than once can never increase memory by this much (on average)"""
@@ -794,14 +808,28 @@ class MemoryLeakTestMixin:
     MEMORY_LEAK_CHECK_RUNS_N: int
     """How many times to run every test method to check for memory leaks"""
 
+    # Re-run index for the current test, exposed so a test body can do work that must happen
+    # exactly once (e.g. a snapshot/oracle comparison whose own machinery allocates and would
+    # otherwise trip the leak check on every rerun) only when this is 0, while still exercising
+    # the code under test on every rerun. Outside the priming/measure loop it stays 0.
+    _memory_leak_run_index: int = 0
+
     def _callTestMethod(self, method):
+        # Tests marked `@no_memory_leak_check` run once, no priming/measure loop.
+        if getattr(method, "_no_memory_leak_check", False):
+            self._memory_leak_run_index = 0
+            method()
+            return
         test_case = cast(unittest.TestCase, self)
+        self._memory_leak_run_index = 0
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
+            self._memory_leak_run_index += 1
         mem_primed_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_LEAK_CHECK_RUNS_N):  # Memory leak check runs
             method()
+            self._memory_leak_run_index += 1
         mem_tested_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         avg_memory_priming_increase_b = (mem_primed_b - mem_original_b) / self.MEMORY_PRIMING_RUNS_N
         avg_memory_test_increase_b = (mem_tested_b - mem_primed_b) / self.MEMORY_LEAK_CHECK_RUNS_N
@@ -1895,7 +1923,7 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Add patches for modules that import execute_hogql_query directly
         try:
-            from posthog.hogql_queries.web_analytics import web_overview
+            from products.web_analytics.backend.hogql_queries import web_overview
 
             if hasattr(web_overview, "execute_hogql_query"):
                 patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
@@ -1903,7 +1931,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.web_analytics import stats_table
+            from products.web_analytics.backend.hogql_queries import stats_table
 
             if hasattr(stats_table, "execute_hogql_query"):
                 patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))

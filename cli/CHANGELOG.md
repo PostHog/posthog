@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.7.13
+
+- chore: bump `cargo-dist` to 0.32.0; the new npm installer drops the bundled transitive deps that were carrying open CVEs (`axios`, `follow-redirects`, `minimatch`, `brace-expansion`)
+
 # 0.7.12
 
 - feat: add `--skip-on-conflict` to symbol upload commands for keeping existing symbol sets when content differs
