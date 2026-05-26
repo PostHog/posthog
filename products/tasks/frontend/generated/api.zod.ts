@@ -350,6 +350,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Initial permission mode for Claude runtimes.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
                 ),
+            sandbox_runtime: zod
+                .union([zod.enum(['posthog']).describe('\* `posthog` - posthog'), zod.null()])
+                .optional()
+                .describe(
+                    'Optional override for the sandbox runtime. Leave unset for the default.\n\n\* `posthog` - posthog'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -426,6 +432,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     'Initial permission mode for Codex runtimes.\n\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            sandbox_runtime: zod
+                .union([zod.enum(['posthog']).describe('\* `posthog` - posthog'), zod.null()])
+                .optional()
+                .describe(
+                    'Optional override for the sandbox runtime. Leave unset for the default.\n\n\* `posthog` - posthog'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -657,6 +669,12 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        sandbox_runtime: zod
+            .union([zod.enum(['posthog']).describe('\* `posthog` - posthog'), zod.null()])
+            .optional()
+            .describe(
+                'Optional override for the sandbox runtime. Leave unset for the default.\n\n\* `posthog` - posthog'
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')
