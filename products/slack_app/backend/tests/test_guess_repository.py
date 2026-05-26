@@ -40,7 +40,7 @@ class TestGetFullRepoNames:
 
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )
@@ -163,7 +163,7 @@ class TestGetFullRepoNamesCache:
         self.team = Team.objects.create(organization=self.organization, name="Cache Team")
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_CACHE",
             sensitive_config={"access_token": "xoxb-cache"},
         )
@@ -206,7 +206,7 @@ class TestGetFullRepoNamesCache:
         team_b = Team.objects.create(organization=org_b, name="Other Team")
         slack_b = Integration.objects.create(
             team=team_b,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_OTHER",
             sensitive_config={"access_token": "xoxb-other"},
         )
@@ -323,7 +323,7 @@ class TestPostRepoPickerPrewarm:
         self.team = Team.objects.create(organization=self.organization, name="Prewarm Team")
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_PREWARM",
             sensitive_config={"access_token": "xoxb-prewarm"},
         )
@@ -390,7 +390,7 @@ class TestSelectRepository:
 
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )
@@ -469,6 +469,96 @@ class TestSelectRepository:
         assert decision.repository is None
         assert decision.reason == "no_rule_match"
         assert decision.llm_found_match is False
+
+    @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
+    def test_thread_explicit_repo_picked_up_when_event_text_has_none(self, _mock_match):
+        thread_messages = [
+            {"user": "Dev", "text": "fix posthog/posthog-js please"},
+            {"user": "Bot", "text": "I can't start this task yet — connect your personal GitHub."},
+            {"user": "Dev", "text": "should be there now"},
+        ]
+
+        decision = select_repository(
+            event_text="should be there now",
+            thread_messages=thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
+        )
+
+        assert decision.mode == "auto"
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "thread_explicit_mention"
+        assert decision.llm_found_match is False
+
+    @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
+    def test_thread_newest_explicit_repo_wins(self, _mock_match):
+        thread_messages = [
+            {"user": "Dev", "text": "originally about posthog/posthog"},
+            {"user": "Dev", "text": "actually let's do posthog/posthog-js"},
+            {"user": "Dev", "text": "go please"},
+        ]
+
+        decision = select_repository(
+            event_text="go please",
+            thread_messages=thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
+        )
+
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "thread_explicit_mention"
+
+    @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
+    def test_thread_explicit_repo_ignored_when_not_connected(self, _mock_match):
+        thread_messages = [
+            {"user": "Dev", "text": "fix vojtechbartos/personal-fork"},
+            {"user": "Dev", "text": "should be there now"},
+        ]
+
+        decision = select_repository(
+            event_text="should be there now",
+            thread_messages=thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
+        )
+
+        assert decision.mode == "picker"
+        assert decision.reason == "no_rule_match"
+
+    @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
+    def test_thread_scan_caps_at_recent_messages(self, _mock_match):
+        # 11 filler messages newer than the repo mention push it past the 10-message
+        # newest-first window, so the scan should not reach it.
+        thread_messages = [{"user": "Dev", "text": "fix posthog/posthog-js"}] + [
+            {"user": "Dev", "text": f"chatter {i}"} for i in range(11)
+        ]
+
+        decision = select_repository(
+            event_text="and another thing",
+            thread_messages=thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
+        )
+
+        assert decision.mode == "picker"
+        assert decision.reason == "no_rule_match"
+
+    def test_event_text_explicit_repo_takes_precedence_over_thread(self):
+        thread_messages = [
+            {"user": "Dev", "text": "earlier mention posthog/posthog"},
+            {"user": "Dev", "text": "fix posthog/posthog-js now"},
+        ]
+
+        decision = select_repository(
+            event_text="fix posthog/posthog-js now",
+            thread_messages=thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
+        )
+
+        # Event text wins on its own (explicit_mention), not via thread scan.
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "explicit_mention"
 
     def test_no_repos_picker(self):
         decision = select_repository(
@@ -748,7 +838,7 @@ class TestHandleRulesCommandActivity:
 
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )

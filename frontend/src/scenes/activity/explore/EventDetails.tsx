@@ -103,6 +103,9 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <SurveyResponseDisplay
                                     eventProperties={properties}
                                     eventUuid={'uuid' in event && event.uuid ? event.uuid : undefined}
+                                    distinctId={'distinct_id' in event ? event.distinct_id : undefined}
+                                    timestamp={'timestamp' in event ? event.timestamp : undefined}
+                                    personProperties={'person' in event ? event.person?.properties : undefined}
                                 />
                             </div>
                         )

@@ -56,5 +56,11 @@
       commitMessageExtra: '(chrome-headless-shell)',
       labels: ['dependencies', 'recording-rasterizer'],
     },
+    // Split github-actions updates out of the default `renovate/pin-dependencies`
+    // bundle so they can be approved on the dashboard independently
+    {
+      matchManagers: ['github-actions'],
+      groupName: 'github-actions',
+    },
   ],
 }

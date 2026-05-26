@@ -1217,9 +1217,20 @@ def user_secret_exists(name: str) -> bool:
     return any(isinstance(s, dict) and s.get("name") == name for s in secrets)
 
 
+def _ssh_host_alias(name: str) -> str:
+    """Return the ``Host`` alias written by ``coder config-ssh`` for the given workspace."""
+    return f"coder.{name}"
+
+
 def ssh_replace(name: str) -> None:
-    """SSH into a workspace and replace the current process."""
-    _run_or_exit(["coder", "ssh", name])
+    """SSH via the ``coder.*`` host alias so ``~/.ssh/config`` applies.
+
+    Calling ``coder ssh`` directly bypasses the user's ssh config, breaking
+    ``IdentityAgent`` forwarding (Secretive, 1Password) used for commit signing.
+    The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
+    the Coder tunnel via its ``ProxyCommand``.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
@@ -1291,8 +1302,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    ssh_host = f"coder.{name}"
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{ssh_host}", "/home/coder/posthog"])
+    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:

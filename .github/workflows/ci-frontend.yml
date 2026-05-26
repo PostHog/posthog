@@ -211,13 +211,15 @@ jobs:
             - name: Check frontend bundle size
               uses: preactjs/compressed-size-action@66325aad6443cb7cf89c4bfcd414aea2367cda94 # v2.9.1
               with:
-                  build-script: '--filter=@posthog/frontend build'
+                  build-script: '--filter=@posthog/frontend build:with-report'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
-                  # Check all JS bundles in the dist folder
-                  pattern: 'frontend/dist/**/*.js'
-                  # Exclude source maps and chunk files (chunk hashes change every build)
-                  exclude: '{**/*.js.map,**/chunk*.js}'
+                  # dist-report/ carries the source bundle (posthog-app, exporter, …) and source
+                  # path in the filename, so strip-hash yields a deterministic identity. dist/ has
+                  # cross-bundle basename collisions that cause phantom size changes.
+                  pattern: 'frontend/dist-report/**/*.js'
+                  # Shared chunk hashes change every build, ignore those
+                  exclude: '{**/_chunks/chunk*.js}'
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'
@@ -272,7 +274,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        # Kea typegen invalidates on changes to any logic plus everything that depends on it.
+        # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
+        # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -340,6 +345,10 @@ jobs:
               run: pnpm --filter=@posthog/frontend typescript:check
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Run tsgo (shadow, non-blocking)
+              run: pnpm --filter=@posthog/frontend typescript:check:tsgo
+              continue-on-error: true
 
             - name: Check if schema.json and validators.js are up to date
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code

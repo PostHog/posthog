@@ -383,19 +383,28 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.IN_PROGRESS:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as in_progress: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_in_progress:
+        logger.info(
+            f"Report {input.report_id} already in in_progress status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -431,8 +440,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[bool, int]:
+        def do_update() -> tuple[bool, int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.READY:
+                return False, report.run_count, True
+            if report.status == SignalReport.Status.CANDIDATE:
+                # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
+                return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
             has_new_signals = report.signal_count > input.processed_signal_count
@@ -441,15 +455,23 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
-            return has_new_signals, report.run_count
+            return has_new_signals, report.run_count, False
 
-        has_new_signals, run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        has_new_signals, run_count, was_already_done = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_done:
+        logger.info(
+            f"Report {input.report_id} already past ready transition, skipping duplicate",
+            report_id=input.report_id,
+            has_new_signals=has_new_signals,
+        )
+        return has_new_signals
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -488,19 +510,28 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.FAILED:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as failed: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_failed:
+        logger.info(
+            f"Report {input.report_id} already in failed status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -539,21 +570,30 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.PENDING_INPUT:
+                return report.run_count, True
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_pending_input = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as pending_input: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_pending_input:
+        logger.info(
+            f"Report {input.report_id} already in pending_input status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -589,19 +629,28 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.POTENTIAL:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True, error=input.reason)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_potential = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_potential:
+        logger.info(
+            f"Report {input.report_id} already in potential status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
