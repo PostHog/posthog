@@ -1178,7 +1178,7 @@ class TestConversationSoftDelete(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         refreshed = Conversation.objects.get(pk=conversation.pk)
         self.assertTrue(refreshed.deleted)
-        self.assertIsNotNone(refreshed.deleted_at)
+        assert refreshed.deleted_at is not None
         self.assertGreaterEqual(refreshed.deleted_at, before)
         self.assertLessEqual(refreshed.deleted_at, after)
 
