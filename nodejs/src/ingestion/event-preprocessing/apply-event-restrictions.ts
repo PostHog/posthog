@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { EventHeaders } from '../../types'
-import { EventIngestionRestrictionManager, RestrictionType } from '../../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManagerHandle, RestrictionType } from '../../utils/event-ingestion-restrictions'
 import { OVERFLOW_OUTPUT, OverflowOutput } from '../common/outputs'
 import { PipelineResult, dlq, drop, ok, redirect } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -23,7 +23,7 @@ export type RoutingConfig = {
  * their pipeline's outputs union just to satisfy the step.
  */
 export function createApplyBasicEventRestrictionsStep<T extends { headers: EventHeaders }>(
-    manager: EventIngestionRestrictionManager
+    manager: EventIngestionRestrictionManagerHandle
 ): ProcessingStep<T, T> {
     return function applyBasicEventRestrictionsStep(input): Promise<PipelineResult<T>> {
         return Promise.resolve(applyDropAndDlq(manager, input) ?? ok(input))
@@ -31,7 +31,7 @@ export function createApplyBasicEventRestrictionsStep<T extends { headers: Event
 }
 
 export function createApplyEventRestrictionsStep<T extends { headers: EventHeaders }>(
-    manager: EventIngestionRestrictionManager,
+    manager: EventIngestionRestrictionManagerHandle,
     routingConfig: RoutingConfig
 ): ProcessingStep<T, T, OverflowOutput> {
     return function applyEventRestrictionsStep(input) {
@@ -60,7 +60,7 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
 }
 
 function applyDropAndDlq<T extends { headers: EventHeaders }>(
-    manager: EventIngestionRestrictionManager,
+    manager: EventIngestionRestrictionManagerHandle,
     input: T
 ): PipelineResult<T> | null {
     const restrictions = manager.getAppliedRestrictions(input.headers.token, input.headers)

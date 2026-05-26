@@ -12,6 +12,8 @@ import { createTestIngestionOutputs } from '~/../tests/helpers/ingestion-outputs
 import { resetKafka } from '~/../tests/helpers/kafka'
 import { resetTestDatabase } from '~/../tests/helpers/sql'
 
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventFilterManager } from '../common/event-filters'
 import { createClientWarningsConsumer } from './consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -31,6 +33,10 @@ describe('ClientWarnings Consumer E2E', () => {
         return createClientWarningsConsumer(hub, {
             outputs,
             teamManager: hub.teamManager,
+            eventIngestionRestrictionManager: new EventIngestionRestrictionManager(hub.redisPool, {
+                pipeline: 'clientwarnings',
+            }),
+            eventFilterManager: new EventFilterManager(hub.postgres),
         })
     })
     let clickhouse: Clickhouse

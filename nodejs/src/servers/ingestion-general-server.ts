@@ -25,6 +25,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
+import { EventFilterManager } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import { newLifecycleBuilder } from '../ingestion/common/service-registry'
@@ -48,6 +49,7 @@ import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -256,7 +258,13 @@ export class IngestionGeneralServer implements NodeServer {
                 hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
             }
 
+            const eventFilterManager = new EventFilterManager(this.postgres)
             const startClientWarnings = (override?: { topic: string; groupId: string }) => {
+                const eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.redisPool!, {
+                    pipeline: 'clientwarnings',
+                    staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x),
+                    staticRedirectToDlqTokens: [],
+                })
                 serviceLoaders.push(async () => {
                     const consumerConfig = override
                         ? {
@@ -268,6 +276,8 @@ export class IngestionGeneralServer implements NodeServer {
                     const consumer = createClientWarningsConsumer(consumerConfig, {
                         outputs: ingestionOutputs,
                         teamManager: sharedServices.services.teamManager,
+                        eventIngestionRestrictionManager,
+                        eventFilterManager,
                     })
                     await consumer.start()
                     return consumer.service

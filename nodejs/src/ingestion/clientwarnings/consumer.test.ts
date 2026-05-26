@@ -1,6 +1,8 @@
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { TeamManagerHandle } from '../../utils/team-manager'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from '../common/common-ingestion-consumer'
-import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
+import { EventFilterManager } from '../common/event-filters'
+import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { createClientWarningsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
@@ -19,14 +21,20 @@ describe('createClientWarningsConsumer', () => {
     }
 
     function makeDeps(): {
-        outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput>
+        outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
         teamManager: TeamManagerHandle
+        eventIngestionRestrictionManager: EventIngestionRestrictionManager
+        eventFilterManager: EventFilterManager
     } {
         const outputs = {
             checkTopics: jest.fn().mockResolvedValue([]),
-        } as unknown as IngestionOutputs<IngestionWarningsOutput | DlqOutput>
-        const teamManager = {} as TeamManagerHandle
-        return { outputs, teamManager }
+        } as unknown as IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
+        return {
+            outputs,
+            teamManager: {} as TeamManagerHandle,
+            eventIngestionRestrictionManager: {} as EventIngestionRestrictionManager,
+            eventFilterManager: {} as EventFilterManager,
+        }
     }
 
     beforeEach(() => {
@@ -41,15 +49,12 @@ describe('createClientWarningsConsumer', () => {
         expect(consumer).toBeInstanceOf(CommonIngestionConsumer)
     })
 
-    it('passes outputs, teamManager, and promiseScheduler to the pipeline factory', () => {
-        const deps = makeDeps()
-        createClientWarningsConsumer(makeConfig(), deps)
+    it('defers pipeline construction until start time', () => {
+        createClientWarningsConsumer(makeConfig(), makeDeps())
 
-        expect(pipelineModule.createClientWarningsPipeline).toHaveBeenCalledTimes(1)
-        const call = (pipelineModule.createClientWarningsPipeline as jest.Mock).mock.calls[0][0]
-        expect(call.outputs).toBe(deps.outputs)
-        expect(call.teamManager).toBe(deps.teamManager)
-        expect(call.promiseScheduler).toBeDefined()
+        // The pipeline factory runs inside `consumer.start()`, after the
+        // lifecycle's services come up — not at consumer construction time.
+        expect(pipelineModule.createClientWarningsPipeline).not.toHaveBeenCalled()
     })
 
     it('exposes a service descriptor whose id derives from the configured topic', () => {
