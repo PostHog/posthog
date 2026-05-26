@@ -977,3 +977,7 @@ environment:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
+    profile_migrations:
+        bin_script: profile_migrations
+        description: 'TODO: add description for profile_migrations'
+        hidden: true

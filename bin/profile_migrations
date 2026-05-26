@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# Profile Django migrations across every writer DB alias.
+#
+# For each alias:
+#   1. Verify py-spy is on PATH.
+#   2. Verify django_migrations is empty (refuse to profile a non-fresh DB).
+#   3. Run `py-spy record -- python manage.py migrate --database <alias>
+#        --profile-operations` so we capture wall-clock + SQL + Python CPU.
+#
+# Output lives under /tmp/migration-profile-<ts>/ ; final report is rendered
+# by `analyze_migration_profile`.
+#
+# DB drop/recreate is left to the operator — this script aborts on a populated
+# django_migrations table to avoid accidental destructive ops on shared envs.
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)
+cd "$REPO_ROOT"
+
+TS=$(date +%s)
+OUT_DIR="${PROFILE_OUT_DIR:-/tmp/migration-profile-$TS}"
+mkdir -p "$OUT_DIR"
+
+usage() {
+    cat <<EOF
+Usage: bin/profile_migrations [--aliases <a,b,c>] [--out <dir>]
+
+Options:
+  --aliases   Comma-separated DB aliases. Defaults to all Django-migrated
+              writer aliases (excludes persons_db_writer which uses raw SQL,
+              and any *_db_reader / *_direct aliases).
+  --out       Output directory. Defaults to /tmp/migration-profile-<unix_ts>/.
+  --help      Show this message.
+
+Requires: py-spy on PATH. Install via:
+    uv tool install py-spy   # macOS / Linux
+    cargo install py-spy
+
+This script will refuse to profile a database with existing applied
+migrations. Drop and recreate it yourself first (e.g. \`dropdb <name> &&
+createdb <name>\`).
+EOF
+}
+
+ALIASES_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --aliases) ALIASES_OVERRIDE="$2"; shift 2;;
+        --out) OUT_DIR="$2"; shift 2;;
+        --help|-h) usage; exit 0;;
+        *) echo "Unknown arg: $1" >&2; usage; exit 2;;
+    esac
+done
+
+# --- 1. py-spy check
+if ! command -v py-spy >/dev/null 2>&1; then
+    cat <<EOF >&2
+py-spy is required but was not found on PATH.
+
+Install:
+    uv tool install py-spy
+    # or
+    cargo install py-spy
+EOF
+    exit 1
+fi
+
+# --- 2. Discover aliases
+discover_aliases() {
+    python manage.py shell <<'PY'
+from django.conf import settings
+out = []
+for alias, conf in settings.DATABASES.items():
+    engine = conf.get("ENGINE", "")
+    if not engine.endswith(".postgresql"):
+        continue
+    # Skip reader and direct aliases — both point at the same physical DB
+    # as their writer sibling.
+    if alias.endswith("_db_reader") or alias.endswith("_direct"):
+        continue
+    # persons_db_writer uses raw SQL migrations, not Django migrations.
+    if alias == "persons_db_writer":
+        continue
+    out.append(alias)
+print("\n".join(out))
+PY
+}
+
+if [[ -n "$ALIASES_OVERRIDE" ]]; then
+    IFS=',' read -ra ALIASES <<< "$ALIASES_OVERRIDE"
+else
+    mapfile -t ALIASES < <(discover_aliases)
+fi
+
+if [[ ${#ALIASES[@]} -eq 0 ]]; then
+    echo "No writer aliases discovered." >&2
+    exit 1
+fi
+
+echo "Aliases to profile: ${ALIASES[*]}"
+echo "Output dir: $OUT_DIR"
+echo
+
+# --- 3. Per-alias: verify fresh DB + run py-spy + migrate
+JSONL_ARGS=()
+SPY_ARGS=()
+
+for ALIAS in "${ALIASES[@]}"; do
+    echo "=== $ALIAS ==="
+
+    # Refuse to profile a non-fresh DB.
+    ROW_COUNT=$(python manage.py shell <<PY
+from django.db import connections
+try:
+    with connections["$ALIAS"].cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM django_migrations")
+        print(cur.fetchone()[0])
+except Exception:
+    print(0)
+PY
+)
+    if [[ "$ROW_COUNT" -gt 0 ]]; then
+        echo "Refusing to profile $ALIAS — django_migrations has $ROW_COUNT rows." >&2
+        echo "Drop and recreate the DB first." >&2
+        exit 1
+    fi
+
+    JSONL_OUT="$OUT_DIR/migration-profile-$ALIAS.jsonl"
+    SPY_OUT="$OUT_DIR/migration-profile-$ALIAS.spy.raw"
+
+    py-spy record \
+        --format raw \
+        --rate 100 \
+        --subprocesses \
+        --output "$SPY_OUT" \
+        -- python manage.py migrate \
+            --database "$ALIAS" \
+            --profile-operations \
+            --profile-output "$JSONL_OUT" \
+            --no-input
+
+    JSONL_ARGS+=( --jsonl "$JSONL_OUT" )
+    SPY_ARGS+=( --spy "$ALIAS=$SPY_OUT" )
+    echo
+done
+
+# --- 4. Render report
+REPORT="$OUT_DIR/report.md"
+python manage.py analyze_migration_profile \
+    "${JSONL_ARGS[@]}" \
+    "${SPY_ARGS[@]}" \
+    --output "$REPORT" \
+    --flame-svg-dir "$OUT_DIR"
+
+echo "Report: $REPORT"

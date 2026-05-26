@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-14T17:05:01.112803428Z"
+exclude-newer = "2026-05-15T15:16:01.068519Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -2318,6 +2318,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/1d/65/ce7f1b70157833bf3
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/36/7fb70f04bf00bc646cd5bb45aa9eddb15e19437a28b8fb2b4a5249fac770/filelock-3.20.3-py3-none-any.whl", hash = "sha256:4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1", size = 16701, upload-time = "2026-01-09T17:55:04.334Z" },
 ]
+
+[[package]]
+name = "flameprof"
+version = "0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/e7/114f6710d31854b694598f577f9eac49d7f38b7fb8a55e86e2d3f848fd1c/flameprof-0.4.tar.gz", hash = "sha256:dbc86d4190cbbba624f1e0a40f44d9db96138e27534d83c8ef42d420857875a3", size = 7865, upload-time = "2018-12-25T09:28:48.554Z" }
 
 [[package]]
 name = "flatbuffers"
@@ -5419,6 +5425,7 @@ dev = [
     { name = "djangorestframework-stubs" },
     { name = "faker" },
     { name = "fakeredis", extra = ["lua"] },
+    { name = "flameprof" },
     { name = "freezegun" },
     { name = "granian", extra = ["pname", "reload", "uvloop"] },
     { name = "grpcio-tools" },
@@ -5684,6 +5691,7 @@ dev = [
     { name = "djangorestframework-stubs", specifier = "~=3.16.0" },
     { name = "faker", specifier = "==17.5.0" },
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
+    { name = "flameprof", specifier = "~=0.4" },
     { name = "freezegun", specifier = "==1.5.5" },
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grpcio-tools", specifier = "~=1.71.0" },

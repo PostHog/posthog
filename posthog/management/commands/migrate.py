@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import shutil
 import warnings
 import subprocess
@@ -22,6 +23,8 @@ from django.conf import settings
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
 from django.db import DEFAULT_DB_ALIAS
 from django.db.migrations.recorder import MigrationRecorder
+
+from posthog.management.migration_profiling.profiler import profile_migrations
 
 from common.migration_utils import (
     MIGRATION_CACHE_DIR,
@@ -200,13 +203,32 @@ class Command(DjangoMigrateCommand):
             action="store_true",
             help="Production mode: skip orphan check and migration caching (local-dev features).",
         )
+        parser.add_argument(
+            "--profile-operations",
+            action="store_true",
+            help="Capture per-operation and per-SQL-statement timings into a JSONL file.",
+        )
+        parser.add_argument(
+            "--profile-output",
+            metavar="PATH",
+            default=None,
+            help="Path to write the profile JSONL. Defaults to /tmp/migration-profile-<db>-<unix_ts>.jsonl.",
+        )
+        parser.add_argument(
+            "--profile-full-sql",
+            action="store_true",
+            help="Don't truncate captured SQL bodies (default truncates at 4 KB).",
+        )
 
     def handle(self, *args, **options):
         database = options.get("database", DEFAULT_DB_ALIAS)
         interactive = options.get("interactive", True)
         production_mode = options.get("production", False)
         test_mode = settings.TEST
-        skip_caching = production_mode or test_mode
+        profile_operations = options.get("profile_operations", False)
+        # When profiling, the assumption is a fresh-DB run — both code paths
+        # below assume migrations were previously applied, which fights that.
+        skip_caching = production_mode or test_mode or profile_operations
         skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 
         # Get connection for orphan check
@@ -302,8 +324,50 @@ class Command(DjangoMigrateCommand):
             recorder = MigrationRecorder(connection)
             applied_before = set(recorder.applied_migrations())
 
-        # Run the actual migrate command
-        super().handle(*args, **options)
+        # Run the actual migrate command — optionally under the profiler.
+        if profile_operations:
+            profile_output = options.get("profile_output")
+            if not profile_output:
+                profile_output = f"/tmp/migration-profile-{database}-{int(time.time())}.jsonl"
+            profile_path = Path(profile_output)
+            full_sql = options.get("profile_full_sql", False)
+
+            # Optional Python-side sampling via pyinstrument. Pure Python, no
+            # root needed (unlike py-spy on macOS). Activated automatically if
+            # pyinstrument is importable.
+            py_profiler = None
+            html_path = profile_path.with_suffix(".pyinstrument.html")
+            try:
+                from pyinstrument import Profiler
+
+                py_profiler = Profiler(interval=0.01)
+                py_profiler.start()
+            except ImportError:
+                pass
+
+            try:
+                with profile_migrations(database=database, output_path=profile_path, full_sql=full_sql):
+                    super().handle(*args, **options)
+            finally:
+                if py_profiler is not None:
+                    py_profiler.stop()
+                    try:
+                        html_path.write_text(py_profiler.output_html())
+                        self.stdout.write(self.style.SUCCESS(f"Wrote pyinstrument HTML to {html_path}"))
+                    except Exception as exc:
+                        self.stdout.write(self.style.WARNING(f"pyinstrument HTML failed: {exc}"))
+                    try:
+                        from pyinstrument.renderers import JSONRenderer
+
+                        json_path = profile_path.with_suffix(".pyinstrument.json")
+                        json_path.write_text(py_profiler.output(JSONRenderer()))
+                        self.stdout.write(self.style.SUCCESS(f"Wrote pyinstrument JSON to {json_path}"))
+                    except Exception as exc:
+                        self.stdout.write(self.style.WARNING(f"pyinstrument JSON failed: {exc}"))
+
+            self.stdout.write(self.style.SUCCESS(f"Wrote migration profile to {profile_path}"))
+        else:
+            super().handle(*args, **options)
 
         # Cache any newly applied migrations (skip in production and test mode)
         if not skip_caching:
