@@ -170,7 +170,6 @@ procs:
             CYMBAL_MODE=stage \
             CYMBAL_STAGE_IDS=resolution:v1 \
             GRPC_ADDRESS=127.0.0.1:50151 \
-            CYMBAL_READINESS_FILE=/tmp/cymbal-resolution-ready \
             CYMBAL_SHUTDOWN_DRAIN_DELAY_MS=1000 \
             cargo run -p cymbal-server
         ready_pattern: 'starting Cymbal gRPC server'
@@ -212,7 +211,6 @@ procs:
             CYMBAL_RATE_LIMIT_THRESHOLD=${CYMBAL_RATE_LIMIT_THRESHOLD:-1000000} \
             CYMBAL_RATE_LIMIT_WINDOW_SECONDS=${CYMBAL_RATE_LIMIT_WINDOW_SECONDS:-60} \
             CYMBAL_MAX_BATCH_EVENTS=1000 \
-            CYMBAL_READINESS_FILE=/tmp/cymbal-pipeline-ready \
             CYMBAL_SHUTDOWN_DRAIN_DELAY_MS=1000 \
             cargo run -p cymbal-server
         ready_pattern: 'starting Cymbal gRPC server'

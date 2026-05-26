@@ -1,6 +1,9 @@
+use axum::{routing::get, Router};
+use common_metrics::setup_metrics_routes;
 use cymbal_api::cymbal::v1::cymbal_ingestion_server::CymbalIngestionServer;
 use cymbal_api::cymbal::v1::cymbal_stage_runtime_server::CymbalStageRuntimeServer;
-use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use cymbal_runtime::{init_process, CymbalRuntime};
@@ -14,8 +17,7 @@ use cymbal_server::registry::StageRegistry;
 use cymbal_server::remote::RemoteStageConnectionManager;
 use cymbal_server::stage::{CymbalStageService, StageServiceLimits};
 use envconfig::Envconfig;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use tokio::net::TcpListener;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -84,6 +86,46 @@ fn setup_tracing() {
     }
 }
 
+async fn readiness(accepting_traffic: Arc<AtomicBool>) -> axum::http::StatusCode {
+    if accepting_traffic.load(Ordering::Relaxed) {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
+async fn liveness() -> axum::http::StatusCode {
+    axum::http::StatusCode::OK
+}
+
+async fn spawn_management_server(
+    metrics_port: u16,
+    accepting_traffic: Arc<AtomicBool>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = Router::new()
+        .route(
+            "/_readiness",
+            get(move || {
+                let accepting_traffic = accepting_traffic.clone();
+                async move { readiness(accepting_traffic).await }
+            }),
+        )
+        .route("/_liveness", get(liveness));
+    let router = setup_metrics_routes(router);
+
+    let bind = format!("0.0.0.0:{metrics_port}");
+    let listener = TcpListener::bind(&bind).await?;
+    tracing::info!(metrics_port, bind = %bind, "Cymbal management server listening");
+
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, router).await {
+            tracing::error!(?error, "Cymbal management server stopped unexpectedly");
+        }
+    });
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
@@ -93,24 +135,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime_guard = init_process(&config.runtime.process).await;
     let runtime = CymbalRuntime::from_config(&config.runtime).await?;
     let stage_ids = parse_stage_ids(&config.cymbal_stage_ids);
-    let readiness_file = optional_readiness_file(&config.cymbal_readiness_file);
+    let accepting_traffic = Arc::new(AtomicBool::new(false));
     let in_flight_counter = Arc::new(AtomicUsize::new(0));
     let in_flight_tracker = InFlightBatchTracker::new(
         in_flight_counter.clone(),
         config.cymbal_max_in_flight_batches,
     );
-    mark_ready(readiness_file.as_ref())?;
+    spawn_management_server(config.metrics_port, accepting_traffic.clone()).await?;
+    accepting_traffic.store(true, Ordering::Relaxed);
 
     // Keep this plain stdout line in addition to the structured tracing event.
     // phrocs readiness is log-pattern based, and this line must remain visible
     // even if a local RUST_LOG override filters structured logs.
     println!(
-        "starting Cymbal gRPC server grpc_address={} mode={:?} stage_ids={:?}",
-        config.grpc_address, config.cymbal_mode, stage_ids
+        "starting Cymbal gRPC server grpc_address={} metrics_port={} mode={:?} stage_ids={:?}",
+        config.grpc_address, config.metrics_port, config.cymbal_mode, stage_ids
     );
 
     tracing::info!(
         grpc_address = %config.grpc_address,
+        metrics_port = config.metrics_port,
         mode = ?config.cymbal_mode,
         stage_ids = ?stage_ids,
         "starting Cymbal gRPC server"
@@ -125,10 +169,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .serve_with_shutdown(
                     config.grpc_address,
                     shutdown_signal(
-                        readiness_file.clone(),
                         Duration::from_millis(config.cymbal_shutdown_drain_delay_ms),
                         in_flight_counter.clone(),
                         Duration::from_millis(config.cymbal_shutdown_max_wait_ms),
+                        accepting_traffic.clone(),
                     ),
                 )
                 .await?;
@@ -141,10 +185,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .serve_with_shutdown(
                     config.grpc_address,
                     shutdown_signal(
-                        readiness_file.clone(),
                         Duration::from_millis(config.cymbal_shutdown_drain_delay_ms),
                         in_flight_counter.clone(),
                         Duration::from_millis(config.cymbal_shutdown_max_wait_ms),
+                        accepting_traffic.clone(),
                     ),
                 )
                 .await?;
@@ -160,10 +204,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .serve_with_shutdown(
                     config.grpc_address,
                     shutdown_signal(
-                        readiness_file.clone(),
                         Duration::from_millis(config.cymbal_shutdown_drain_delay_ms),
                         in_flight_counter.clone(),
                         Duration::from_millis(config.cymbal_shutdown_max_wait_ms),
+                        accepting_traffic.clone(),
                     ),
                 )
                 .await?;
@@ -270,36 +314,16 @@ fn warn_if_postgres_pool_undersized(config: &Config) {
     );
 }
 
-fn optional_readiness_file(path: &str) -> Option<PathBuf> {
-    if path.trim().is_empty() {
-        return None;
-    }
-
-    Some(PathBuf::from(path))
-}
-
-fn mark_ready(readiness_file: Option<&PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(readiness_file) = readiness_file else {
-        return Ok(());
-    };
-
-    if let Some(parent) = readiness_file.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(readiness_file, b"ready\n")?;
-    Ok(())
-}
-
 /// Shutdown is cooperative: stages are not cancel-safe because they can perform
 /// repository writes and side effects in the middle of a batch. Kubernetes must
 /// stop sending new requests first (readiness removal + `drain_delay`), and the
 /// hard wait below must be longer than normal batch latency so in-flight stage
 /// work can finish before tonic stops serving.
 async fn shutdown_signal(
-    readiness_file: Option<PathBuf>,
     drain_delay: Duration,
     in_flight_counter: Arc<AtomicUsize>,
     max_wait: Duration,
+    accepting_traffic: Arc<AtomicBool>,
 ) {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
@@ -334,17 +358,7 @@ async fn shutdown_signal(
         ctrl_c.await;
     }
 
-    if let Some(readiness_file) = readiness_file {
-        match std::fs::remove_file(&readiness_file) {
-            Ok(()) => {
-                tracing::info!(readiness_file = %readiness_file.display(), "removed readiness file")
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                tracing::warn!(?error, readiness_file = %readiness_file.display(), "failed to remove readiness file")
-            }
-        }
-    }
+    accepting_traffic.store(false, Ordering::Relaxed);
 
     if !drain_delay.is_zero() {
         tracing::info!(?drain_delay, "waiting for Kubernetes readiness drain delay");

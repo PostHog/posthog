@@ -6,6 +6,8 @@ publish = false
 
 [dependencies]
 async-trait = { workspace = true }
+axum = { workspace = true }
+common-metrics = { path = "../../../common/metrics" }
 cymbal-alerting = { path = "../stages/alerting" }
 cymbal-api = { path = "../api" }
 cymbal-core = { path = "../core" }

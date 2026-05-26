@@ -2912,7 +2912,9 @@ name = "cymbal-server"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum 0.7.9",
  "chrono",
+ "common-metrics",
  "cymbal-alerting",
  "cymbal-api",
  "cymbal-core",

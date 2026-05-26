@@ -215,22 +215,23 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
-        let shadow_client = if !config.shadow_grpc_addr.is_empty()
-            && config.shadow_sample_rate > 0.0
-        {
-            info!(
-                addr = %config.shadow_grpc_addr,
-                sample_rate = config.shadow_sample_rate,
-                "Shadow lane enabled; connecting to cymbal-server gRPC"
-            );
-            Some(Arc::new(
-                ShadowClient::new(&config.shadow_grpc_addr)
-                    .await
-                    .map_err(|e| UnhandledError::Other(format!("Shadow gRPC connect error: {e}")))?,
-            ))
-        } else {
-            None
-        };
+        let shadow_client =
+            if !config.shadow_grpc_addr.is_empty() && config.shadow_sample_rate > 0.0 {
+                info!(
+                    addr = %config.shadow_grpc_addr,
+                    sample_rate = config.shadow_sample_rate,
+                    "Shadow lane enabled; connecting to cymbal-server gRPC"
+                );
+                Some(Arc::new(
+                    ShadowClient::new(&config.shadow_grpc_addr)
+                        .await
+                        .map_err(|e| {
+                            UnhandledError::Other(format!("Shadow gRPC connect error: {e}"))
+                        })?,
+                ))
+            } else {
+                None
+            };
 
         Ok(Self {
             health_registry,

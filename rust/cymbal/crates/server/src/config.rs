@@ -40,6 +40,8 @@ pub struct Config {
     pub runtime: RuntimeConfig,
     #[envconfig(default = "127.0.0.1:50051")]
     pub grpc_address: SocketAddr,
+    #[envconfig(default = "8080")]
+    pub metrics_port: u16,
     #[envconfig(default = "pipeline")]
     pub cymbal_mode: ServerMode,
     #[envconfig(default = "resolution:v1,linking:v1")]
@@ -74,8 +76,6 @@ pub struct Config {
     pub cymbal_max_in_flight_stage_items: usize,
     #[envconfig(default = "")]
     pub cymbal_stage_max_in_flight_items: String,
-    #[envconfig(default = "")]
-    pub cymbal_readiness_file: String,
     #[envconfig(default = "0")]
     pub cymbal_shutdown_drain_delay_ms: u64,
     #[envconfig(default = "60000")]

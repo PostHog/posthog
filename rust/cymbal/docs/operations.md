@@ -11,6 +11,14 @@ The `cymbal-server` binary can run the public ingestion service, the internal st
 - `CYMBAL_MODE=stage` exposes `CymbalStageRuntime.ProcessStage` only.
 - `CYMBAL_MODE=all` exposes both services for local development or compact deployments.
 
+It also exposes an HTTP management endpoint for Prometheus and probes on
+`METRICS_PORT` (default `8080`):
+
+- `/_readiness` returns `200` while the pod is accepting new work and `503`
+  once shutdown starts.
+- `/_liveness` always returns `200`.
+- `/metrics` exposes Prometheus metrics for pipeline and stage pods.
+
 Stage pods choose local stages with `CYMBAL_STAGE_IDS`:
 
 ```text
@@ -77,8 +85,9 @@ Defaults are intentionally moderate: `RESOLUTION_STAGE_CONCURRENCY=64`, `GROUPIN
 
 ## Readiness and graceful drain
 
-For Kubernetes readiness and drain, set `CYMBAL_READINESS_FILE`.
-On shutdown Cymbal removes the file, waits `CYMBAL_SHUTDOWN_DRAIN_DELAY_MS`, then waits up to `CYMBAL_SHUTDOWN_MAX_WAIT_MS` (default 60s) for accepted public and stage batches to finish before letting tonic stop.
+Use the HTTP management endpoint for readiness and drain.
+`/_readiness` returns `200` while the pod is accepting new work and flips to `503` as soon as shutdown begins.
+After flipping readiness, Cymbal waits `CYMBAL_SHUTDOWN_DRAIN_DELAY_MS`, then waits up to `CYMBAL_SHUTDOWN_MAX_WAIT_MS` (default 60s) for accepted public and stage batches to finish before letting tonic stop.
 
 Stages are not cancel-safe: they can write repositories or trigger side effects mid-batch.
 The readiness drain delay plus max wait should therefore exceed typical batch latency.
@@ -89,6 +98,8 @@ Do not use routing ejection as the primary shutdown mechanism.
 
 Cymbal logs JSON by default.
 Set `CYMBAL_LOG_FORMAT=text` for local development and `CYMBAL_LOG_FORMAT=json` for production-style logs indexed by Loki/Grafana.
+Scrape `http://<pod-ip>:${METRICS_PORT:-8080}/metrics` for `cymbal-server`
+pipeline pods and stage pods such as a `resolution:v1` deployment.
 
 Every stage invocation, local or remote, is wrapped by `metered_stage` and emits:
 
@@ -156,8 +167,15 @@ batches to `cymbal-server` for fingerprint parity testing.
 | `CYMBAL_SHADOW_SAMPLE_RATE` | `0.0`           | Fraction of batches to shadow (0.0–1.0)    |
 
 Shadow results never affect the HTTP response.
-Divergences are logged at WARN and counted in
-`cymbal_shadow_fingerprint_match{result=match|mismatch|old_missing|new_missing}`.
+Each sampled compare records
+`cymbal_shadow_compare_duration_seconds` and increments
+`cymbal_shadow_compare_total{result=...}` with one of
+`match`, `signature_mismatch`, `shadow_drop`, `shadow_retry`,
+`shadow_error`, `shadow_missing`, `grpc_call_error`, or `grpc_stream_error`.
+The signature is a hash of selected output properties such as issue ID,
+including fingerprint and any other output properties, after canonicalizing
+JSON object key order so dropped or altered properties affect the result.
+Divergences are also logged at WARN with structured context for debugging.
 
 To enable locally: set `CYMBAL_SHADOW_GRPC_ADDR=127.0.0.1:50150` and
 `CYMBAL_SHADOW_SAMPLE_RATE=1.0` when starting `cymbal-legacy`, with `cymbal-pipeline`

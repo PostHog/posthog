@@ -99,7 +99,8 @@ pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
 
 // Shadow lane metrics
-pub const SHADOW_FINGERPRINT_MATCH: &str = "cymbal_shadow_fingerprint_match";
+pub const SHADOW_COMPARE_TOTAL: &str = "cymbal_shadow_compare_total";
+pub const SHADOW_COMPARE_DURATION_SECONDS: &str = "cymbal_shadow_compare_duration_seconds";
 
 // Signal metrics
 pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
