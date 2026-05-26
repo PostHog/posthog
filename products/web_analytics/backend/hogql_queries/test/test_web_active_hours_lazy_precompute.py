@@ -120,27 +120,46 @@ class TestWebActiveHoursLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"dau and total tabs must hash to distinct cache keys, got overlap: {dau_jobs & total_jobs}"
         )
 
+    @parameterized.expand(
+        [
+            # Unique users tab: session-attributed bucketing. The session straddles
+            # a UTC-day boundary but lands in exactly one cell (Saturday 23:00) on
+            # both the lazy and raw paths.
+            ("unique_users", "dau"),
+            # Total pageviews tab: event-attributed bucketing. Every event lands in
+            # its own cell — the same session contributes to 3 different cells.
+            # Both paths must agree on the per-cell event counts.
+            ("total_pageviews", "total"),
+        ]
+    )
     @unittest.skip(
-        "Flaky on CI for the same reason as test_web_overview_lazy_precompute.py::test_lazy_result_matches_raw_result — "
-        "read-after-write visibility on the Distributed table returns empty rows despite a READY job. "
-        "Root cause shared across the lazy-precompute test suite."
+        "CI-only flake (passes 5/5 locally on the dev ClickHouse image) — same read-after-write "
+        "visibility issue on the Distributed table as test_web_overview_lazy_precompute.py::"
+        "test_lazy_result_matches_raw_result. Re-enable once the underlying race is fixed."
     )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_lazy_unique_users_matches_raw(self):
-        # The session straddles a UTC-day boundary. With session-attributed
-        # bucketing, the lazy and raw paths must agree on which (day, hour)
-        # the user lands in (Saturday 23:00).
+    def test_lazy_matches_raw(self, _name: str, math: str) -> None:
         self._seed_session_spanning_midnight()
 
-        raw_response = self._run(self._build_query(math="dau", opt_in_precompute=False))
+        # Path A: raw events scan (precompute opted out).
+        raw_response = self._run(self._build_query(math=math, opt_in_precompute=False))
         raw_cells = {(c.row, c.column): c.value for c in raw_response.results.data}
+        raw_day_aggs = {d.row: d.value for d in raw_response.results.rowAggregations}
+        raw_hour_aggs = {h.column: h.value for h in raw_response.results.columnAggregations}
 
+        # Path B: lazy precompute.
         with self._enable_lazy():
-            lazy_response = self._run(self._build_query(math="dau"))
+            lazy_response = self._run(self._build_query(math=math))
         lazy_cells = {(c.row, c.column): c.value for c in lazy_response.results.data}
+        lazy_day_aggs = {d.row: d.value for d in lazy_response.results.rowAggregations}
+        lazy_hour_aggs = {h.column: h.value for h in lazy_response.results.columnAggregations}
 
-        assert lazy_cells == raw_cells, f"lazy/raw mismatch: lazy={lazy_cells}, raw={raw_cells}"
-        assert lazy_response.results.allAggregations == raw_response.results.allAggregations
+        assert lazy_cells == raw_cells, f"{math}: cells lazy/raw mismatch: lazy={lazy_cells}, raw={raw_cells}"
+        assert lazy_day_aggs == raw_day_aggs, f"{math}: row aggs mismatch: lazy={lazy_day_aggs}, raw={raw_day_aggs}"
+        assert lazy_hour_aggs == raw_hour_aggs, f"{math}: col aggs mismatch: lazy={lazy_hour_aggs}, raw={raw_hour_aggs}"
+        assert lazy_response.results.allAggregations == raw_response.results.allAggregations, (
+            f"{math}: overall mismatch: lazy={lazy_response.results.allAggregations}, raw={raw_response.results.allAggregations}"
+        )
 
     # --- Group B: gate fall-throughs ---------------------------------------
 
