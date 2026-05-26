@@ -288,13 +288,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
             # Shadow trial: VR upload side effect stripped.
-            - name: Upload test results
-              if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
-                  path: common/storybook/junit.xml
-                  if-no-files-found: ignore
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
     flake-verification:
@@ -348,16 +341,6 @@ jobs:
                   BASE_SHA="${{ github.event.pull_request.base.sha }}"
                   git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
                   .github/scripts/verify-storybook-new-stories.sh "$BASE_SHA" 3
-            - name: Upload flake verification screenshots
-              if: failure() && steps.flake-verify.outcome == 'failure'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: flake-verification-diffs
-                  path: |
-                      frontend/__snapshots__/__diff_output__/
-                      frontend/__snapshots__/__failures__/
-                  if-no-files-found: ignore
-                  retention-days: 5
     visual_regression_tests:
         needs: [visual-regression]
         name: Visual regression tests pass

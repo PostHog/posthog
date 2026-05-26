@@ -417,29 +417,6 @@ jobs:
                   docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
-            - name: Archive test artifacts
-              if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: playwright-test-results
-                  path: |
-                      playwright/playwright-report/
-                      playwright/playwright-report-attempt-*/
-                      playwright/test-results/
-                      playwright/test-results-attempt-*/
-                      /tmp/celery.log
-                      /tmp/server.log
-                      /tmp/temporal-worker.log
-                      /tmp/playwright-output-attempt-*.log
-                  retention-days: 30
-                  if-no-files-found: ignore
-            - name: Upload test results
-              if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: junit-results-playwright
-                  path: playwright/junit-results.xml
-                  if-no-files-found: ignore
             # Shadow trial: capture-run-time and vr-complete downstream jobs also stripped.
     playwright_tests:
         needs: [playwright]

@@ -408,13 +408,6 @@ jobs:
                    docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
-            - name: Upload migrated schema artifact
-              if: github.event_name == 'push'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: migrated-schema
-                  path: schema.sql.gz
-                  retention-days: 90
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
@@ -831,28 +824,6 @@ jobs:
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
-            - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-              with:
-                  name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
-                  path: .test_durations
-                  include-hidden-files: true
-                  retention-days: 2
-            - name: Archive email renders
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat
-              with:
-                  name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
-                  path: posthog/tasks/test/__emails__
-                  retention-days: 1
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
-              with:
-                  name: junit-results-backend-${{ matrix.artifact_key }}
-                  path: junit-*.xml
     # Aggregate and commit snapshot changes from all matrix jobs
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -1063,10 +1034,4 @@ jobs:
             - name: Run async migrations tests
               run: |
                   pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always() && !startsWith(matrix.runner, 'blacksmith')
-              with:
-                  name: junit-results-async-migrations
-                  path: junit.xml
     # Shadow trial: calculate-running-time job stripped (would poison trial metrics).
