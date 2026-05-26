@@ -7,7 +7,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
-export const RECENT_PINNED_TAB_DEFINITIONS: TaxonomicFilterGroup[] = [
+export const RECENT_PINNED_TAB_DEFINITIONS = [
     {
         name: 'Recent',
         searchPlaceholder: 'recent',
@@ -20,7 +20,7 @@ export const RECENT_PINNED_TAB_DEFINITIONS: TaxonomicFilterGroup[] = [
         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
             'name' in item ? (item.name ?? null) : null,
         getPopoverHeader: () => 'Recent',
-    } as TaxonomicFilterGroup,
+    },
     {
         name: 'Pinned',
         searchPlaceholder: 'pinned',
@@ -33,5 +33,5 @@ export const RECENT_PINNED_TAB_DEFINITIONS: TaxonomicFilterGroup[] = [
         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
             'name' in item ? (item.name ?? null) : null,
         getPopoverHeader: () => 'Pinned',
-    } as TaxonomicFilterGroup,
-]
+    },
+] as const satisfies readonly TaxonomicFilterGroup[]
