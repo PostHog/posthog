@@ -11,13 +11,12 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-
 import type { RequestProperties } from '@/lib/request-properties'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { InstructionsBuilder } from '@/hono/instructions'
-import type { } from '@/tools/types'
+import type {} from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
     return {
@@ -104,7 +103,9 @@ describe('ToolExecutor', () => {
 
         it('returns validation error for invalid arguments', async () => {
             const knownTool = catalog.getPreBuiltEntries()[0]
-            if (!knownTool) {throw new Error('need at least one tool to test validation')}
+            if (!knownTool) {
+                throw new Error('need at least one tool to test validation')
+            }
 
             const result = (await executor.handleToolCall(
                 { name: knownTool.name, arguments: { __invalid_field_xyz: 'bad' } },
@@ -118,7 +119,9 @@ describe('ToolExecutor', () => {
         it('successfully calls a real tool from the catalog', async () => {
             const entries = catalog.getPreBuiltEntries()
             const userGet = entries.find((e) => e.name === 'user-get')
-            if (!userGet) {throw new Error('user-get tool not found in catalog')}
+            if (!userGet) {
+                throw new Error('user-get tool not found in catalog')
+            }
 
             const result = (await executor.handleToolCall(
                 { name: 'user-get', arguments: {} },
@@ -136,10 +139,7 @@ describe('ToolExecutor', () => {
             const allEntries = catalog.getPreBuiltEntries()
             const subset = allEntries.slice(0, 3)
 
-            const result = await executor.handleToolsList(
-                makeState(subset.map((e) => ({ name: e.name }))),
-                makeProps()
-            )
+            const result = await executor.handleToolsList(makeState(subset.map((e) => ({ name: e.name }))), makeProps())
 
             expect(result.tools).toHaveLength(3)
             expect(result.tools.map((t) => t.name)).toEqual(subset.map((e) => e.name))
@@ -152,7 +152,10 @@ describe('ToolExecutor', () => {
 
         it('returns single exec tool entry when useSingleExec is true', async () => {
             const state = makeState(
-                catalog.getPreBuiltEntries().slice(0, 5).map((e) => ({ name: e.name })),
+                catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map((e) => ({ name: e.name })),
                 { useSingleExec: true, version: 2 }
             )
 

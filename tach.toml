@@ -103,6 +103,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools",
@@ -163,6 +164,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.data_warehouse",
+    "products.notebooks",
 ]
 layer = "modules"
 
@@ -336,7 +338,9 @@ layer = "modules"
 path = "products.marketing_analytics"
 depends_on = [
     "posthog",
+    "products.access_control",
     "products.actions",
+    "products.analytics_platform",
     "products.data_warehouse", "products.warehouse_sources",
 ]
 layer = "modules"
@@ -682,4 +686,18 @@ expose = [
 ]
 from = [
     "products.business_knowledge",
+]
+
+[[modules]]
+path = "products.wizard"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.wizard",
 ]

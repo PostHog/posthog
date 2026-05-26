@@ -1,13 +1,13 @@
 /**
  * @jest-environment jsdom
  */
-import { canvasMutation } from '@posthog/rrweb'
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { canvasMutation } from 'posthog-js/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
-jest.mock('@posthog/rrweb', () => ({
+jest.mock('posthog-js/rrweb', () => ({
     canvasMutation: jest.fn().mockResolvedValue(undefined),
     Replayer: jest.fn(),
 }))

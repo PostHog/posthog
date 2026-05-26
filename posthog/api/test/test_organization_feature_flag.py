@@ -458,12 +458,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertNotEqual(flag_response["usage_dashboard"], existing_deleted_flag.usage_dashboard.id)
         self.assertEqual(flag_response["analytics_dashboards"], [])
 
-        # target_project_2 should have failed
+        # target_project_2 should have failed: soft-deleted flag is still referenced
+        # by an active experiment (invariant violation), so the defensive guardrail fires.
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
-        self.assertEqual(
+        self.assertIn(
+            "Cannot reuse key 'copied-flag-key'",
             response.json()["failed"][0]["error_message"],
-            "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
+        )
+        self.assertIn(
+            "referenced by active experiment(s)",
+            response.json()["failed"][0]["error_message"],
         )
 
     @parameterized.expand(
