@@ -923,25 +923,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2").json()
         assert len(response["results"]) == 2
 
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 2)
     def test_limit_is_capped_at_event_list_max(self):
-        from posthog.api.event import EVENT_LIST_MAX_LIMIT
-
-        _create_person(
-            properties={"email": "tim@posthog.com"},
-            team=self.team,
-            distinct_ids=["1"],
-            is_identified=True,
-        )
-        _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        for _i in range(3):
+            _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
-        assert "results" in response
-        # The query should have been capped — verify via the next URL which reflects the actual limit used.
-        # With only 1 event and limit capped to EVENT_LIST_MAX_LIMIT, there should be no next page.
-        assert response["next"] is None
-
-        # Verify the constant itself
-        assert EVENT_LIST_MAX_LIMIT == 1_000
+        assert len(response["results"]) == 2
 
     def test_get_events_with_specified_token(self):
         _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
