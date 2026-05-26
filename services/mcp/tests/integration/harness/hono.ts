@@ -36,20 +36,23 @@ async function startTestRedis(): Promise<InstanceType<typeof Redis>> {
 }
 
 export async function startHonoHarness(env: IntegrationEnv): Promise<IntegrationHarness> {
-    // Route the MCP server's outbound API traffic at the local PostHog stack.
-    // `getBaseUrl()` checks `POSTHOG_API_BASE_URL` first and bypasses region detection.
     process.env.POSTHOG_API_BASE_URL = env.apiBaseUrl
 
-    const redis = await startTestRedis()
-    const { app } = createApp(redis as unknown as Parameters<typeof createApp>[0])
-    const server = serve({ fetch: app.fetch, port: 0 })
-    const address = server.address() as AddressInfo
-    const baseUrl = new URL(`http://127.0.0.1:${address.port}`)
+    // Start a temporary listener on port 0 to discover a free port, then
+    // set MCP_APPS_BASE_URL before creating the app so the ResourceCatalog
+    // (which snapshots env at construction time) sees the correct URL.
+    const probe = serve({ fetch: () => new Response(), port: 0 })
+    const probePort = (probe.address() as AddressInfo).port
+    await new Promise<void>((resolve) => probe.close(() => resolve()))
 
-    // `getEnv()` reads MCP_APPS_BASE_URL on every HonoMcpServer init, so we can
-    // set it after the listener has its port. Pointing at the harness's own
-    // origin so `/ui-apps/<app>/main.js` resolves to this server's static route.
+    const baseUrl = new URL(`http://127.0.0.1:${probePort}`)
     process.env.MCP_APPS_BASE_URL = baseUrl.toString().replace(/\/$/, '')
+
+    const redis = await startTestRedis()
+    const { app, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
+    await warmup()
+
+    const server = serve({ fetch: app.fetch, port: probePort })
 
     return {
         baseUrl,
