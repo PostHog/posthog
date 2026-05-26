@@ -90,6 +90,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         "test_day_interval_sampled",
         "test_retention_first_time_vs_first_ever_occurrence",
         "test_retention_aggregation_sum",
+        "test_retention_aggregation_different_events_ignores_start_event_property_value",
     }
 
     def teardown_method(self, method) -> None:
