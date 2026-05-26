@@ -306,39 +306,77 @@ class NonIntegratedConversionsTableQueryRunner(
             table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
         )
 
-        # Add LEFT JOIN with campaign_costs and filter for non-matching rows
-        # This gives us only conversions that don't have matching campaign data
-        campaign_costs_alias = "cc"
+        # Add LEFT JOINs with campaign_costs and filter for non-matching rows.
+        # We need two joins to cover both campaign_name and campaign_id, regardless of
+        # the team's `campaign_field_preferences` choice. ClickHouse doesn't support OR
+        # in JOIN ON conditions, so we chain two LEFT JOINs and require both to miss.
+        #
+        # Without this, a campaign with both ID-shaped and name-shaped utm_campaign
+        # events shows up twice: once in the main Campaign breakdown (matched via the
+        # preferred match_key, e.g. campaign_id) and a second time in this table for
+        # the events that used the OTHER shape (e.g. campaign_name).
+        cc_by_name_alias = "cc_by_name"
+        cc_by_id_alias = "cc_by_id"
         from_clause.next_join = ast.JoinExpr(
             join_type="LEFT JOIN",
             table=ast.Field(chain=[self.config.campaign_costs_cte_name]),
-            alias=campaign_costs_alias,
+            alias=cc_by_name_alias,
             constraint=ast.JoinConstraint(
                 expr=ast.And(
                     exprs=[
-                        # Join on match_key (ClickHouse doesn't support OR in JOIN ON conditions)
-                        # match_key is set by adapters based on team preferences (campaign_name or campaign_id)
                         ast.CompareOperation(
                             left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.match_key_field]),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[campaign_costs_alias, self.config.match_key_field]),
+                            right=ast.Field(chain=[cc_by_name_alias, self.config.campaign_field]),
                         ),
                         ast.CompareOperation(
                             left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.source_field]),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[campaign_costs_alias, self.config.source_field]),
+                            right=ast.Field(chain=[cc_by_name_alias, self.config.source_field]),
                         ),
                     ]
                 ),
                 constraint_type="ON",
             ),
+            next_join=ast.JoinExpr(
+                join_type="LEFT JOIN",
+                table=ast.Field(chain=[self.config.campaign_costs_cte_name]),
+                alias=cc_by_id_alias,
+                constraint=ast.JoinConstraint(
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.match_key_field]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(chain=[cc_by_id_alias, self.config.id_field]),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.source_field]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(chain=[cc_by_id_alias, self.config.source_field]),
+                            ),
+                        ]
+                    ),
+                    constraint_type="ON",
+                ),
+            ),
         )
 
-        # WHERE clause: only rows where campaign_costs has no match (IS NULL)
-        where_clause = ast.CompareOperation(
-            left=ast.Field(chain=[campaign_costs_alias, self.config.campaign_field]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=None),
+        # WHERE clause: row only survives when neither name nor id matched a known
+        # integrated campaign for the same source.
+        where_clause = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[cc_by_name_alias, self.config.campaign_field]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=None),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[cc_by_id_alias, self.config.campaign_field]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=None),
+                ),
+            ]
         )
 
         return ast.SelectQuery(
