@@ -5903,7 +5903,7 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
                         continue;
                     }
                     if c == q {
-                        if i + 1 <= rp && bytes[i + 1] == q {
+                        if i < rp && bytes[i + 1] == q {
                             i += 2; // doubled-quote escape
                             continue;
                         }
@@ -5912,9 +5912,9 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
                     i += 1;
                 }
             }
-            b'/' if i + 1 <= rp && bytes[i + 1] == b'*' => {
+            b'/' if i < rp && bytes[i + 1] == b'*' => {
                 i += 2;
-                while i + 1 <= rp && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                while i < rp && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                     i += 1;
                 }
                 i += 1; // skip the `*`; the outer `i += 1` skips the `/`
@@ -5991,7 +5991,7 @@ fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
                         continue;
                     }
                     if c == q {
-                        if i + 1 <= last_start && bytes[i + 1] == q {
+                        if i < last_start && bytes[i + 1] == q {
                             i += 2;
                             continue;
                         }
@@ -6000,9 +6000,9 @@ fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
                     i += 1;
                 }
             }
-            b'/' if i + 1 <= last_start && bytes[i + 1] == b'*' => {
+            b'/' if i < last_start && bytes[i + 1] == b'*' => {
                 i += 2;
-                while i + 1 <= last_start && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                while i < last_start && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                     i += 1;
                 }
                 i += 1;

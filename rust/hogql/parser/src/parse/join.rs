@@ -604,7 +604,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // (`x a b c`, or the `t format JSON` FORMAT-as-alias chain) overwrite
         // the alias field but don't widen the span; the subsequent FINAL /
         // SAMPLE in the parent `JoinExprTable` rule don't widen it either.
-        let after_alias_end = first_alias_end.unwrap_or_else(|| self.last_consumed_end);
+        let after_alias_end = first_alias_end.unwrap_or(self.last_consumed_end);
         // `JoinExprTable: tableExpr FINAL? sampleClause?` — FINAL and
         // SAMPLE decorate the (possibly aliased) table.
         let final_ = self.eat_kw(Kw::Final)?;

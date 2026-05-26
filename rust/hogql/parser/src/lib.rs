@@ -15,6 +15,12 @@
 
 // `#[pyfunction]`'s expansion does an `.into()` on the `PyResult<PyObject>` return value, which is an identity conversion when the function already returns the target type — clippy's `useless_conversion` doesn't see through the macro and would flag every `parse_*_py` entry point. The lint isn't actionable from our side without leaving pyo3's `#[pyfunction]` abstraction.
 #![allow(clippy::useless_conversion)]
+// Style lints that conflict with the parser's deliberate shape: a few internal helpers return wide tuples (the table-alias chain, function-arg bundles) rather than one-off structs; some builder-style helpers are named `from_*` but take `&self`; and the heavily-prose doc comments use markdown lists clippy's `doc_lazy_continuation` flags. None are actionable without churning the parser, so allow them crate-wide.
+#![allow(
+    clippy::type_complexity,
+    clippy::wrong_self_convention,
+    clippy::doc_lazy_continuation
+)]
 
 use pyo3::prelude::*;
 use std::panic::AssertUnwindSafe;
