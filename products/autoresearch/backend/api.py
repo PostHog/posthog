@@ -63,6 +63,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             iteration_budget_remaining=serializer.validated_data.get("iteration_budget", 50),
         )
 
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        # Return full representation using the read serializer
+        output = AutoresearchPipelineSerializer(serializer.instance, context=self.get_serializer_context())
+        headers = self.get_success_headers(output.data)
+        return Response(output.data, status=201, headers=headers)
+
     @validated_request(
         request_serializer=ValidatePipelineRequestSerializer,
         responses={
