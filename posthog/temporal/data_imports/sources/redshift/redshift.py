@@ -44,6 +44,7 @@ from posthog.temporal.data_imports.sources.common.sql.incremental import Increme
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 __all__ = [
     "JsonAsStringLoader",
@@ -731,8 +732,6 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         # — there is no field for it on `SourceInputs`, so we read it
         # here. The lookup is cheap (single-row PK fetch) and runs once
         # per pipeline.
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-
         schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
         chunk_size_override = schema_row.chunk_size_override
 
