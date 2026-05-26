@@ -356,6 +356,9 @@ CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
 CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION", "warpstream_shared"
 )
+CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION", "warpstream_cyclotron"
+)
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
 # routing. Keys should be strings, not numbers.
@@ -369,23 +372,6 @@ try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
-
-
-def is_enable_analyzer_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_enable_analyzer_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        value = get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
-        return value if isinstance(value, list) else []
-    except Exception:
-        return []
 
 
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
@@ -525,6 +511,12 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+# Bearer token for marking Django -> Rust /flags calls as internal (non-billable).
+# When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this
+# as `Authorization: Bearer …` so the Rust service skips per-team billing and quota limits.
+# Must match `INTERNAL_REQUEST_TOKEN` in the feature-flags service env.
+INTERNAL_REQUEST_TOKEN = os.getenv("INTERNAL_REQUEST_TOKEN", "")
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day

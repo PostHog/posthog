@@ -37,7 +37,7 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.common import attach_catalog, escape, get_config
 from posthog.ducklake.storage import DuckLakeStorageConfig, configure_connection
 from posthog.settings.base_variables import DEBUG

@@ -25,8 +25,10 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Person, Team
-from posthog.models.organization import Organization
+from posthog.models import Element, Organization, OrganizationMembership, Person, PropertyDefinition, Team
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1144,3 +1146,130 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
         with self.assertRaises(ResolutionError):
             runner.run()
+
+    @freeze_time("2020-01-11T12:00:05Z")
+    def test_users_with_different_restrictions_get_different_cache_keys(self):
+        # create a second user in the same org
+        other_user = self._create_user("other@posthog.com")
+        OrganizationMembership.objects.get(user=other_user, organization=self.organization)
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"secret_field": "hidden", "public_field": "visible"},
+        )
+        flush_persons_and_events()
+
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_field",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        # default: no access
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        # self.user gets read_write override
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            organization_member=self.organization_membership,
+        )
+
+        query = EventsQuery(select=["event", "properties.public_field"], after="2020-01-10")
+
+        # the unrestricted user and the restricted user should get different cache keys
+        runner_unrestricted = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        runner_restricted = EventsQueryRunner(query=query, team=self.team, user=other_user)
+
+        key_unrestricted = runner_unrestricted.get_cache_key()
+        key_restricted = runner_restricted.get_cache_key()
+
+        assert key_unrestricted != key_restricted, (
+            "Users with different property access restrictions must get different cache keys"
+        )
+
+    @freeze_time("2020-01-11T12:00:05Z")
+    def test_users_without_restrictions_share_cache_key(self):
+        # no property access control rules — both users should share the same cache key
+        other_user = self._create_user("other@posthog.com")
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(select=["event"], after="2020-01-10")
+
+        runner_a = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        runner_b = EventsQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert runner_a.get_cache_key() == runner_b.get_cache_key(), (
+            "Users without property access restrictions should share the same cache key"
+        )
+
+    @freeze_time("2020-01-11T12:00:05Z")
+    def test_cached_results_not_served_across_restriction_boundaries(self):
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        other_user = self._create_user("other@posthog.com")
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "secret@example.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"public_field": "visible"},
+        )
+        flush_persons_and_events()
+
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        # default: no access
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        # self.user gets read_write override
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            organization_member=self.organization_membership,
+        )
+
+        query = EventsQuery(select=["person"], after="2020-01-10")
+
+        # run as unrestricted user first — results get cached
+        runner_unrestricted = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        response_unrestricted = runner_unrestricted.run()
+        assert isinstance(response_unrestricted, CachedEventsQueryResponse)
+        person_unrestricted = response_unrestricted.results[0][0]
+        assert "email" in person_unrestricted["properties"]
+
+        # run as restricted user — should NOT get the cached unrestricted results
+        runner_restricted = EventsQueryRunner(query=query, team=self.team, user=other_user)
+        response_restricted = runner_restricted.run()
+        assert isinstance(response_restricted, CachedEventsQueryResponse)
+        person_restricted = response_restricted.results[0][0]
+        assert "email" not in person_restricted["properties"]
