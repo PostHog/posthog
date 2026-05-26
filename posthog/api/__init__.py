@@ -33,6 +33,7 @@ import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.deployments.backend.api as deployments
 import products.alerts.backend.api.alert as alert
+import products.autoresearch.backend.api as autoresearch
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
@@ -1177,6 +1178,31 @@ environments_router.register(
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
     ["team_id"],
+)
+
+autoresearch_router = projects_router.register(
+    r"autoresearch",
+    autoresearch.AutoresearchPipelineViewSet,
+    "project_autoresearch_pipelines",
+    ["project_id"],
+)
+autoresearch_router.register(
+    r"models",
+    autoresearch.AutoresearchModelViewSet,
+    "project_autoresearch_models",
+    ["project_id", "pipeline_pk"],
+)
+autoresearch_router.register(
+    r"runs",
+    autoresearch.AutoresearchRunViewSet,
+    "project_autoresearch_runs",
+    ["project_id", "pipeline_pk"],
+)
+autoresearch_router.register(
+    r"training_runs",
+    autoresearch.AutoresearchTrainingRunViewSet,
+    "project_autoresearch_training_runs",
+    ["project_id", "pipeline_pk"],
 )
 
 projects_router.register(
