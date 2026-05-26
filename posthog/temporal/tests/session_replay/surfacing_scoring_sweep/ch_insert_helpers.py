@@ -10,6 +10,7 @@ same pattern as ``session_replay_sql.produce_replay_summary``.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 
@@ -81,9 +82,12 @@ def insert_session_replay_event(
         sync_execute(_INSERT_SESSION_REPLAY_EVENT_NOW_SQL, params)
         return
 
-    params["start"] = start
-    params["end"] = end or start
-    sync_execute(_INSERT_SESSION_REPLAY_EVENT_AT_SQL, params)
+    at_params: dict[str, Any] = {
+        **params,
+        "start": start,
+        "end": end or start,
+    }
+    sync_execute(_INSERT_SESSION_REPLAY_EVENT_AT_SQL, at_params)
 
 
 def insert_replay_features(

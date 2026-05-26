@@ -85,11 +85,11 @@ shows up as a `validate_features` failure rather than silent score skew.
 
 Three artifacts must stay identical (same columns, same order):
 
-| Artifact | Source of truth for |
-| -------- | ------------------- |
-| `fetch_features_sql()` final SELECT aliases | What ClickHouse returns |
-| `FEATURE_RANGES` keys in `features.py` | Runtime dtype/range validation |
-| `booster.feature_names` in `model.ubj` | What XGBoost predicts on |
+| Artifact                                    | Source of truth for            |
+| ------------------------------------------- | ------------------------------ |
+| `fetch_features_sql()` final SELECT aliases | What ClickHouse returns        |
+| `FEATURE_RANGES` keys in `features.py`      | Runtime dtype/range validation |
+| `booster.feature_names` in `model.ubj`      | What XGBoost predicts on       |
 
 `feature_schema.py` enforces parity:
 
@@ -100,6 +100,7 @@ Three artifacts must stay identical (same columns, same order):
 - **Retrain workflow**: after changing SQL or `FEATURE_RANGES`, regenerate the
   model with `python bin/generate_surfacing_placeholder_model.py` (placeholder)
   or mount a prod-trained `.ubj` whose `feature_names` match the SELECT list.
+  Refresh example fixtures with `python bin/generate_surfacing_example_fixtures.py`.
 
 When adding/removing a feature: update `sql.py` SELECT + `FEATURE_RANGES`,
 retrain/replace the booster, bump `MODEL_FEATURE_SCHEMA_VERSION`, rerun the

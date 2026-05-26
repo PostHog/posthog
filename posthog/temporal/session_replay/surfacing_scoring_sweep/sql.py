@@ -150,7 +150,6 @@ SELECT
     uniqCombinedMerge(12)(f.unique_form_field_count)   AS unique_form_fields
 FROM {features_table} AS f
 WHERE (f.team_id, f.session_id) GLOBAL IN (SELECT team_id, session_id FROM eligible_sessions)
-  AND f.min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)
 GROUP BY f.team_id, f.session_id
 """.strip()
 
@@ -260,10 +259,10 @@ WITH eligible_sessions AS (
         any(distinct_id) AS distinct_id,
         min(min_first_timestamp) AS min_first_timestamp
     FROM {replay_events_table}
-    WHERE min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)
-      AND cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
+    WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
+      AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)
     -- ORDER BY makes LIMIT deterministic across the two CTE evaluations
     -- (CH inlines CTEs as subqueries — without a stable order, the GLOBAL IN
     -- subquery and the final FROM could pick different subsets and the
@@ -362,10 +361,10 @@ SELECT count()
 FROM (
     SELECT session_id
     FROM {replay_events_table}
-    WHERE min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)
-      AND cityHash64(session_id) %% %(of_chunks)s = 0
+    WHERE cityHash64(session_id) %% %(of_chunks)s = 0
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
+      AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)
 )
 """.strip()
 
