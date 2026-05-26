@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from products.signals.backend.models import SignalScratchpad
 
@@ -78,21 +78,31 @@ def remember(
     """
     _validate_key_content(key, content)
 
+    try:
+        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id)
+    except IntegrityError:
+        # Lost the create race: our SELECT saw no row, but a concurrent request
+        # committed an insert for the same `(team, key)` before ours, tripping the
+        # unique constraint. The row now exists, so a single retry resolves to the
+        # update branch and preserves the idempotent-upsert contract.
+        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id)
+    return _to_entry(row)
+
+
+def _upsert_entry(*, team_id: int, key: str, content: str, run_id: str | None) -> SignalScratchpad:
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         if existing is None:
-            row = SignalScratchpad.objects.create(
+            return SignalScratchpad.objects.create(
                 team_id=team_id,
                 key=key,
                 content=content,
                 created_by_run_id=run_id,
             )
-        else:
-            existing.content = content
-            # Don't overwrite `created_by_run` so we keep the original creator's lineage.
-            existing.save(update_fields=["content", "updated_at"])
-            row = existing
-    return _to_entry(row)
+        existing.content = content
+        # Don't overwrite `created_by_run` so we keep the original creator's lineage.
+        existing.save(update_fields=["content", "updated_at"])
+        return existing
 
 
 def forget(*, team_id: int, key: str) -> bool:
