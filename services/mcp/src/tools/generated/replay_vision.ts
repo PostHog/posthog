@@ -14,6 +14,21 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const VisionScannersGetSchema = VisionScannersRetrieveParams.omit({ project_id: true })
+
+const visionScannersGet = (): ToolBase<typeof VisionScannersGetSchema, Schemas.ReplayScanner> => ({
+    name: 'vision-scanners-get',
+    schema: VisionScannersGetSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReplayScanner>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const VisionScannersListSchema = VisionScannersListQueryParams
 
 const visionScannersList = (): ToolBase<
@@ -37,6 +52,24 @@ const visionScannersList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/replay-vision')
+    },
+})
+
+const VisionScannersObservationsGetSchema = VisionScannersObservationsRetrieveParams.omit({ project_id: true })
+
+const visionScannersObservationsGet = (): ToolBase<
+    typeof VisionScannersObservationsGetSchema,
+    Schemas.ReplayObservation
+> => ({
+    name: 'vision-scanners-observations-get',
+    schema: VisionScannersObservationsGetSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersObservationsGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReplayObservation>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
     },
 })
 
@@ -68,24 +101,6 @@ const visionScannersObservationsList = (): ToolBase<
     },
 })
 
-const VisionScannersObservationsGetSchema = VisionScannersObservationsRetrieveParams.omit({ project_id: true })
-
-const visionScannersObservationsGet = (): ToolBase<
-    typeof VisionScannersObservationsGetSchema,
-    Schemas.ReplayObservation
-> => ({
-    name: 'vision-scanners-observations-get',
-    schema: VisionScannersObservationsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof VisionScannersObservationsGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayObservation>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const VisionScannersScanSessionSchema = VisionScannersObserveCreateParams.omit({ project_id: true }).extend(
     VisionScannersObserveCreateBody.shape
 )
@@ -108,25 +123,10 @@ const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionS
     },
 })
 
-const VisionScannersGetSchema = VisionScannersRetrieveParams.omit({ project_id: true })
-
-const visionScannersGet = (): ToolBase<typeof VisionScannersGetSchema, Schemas.ReplayScanner> => ({
-    name: 'vision-scanners-get',
-    schema: VisionScannersGetSchema,
-    handler: async (context: Context, params: z.infer<typeof VisionScannersGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayScanner>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'vision-scanners-list': visionScannersList,
-    'vision-scanners-observations-list': visionScannersObservationsList,
-    'vision-scanners-observations-get': visionScannersObservationsGet,
-    'vision-scanners-scan-session': visionScannersScanSession,
     'vision-scanners-get': visionScannersGet,
+    'vision-scanners-list': visionScannersList,
+    'vision-scanners-observations-get': visionScannersObservationsGet,
+    'vision-scanners-observations-list': visionScannersObservationsList,
+    'vision-scanners-scan-session': visionScannersScanSession,
 }
