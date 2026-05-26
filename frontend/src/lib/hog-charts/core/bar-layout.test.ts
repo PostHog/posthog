@@ -119,12 +119,11 @@ describe('hog-charts bar-layout', () => {
             expect(bars[0]?.corners).toEqual(expectedCorners)
         })
 
-        it('throws when stackedBand is omitted for non-grouped layouts', () => {
+        it('returns nulls when stackedBand is omitted for non-grouped layouts', () => {
             const s = makeSeries({ key: 's', data: [10] })
             const scales = createBarScales([s], ['a'], dimensions, { barLayout: 'stacked' })
-            expect(() => layoutOf({ series: s, scales, layout: 'stacked', isTopOfStack: true })).toThrow(
-                /stackedBand is required/
-            )
+            const bars = layoutOf({ series: s, scales, layout: 'stacked', isTopOfStack: true })
+            expect(bars).toEqual([null])
         })
 
         it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {
