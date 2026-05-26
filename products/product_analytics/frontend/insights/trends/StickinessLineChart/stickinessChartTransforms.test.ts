@@ -1,6 +1,8 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { TooltipConfig } from 'lib/hog-charts'
 
+import { ChartDisplayType } from '~/types'
+
 import {
     buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
@@ -90,6 +92,22 @@ describe('stickinessChartTransforms', () => {
                 showMultipleYAxes: true,
             })
             expect(series.yAxisId).toBe(DEFAULT_Y_AXIS_ID)
+        })
+
+        it('attaches an empty fill object when display is ActionsAreaGraph', () => {
+            const series = buildStickinessMainSeries(makeResult(), 0, {
+                getColor: () => RED,
+                display: ChartDisplayType.ActionsAreaGraph,
+            })
+            expect(series.fill).toEqual({})
+        })
+
+        it('leaves fill undefined for non-area displays', () => {
+            const series = buildStickinessMainSeries(makeResult(), 0, {
+                getColor: () => RED,
+                display: ChartDisplayType.ActionsLineGraph,
+            })
+            expect(series.fill).toBeUndefined()
         })
 
         it('passes the result index through to getColor and buildMeta', () => {
