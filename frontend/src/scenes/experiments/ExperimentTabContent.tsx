@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import type { FeatureFlagType } from '~/types'
 
@@ -49,7 +49,16 @@ export const ExperimentTabContent = ({
 
     return (
         <div className="space-y-4">
-            {relatedExperiments.length === 0 && <CreateDraftExperimentCard featureFlag={featureFlag} />}
+            {relatedExperimentsLoading ? (
+                <div className="border rounded p-4 bg-bg-light space-y-3">
+                    <LemonSkeleton className="h-6 w-1/2" />
+                    <LemonSkeleton className="h-4 w-3/4" />
+                    <LemonSkeleton className="h-9 w-full" />
+                    <LemonSkeleton className="h-9 w-32" />
+                </div>
+            ) : (
+                relatedExperiments.length === 0 && <CreateDraftExperimentCard featureFlag={featureFlag} />
+            )}
             <RelatedExperimentsTable
                 relatedExperiments={relatedExperiments}
                 relatedExperimentsLoading={relatedExperimentsLoading}
