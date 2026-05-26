@@ -151,22 +151,34 @@ export function AgentPromptButton({
         setRemembered({ actionKey, agentKey: remembered?.agentKey ?? null })
     }
 
+    const runCombo = (actionKey: string, agentKey: string): void => {
+        const action = actions.find((a) => a.key === actionKey) ?? actions[0]
+        const prompt = action.buildPrompt()
+        if (agentKey === CLIPBOARD_KEY) {
+            void copyToClipboard(prompt, `${action.label.toLowerCase()} prompt`)
+            return
+        }
+        const agent = AGENTS.find((a) => a.key === agentKey)
+        if (agent) {
+            invokeAgent(agent, prompt)
+        }
+    }
+
     const selectAgent = (agentKey: string): void => {
-        setRemembered({ actionKey: remembered?.actionKey ?? actions[0].key, agentKey })
+        const actionKey = remembered?.actionKey ?? actions[0].key
+        setRemembered({ actionKey, agentKey })
         setOpen(false)
+        // Picking an agent saves it as the favorite AND runs the combo immediately,
+        // so the dropdown doubles as a one-click action picker.
+        runCombo(actionKey, agentKey)
     }
 
     const handleMainClick = (): void => {
-        if (!hasTarget) {
+        if (!hasTarget || !remembered?.agentKey) {
             setOpen(true)
             return
         }
-        const prompt = activeAction.buildPrompt()
-        if (isClipboard) {
-            void copyToClipboard(prompt, `${activeAction.label.toLowerCase()} prompt`)
-        } else if (activeAgent) {
-            invokeAgent(activeAgent, prompt)
-        }
+        runCombo(remembered.actionKey, remembered.agentKey)
     }
 
     return (
