@@ -147,6 +147,12 @@ def lint_owners(names: list[str] | None = None) -> None:
                 click.echo(f"⚠ skipping '{name}': not a product directory")
                 continue
             targets.append(d)
+        # If the caller passed names but none resolved, treat it as an error —
+        # otherwise an unexpected slug from CI's sed/xargs pipeline would slip
+        # through as a silent green ("✓ All 0 product owners are valid").
+        if not targets:
+            click.echo("✗ None of the provided names matched a product directory — nothing validated")
+            raise SystemExit(1)
     else:
         targets = sorted(
             d

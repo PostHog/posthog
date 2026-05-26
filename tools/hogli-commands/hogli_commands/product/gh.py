@@ -10,8 +10,11 @@ _fetch_err: str = ""
 _fetch_attempted: bool = False
 
 
-def get_team_slugs(org: str = "PostHog") -> tuple[set[str] | None, str]:
-    """Fetch GitHub team slugs visible in ``org``. Cached after the first call.
+_ORG = "PostHog"
+
+
+def get_team_slugs() -> tuple[set[str] | None, str]:
+    """Fetch GitHub team slugs visible in the PostHog org. Cached after the first call.
 
     Uses ``/orgs/{org}/teams`` (requires ``members: read``) rather than the
     repo-collaborator endpoint ``/repos/{repo}/teams``. The repo endpoint would
@@ -36,7 +39,7 @@ def get_team_slugs(org: str = "PostHog") -> tuple[set[str] | None, str]:
 
     try:
         result = subprocess.run(
-            ["gh", "api", f"orgs/{org}/teams", "--paginate", "--jq", ".[].slug"],
+            ["gh", "api", f"orgs/{_ORG}/teams", "--paginate", "--jq", ".[].slug"],
             capture_output=True,
             text=True,
             timeout=15,
