@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { ReadOnlyModeError } from 'lib/readOnlyGuard'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { hogql } from '~/queries/utils'
@@ -43,18 +42,13 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         })
                         return !!res.results?.find((x) => !!x[0])
                     } catch (error) {
-                        // Read-only mode blocks every POST by design — afterMount fires on
-                        // every scene, so reporting these floods error tracking with expected
-                        // failures. Bail out without capturing.
-                        if (
-                            error instanceof ReadOnlyModeError ||
-                            (error as Error)?.cause instanceof ReadOnlyModeError
-                        ) {
-                            return values.hasReverseProxy
-                        }
                         // This check is advisory (used only to auto-complete a setup task).
                         // Swallow errors so kea-loaders does not surface a user-visible toast
                         // on every scene that mounts ProductSetupButton.
+                        //
+                        // ReadOnlyModeError is filtered centrally by the `before_send`
+                        // hook in `selfReadOnlyModeLogic` (the chain walk catches it
+                        // via the wrapping `Error` `cause`).
                         posthog.captureException(
                             new Error('reverseProxyCheckerLogic: loadHasReverseProxy query failed', { cause: error })
                         )
