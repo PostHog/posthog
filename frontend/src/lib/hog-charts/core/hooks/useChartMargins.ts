@@ -41,11 +41,11 @@ function widestCategoryLabelWidth(
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
     const range = seriesValueRange(series)
-    if (range.count === 0) {
-        return 0
-    }
-    const min = range.min > 0 ? 0 : range.min
-    const max = range.max < 0 ? 0 : range.max
+    // Empty series still render a y-axis from the fallback [0, 1] domain (see createYScale /
+    // buildBarValueScale). Size the margin for those default tick labels so they don't get
+    // clipped against the left edge.
+    const min = range.count === 0 ? 0 : range.min > 0 ? 0 : range.min
+    const max = range.count === 0 ? 1 : range.max < 0 ? 0 : range.max
     const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
     if (ticks.length === 0) {
         return 0

@@ -38,6 +38,14 @@ describe('useChartMargins', () => {
         expect(render({ series: [], labels: [] }).left).toBeGreaterThanOrEqual(20)
     })
 
+    it('sizes the left margin for fallback [0, 1] ticks when series is empty', () => {
+        // Empty series still render a y-axis from the [0, 1] fallback domain — the margin
+        // needs to fit those default tick labels ("0.00", "0.20", …, "1.00"), not collapse
+        // to MIN_LEFT_MARGIN, otherwise the labels get clipped on the left.
+        const widthFor4Chars = 4 * 10 + 12 // mocked measureLabelWidth + Y_LABEL_RIGHT_PADDING
+        expect(render({ series: [], labels: [] }).left).toBe(widthFor4Chars)
+    })
+
     it('grows the right margin to at least 48 when multiple y-axes are present', () => {
         const dual: Series[] = [
             { key: 'a', label: 'A', data: [1, 2, 3] },
