@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { Suspense, lazy } from 'react'
 
 import { IconWrench } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -93,10 +93,19 @@ function SessionSceneWrapper(): JSX.Element {
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
-    const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
-        useValues(llmAnalyticsSessionDataLogic)
+    const {
+        traces,
+        responseLoading,
+        responseError,
+        sessionTurns,
+        hasMoreData,
+        nextDataLoading,
+        summariesLoading,
+        bulkLoadError,
+        bulkLoadInFlight,
+    } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { summarizeAllTraces, loadNextData } = useActions(llmAnalyticsSessionDataLogic)
+    const { summarizeAllTraces, loadNextData, loadAllSessionEvents } = useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     // Compute the URL search-param passthrough once for the page, not per turn —
     // every `SessionTurnView` consumes the same `traceSearchParams`.
@@ -164,6 +173,22 @@ function SessionSceneWrapper(): JSX.Element {
                     />
                 )}
             </header>
+
+            {bulkLoadError && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: loadAllSessionEvents,
+                        loading: bulkLoadInFlight,
+                    }}
+                >
+                    <div className="space-y-1">
+                        <p className="font-semibold">Couldn't load session content</p>
+                        <p>{bulkLoadError}</p>
+                    </div>
+                </LemonBanner>
+            )}
 
             <div className="flex flex-col">
                 {sessionTurns.map((turn) => (
