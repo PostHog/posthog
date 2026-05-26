@@ -26,11 +26,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.hog_flow_inputs import (
-    INLINE_ENCRYPTED_MARKER,
-    encrypt_secret_inputs,
-    mask_secret_inputs_for_read,
-)
+from posthog.cdp.hog_flow_inputs import INLINE_ENCRYPTED_MARKER, encrypt_secret_inputs, mask_secret_inputs_for_read
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,

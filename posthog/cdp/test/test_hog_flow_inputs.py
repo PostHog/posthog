@@ -1,11 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.hog_flow_inputs import (
-    INLINE_ENCRYPTED_MARKER,
-    encrypt_secret_inputs,
-    mask_secret_inputs_for_read,
-)
-
+from posthog.cdp.hog_flow_inputs import INLINE_ENCRYPTED_MARKER, encrypt_secret_inputs, mask_secret_inputs_for_read
 
 SCHEMA = [
     {"key": "url", "type": "string", "secret": False},
