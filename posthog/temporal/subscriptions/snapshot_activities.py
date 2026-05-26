@@ -43,6 +43,10 @@ SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET = Counter(
     "posthog_subscription_ai_summary_skipped_over_credit_budget_total",
     "AI summary skipped because the organization is over its AI credit budget",
 )
+SUBSCRIPTION_SUMMARY_CREDIT_CHECK_FAILED = Counter(
+    "posthog_subscription_ai_summary_credit_check_failed_total",
+    "AI credit budget lookup errored; the summary was generated (fail-open)",
+)
 SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED = Counter(
     "posthog_subscription_ai_summary_image_skipped_total",
     "AI summary image attachment skipped for an insight",
@@ -435,18 +439,16 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         )
         return SnapshotInsightsResult()
 
-    # Stop generating summaries once the org is over its AI credit budget — the same
-    # billing quota-limiting signal the chat assistant enforces (ee/api/conversation.py).
-    # Degrade gracefully (skip the summary, deliver the rest) rather than fail the delivery.
-    # is_team_limited reads an in-process-cached Redis set (not the DB), so use sync_to_async
-    # to keep the event loop free. Fail open: if the quota lookup itself errors, generate the
-    # summary rather than silently dropping it on a transient cache/Redis blip.
+    # Over budget: skip the summary but still deliver the rest of the subscription —
+    # graceful degradation beats failing the whole delivery. Fail open on a quota-lookup
+    # error: generate the summary rather than silently dropping it on a transient blip.
     try:
         is_over_credit_budget = await sync_to_async(is_team_limited, thread_sensitive=False)(
             subscription.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
     except Exception as e:
         is_over_credit_budget = False
+        SUBSCRIPTION_SUMMARY_CREDIT_CHECK_FAILED.inc()
         await LOGGER.awarning(
             "snapshot_subscription_insights.credit_budget_check_failed",
             subscription_id=inputs.subscription_id,
@@ -460,7 +462,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             subscription_id=inputs.subscription_id,
             organization_id=str(subscription.team.organization_id),
         )
-        return SnapshotInsightsResult()
+        return SnapshotInsightsResult(summary_skipped_over_budget=True)
 
     if not inputs.delivery_id:
         return SnapshotInsightsResult()

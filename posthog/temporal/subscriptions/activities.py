@@ -394,6 +394,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     total_asset_count=inputs.total_insight_count,
                     send_async=False,
                     change_summary=inputs.change_summary,
+                    summary_skipped_over_budget=inputs.summary_skipped_over_budget,
                 )
                 success_count += 1
                 recipient_results.append(RecipientResult(recipient=email, status="success"))
@@ -465,6 +466,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 total_asset_count=inputs.total_insight_count,
                 is_new_subscription=inputs.is_new_subscription_target,
                 change_summary=inputs.change_summary,
+                summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             )
 
             if delivery_result.is_complete_success:

@@ -115,6 +115,34 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
         assert f"SHOWING 1 OF 10 DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
 
+    def test_shows_summary_skipped_notice_when_over_budget(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+
+        send_email_subscription_report(
+            "test1@posthog.com",
+            self.subscription,
+            [self.asset],
+            summary_skipped_over_budget=True,
+        )
+
+        assert "AI summary skipped" in mocked_email_messages[0].html_body
+        assert "AI credit usage limit" in mocked_email_messages[0].html_body
+
+    def test_no_summary_skipped_notice_when_summary_present(self, MockEmailMessage: MagicMock) -> None:
+        # A generated summary renders instead of the skip notice — never both.
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+
+        send_email_subscription_report(
+            "test1@posthog.com",
+            self.subscription,
+            [self.asset],
+            change_summary="- Pageviews trending up",
+            summary_skipped_over_budget=True,
+        )
+
+        assert "AI summary:" in mocked_email_messages[0].html_body
+        assert "AI summary skipped" not in mocked_email_messages[0].html_body
+
     def test_same_recipient_gets_distinct_campaign_per_subscription(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 

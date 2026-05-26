@@ -16,6 +16,13 @@ from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_ME
 
 logger = structlog.get_logger(__name__)
 
+# Shown in place of the AI summary when generation was skipped because the org is
+# over its AI credit budget. Wording kept in sync with the email template's notice.
+SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE = (
+    "_AI summary skipped — your organization has reached its AI credit usage limit. "
+    "Increase the limit in Billing settings to resume summaries._"
+)
+
 # Slack API error codes that indicate transient server-side issues — safe to retry.
 # These are 5xx-equivalents in Slack's string-coded error model. Permanent errors
 # (channel_not_found, invalid_auth, etc.) are NOT in this set and should fail fast.
@@ -123,6 +130,7 @@ def _prepare_slack_message(
     total_asset_count: int,
     is_new_subscription: bool = False,
     change_summary: str | None = None,
+    summary_skipped_over_budget: bool = False,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -157,6 +165,10 @@ def _prepare_slack_message(
         if len(summary_text) > 3000:
             summary_text = summary_text[:2997] + "..."
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+    elif summary_skipped_over_budget:
+        blocks.append(
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE}]}
+        )
 
     blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 
@@ -279,9 +291,15 @@ async def send_slack_message_with_integration_async(
     total_asset_count: int,
     is_new_subscription: bool = False,
     change_summary: str | None = None,
+    summary_skipped_over_budget: bool = False,
 ) -> SlackDeliveryResult:
     message_data = _prepare_slack_message(
-        subscription, assets, total_asset_count, is_new_subscription, change_summary=change_summary
+        subscription,
+        assets,
+        total_asset_count,
+        is_new_subscription,
+        change_summary=change_summary,
+        summary_skipped_over_budget=summary_skipped_over_budget,
     )
     slack_integration = SlackIntegration(integration)
 

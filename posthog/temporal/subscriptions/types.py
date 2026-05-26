@@ -88,6 +88,7 @@ class DeliverSubscriptionInputs:
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
+    summary_skipped_over_budget: bool = False
 
 
 @dataclasses.dataclass
@@ -185,6 +186,10 @@ class SnapshotInsightsInputs:
 @dataclasses.dataclass
 class SnapshotInsightsResult:
     summary_text: str | None = None
+    # True only when the summary was skipped because the org is over its AI credit
+    # budget — distinct from summary_text=None on disabled/no-consent skips, which
+    # carry no user-facing notice. Drives the "summary skipped" line in the report.
+    summary_skipped_over_budget: bool = False
 
 
 @dataclasses.dataclass

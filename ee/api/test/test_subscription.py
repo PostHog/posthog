@@ -676,13 +676,17 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("over_budget", True, status.HTTP_402_PAYMENT_REQUIRED),
-            ("under_budget", False, status.HTTP_201_CREATED),
+            # The credit gate fires only when a summary is being switched on: an over-budget
+            # org is blocked when summary_enabled=True but can still create plain subscriptions.
+            ("summary_on_over_budget", True, True, status.HTTP_402_PAYMENT_REQUIRED),
+            ("summary_on_under_budget", True, False, status.HTTP_201_CREATED),
+            ("summary_off_over_budget", False, True, status.HTTP_201_CREATED),
         ]
     )
     def test_create_summary_enabled_respects_ai_credit_budget(
         self,
         _name: str,
+        summary_enabled: bool,
         is_limited: bool,
         expected_status: int,
     ) -> None:
@@ -690,7 +694,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
 
         with patch("ee.api.subscription.is_team_limited", return_value=is_limited):
-            response = self._create_subscription(summary_enabled=True)
+            response = self._create_subscription(summary_enabled=summary_enabled)
 
         assert response.status_code == expected_status, response.content
         if expected_status == status.HTTP_402_PAYMENT_REQUIRED:

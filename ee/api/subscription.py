@@ -294,8 +294,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # — otherwise PATCHing `deleted=False` on a grandfathered row would
         # bypass the cap entirely.
         if self._is_becoming_active_summary(attrs):
-            organization = self.context["get_organization"]()
+            # Reject on the Redis quota signal before the DB org fetch, so an over-budget
+            # org doesn't trigger a needless query just to be turned away.
             self._validate_summary_credit_budget()
+            organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
         return attrs
@@ -311,10 +313,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return post_active and not pre_active
 
     def _validate_summary_credit_budget(self) -> None:
-        # Mirror the chat assistant's entry-point gate (ee/api/conversation.py): refuse to
-        # turn a summary on while the org is over its AI credit budget. is_team_limited reads
-        # the billing quota-limiting cache — the same signal Max chat enforces — not the
-        # display-only /usage credit calculation.
+        # Refuse to turn a summary on while the org is over its AI credit budget,
+        # mirroring the chat assistant's gate (ee/api/conversation.py).
         team = self.context["get_team"]()
         if is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
             raise QuotaLimitExceeded(
