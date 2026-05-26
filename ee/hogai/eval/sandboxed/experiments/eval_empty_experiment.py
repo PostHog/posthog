@@ -37,7 +37,7 @@ snapshot, or checking ``experiment-stats``).
 To run:
 
     flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
+        pytest -c ee/hogai/eval/sandboxed/pytest.ini \\
         ee/hogai/eval/sandboxed/experiments/eval_empty_experiment.py \\
         -v --mcp-mode tools"
 """

@@ -35,7 +35,7 @@ final diagnosis and the no-edit recommendation are.
 To run:
 
     flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
+        pytest -c ee/hogai/eval/sandboxed/pytest.ini \\
         ee/hogai/eval/sandboxed/experiments/eval_midrun_changes.py \\
         -v --mcp-mode tools"
 """

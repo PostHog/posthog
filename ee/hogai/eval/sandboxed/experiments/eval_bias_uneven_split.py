@@ -25,7 +25,7 @@ Two cases:
 To run:
 
     flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
+        pytest -c ee/hogai/eval/sandboxed/pytest.ini \\
         ee/hogai/eval/sandboxed/experiments/eval_bias_uneven_split.py \\
         -v --mcp-mode tools"
 """

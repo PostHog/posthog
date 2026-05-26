@@ -13,7 +13,7 @@ local logs and PostHog ``$ai_trace`` events still emit.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
+        pytest -c ee/hogai/eval/sandboxed/pytest.ini \\
         ee/hogai/eval/sandboxed/experiments/eval_rollout_skill.py \\
         -v --mcp-mode tools --eval rollout"
 """

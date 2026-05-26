@@ -26,7 +26,7 @@ create call will flip this scorer to 0.0.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
+        pytest -c ee/hogai/eval/sandboxed/pytest.ini \\
         ee/hogai/eval/sandboxed/experiments/eval_create_control_variant.py \\
         -v --mcp-mode tools"
 """

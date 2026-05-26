@@ -54,19 +54,9 @@ def pytest_addoption(parser):
             "with one case can't starve a test with twenty. Set to 0 to disable the cap."
         ),
     )
-    parser.addoption(
-        "--concurrent-evals",
-        action="store_true",
-        default=False,
-        help=(
-            "Replace the individual eval_* tests with a single batch test that gathers every "
-            "sandboxed eval_* coroutine into one event loop. Combined with --sandbox-concurrency, "
-            "this keeps the Docker-slot budget saturated across heterogeneous eval suites."
-        ),
-    )
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     """Sandboxed-eval collection adjustments.
 
     1. Strip accidental ``django_db`` markers from sandboxed items — the
@@ -77,19 +67,21 @@ def pytest_collection_modifyitems(config, items):
        tests, defeating the long-lived eval database.
        ``_sandboxed_eval_database_access`` below creates the DB once and
        leaves access unblocked for the whole eval session.
-    2. Resolve the batch-runner / individual-eval mutual exclusion based on
-       the ``--concurrent-evals`` flag (see below).
+    2. Apply the ``asyncio_cooperative`` marker to every sandboxed eval item
+       so pytest-asyncio-cooperative runs them concurrently in one event
+       loop. Combined with the per-loop semaphore on ``SandboxedDemoData``
+       (see ``--sandbox-concurrency``), suites that produce a single case can
+       no longer starve suites with many. Requires ``-p no:asyncio`` (set in
+       ``ee/hogai/eval/sandboxed/pytest.ini``) — pytest-asyncio and
+       pytest-asyncio-cooperative are mutually exclusive at runtime.
     """
     base_dir = Path(__file__).parent
-    batch_module_path = base_dir / "eval_all.py"
-    sandboxed_items: list = []
     for item in items:
         try:
             test_path = Path(str(item.fspath))
             test_path.relative_to(base_dir)
         except (TypeError, ValueError):
             continue
-        sandboxed_items.append(item)
         node = item
         while node is not None:
             own_markers = getattr(node, "own_markers", None)
@@ -97,31 +89,7 @@ def pytest_collection_modifyitems(config, items):
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
         item.keywords.pop("django_db", None)
-
-    # The batch runner (eval_all.py) and the individual eval_* tests are
-    # mutually exclusive. --concurrent-evals selects the batch runner and
-    # deselects the individuals; without the flag we deselect the batch
-    # runner instead, otherwise it would double-run every suite.
-    concurrent_mode = config.getoption("--concurrent-evals")
-    deselected: list = []
-    remaining: list = []
-    for item in items:
-        try:
-            test_path = Path(str(item.fspath))
-        except (TypeError, ValueError):
-            remaining.append(item)
-            continue
-        is_batch = item in sandboxed_items and test_path == batch_module_path
-        is_individual_eval = item in sandboxed_items and test_path != batch_module_path
-        if concurrent_mode and is_individual_eval:
-            deselected.append(item)
-        elif not concurrent_mode and is_batch:
-            deselected.append(item)
-        else:
-            remaining.append(item)
-    if deselected:
-        config.hook.pytest_deselected(items=deselected)
-        items[:] = remaining
+        item.add_marker(pytest.mark.asyncio_cooperative)
 
 
 @pytest.fixture(scope="session")

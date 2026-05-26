@@ -26,7 +26,7 @@ Skill-load coverage belongs in a focused, single-purpose eval.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
+        pytest -c ee/hogai/eval/sandboxed/pytest.ini \\
         ee/hogai/eval/sandboxed/experiments/eval_lifecycle_skills.py \\
         -v --mcp-mode tools"
 """
@@ -46,12 +46,15 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredTo
 
 # Cases are bundled into one test function rather than @pytest.mark.parametrize
 # because the sandboxed harness wraps a list of cases in a single
-# SandboxedPrivateEval call: one Braintrust experiment, parallel execution via
-# max_concurrency=2, per-case filtering via --eval at the runner level. Pytest-
-# level parametrize would create N separate Braintrust experiments, lose the
-# parallelism, and break cross-case comparison. Every existing sandboxed eval
-# (eval_funnel, eval_retention, eval_insight_retrieval, eval_rollout_skill)
-# follows this same single-function-multiple-cases shape.
+# SandboxedPrivateEval call: one Braintrust experiment, parallel execution
+# gated by the session-wide --sandbox-concurrency semaphore (shared with
+# every other eval_* via pytest-asyncio-cooperative), per-case filtering via
+# --eval at the runner level. Pytest-level parametrize would create N
+# separate Braintrust experiments, fragment the cross-case comparison, and
+# spread cases across more invocations than the cooperative loop needs.
+# Every existing sandboxed eval (eval_funnel, eval_retention,
+# eval_insight_retrieval, eval_rollout_skill) follows this same
+# single-function-multiple-cases shape.
 async def eval_lifecycle_skills(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases: list[SandboxedEvalCase] = [
         # Case 1: Ship variant must require confirmation.
