@@ -248,7 +248,7 @@ def generate_session_intent(team: Team, session_id: str) -> str:
     ``(team, session_id)``). A session with no recorded intents returns ``NO_INTENT_MESSAGE``
     without an LLM call and without persisting anything, so it stays retryable and the listing
     doesn't surface a non-intent as an intent.
-    Raises ``intent_generation.IntentGenerationUnavailable`` if the LLM is unreachable.
+    Raises ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
     existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
     if existing:

@@ -17,7 +17,7 @@ from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.permissions import SingleTenancyOrAdmin
 
-from products.mcp_analytics.backend import intent_generation, logic
+from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -218,7 +218,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             intent = api.generate_session_intent(self.team, session_id=session_id)
-        except intent_generation.IntentGenerationUnavailable:
+        except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent generation is unavailable (LLM not configured)."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
