@@ -22360,7 +22360,7 @@ class ExperimentHoldoutType(BaseModel):
     created_by: UserBasicType | None = None
     description: str | None = None
     filters: list[FeatureFlagGroupType]
-    id: float | None = None
+    id: int
     name: str
     updated_at: str | None = None
 
