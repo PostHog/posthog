@@ -1,4 +1,3 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { TooltipConfig } from 'lib/hog-charts'
 
 import { type StickinessResultLike } from '../StickinessLineChart/stickinessChartTransforms'
@@ -50,14 +49,6 @@ describe('stickinessBarChartTransforms', () => {
         it('falls back to empty string label when result label is null', () => {
             const series = buildStickinessBarSeries([makeResult({ label: null })], { getColor: () => RED })
             expect(series[0].label).toBe('')
-        })
-
-        it('keeps index 0 on the default y-axis even when showMultipleYAxes is true', () => {
-            const series = buildStickinessBarSeries([makeResult()], {
-                getColor: () => RED,
-                showMultipleYAxes: true,
-            })
-            expect(series[0].yAxisId).toBe(DEFAULT_Y_AXIS_ID)
         })
 
         it('passes the result index through to getColor and buildMeta', () => {

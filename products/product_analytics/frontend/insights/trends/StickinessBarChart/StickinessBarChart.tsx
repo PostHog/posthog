@@ -58,7 +58,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         display,
         interval,
         yAxisScaleType,
-        showMultipleYAxes,
         getTrendsColor,
         getTrendsHidden,
         currentPeriodResult,
@@ -85,10 +84,11 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
+    // No `showMultipleYAxes` passthrough — `TimeSeriesBarChart` only declares a single
+    // y-axis today. All series land on `DEFAULT_Y_AXIS_ID` until multi-axis support arrives.
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-                showMultipleYAxes: showMultipleYAxes ?? undefined,
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
                 buildMeta: (rr) => ({
@@ -100,7 +100,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                     filter: rr.filter,
                 }),
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, showMultipleYAxes]
+        [indexedResults, getTrendsColor, getTrendsHidden]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useMemo(
