@@ -609,20 +609,10 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = PostHogCodeSlackMentionWorkflowInputs(
-            event={
-                "channel": "C123",
-                "ts": "1234.5678",
-                "user": "U_INCIDENT_BOT",
-                "text": "<@BOT> incident: ...",
-                "bot_id": "B0ALERT",
-                "app_id": "A0ALERT",
-            },
-            integration_id=self.integration.id,
-            slack_team_id="T_SLACK",
-        )
+        inputs = _make_inputs(self.integration.id)
+        inputs.event["bot_id"] = "B0ALERT"
         result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_INCIDENT_BOT", "<@BOT> incident: ...", "1234.5679"
+            inputs, "C123", "1234.5678", "U_INCIDENT_BOT", inputs.event["text"], "1234.5679"
         )
         assert result is True
         mock_slack_instance.client.chat_postMessage.assert_not_called()

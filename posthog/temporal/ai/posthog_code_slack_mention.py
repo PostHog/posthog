@@ -1207,16 +1207,9 @@ def forward_posthog_code_followup_activity(
     if _parse_rules_command(event_text):
         return False
 
-    # Defense in depth — the webhook also filters these. Don't post the "only the
-    # original requester…" reply to a foreign bot; that's how the loop starts.
+    # Defense in depth — the webhook filters these too; this catches anything in flight.
     if _is_bot_authored_app_mention(inputs.event):
-        logger.info(
-            "posthog_code_followup_bot_authored_dropped",
-            channel=channel,
-            thread_ts=thread_ts,
-            bot_id=inputs.event.get("bot_id"),
-            app_id=inputs.event.get("app_id"),
-        )
+        logger.info("posthog_code_followup_bot_authored_dropped", channel=channel, thread_ts=thread_ts)
         return True
 
     try:

@@ -138,7 +138,6 @@ class TestPostHogCodeEventHandler(TestCase):
         mock_config,
         mock_route,
     ):
-        # Unfurling bot-posted alert URLs is the whole point of link_shared.
         mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = "handled_locally"
         payload = {
