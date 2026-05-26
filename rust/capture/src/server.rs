@@ -93,6 +93,7 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         app,
         server_handle,
         sink,
+        v1_sink_router,
         http1_header_read_timeout_ms,
     } = components;
 
@@ -227,12 +228,16 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         graceful.shutdown().await;
         info!("Hyper accept loop (shutdown): graceful shutdown completed");
 
-        // Flush the Kafka producer queue. Events from in-flight handlers may still
-        // be in rdkafka's internal buffer. flush() blocks until the queue drains or
-        // times out (default 30s from rdkafka config).
-        info!("Flushing sink...");
+        // Legacy sink flush is synchronous (rdkafka); v1 sinks use spawn_blocking
+        // internally (see KafkaSink::flush). Sequential here until legacy is retired.
+        info!("Flushing sinks...");
         if let Err(e) = sink.flush() {
             error!("Sink flush failed: {e:#}");
+        }
+        if let Some(ref v1_router) = v1_sink_router {
+            if let Err(e) = v1_router.flush().await {
+                error!("V1 sink router flush failed: {e:#}");
+            }
         }
         info!("Sink flush complete");
 
