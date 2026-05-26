@@ -334,6 +334,12 @@ def _get_docker_sandbox_class() -> SandboxClass:
     return DockerSandbox
 
 
+def _get_hogland_sandbox_class() -> SandboxClass:
+    from .hogland_sandbox import HoglandSandbox
+
+    return HoglandSandbox
+
+
 def _get_modal_docker_sandbox_class() -> SandboxClass:
     """Modal sandbox with a separate app name for local development.
 
@@ -361,6 +367,9 @@ def get_sandbox_class() -> SandboxClass:
     if provider and provider.upper() == "MODAL_DOCKER":
         return _get_modal_docker_sandbox_class()
 
+    if provider == "hogland":
+        return _get_hogland_sandbox_class()
+
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
 
@@ -376,6 +385,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return _get_modal_docker_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 

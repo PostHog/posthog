@@ -1119,7 +1119,9 @@ class SandboxSnapshot(UUIDModel):
         if self.external_id:
             from products.tasks.backend.services.sandbox import Sandbox
 
-            if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
+            modal_authed = os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET")
+            hogland_authed = bool(os.environ.get("HOG_TOKEN"))
+            if (modal_authed or hogland_authed) and not settings.TEST:
                 try:
                     Sandbox.delete_snapshot(self.external_id)
                 except Exception as e:

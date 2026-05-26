@@ -102,6 +102,11 @@ class TaskProcessingContext:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
 
+    @property
+    def sandbox_runtime(self) -> str | None:
+        value = (self.state or {}).get("sandbox_runtime")
+        return value if isinstance(value, str) else None
+
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
         sandbox_environment_id = self.sandbox_environment_id

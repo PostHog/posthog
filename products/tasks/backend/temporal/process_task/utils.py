@@ -38,6 +38,13 @@ class RuntimeAdapter(StrEnum):
     CODEX = "codex"
 
 
+class SandboxRuntime(StrEnum):
+    # Only POSTHOG is an opt-in. Absent/None means the default runtime
+    # (current behaviour). We intentionally do not name the third-party
+    # provider here — see hogland_sandbox.py for the backend mapping.
+    POSTHOG = "posthog"
+
+
 class LLMProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
@@ -173,12 +180,19 @@ class RunState(BaseModel, extra="allow"):
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
+    sandbox_runtime: SandboxRuntime | None = None
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
 
 
+GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 # Minimum interval between MCP token refreshes pushed to a live sandbox. The
@@ -478,12 +492,6 @@ def user_github_integration_is_usable(user_github_integration: UserGitHubIntegra
         and bool(user_github_integration.user_refresh_token)
         and bool(user_github_integration.user_access_token)
     )
-
-
-# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
-# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
-# The server-side identity flow should be preferred going forward.
-GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 
 def _github_user_token_cache_key(run_id: str) -> str:

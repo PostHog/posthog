@@ -690,6 +690,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        sandbox_runtime = request.validated_data.get("sandbox_runtime")
         if run_source == RunSource.SIGNAL_REPORT:
             pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -700,6 +701,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "runtime_adapter": runtime_adapter,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "sandbox_runtime": sandbox_runtime,
         }
 
         extra_state = None
@@ -738,6 +740,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             runtime_adapter = runtime_state_fields["runtime_adapter"]
             model = runtime_state_fields["model"]
             reasoning_effort = runtime_state_fields["reasoning_effort"]
+            sandbox_runtime = runtime_state_fields["sandbox_runtime"]
             if branch is None and prev_state.pr_base_branch is not None:
                 branch = prev_state.pr_base_branch
 
@@ -752,6 +755,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "sandbox_runtime": sandbox_runtime,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}
@@ -1015,6 +1019,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        sandbox_runtime = request.validated_data.get("sandbox_runtime")
         if run_source == RunSource.SIGNAL_REPORT:
             pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -1032,6 +1037,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "sandbox_runtime": sandbox_runtime,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}

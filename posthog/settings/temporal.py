@@ -41,6 +41,11 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
+# Hogland API endpoint. Single source of truth — host moves between
+# playground → prod-us → regional EU over the next weeks, so any region
+# routing layers on top of this setting rather than hardcoding fallbacks.
+HOGLAND_API_URL: str | None = get_from_env("HOGLAND_API_URL", None, optional=True)
+
 # When True, cloud-to-cloud resume boots from a Modal filesystem snapshot taken at
 # end-of-run. When False, no Modal snapshot is taken and resume relies on the
 # git-checkpoint mechanism in the agent server (same path as local-to-cloud handoff).

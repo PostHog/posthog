@@ -11,12 +11,18 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.services.sandbox import (
+    Sandbox,
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class_for_backend,
+)
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
+    SandboxRuntime,
     get_git_identity_env_vars,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -347,8 +353,16 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             metadata={"task_id": ctx.task_id},
         )
 
+        # Pick the backend per-run. Absent runtime → default (current
+        # behaviour). The mapping from public runtime names to internal
+        # backend strings stays here so the names don't leak elsewhere.
+        if ctx.sandbox_runtime == SandboxRuntime.POSTHOG.value:
+            sandbox_cls = get_sandbox_class_for_backend("hogland")
+        else:
+            sandbox_cls = Sandbox
+
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
-            sandbox = Sandbox.create(config)
+            sandbox = sandbox_cls.create(config)
 
         credentials = sandbox.get_connect_credentials()
 
