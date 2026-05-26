@@ -1,4 +1,5 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
@@ -73,6 +74,14 @@ LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 def _file_extension(path: str) -> str:
     return path.rsplit(".", 1)[1].lower() if "." in path else ""
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
@@ -295,23 +304,40 @@ class LLMSkillViewSet(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillSerializer},
     )
-    @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
+    @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_identifier>[^/]+)")
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
-    def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+    def get_by_name(self, request: Request, skill_identifier: str = "", **kwargs) -> Response:
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = get_skill_by_name_from_db(self.team, skill_identifier, version)
+
+        if skill is None and _is_uuid(skill_identifier):
+            redirect = self._redirect_to_name(request, skill_identifier)
+            if redirect is not None:
+                return redirect
+
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_identifier)
 
         return Response(self._serialize_skill(skill))
+
+    def _redirect_to_name(self, request: Request, skill_identifier: str) -> Response | None:
+        skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_identifier).first()
+        if skill_by_id is None:
+            return None
+        # Use a relative path (no build_absolute_uri) to avoid embedding the
+        # Host header in the Location value — prevents host-header open-redirect.
+        redirect_url = request.get_full_path().replace(skill_identifier, skill_by_id.name, 1)
+        response = Response(status=status.HTTP_302_FOUND)
+        response["Location"] = redirect_url
+        return response
 
     @extend_schema(request=LLMSkillPublishSerializer, responses={200: LLMSkillSerializer})
     @get_by_name.mapping.patch
     @llma_track_latency("llma_skills_publish_by_name")
     @monitor(feature=None, endpoint="llma_skills_publish_by_name", method="PATCH")
-    def update_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+    def update_by_name(self, request: Request, skill_identifier: str = "", **kwargs) -> Response:
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
@@ -323,7 +349,7 @@ class LLMSkillViewSet(
             published_skill = publish_skill_version(
                 self.team,
                 user=cast(User, request.user),
-                skill_name=skill_name,
+                skill_name=skill_identifier,
                 body=payload.validated_data.get("body"),
                 edits=payload.validated_data.get("edits"),
                 description=payload.validated_data.get("description"),
@@ -340,7 +366,7 @@ class LLMSkillViewSet(
                 raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
             raise
         except LLMSkillNotFoundError:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_identifier)
         except LLMSkillVersionConflictError as err:
             return Response(
                 {
