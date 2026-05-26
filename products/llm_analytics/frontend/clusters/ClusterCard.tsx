@@ -42,7 +42,7 @@ export function ClusterCard({
     const itemLabel =
         clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
 
-    const clusterColor = isOutlierCluster ? null : getSeriesColor(cluster.cluster_id)
+    const clusterColor = isOutlierCluster ? undefined : getSeriesColor(cluster.cluster_id)
 
     // Check if we have any metrics to show. Eval-specific metrics (passRate /
     // naRate / dominantEvaluationName / dominantRuntime) count even when the
