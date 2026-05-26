@@ -74,6 +74,8 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -195,6 +197,11 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      product_yamls:
+                        # Validates owner team slugs against PostHog/posthog collaborator teams.
+                        # Costs one GitHub API call; gated here so we only pay it when ownership
+                        # actually changes. Drives the validate-product-yamls job below.
+                        - 'products/*/product.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -558,6 +565,46 @@ jobs:
 
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+
+    # Validates product.yaml owners against PostHog/posthog collaborator teams.
+    # Gated on the product_yamls paths filter so we only spend a GitHub API call
+    # when ownership actually changes. The scoped form (positional product names)
+    # means a PR can't trip on pre-existing stale ownership in unrelated yamls.
+    validate-product-yamls:
+        needs: [changes]
+        if: needs.changes.outputs.product_yamls == 'true'
+        timeout-minutes: 5
+        name: Validate product.yaml owners (ubuntu-latest)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Validate changed product.yaml owners
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              run: |
+                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # Each entry is products/<name>/product.yaml — strip to <name>.
+                  names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
+                  if [ -z "$names" ]; then
+                    echo "No product.yaml files in diff after filtering"
+                    exit 0
+                  fi
+                  ./bin/hogli product:lint:owners $names
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
