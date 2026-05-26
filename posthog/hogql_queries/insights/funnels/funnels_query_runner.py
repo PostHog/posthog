@@ -115,12 +115,19 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self._calculate_single_period(self.funnel_class)
 
     def _calculate_single_period(
-        self, funnel_class, timings_override: Optional[HogQLTimings] = None
+        self,
+        funnel_class,
+        timings_override: Optional[HogQLTimings] = None,
+        date_range_override: Optional[QueryDateRange] = None,
     ) -> FunnelsQueryResponse:
         query = funnel_class.get_query()
         # Compare runs subqueries in parallel threads; each worker passes its own clone since
         # HogQLTimings is not thread-safe. Single-period runs fall back to the shared instance.
         effective_timings = timings_override if timings_override is not None else self.timings
+        # Previous-period funnels resolve a shifted date range; without the override the response
+        # would advertise the current-period range, which is wrong for any caller that inspects
+        # resolved_date_range on a non-current sub-response.
+        effective_date_range = date_range_override if date_range_override is not None else self.query_date_range
         timings = []
 
         # TODO: can we get this from execute_hogql_query as well?
@@ -151,8 +158,8 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             hogql=hogql,
             modifiers=self.modifiers,
             resolved_date_range=ResolvedDateRangeResponse(
-                date_from=self.query_date_range.date_from(),
-                date_to=self.query_date_range.date_to(),
+                date_from=effective_date_range.date_from(),
+                date_to=effective_date_range.date_to(),
             ),
         )
 
@@ -168,6 +175,9 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         responses: list[Optional[FunnelsQueryResponse]] = [None, None]
         errors: list[Exception] = []
         funnels = [self.funnel_class, previous_funnel]
+        # Aligns each sub-response's resolved_date_range with the period it actually computed,
+        # rather than leaking the current-period range into the previous-period response.
+        date_ranges = [self.query_date_range, self.query_previous_date_range]
 
         def run(index: int, timings: HogQLTimings, query_tags: Optional[QueryTags] = None) -> None:
             try:
@@ -175,7 +185,11 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 # snapshot so execute_hogql_query has the required feature/product tags.
                 if query_tags is not None:
                     query_tagging.update_tags(query_tags)
-                responses[index] = self._calculate_single_period(funnels[index], timings_override=timings)
+                responses[index] = self._calculate_single_period(
+                    funnels[index],
+                    timings_override=timings,
+                    date_range_override=date_ranges[index],
+                )
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
             finally:
