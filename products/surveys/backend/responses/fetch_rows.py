@@ -146,9 +146,12 @@ def fetch_response_rows(
 
     if question_id:
         # Only return rows where this question has a non-empty answer.
+        # coalesce-then-trim defends against NULL semantics in HogQL — without it the
+        # equivalent `trim(...) != ''` predicate evaluates to NULL for nullified responses
+        # and is silently ignored in some contexts.
         target_q = next(q for q in questions_in_scope if q["id"] == question_id)
         conditions.append(
-            "trim(getSurveyResponse({filter_q_idx}, {filter_q_id})) != ''",
+            "length(trim(coalesce(getSurveyResponse({filter_q_idx}, {filter_q_id}), ''))) > 0",
         )
         placeholders["filter_q_idx"] = ast.Constant(value=target_q["index"])
         placeholders["filter_q_id"] = ast.Constant(value=target_q["id"])

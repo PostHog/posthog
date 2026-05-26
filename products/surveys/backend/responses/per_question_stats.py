@@ -64,16 +64,19 @@ def fetch_per_question_stats(
 
         # For open questions: just count non-empty responses — distribution across free-text
         # answers isn't meaningful and reading them is what survey-responses-list is for.
+        #
+        # Use coalesce(..., '') before trim so the count is correct when getSurveyResponse
+        # resolves to NULL (e.g. via its nullIf path) — `NULL != ''` is NULL, which would
+        # filter the row implicitly but doesn't always behave consistently in count contexts.
         if question_type == "open":
             query_str = """
-                SELECT count() AS n
+                SELECT countIf(length(trim(coalesce(getSurveyResponse({q_idx}, {q_id}), ''))) > 0) AS n
                 FROM events
                 WHERE event = 'survey sent'
                     AND properties.`$survey_id` = {survey_id}
                     AND timestamp >= {start_date}
                     AND timestamp <= {end_date}
                     AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
-                    AND trim(getSurveyResponse({q_idx}, {q_id})) != ''
             """
             select_ast = cast(ast.SelectQuery, parse_select(query_str, placeholders))
             response = execute_hogql_query(
@@ -94,6 +97,7 @@ def fetch_per_question_stats(
             continue
 
         # For rating/choice: aggregate by answer value to get a distribution.
+        # Same defensive coalesce as the open branch — filter out NULL and empty before grouping.
         query_str = """
             SELECT getSurveyResponse({q_idx}, {q_id}) AS answer, count() AS n
             FROM events
@@ -102,7 +106,7 @@ def fetch_per_question_stats(
                 AND timestamp >= {start_date}
                 AND timestamp <= {end_date}
                 AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
-                AND trim(getSurveyResponse({q_idx}, {q_id})) != ''
+                AND length(trim(coalesce(getSurveyResponse({q_idx}, {q_id}), ''))) > 0
             GROUP BY answer
             ORDER BY n DESC
             LIMIT 200
