@@ -80,10 +80,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     })),
 
     actions({
-        // Reasoning panel = the per-turn `LLMAnalyticsTraceEvents` tree shown via the
-        // "Show reasoning" link. Distinct from "trace loaded" because the conversation
-        // bubbles render as soon as the full trace is fetched, regardless of reasoning state.
-        toggleReasoning: (traceId: string) => ({ traceId }),
+        // Steps panel = the per-turn `LLMAnalyticsTraceEvents` tree shown via the
+        // "Show steps" link. Distinct from "trace loaded" because the conversation
+        // bubbles render as soon as the full trace is fetched, regardless of steps state.
+        toggleSteps: (traceId: string) => ({ traceId }),
         toggleGenerationExpanded: (generationId: string) => ({ generationId }),
         loadFullTrace: (traceId: string) => ({ traceId }),
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
@@ -98,10 +98,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     }),
 
     reducers({
-        reasoningExpandedTraceIds: [
+        stepsExpandedTraceIds: [
             new Set<string>() as Set<string>,
             {
-                toggleReasoning: (state, { traceId }) => {
+                toggleSteps: (state, { traceId }) => {
                     const newSet = new Set(state)
                     if (newSet.has(traceId)) {
                         newSet.delete(traceId)
