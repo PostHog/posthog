@@ -12,12 +12,12 @@ from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner
 from products.replay_vision.backend.temporal.state import (
@@ -107,7 +107,9 @@ def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
         .first()
     )
     if raw is None:
-        raise ApplicationError(f"ReplayObservation {observation_id} not found for team {team_id}", non_retryable=True)
+        raise ScannerFailureError(
+            f"ReplayObservation {observation_id} not found for team {team_id}", kind=FailureKind.INTERNAL_ERROR
+        )
     return ScannerSnapshot.load_for(observation_id, raw)
 
 
@@ -115,7 +117,7 @@ def _load_team_name(team_id: int) -> str:
     try:
         return Team.objects.values_list("name", flat=True).get(pk=team_id)
     except Team.DoesNotExist:
-        raise ApplicationError(f"Team {team_id} not found", non_retryable=True)
+        raise ScannerFailureError(f"Team {team_id} not found", kind=FailureKind.INTERNAL_ERROR)
 
 
 async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
@@ -125,8 +127,8 @@ async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
     )
     payload = await get_data_class_from_redis(redis_client, redis_key, target_class=ScannerLlmInputs)
     if payload is None:
-        raise ApplicationError(
-            f"ScannerLlmInputs missing in Redis for observation {observation_id}", non_retryable=True
+        raise ScannerFailureError(
+            f"ScannerLlmInputs missing in Redis for observation {observation_id}", kind=FailureKind.INTERNAL_ERROR
         )
     return payload
 
@@ -185,9 +187,9 @@ async def _call_with_retry(
             ]
 
     # non_retryable so workflow-level retries don't re-burn on schema/semantic failures.
-    raise ApplicationError(
+    raise ScannerFailureError(
         f"Scanner call rejected after {_MAX_LLM_ATTEMPTS} attempts: {last_error}",
-        non_retryable=True,
+        kind=FailureKind.VALIDATION_FAILED,
     )
 
 

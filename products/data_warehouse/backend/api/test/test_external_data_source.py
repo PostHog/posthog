@@ -4,7 +4,7 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -776,15 +776,21 @@ class TestExternalDataSource(APIBaseTest):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
                 return_value=(True, None),
             ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
@@ -4352,11 +4358,28 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
-        with patch(
-            "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
-        ) as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.connect"
+            ) as mocked_connect,
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_columns",
+                return_value={"my_table": [("something", "DATE", False)]},
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_primary_keys",
+                return_value={"my_table": None},
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_leading_index_columns",
+                return_value={"my_table": set()},
+            ),
+        ):
+            mocked_connect.return_value.__enter__.return_value = MagicMock()
             # Create a Snowflake source with password auth
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -4459,11 +4482,17 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=(True, None),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             # Create a BigQuery source
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
