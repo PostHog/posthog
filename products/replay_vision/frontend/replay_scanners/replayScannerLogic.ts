@@ -17,6 +17,8 @@ import {
     visionScannersPartialUpdate,
     visionScannersRetrieve,
 } from '../generated/api'
+import type { ReplayObservationApi } from '../generated/api.schemas'
+import { scheduleObservationPoll } from '../logics/observationPolling'
 import type { replayScannerLogicType } from './replayScannerLogicType'
 import {
     DEFAULT_MODEL,
@@ -24,11 +26,9 @@ import {
     ScannerConfig,
     ScannerType,
     ReplayScanner,
-    ReplayObservation,
     scannerFromApi,
     scannerToApiBody,
     scannerToPatchedApiBody,
-    observationsFromApi,
 } from './types'
 
 export interface ReplayScannerLogicProps {
@@ -86,7 +86,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         loadObservations: true,
-        loadObservationsSuccess: (observations: ReplayObservation[]) => ({ observations }),
+        loadObservationsSuccess: (observations: ReplayObservationApi[]) => ({ observations }),
         loadObservationsFailure: true,
         deleteScanner: true,
     }),
@@ -154,7 +154,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
         ],
         observations: [
-            [] as ReplayObservation[],
+            [] as ReplayObservationApi[],
             {
                 loadObservationsSuccess: (_, { observations }) => observations,
             },
@@ -180,9 +180,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 return !objectsEqual(scanner, original)
             },
         ],
+        hasObservationsInFlight: [
+            (s) => [s.observations],
+            (observations: ReplayObservationApi[]): boolean =>
+                observations.some((o) => o.status === 'pending' || o.status === 'running'),
+        ],
     }),
 
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         loadScanner: async () => {
             if (props.id === 'new') {
                 actions.loadScannerSuccess(newScanner())
@@ -238,10 +243,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             }
             try {
                 const response = await visionScannersObservationsList(String(teamId), props.id)
-                actions.loadObservationsSuccess(observationsFromApi(response.results ?? []))
+                actions.loadObservationsSuccess(response.results ?? [])
             } catch {
                 actions.loadObservationsFailure()
             }
+        },
+
+        loadObservationsSuccess: () => {
+            scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, actions.loadObservations)
         },
     })),
 
