@@ -6,21 +6,36 @@
  * (`selfReadOnlyModeLogic`) registers a getter that reads its current state.
  */
 
-export class ReadOnlyModeError extends Error {
-    // Many call sites in the app catch api errors with the shape
-    // `lemonToast.error(error.detail || 'Failed to ...')`. Without `detail`,
-    // a read-only block would surface as the misleading fallback ("Failed to
-    // launch experiment" etc.) on top of the dedicated read-only toast.
-    // Setting `detail` here keeps that secondary toast at least truthful.
-    detail = 'Read-only mode is on — change blocked. Use Max or the MCP to make this change.'
+import { ApiError } from 'lib/api-error'
 
-    constructor(message = 'You are in read-only mode') {
-        super(message)
+export type ReadOnlyMethod = 'PATCH' | 'PUT' | 'POST' | 'DELETE'
+
+const METHOD_TO_VERB: Record<ReadOnlyMethod, string> = {
+    POST: 'create',
+    PUT: 'edit',
+    PATCH: 'edit',
+    DELETE: 'delete',
+}
+
+function detailFor(method?: ReadOnlyMethod): string {
+    const verb = method ? METHOD_TO_VERB[method] : 'change'
+    return `Read-only mode is on — that ${verb} was blocked. Ask Max or the MCP to make the change for you.`
+}
+
+// Extends ApiError so the existing `e instanceof ApiError → lemonToast.error(e.detail)`
+// pattern surfaces the read-only message naturally, without per-callsite checks.
+// status=403 mirrors the Django response if this ever round-trips from the server.
+export class ReadOnlyModeError extends ApiError {
+    constructor(method?: ReadOnlyMethod) {
+        super('You are in read-only mode', 403, undefined, {
+            detail: detailFor(method),
+            code: 'read_only_blocked',
+        })
         this.name = 'ReadOnlyModeError'
     }
 }
 
-type Notifier = (method: 'PATCH' | 'PUT' | 'POST' | 'DELETE') => void
+type Notifier = (method: ReadOnlyMethod) => void
 type Getter = () => boolean
 
 let getter: Getter | null = null
@@ -69,7 +84,7 @@ function isReadDisguisedAsWrite(url: string): boolean {
     return READ_ONLY_ALLOWED_PATTERNS.some((pattern) => pattern.test(url))
 }
 
-export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', url: string): void {
+export function assertNotReadOnly(method: ReadOnlyMethod, url: string): void {
     if (!isReadOnly()) {
         return
     }
@@ -77,5 +92,5 @@ export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', u
         return
     }
     notifier?.(method)
-    throw new ReadOnlyModeError()
+    throw new ReadOnlyModeError(method)
 }
