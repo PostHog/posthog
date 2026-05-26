@@ -133,7 +133,7 @@ class SlackThreadHandler:
     def post_or_update_progress(
         self,
         stage: str,
-        logs_url: str | None = None,
+        task_url: str | None = None,
     ) -> None:
         """Post a new progress message or update the existing one."""
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
@@ -141,7 +141,7 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
-        if logs_url:
+        if task_url:
             blocks.append(
                 {
                     "type": "actions",
@@ -153,7 +153,7 @@ class SlackThreadHandler:
                                 "text": "View agent logs",
                                 "emoji": True,
                             },
-                            "url": logs_url,
+                            "url": task_url,
                         }
                     ],
                 }
