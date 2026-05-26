@@ -2,6 +2,7 @@ import '~/styles'
 import './Exporter.scss'
 
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
+import posthog from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { Exporter } from '~/exporter/Exporter'
@@ -17,29 +18,35 @@ const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 // our customers' sites, and tracking there would log their visitors to app.posthog.com.
 // The `interview` scene is the exception: it's our own hosted public page, opened by an invitee
 // on a link we sent. We want pageviews + replay to measure the invite-to-call funnel.
-if (exportedData?.type !== ExportType.Interview) {
+const isInterview = exportedData?.type === ExportType.Interview
+if (!isInterview) {
     window.JS_POSTHOG_API_KEY = undefined
-} else {
-    // The URL embeds the SharingConfiguration access token (/interview/<token>/), and posthog-js
-    // captures `window.location` for `$current_url` / `$pathname` / `$referrer` on every pageview
-    // and inside session replays. Without scrubbing, anyone with read access to those events or
-    // replays would see the token and could reuse it to start a fresh interview call as the
-    // invitee. Rewrite the URL via `replaceState` before posthog-js initializes so the captured
-    // values never include the token — the client reads the token from `exportedData.accessToken`
-    // and does not depend on `window.location`.
-    try {
-        const redactedPath = window.location.pathname.replace(/\/interview\/[^/?#]+/, '/interview/<redacted>')
-        if (redactedPath !== window.location.pathname) {
-            window.history.replaceState(null, '', redactedPath + window.location.search + window.location.hash)
-        }
-    } catch {
-        // History API unavailable — fall back to disabling tracking entirely rather than risk
-        // the token landing in captured events.
-        window.JS_POSTHOG_API_KEY = undefined
-    }
 }
 
 loadPostHogJS()
+
+if (isInterview) {
+    // The URL embeds the SharingConfiguration access token (/interview/<token>/). Redact it from
+    // any URL-like property posthog-js would send so a viewer of captured events can't reuse the
+    // token to start a fresh call as the invitee. Session replay's URL metadata is a separate
+    // surface and is not covered by `before_send` — we accept that tradeoff for now in exchange
+    // for not mutating shared browser state from the analytics layer.
+    const redactInterviewToken = (value: unknown): unknown =>
+        typeof value === 'string' ? value.replace(/\/interview\/[^/?#]+/, '/interview/<redacted>') : value
+    const URL_PROPERTIES = ['$current_url', '$pathname', '$referrer', '$initial_current_url', '$initial_pathname']
+    posthog.setConfig({
+        before_send: (event) => {
+            if (event?.properties) {
+                for (const key of URL_PROPERTIES) {
+                    if (key in event.properties) {
+                        event.properties[key] = redactInterviewToken(event.properties[key])
+                    }
+                }
+            }
+            return event
+        },
+    })
+}
 initKea({ replaceInitialPathInWindow: false })
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
