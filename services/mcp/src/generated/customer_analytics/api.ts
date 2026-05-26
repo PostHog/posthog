@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -98,6 +98,61 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsNotebooksListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountsNotebooksCreateBodyTitleMax = 256
+
+export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(accountsNotebooksCreateBodyTitleMax)
+        .nullish()
+        .describe('Human-readable title of the account notebook.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+})
+
+export const AccountsNotebooksRetrieveParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    short_id: zod.string(),
+})
+
+export const AccountsNotebooksDestroyParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    short_id: zod.string(),
+})
 
 export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),

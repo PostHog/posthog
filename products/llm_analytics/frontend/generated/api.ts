@@ -1752,7 +1752,7 @@ export const llmSkillsCreate = async (
 
 export const getLlmSkillsNameRetrieveUrl = (
     projectId: string,
-    skillName: string,
+    skillIdentifier: string,
     params?: LlmSkillsNameRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -1766,33 +1766,33 @@ export const getLlmSkillsNameRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/llm_skills/name/${skillName}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/llm_skills/name/${skillName}/`
+        ? `/api/environments/${projectId}/llm_skills/name/${skillIdentifier}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/name/${skillIdentifier}/`
 }
 
 export const llmSkillsNameRetrieve = async (
     projectId: string,
-    skillName: string,
+    skillIdentifier: string,
     params?: LlmSkillsNameRetrieveParams,
     options?: RequestInit
 ): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameRetrieveUrl(projectId, skillName, params), {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameRetrieveUrl(projectId, skillIdentifier, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillName: string) => {
-    return `/api/environments/${projectId}/llm_skills/name/${skillName}/`
+export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillIdentifier: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillIdentifier}/`
 }
 
 export const llmSkillsNamePartialUpdate = async (
     projectId: string,
-    skillName: string,
+    skillIdentifier: string,
     patchedLLMSkillPublishApi?: PatchedLLMSkillPublishApi,
     options?: RequestInit
 ): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillName), {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillIdentifier), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

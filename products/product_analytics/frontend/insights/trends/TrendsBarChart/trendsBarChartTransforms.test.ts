@@ -201,13 +201,15 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         })
     })
 
-    it('forces percentage format when isPercentStackView is true', () => {
+    it('forces percentage_scaled format when isPercentStackView is true', () => {
+        // BarChart percent layout puts the value scale on 0..1, so the y-tick formatter
+        // expects 0..1 input rather than the 0..100 input of the regular `percentage` format.
         const cfg = buildTrendsBarTimeSeriesConfig({
             isPercentStackView: true,
             isGrouped: false,
             trendsFilter: { aggregationAxisFormat: 'currency' },
         })
-        expect(cfg.yAxis?.format).toBe('percentage')
+        expect(cfg.yAxis?.format).toBe('percentage_scaled')
     })
 
     it('maps schema goal lines through the shared adapter', () => {

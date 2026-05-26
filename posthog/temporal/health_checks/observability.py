@@ -5,9 +5,9 @@ from django.conf import settings
 import structlog
 from prometheus_client import Gauge
 
-from posthog.dags.common.health.types import BatchResult
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.temporal.health_checks.models import BatchResult
 
 logger = structlog.get_logger(__name__)
 

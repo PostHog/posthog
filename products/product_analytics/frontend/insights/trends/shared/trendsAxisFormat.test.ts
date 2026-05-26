@@ -45,10 +45,12 @@ describe('trendsFilterToYFormatterConfig', () => {
         expect(trendsFilterToYFormatterConfig(trendsFilter, false)).toEqual({ format: 'numeric' })
     })
 
-    it('returns a percentage config when isPercentStackView is true, ignoring the trends filter', () => {
+    it('returns a percentage_scaled config when isPercentStackView is true, ignoring the trends filter', () => {
+        // BarChart percent layout puts the value scale on 0..1, so we use the 0..1 formatter
+        // (`percentage_scaled`) instead of the 0..100 `percentage` formatter.
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' }
         expect(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode)).toEqual({
-            format: 'percentage',
+            format: 'percentage_scaled',
         })
     })
 })
@@ -70,9 +72,10 @@ describe('trends y-tick formatter end-to-end', () => {
     })
 
     it('formats percent-stack values regardless of the underlying trends filter', () => {
+        // Input is a 0..1 fraction (d3's percent scale), so 0.5 → "50%".
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency' }
         const fmt = buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode))
-        expect(fmt(50)).toBe('50%')
+        expect(fmt(0.5)).toBe('50%')
     })
 })
 
@@ -102,8 +105,8 @@ describe('buildTrendsYAxisConfig', () => {
         expect(cfg).toMatchObject({ format: 'duration', prefix: '~', decimalPlaces: 2, currency: 'USD' })
     })
 
-    it('forces percentage format when isPercentStackView is true', () => {
+    it('forces percentage_scaled format when isPercentStackView is true', () => {
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' }
-        expect(buildTrendsYAxisConfig(trendsFilter, true, 'USD' as CurrencyCode).format).toBe('percentage')
+        expect(buildTrendsYAxisConfig(trendsFilter, true, 'USD' as CurrencyCode).format).toBe('percentage_scaled')
     })
 })
