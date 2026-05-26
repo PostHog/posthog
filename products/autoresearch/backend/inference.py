@@ -25,11 +25,13 @@ Event shape:
 import json
 import math
 import hashlib
+import importlib
 from datetime import date
 from typing import Any
 
 from django.utils import timezone as django_timezone
 
+import numpy as np
 import structlog
 
 from posthog.schema import HogQLQuery
@@ -129,7 +131,12 @@ def _score_and_emit(
         )
         return 0, {}
 
-    scored = _score_rows(feature_rows=feature_rows, recipe=model.model_recipe)
+    recipe = model.model_recipe
+    if recipe.get("stub"):
+        scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
+    else:
+        positive_ids = _fetch_label_distinct_ids(team=team, pipeline=pipeline)
+        scored = _fit_and_score(feature_rows=feature_rows, positive_ids=positive_ids, recipe=recipe)
 
     scores = [s["p_y"] for s in scored]
     score_distribution = _summarize_scores(scores)
@@ -235,6 +242,110 @@ def _fetch_feature_rows(
             model_id=str(model.pk),
         )
         return []
+
+
+def _fetch_label_distinct_ids(
+    team: Team,
+    pipeline: AutoresearchPipeline,
+) -> frozenset[str]:
+    """
+    Return distinct_ids that performed pipeline.target_event in the last
+    horizon_days — used as positive labels when fitting the model.
+    """
+    label_sql = (
+        f"SELECT DISTINCT distinct_id FROM events"
+        f" WHERE event = '{pipeline.target_event}'"
+        f" AND timestamp >= now() - toIntervalDay({pipeline.horizon_days})"
+    )
+    try:
+        runner = HogQLQueryRunner(query=HogQLQuery(query=label_sql), team=team)
+        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if not result.results:
+            return frozenset()
+        return frozenset(row[0] for row in result.results if row[0])
+    except Exception:
+        logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
+        return frozenset()
+
+
+def _fit_and_score(
+    feature_rows: list[dict[str, Any]],
+    positive_ids: frozenset[str],
+    recipe: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Fit a sklearn classifier on the current feature population with retrospective
+    labels, then score every row.
+
+    Label: 1 if the person triggered target_event in the last horizon_days.
+    Using the same rows for training and inference is transductive — pragmatic
+    for v1 given that the feature SQL isn't parameterized by a cutoff date.
+
+    Falls back to stub scoring when there are too few positives/negatives, when
+    the model class can't be resolved, or when fit/predict fails.
+    """
+    # Identify numeric feature columns (exclude distinct_id and non-numeric values)
+    sample = feature_rows[0]
+    feature_cols = [
+        col for col in sample if col != "distinct_id" and isinstance(sample.get(col), (int, float, type(None)))
+    ]
+
+    if not feature_cols:
+        logger.warning("autoresearch_no_numeric_features")
+        return _score_rows(feature_rows, recipe)
+
+    X = np.array(
+        [[float(row.get(col) or 0) for col in feature_cols] for row in feature_rows],
+        dtype=np.float64,
+    )
+    y = np.array(
+        [1 if row.get("distinct_id") in positive_ids else 0 for row in feature_rows],
+        dtype=np.int32,
+    )
+
+    n_pos = int(y.sum())
+    n_neg = int(len(y) - n_pos)
+    if n_pos < 5 or n_neg < 5:
+        logger.warning(
+            "autoresearch_insufficient_labels",
+            n_pos=n_pos,
+            n_neg=n_neg,
+        )
+        return _score_rows(feature_rows, recipe)
+
+    model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
+    model_params = recipe.get("model_params", {})
+    try:
+        module_path, class_name = model_class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        ModelClass = getattr(module, class_name)
+        estimator = ModelClass(**model_params)
+        estimator.fit(X, y)
+    except Exception:
+        logger.exception("autoresearch_model_fit_failed", model_class=model_class_path)
+        return _score_rows(feature_rows, recipe)
+
+    try:
+        proba = estimator.predict_proba(X)[:, 1]
+    except Exception:
+        logger.exception("autoresearch_model_predict_failed", model_class=model_class_path)
+        return _score_rows(feature_rows, recipe)
+
+    logger.info(
+        "autoresearch_sklearn_fit_complete",
+        model_class=model_class_path,
+        n_train=len(y),
+        n_pos=n_pos,
+        n_features=len(feature_cols),
+    )
+
+    scored = []
+    for row, p in zip(feature_rows, proba):
+        distinct_id = row.get("distinct_id")
+        if not distinct_id:
+            continue
+        scored.append({**row, "p_y": round(float(p), 4)})
+    return scored
 
 
 def _score_rows(feature_rows: list[dict[str, Any]], recipe: dict[str, Any]) -> list[dict[str, Any]]:
