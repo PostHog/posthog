@@ -164,6 +164,7 @@ export type SettingId =
     | 'members'
     | 'authentication-domains'
     | 'organization-ai-consent'
+    | 'organization-ai-training-opt-out'
     | 'organization-experiment-stats-method'
     | 'organization-roles'
     | 'organization-default-role'

@@ -2,5 +2,20 @@
     "name": "@posthog/products-alerts",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test_max_tools.py -v --tb=short"
+    },
+    "dependencies": {
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "kea-forms": "*",
+        "react": "*",
+        "typescript": "catalog:*"
     }
 }

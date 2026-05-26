@@ -509,21 +509,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
 
             baseline = 10
+            # Each dashboard GET that materializes at least one insight runner issues a single
+            # `PropertyAccessControl` lookup, memoized across all runners on the dashboard by
+            # `get_restricted_properties_for_team`'s per-scope cache (so it stays at +1 no
+            # matter how many insights are attached). With zero insights no runner is built and
+            # the lookup is skipped entirely.
+            property_access_control_lookup = 1
 
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             # was baseline + 11 + 12, -1 after dropping duplicate session lookup
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 11):
+        with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -3094,6 +3100,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_analyze_refresh_result_with_empty_cache(self):
         # Simulate snapshot creating an empty cache entry (e.g. no cached results)
         # This happens when the dashboard has no data or no cached results before refresh
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         cache_key = "dashboard_refresh_test_empty"
 
@@ -3113,6 +3121,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_analyze_refresh_result_with_missing_cache(self):
         # Simulate cache miss (expired or invalid key)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         cache_key = "dashboard_refresh_test_missing"
 

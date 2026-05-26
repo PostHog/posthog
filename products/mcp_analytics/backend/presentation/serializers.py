@@ -141,7 +141,7 @@ class MCPToolCallSerializer(serializers.Serializer):
 
 class MCPSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
-        read_only=True, help_text="PostHog $session_id grouping all mcp_tool_call events."
+        read_only=True, help_text="$mcp_session_id grouping all mcp_tool_call events in the session."
     )
     tool_calls = serializers.IntegerField(
         read_only=True, help_text="Total number of mcp_tool_call events in the session."

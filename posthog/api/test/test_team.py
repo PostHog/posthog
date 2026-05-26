@@ -697,7 +697,7 @@ def team_api_test_factory():
         @patch("posthog.temporal.common.schedule.delete_schedule")
         @patch("posthog.models.team.util.sync_connect")
         def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
-            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -724,7 +724,7 @@ def team_api_test_factory():
         def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
             import temporalio.service
 
-            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()

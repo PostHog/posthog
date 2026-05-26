@@ -7,7 +7,6 @@ Exported symbols: FeatureFlagMatcher, FlagsMatcherCache, get_feature_flag_hash_k
 
 All other flag evaluation uses the Rust flags service.
 DO NOT add new callers — if you need flag evaluation, call FEATURE_FLAGS_SERVICE_URL/flags.
-For flag validation in the admin UI, use posthog/models/feature_flag/flag_validation.py.
 """
 
 import hashlib
