@@ -277,6 +277,83 @@ impl FromStr for RateLimitingAllowList {
     }
 }
 
+/// Per-team /flags request/response body logging config.
+/// Parses JSON from FLAGS_LOG_BODIES_TEAMS environment variable, also refreshed
+/// at runtime from posthog_instancesetting (key:
+/// `constance:posthog:FLAGS_LOG_BODIES_TEAMS`).
+///
+/// Format: {"team_id": ["pattern", ...], ...}
+/// Each team must specify at least one pattern; the response's `flags` map is
+/// filtered to keys matching any pattern. To capture every flag (rare and
+/// noisy), use `["*"]` explicitly.
+/// Patterns support `*` wildcards (e.g., "my-feature", "checkout-*", "*-targeting-*").
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BodyLogTeams(pub HashMap<TeamId, Vec<String>>);
+
+// Caps on the parsed `FLAGS_LOG_BODIES_TEAMS` shape. Mirrors the pattern in
+// `MAX_FLAGS_RATE_LIMIT_OVERRIDES`: the setting is admin-gated, but a typo
+// or paste of a large blob would otherwise fan out across every pod and
+// flood Loki silently.
+
+/// Matches `MAX_FLAGS_RATE_LIMIT_OVERRIDES`; well above any realistic
+/// per-cluster opt-in count.
+pub const MAX_BODY_LOG_TEAMS: usize = 100;
+/// Realistic teams configure <10 patterns; 50 leaves headroom without
+/// inviting blob-pasting.
+pub const MAX_BODY_LOG_PATTERNS_PER_TEAM: usize = 50;
+/// Longest production flag-key is ~80 chars; 256 bytes leaves room for
+/// `*` prefixes and suffixes.
+pub const MAX_BODY_LOG_PATTERN_LEN: usize = 256;
+
+impl FromStr for BodyLogTeams {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        if s.is_empty() {
+            return Ok(BodyLogTeams::default());
+        }
+
+        let parsed: HashMap<String, Vec<String>> = serde_json::from_str(s)
+            .map_err(|e| format!("Failed to parse FLAGS_LOG_BODIES_TEAMS as JSON: {e}"))?;
+
+        if parsed.len() > MAX_BODY_LOG_TEAMS {
+            return Err(format!(
+                "Too many FLAGS_LOG_BODIES_TEAMS entries: {} (max {MAX_BODY_LOG_TEAMS})",
+                parsed.len()
+            ));
+        }
+
+        let mut out = HashMap::new();
+        for (team_id_str, patterns) in parsed {
+            if patterns.is_empty() {
+                return Err(format!(
+                    "Team {team_id_str} has no patterns; specify at least one (use [\"*\"] to log every flag)"
+                ));
+            }
+            if patterns.len() > MAX_BODY_LOG_PATTERNS_PER_TEAM {
+                return Err(format!(
+                    "Too many patterns for team {team_id_str}: {} (max {MAX_BODY_LOG_PATTERNS_PER_TEAM})",
+                    patterns.len()
+                ));
+            }
+            if let Some(p) = patterns.iter().find(|p| p.len() > MAX_BODY_LOG_PATTERN_LEN) {
+                return Err(format!(
+                    "Pattern too long for team {team_id_str}: {} bytes (max {MAX_BODY_LOG_PATTERN_LEN})",
+                    p.len()
+                ));
+            }
+            let team_id = team_id_str.parse::<TeamId>().map_err(|e| {
+                format!("Invalid team ID '{team_id_str}' in FLAGS_LOG_BODIES_TEAMS: {e}")
+            })?;
+            out.insert(team_id, patterns);
+        }
+
+        Ok(BodyLogTeams(out))
+    }
+}
+
 /// Per-token rate limit overrides for the /flags endpoint.
 /// Parses JSON from FLAGS_TOKEN_RATE_LIMIT_OVERRIDES environment variable.
 /// Format: {"token_string": "rate_string", ...}
@@ -605,6 +682,19 @@ pub struct Config {
     // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
     #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
     pub rate_limiting_allow_list_teams: RateLimitingAllowList,
+
+    // Per-team /flags body logging. JSON: {"team_id": ["flag-key-pattern", ...], ...}
+    // Mirrors Django's FLAGS_LOG_BODIES_TEAMS dynamic setting; refreshed every ~60s
+    // from posthog_instancesetting at runtime.
+    #[envconfig(from = "FLAGS_LOG_BODIES_TEAMS", default = "")]
+    pub flags_log_bodies_teams: BodyLogTeams,
+
+    // Maximum request body bytes to include in body-log events.
+    // Bodies larger than this are truncated; truncated/original_size_bytes fields
+    // record what happened. Response side is naturally bounded by the per-flag
+    // filter when one is set.
+    #[envconfig(from = "FLAGS_LOG_BODIES_REQUEST_MAX_BYTES", default = "65536")]
+    pub flags_log_bodies_request_max_bytes: usize,
 
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
@@ -985,6 +1075,8 @@ impl Config {
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
+            flags_log_bodies_teams: BodyLogTeams::default(),
+            flags_log_bodies_request_max_bytes: 65_536,
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
