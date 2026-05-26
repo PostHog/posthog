@@ -219,8 +219,6 @@ describe('DropAndPasteHandlerExtension', () => {
         })
 
         it('parses a flattened table whose rows were joined on a single line', () => {
-            // Slack / ChatGPT / Notion etc. commonly strip newlines between table rows when
-            // copied as plain text. The pre-processor should re-expand these before parsing.
             const result = parseMarkdownToTipTap('| a | b | |---|---| | 1 | 2 | | 3 | 4 |')
 
             expect(result[0].type).toBe('table')
