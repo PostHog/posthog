@@ -10,6 +10,30 @@ describe('preCymbalGroupKey', () => {
         expect(preCymbalGroupKey(createTestPluginEvent())).toBeNull()
     })
 
+    it('returns null when $exception_list is a non-array object with a numeric length', () => {
+        const event = createTestPluginEvent({
+            properties: { $exception_list: { length: 1 } as unknown as unknown[] },
+        })
+        expect(() => preCymbalGroupKey(event)).not.toThrow()
+        expect(preCymbalGroupKey(event)).toBeNull()
+    })
+
+    it('does not throw when stacktrace.frames is a non-array object with a numeric length', () => {
+        const event = createTestPluginEvent({
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'TypeError',
+                        value: 'boom',
+                        stacktrace: { frames: { length: 1 } as unknown as unknown[] },
+                    },
+                ],
+            },
+        })
+        expect(() => preCymbalGroupKey(event)).not.toThrow()
+        expect(preCymbalGroupKey(event)).toMatch(/^[0-9a-f]{16}$/)
+    })
+
     it('returns null when there is no message and no frames', () => {
         expect(preCymbalGroupKey(exceptionEvent({ type: 'Error' }))).toBeNull()
     })

@@ -17,17 +17,9 @@ function updatePreCymbalFrameHash(hash: ReturnType<typeof createHash>, frame: Re
     hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
 }
 
-/**
- * Pre-Cymbal stack signature for per-issue rate limit buckets.
- *
- * Hashes the full `$exception_list` chain — wrapper exceptions on their own
- * would otherwise collapse distinct root causes into one bucket. Non-object
- * exceptions and frames are coerced to empty records so a single malformed
- * event can't crash `getKey` and fail the whole batch.
- */
 export function preCymbalGroupKey(event: PluginEvent): string | null {
     const excList = event.properties?.$exception_list
-    if (!excList?.length) {
+    if (!Array.isArray(excList) || excList.length === 0) {
         return null
     }
 
@@ -38,7 +30,8 @@ export function preCymbalGroupKey(event: PluginEvent): string | null {
         if (!exc || typeof exc !== 'object') {
             continue
         }
-        const frames = exc.stacktrace?.frames
+        const rawFrames = exc.stacktrace?.frames
+        const frames = Array.isArray(rawFrames) ? rawFrames : null
         const value = exc.value ?? ''
         if (!frames?.length && !value) {
             continue
