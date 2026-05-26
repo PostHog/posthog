@@ -146,7 +146,15 @@ class McpDispatcher {
         this.capabilityStore = options.capabilityStore ?? new CapabilityStore(redis)
     }
 
-    /** Test accessor — exposes the bus so tests can deliver elicit responses. */
+    /**
+     * Production delivery seam for inbound JSONRPC responses.
+     *
+     * The streamable handler classifies an inbound POST body and, when it's a
+     * response to a server-initiated request (today: `elicitation/create`),
+     * calls `dispatcher.bus.deliver(id, payload)` to route it to whichever
+     * pod is parked on the matching await. Tests also use this accessor to
+     * inject replies into the bus directly.
+     */
     get bus(): SessionResponseBus {
         return this.sessionBus
     }

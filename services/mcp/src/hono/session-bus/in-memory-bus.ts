@@ -21,7 +21,6 @@ interface ParkedAwait {
 
 interface PendingDelivery {
     payload: unknown
-    expiresAt: number
     cleanupTimer: ReturnType<typeof setTimeout>
 }
 
@@ -106,13 +105,12 @@ export class InMemorySessionResponseBus implements SessionResponseBus {
         if (existing !== undefined) {
             clearTimeout(existing.cleanupTimer)
         }
-        const expiresAt = Date.now() + EARLY_DELIVERY_TTL_MS
         const cleanupTimer = setTimeout(() => {
             this.earlyDeliveries.delete(key)
         }, EARLY_DELIVERY_TTL_MS)
         // unref so tests don't hang on the timer
         cleanupTimer.unref?.()
-        this.earlyDeliveries.set(key, { payload, expiresAt, cleanupTimer })
+        this.earlyDeliveries.set(key, { payload, cleanupTimer })
         return Promise.resolve()
     }
 

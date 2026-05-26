@@ -67,7 +67,7 @@ export class StreamableMcpHandler {
     }
 }
 
-type BodyClassification =
+export type BodyClassification =
     | { kind: 'request'; req: Request }
     | { kind: 'response'; id: string | number; payload: unknown }
 
@@ -80,8 +80,11 @@ type BodyClassification =
  * The classifier is intentionally conservative: ambiguous shapes
  * (arrays, missing id, parse failures) fall through as `request` so
  * existing dispatcher behavior is unchanged.
+ *
+ * Exported so the unit suite can exercise the routing decisions
+ * (request vs response vs malformed) without spinning up the full app.
  */
-async function classifyBody(req: Request): Promise<BodyClassification> {
+export async function classifyBody(req: Request): Promise<BodyClassification> {
     let bodyText: string
     try {
         bodyText = await req.clone().text()
