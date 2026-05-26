@@ -74,22 +74,20 @@ const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     classify: |_| "$ai_span",
 };
 
-/// Generic OpenLLMetry-style `llm.*` spans that carry no SDK-specific namespace
-/// or operation key — e.g. proxies/gateways like Plano, which emit `llm.model`,
-/// `llm.usage.*`, etc. (plus their own enrichments such as `signals.*`). There
-/// is no standard operation key here, so we infer: a model name or token usage
-/// marks an LLM call (`$ai_generation`); anything else is a generic `$ai_span`.
-/// Must be matched LAST so the more specific providers above (notably Traceloop,
-/// which keys on `llm.request.type`) win first.
+/// Generic OpenLLMetry-style `llm.*` spans from proxies/gateways like Plano,
+/// which emit `llm.model` / `llm.usage.*` (plus their own enrichments such as
+/// `signals.*`).
+///
+/// Deliberately narrow: we accept only `llm.*` spans that carry a model name or
+/// token usage — i.e. spans that are clearly LLM calls — rather than the whole
+/// `llm.*` namespace. The broad `llm.` prefix is avoided on purpose because lots
+/// of unrelated instrumentation tags spans with some `llm.*` attribute, and
+/// accepting all of them over-captures non-AI traffic. Bare `llm.*` has no
+/// standard operation key, so accepted spans are treated as `$ai_generation`.
+/// Matched LAST so Traceloop (`llm.request.type`) still wins.
 const LLM_GENERIC: SupportedProvider = SupportedProvider {
-    prefixes: &["llm."],
-    classify: |attrs| {
-        if attrs.keys().any(|k| k.starts_with("llm.usage.")) || attrs.contains_key("llm.model") {
-            "$ai_generation"
-        } else {
-            "$ai_span"
-        }
-    },
+    prefixes: &["llm.model", "llm.usage."],
+    classify: |_| "$ai_generation",
 };
 
 /// Providers are matched in order — first prefix match wins. More specific
@@ -264,10 +262,10 @@ mod tests {
     }
 
     #[test]
-    fn test_generic_llm_namespace_classifies_plano_style_spans() {
+    fn test_generic_llm_namespace_accepts_only_model_or_usage_spans() {
         // Plano (and other OpenLLMetry-style emitters) use the bare `llm.*`
         // namespace with no gen_ai.*/ai.* key and no `llm.request.type`. A model
-        // name or token usage marks an LLM call; anything else is a generic span.
+        // name or token usage marks an LLM call -> accepted as a generation.
         assert_eq!(
             get_event_name(&attrs_with("llm.model", "openai/gpt-5.1-codex-mini")),
             Some("$ai_generation")
@@ -276,22 +274,31 @@ mod tests {
             get_event_name(&attrs_with("llm.usage.prompt_tokens", "1243")),
             Some("$ai_generation")
         );
-        // No model/usage signal — accepted but classified as a plain span.
+        // Narrow on purpose: a bare `llm.*` span with no model/usage is NOT
+        // captured, so we don't over-ingest arbitrary `llm.`-tagged spans.
         assert_eq!(
             get_event_name(&attrs_with("llm.tools", "search_for_images")),
-            Some("$ai_span")
+            None
         );
+        assert_eq!(get_event_name(&attrs_with("llm.is_streaming", "true")), None);
     }
 
     #[test]
     fn test_traceloop_takes_precedence_over_generic_llm() {
-        // A Traceloop span keyed on `llm.request.type` must classify via
-        // Traceloop, not fall through to the broader LLM_GENERIC provider
-        // (which, lacking model/usage here, would mislabel it as `$ai_span`).
-        assert_eq!(
-            get_event_name(&attrs_with("llm.request.type", "embedding")),
-            Some("$ai_embedding")
+        // A Traceloop span carries `llm.request.type` and often `llm.usage.*`, so
+        // it matches both TRACELOOP and LLM_GENERIC. TRACELOOP must win (it's
+        // earlier) and classify via `llm.request.type` rather than LLM_GENERIC
+        // forcing `$ai_generation`.
+        let mut attrs = serde_json::Map::new();
+        attrs.insert(
+            "llm.request.type".to_string(),
+            Value::String("embedding".to_string()),
         );
+        attrs.insert(
+            "llm.usage.prompt_tokens".to_string(),
+            Value::String("10".to_string()),
+        );
+        assert_eq!(get_event_name(&attrs), Some("$ai_embedding"));
     }
 
     #[test]
