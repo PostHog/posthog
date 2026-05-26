@@ -44,7 +44,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     insight = models.ForeignKey(
-        "Insight",
+        "product_analytics.Insight",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

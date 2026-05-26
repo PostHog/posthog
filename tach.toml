@@ -47,6 +47,7 @@ depends_on = [
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",
+    "products.product_analytics",
     "products.replay",
     "products.revenue_analytics",
     "products.surveys",
@@ -114,6 +115,7 @@ path = "products.actions"
 depends_on = [
     "posthog",
     "products.experiments",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -122,6 +124,7 @@ path = "products.alerts"
 depends_on = [
     "ee",
     "posthog",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -163,6 +166,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.data_warehouse",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -174,6 +178,7 @@ depends_on = [
     "products.alerts",
     "products.llm_analytics",
     "products.mcp_analytics",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -247,6 +252,7 @@ depends_on = [
     "posthog",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.product_analytics",
     "products.signals", "products.warehouse_sources",
 ]
 layer = "modules"
@@ -375,6 +381,7 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.product_analytics",
     "products.tasks",
 ]
 layer = "modules"
@@ -417,8 +424,11 @@ layer = "modules"
 [[modules]]
 path = "products.product_analytics"
 depends_on = [
+    "ee",
     "posthog",
     "products.actions",
+    "products.alerts",
+    "products.dashboards",
     "products.data_warehouse",
     "products.event_definitions",
 ]
@@ -477,6 +487,7 @@ path = "products.slack_app"
 depends_on = [
     "posthog",
     "products.dashboards",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -486,6 +497,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
+    "products.product_analytics",
     "products.product_tours",
 ]
 layer = "modules"

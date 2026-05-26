@@ -1,12 +1,13 @@
 from django.test import TestCase
 
-from posthog.models import FeatureFlag, Insight, Organization, Team, User
+from posthog.models import FeatureFlag, Organization, Team, User
 from posthog.models.file_system.file_system import FileSystem, escape_path, join_path, split_path
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestFileSystemModel(TestCase):

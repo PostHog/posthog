@@ -18,8 +18,6 @@ from posthog.models import (
     Group,
     GroupTypeMapping,
     GroupUsageMetric,
-    Insight,
-    InsightVariable,
     Organization,
     Team,
 )
@@ -44,6 +42,8 @@ from products.llm_analytics.backend.models.score_definitions import ScoreDefinit
 from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema

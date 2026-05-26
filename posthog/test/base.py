@@ -77,7 +77,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
@@ -204,6 +204,7 @@ from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 # Make sure freezegun ignores our utils class that times functions, and heavy optional
 # deps (e.g. transformers) that can break when freezegun walks sys.modules.

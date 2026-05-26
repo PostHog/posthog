@@ -69,7 +69,6 @@ from posthog.models.feature_flag.flag_matching import (
     get_feature_flag_hash_key_overrides,
 )
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
@@ -81,6 +80,8 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.

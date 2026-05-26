@@ -5,7 +5,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Insight, Tag, TaggedItem
+from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountAssignment
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):

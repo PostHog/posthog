@@ -40,7 +40,11 @@ BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
     ("posthog.models.group.group.Group", "team_id", "Groups"),
     ("posthog.models.group_type_mapping.GroupTypeMapping", "team_id", "Group Type Mappings"),
     ("posthog.models.person.Person", "team_id", "Persons"),
-    ("posthog.models.insight_caching_state.InsightCachingState", "team_id", "Insight Caching States"),
+    (
+        "products.product_analytics.backend.models.insight_caching_state.InsightCachingState",
+        "team_id",
+        "Insight Caching States",
+    ),
 )
 
 

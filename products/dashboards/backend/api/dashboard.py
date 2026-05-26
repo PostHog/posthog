@@ -35,8 +35,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.schema import InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
-from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -57,9 +55,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -80,6 +76,14 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.product_analytics.backend.api.insight import (
+    DashboardTileBasicSerializer,
+    InsightSerializer,
+    InsightViewSet,
+)
+from products.product_analytics.backend.api.insight_suggestions import summarize_insight_result
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.hogai.utils.aio import async_to_sync
 

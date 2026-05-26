@@ -377,7 +377,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "insight",
-        "posthog",
+        "product_analytics",
         "Insight",
         lookup_field="short_id",
         undo_message="Send PATCH /api/projects/@current/insights/{id} with deleted=false.",

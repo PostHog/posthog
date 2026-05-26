@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Cohort, EventDefinition, FeatureFlag, Insight, PropertyDefinition
+from posthog.models import Cohort, EventDefinition, FeatureFlag, PropertyDefinition
 from posthog.models.hog_flow.hog_flow import HogFlow
 
 from products.actions.backend.models.action import Action
@@ -20,6 +20,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 LIMIT = 25
