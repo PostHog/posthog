@@ -394,7 +394,7 @@ class EventViewSet(
                     )
 
             context = {**restricted_context}
-            if request.query_params.get("include_person", False):
+            if request.query_params.get("include_person", "").lower() in ("true", "1"):
                 context["people"] = self._get_people(query_result, team)
 
             result = ClickhouseEventSerializer(
@@ -456,7 +456,7 @@ class EventViewSet(
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
         query_context = {**self._get_restricted_properties_context(request, self.team)}
-        if request.query_params.get("include_person", False):
+        if request.query_params.get("include_person", "").lower() in ("true", "1"):
             query_context["people"] = self._get_people(query_result, self.team)
 
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
