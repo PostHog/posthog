@@ -532,7 +532,6 @@ describe('hog-charts canvas-renderer', () => {
                 }
             )
         })
-
     })
 
     describe('composeDrawHoverWithCrosshair', () => {
