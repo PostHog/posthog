@@ -86,6 +86,7 @@ class FunnelQueryContext(QueryContext):
             "event",
             "event_metadata",
             "hogql",
+            "session",
             None,
         ]:
             boxed_breakdown: list[Union[str, int]] = box_value(self.breakdownFilter.breakdown)

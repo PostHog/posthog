@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("alerts", "0002_migrate_product_analytics_models"),
         ("customer_analytics", "0006_migrate_product_analytics_models"),
-        ("dashboards", "0004_migrate_product_analytics_models"),
+        ("dashboards", "0006_migrate_product_analytics_models"),
         ("posthog", "1179_migrate_product_analytics_models"),
         ("product_analytics", "0001_migrate_product_analytics_models"),
         ("surveys", "0004_migrate_product_analytics_models"),

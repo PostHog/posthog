@@ -81,9 +81,9 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     session_id = models.CharField(max_length=64)
 
-    session_start = models.DateTimeField()
-    session_end = models.DateTimeField()
-    duration_seconds = models.IntegerField()
+    session_start = models.DateTimeField(null=True, blank=True)
+    session_end = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.IntegerField(null=True, blank=True)
 
     tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True)
     tool_call_count = models.IntegerField(default=0)
