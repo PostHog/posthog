@@ -196,15 +196,30 @@ class TestWebActiveHoursLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_uuid_session_mode_is_admitted(self):
-        # Unlike web overview, the active-hours INSERT doesn't depend on the
-        # session-id column type (only `events.person_id` flows into
-        # `uniqState`, and `$session_id` is only a GROUP BY key). UUID mode is
-        # in fact the default modifier today, so rejecting it here would gate
-        # out every real query.
+    def test_explicit_uuid_session_mode_falls_through(self):
+        # The gate compares the *raw* request modifiers (`query.modifiers`)
+        # against UUID mode — NOT the post-default-resolution view. A request
+        # that explicitly opts into UUID mode falls through; the default UUID
+        # mode that `create_default_modifiers_for_team` injects when
+        # `query.modifiers` is None does not. Production query_log shows
+        # essentially no traffic explicitly sets this modifier, so the gate
+        # only fires for hand-rolled UUID requests.
         self._seed_session_spanning_midnight()
         with self._enable_lazy():
             self._run(self._build_query(modifiers=HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_default_modifiers_are_admitted(self):
+        # `runner.modifiers` defaults to `sessionsV2JoinMode=UUID` via
+        # `create_default_modifiers_for_team`. The gate must look at
+        # `query.modifiers` (raw request, None by default), not the resolved
+        # view — otherwise every default-mode query (i.e. virtually all of
+        # them) would fall through.
+        self._seed_session_spanning_midnight()
+        with self._enable_lazy():
+            self._run(self._build_query())  # modifiers=None on the query body
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 

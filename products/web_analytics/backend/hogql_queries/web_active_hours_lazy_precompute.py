@@ -37,12 +37,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.web_active_hours_preaggregated_sql import (
-    DISTRIBUTED_WEB_ACTIVE_HOURS_PREAGGREGATED_TABLE,
-)
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -161,15 +159,14 @@ def _check_eligible(runner: "CalendarHeatmapQueryRunner") -> None:
         use_web_analytics_precompute=use_web_analytics_precompute,
         conversion_goal=query.conversionGoal,
         sampling=None,  # CalendarHeatmapQuery has no top-level sampling field
-        # `modifiers=None` skips the shared UUID-session-mode rejection. That
-        # gate matters for web overview because its `uniq_sessions_state` column
-        # is typed `AggregateFunction(uniq, String)` — UUID mode would break the
-        # INSERT. Active hours has no such column: the only `uniqState` argument
-        # is `events.person_id` (always UUID), and `$session_id` only appears as
-        # a GROUP BY key where the column type doesn't matter. Passing the
-        # runner's modifiers would needlessly reject every default-mode query
-        # since `create_default_modifiers_for_team` sets the mode to UUID.
-        modifiers=None,
+        # `query.modifiers` (the raw request body) — NOT `runner.modifiers`
+        # (the post-default-resolution view). `create_default_modifiers_for_team`
+        # injects `sessionsV2JoinMode=UUID` if the request didn't specify one,
+        # so passing the resolved view would reject every default request.
+        # Production query_log shows ~0 web-analytics queries explicitly set
+        # this modifier, so the gate effectively only fires when someone opts
+        # into UUID mode by hand (same behaviour as the sibling lazy paths).
+        modifiers=query.modifiers,
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
     )
@@ -292,138 +289,122 @@ def ensure_active_hours_precomputed(
     )
 
 
-# Read query that returns four aggregation shapes in one round-trip:
-# - `cells` array: per (day-of-week, hour-of-day) value
-# - `days` array: per day-of-week aggregate (across all hours)
-# - `hours` array: per hour-of-day aggregate (across all days)
-# - `total`: overall aggregate
+# Read template that returns four aggregation shapes in one HogQL round-trip.
+# Each branch of the UNION ALL emits `(scope, day, hour, value)`:
+#   - `scope='cell'` → one row per (day-of-week, hour-of-day) cell
+#   - `scope='day'`  → one row per day-of-week (hour=0 sentinel)
+#   - `scope='hour'` → one row per hour-of-day (day=0 sentinel)
+#   - `scope='all'`  → exactly one row with the overall aggregate
 #
-# The `_metric_expr` placeholder is `uniqMerge(uniq_users_state)` for the
-# unique-users tab and `sumMerge(sum_events_state)` for the total-pageviews
-# tab. uniq cannot be derived from cell sums (HLL doesn't add up), so each
-# aggregation shape gets its own `GROUP BY`.
+# uniq cannot be derived from cell sums (HLL state doesn't add up), so each
+# aggregation shape needs its own `GROUP BY` over `web_active_hours_preaggregated`.
+# A UNION ALL keeps it one query / one round-trip; the Python side discriminates
+# by scope and bins into the response shape.
 #
-# `toTimeZone(time_window_start, %(team_tz)s)` shifts the stored UTC hour to
-# the team's local time before binning into (day-of-week, hour-of-day). Reads
-# stay correct for any whole-hour-offset timezone; half-hour-offset teams are
-# gated out upstream via `is_integer_timezone`.
-def _build_read_sql(metric_expr: str) -> str:
-    return f"""
-SELECT
-    -- Per (day-of-week, hour-of-day) cells.
-    groupArray(tuple(day, hour, cell_value)) AS cells
-FROM (
+# `toTimeZone(time_window_start, {team_tz})` shifts the stored UTC hour to the
+# team's local time before binning. Reads stay correct for any whole-hour-offset
+# timezone; half-hour-offset teams are gated out upstream via
+# `is_integer_timezone`.
+#
+# Settings (`load_balancing=in_order`, `optimize_skip_unused_shards`) come for
+# free from `WebActiveHoursPreaggregatedTable.top_level_settings` — registered
+# in `posthog/hogql/database/schema/web_active_hours_preaggregated.py`.
+_READ_TEMPLATE = """
+SELECT 'cell' AS scope, day, hour, value FROM (
     SELECT
-        toDayOfWeek(toTimeZone(time_window_start, %(team_tz)s)) AS day,
-        toHour(toTimeZone(time_window_start, %(team_tz)s)) AS hour,
-        {metric_expr} AS cell_value
-    FROM {DISTRIBUTED_WEB_ACTIVE_HOURS_PREAGGREGATED_TABLE()}
-    WHERE team_id = %(team_id)s
-      AND job_id IN %(job_ids)s
-      AND time_window_start >= %(cur_start)s
-      AND time_window_start < %(cur_end)s
+        toDayOfWeek(toTimeZone(time_window_start, {team_tz})) AS day,
+        toHour(toTimeZone(time_window_start, {team_tz})) AS hour,
+        {metric_expr} AS value
+    FROM web_active_hours_preaggregated
+    WHERE team_id = {team_id}
+      AND job_id IN {job_ids}
+      AND time_window_start >= {cur_start}
+      AND time_window_start < {cur_end}
     GROUP BY day, hour
 )
+UNION ALL
+SELECT 'day' AS scope, day, 0 AS hour, value FROM (
+    SELECT
+        toDayOfWeek(toTimeZone(time_window_start, {team_tz})) AS day,
+        {metric_expr} AS value
+    FROM web_active_hours_preaggregated
+    WHERE team_id = {team_id}
+      AND job_id IN {job_ids}
+      AND time_window_start >= {cur_start}
+      AND time_window_start < {cur_end}
+    GROUP BY day
+)
+UNION ALL
+SELECT 'hour' AS scope, 0 AS day, hour, value FROM (
+    SELECT
+        toHour(toTimeZone(time_window_start, {team_tz})) AS hour,
+        {metric_expr} AS value
+    FROM web_active_hours_preaggregated
+    WHERE team_id = {team_id}
+      AND job_id IN {job_ids}
+      AND time_window_start >= {cur_start}
+      AND time_window_start < {cur_end}
+    GROUP BY hour
+)
+UNION ALL
+SELECT 'all' AS scope, 0 AS day, 0 AS hour, {metric_expr} AS value
+FROM web_active_hours_preaggregated
+WHERE team_id = {team_id}
+  AND job_id IN {job_ids}
+  AND time_window_start >= {cur_start}
+  AND time_window_start < {cur_end}
 """
 
 
-def _build_day_sql(metric_expr: str) -> str:
-    return f"""
-SELECT
-    toDayOfWeek(toTimeZone(time_window_start, %(team_tz)s)) AS day,
-    {metric_expr} AS day_value
-FROM {DISTRIBUTED_WEB_ACTIVE_HOURS_PREAGGREGATED_TABLE()}
-WHERE team_id = %(team_id)s
-  AND job_id IN %(job_ids)s
-  AND time_window_start >= %(cur_start)s
-  AND time_window_start < %(cur_end)s
-GROUP BY day
-"""
-
-
-def _build_hour_sql(metric_expr: str) -> str:
-    return f"""
-SELECT
-    toHour(toTimeZone(time_window_start, %(team_tz)s)) AS hour,
-    {metric_expr} AS hour_value
-FROM {DISTRIBUTED_WEB_ACTIVE_HOURS_PREAGGREGATED_TABLE()}
-WHERE team_id = %(team_id)s
-  AND job_id IN %(job_ids)s
-  AND time_window_start >= %(cur_start)s
-  AND time_window_start < %(cur_end)s
-GROUP BY hour
-"""
-
-
-def _build_total_sql(metric_expr: str) -> str:
-    return f"""
-SELECT
-    {metric_expr} AS total
-FROM {DISTRIBUTED_WEB_ACTIVE_HOURS_PREAGGREGATED_TABLE()}
-WHERE team_id = %(team_id)s
-  AND job_id IN %(job_ids)s
-  AND time_window_start >= %(cur_start)s
-  AND time_window_start < %(cur_end)s
-"""
-
-
-_READ_SETTINGS = {
-    # Approach E from `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`:
-    # both INSERT (via `_get_insert_settings`) and SELECT use `in_order` so they
-    # deterministically prefer the same replica. Combined with the global
-    # `distributed_foreground_insert=1`, the SELECT sees data the INSERT just wrote.
-    "load_balancing": "in_order",
-    # Shard pruning: sharding key is `sipHash64(job_id)`; `job_id IN (...)` matches
-    # exactly the shards we wrote to.
-    "optimize_skip_unused_shards": 1,
-}
+def _metric_expr_ast(math: str) -> ast.Expr:
+    if math == "dau":
+        return ast.Call(name="uniqMerge", args=[ast.Field(chain=["uniq_users_state"])])
+    return ast.Call(name="sumMerge", args=[ast.Field(chain=["sum_events_state"])])
 
 
 def _execute_read_query(
     *,
-    team_id: int,
-    team_tz: str,
+    runner: "CalendarHeatmapQueryRunner",
     job_ids: list[str],
     current_start_utc: datetime,
     current_end_utc: datetime,
     math: str,
 ) -> EventsHeatMapStructuredResult:
-    """Run four reads (cells / per-day / per-hour / total) and assemble the
-    response shape the frontend expects.
-
-    Bypasses HogQL because four aggregation shapes against the same window
-    are easier to express as four parameterized SELECTs than as one HogQL
-    query with subselects and arrayMap gymnastics.
-    """
-    metric_expr = "uniqMerge(uniq_users_state)" if math == "dau" else "sumMerge(sum_events_state)"
-    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type=f"web_active_hours_lazy_query_{math}")
-
-    params = {
-        "team_id": team_id,
-        "team_tz": team_tz,
-        "job_ids": tuple(str(jid) for jid in job_ids),
-        "cur_start": current_start_utc,
-        "cur_end": current_end_utc,
+    """Run one HogQL UNION ALL query that returns all four aggregation shapes
+    and assemble the response shape the frontend expects."""
+    metric_expr = _metric_expr_ast(math)
+    placeholders: dict[str, ast.Expr] = {
+        "team_tz": ast.Constant(value=runner.team.timezone),
+        "team_id": ast.Constant(value=runner.team.pk),
+        "job_ids": ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in job_ids]),
+        "cur_start": ast.Constant(value=current_start_utc),
+        "cur_end": ast.Constant(value=current_end_utc),
+        "metric_expr": metric_expr,
     }
 
-    cells_rows = sync_execute(_build_read_sql(metric_expr), params, settings=_READ_SETTINGS, team_id=team_id)
-    day_rows = sync_execute(_build_day_sql(metric_expr), params, settings=_READ_SETTINGS, team_id=team_id)
-    hour_rows = sync_execute(_build_hour_sql(metric_expr), params, settings=_READ_SETTINGS, team_id=team_id)
-    total_rows = sync_execute(_build_total_sql(metric_expr), params, settings=_READ_SETTINGS, team_id=team_id)
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type=f"web_active_hours_lazy_query_{math}")
+
+    response = execute_hogql_query(
+        query=parse_select(_READ_TEMPLATE, placeholders=placeholders),
+        team=runner.team,
+        timings=runner.timings,
+        modifiers=runner.modifiers,
+        query_type=f"web_active_hours_lazy_query_{math}",
+    )
 
     cells: list[EventsHeatMapDataResult] = []
-    # `cells_rows` is a single row containing an array of (day, hour, value) tuples.
-    if cells_rows and cells_rows[0] and cells_rows[0][0]:
-        for day, hour, value in cells_rows[0][0]:
+    day_aggs: list[EventsHeatMapRowAggregationResult] = []
+    hour_aggs: list[EventsHeatMapColumnAggregationResult] = []
+    overall = 0
+    for scope, day, hour, value in response.results or []:
+        if scope == "cell":
             cells.append(EventsHeatMapDataResult(row=int(day), column=int(hour), value=int(value)))
-
-    day_aggs: list[EventsHeatMapRowAggregationResult] = [
-        EventsHeatMapRowAggregationResult(row=int(day), value=int(value)) for day, value in day_rows
-    ]
-    hour_aggs: list[EventsHeatMapColumnAggregationResult] = [
-        EventsHeatMapColumnAggregationResult(column=int(hour), value=int(value)) for hour, value in hour_rows
-    ]
-    overall = int(total_rows[0][0]) if total_rows and total_rows[0] else 0
+        elif scope == "day":
+            day_aggs.append(EventsHeatMapRowAggregationResult(row=int(day), value=int(value)))
+        elif scope == "hour":
+            hour_aggs.append(EventsHeatMapColumnAggregationResult(column=int(hour), value=int(value)))
+        else:  # 'all'
+            overall = int(value)
 
     return EventsHeatMapStructuredResult(
         data=cells, rowAggregations=day_aggs, columnAggregations=hour_aggs, allAggregations=overall
@@ -493,8 +474,7 @@ def execute_lazy_precomputed_read(
 
         read_started = time.perf_counter()
         response = _execute_read_query(
-            team_id=team_id,
-            team_tz=runner.team.timezone,
+            runner=runner,
             job_ids=[str(jid) for jid in result.job_ids],
             current_start_utc=current_start_utc,
             current_end_utc=current_end_utc,
