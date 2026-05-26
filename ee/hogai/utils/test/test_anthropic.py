@@ -121,14 +121,23 @@ class TestAnthropicUtils(BaseTest):
         meta = AssistantMessageMetadata(source=source) if source else None
         message = AssistantMessage(content=content_text, id="1", meta=meta)
         result = convert_assistant_message_to_anthropic_message(message, {})
-        self.assertEqual(len(result), 1)
-        content = result[0].content
-        assert isinstance(content, list)
-        assert isinstance(content[0], dict)
-        text = content[0]["text"]
+
+        # Assistant text is never modified — only a follow-up HumanMessage is appended when there's a slash-command source.
+        ai_message = result[0]
+        ai_content = ai_message.content
+        assert isinstance(ai_content, list)
+        assert isinstance(ai_content[0], dict)
+        self.assertEqual(ai_content[0], {"type": "text", "text": content_text})
+
         if expected_command is not None:
-            self.assertIn(f"/{expected_command} slash command", text)
-            self.assertIn("deterministic PostHog code", text)
-            self.assertTrue(text.endswith(content_text))
+            self.assertEqual(len(result), 2)
+            provenance_message = result[1]
+            self.assertIsInstance(provenance_message, HumanMessage)
+            provenance_content = provenance_message.content
+            assert isinstance(provenance_content, list)
+            assert isinstance(provenance_content[0], dict)
+            provenance_text = provenance_content[0]["text"]
+            self.assertIn(f"/{expected_command} slash command", provenance_text)
+            self.assertIn("deterministic PostHog code", provenance_text)
         else:
-            self.assertEqual(text, content_text)
+            self.assertEqual(len(result), 1)

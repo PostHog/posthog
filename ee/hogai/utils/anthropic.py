@@ -52,7 +52,7 @@ def _get_provenance_note(message: AssistantMessage) -> str | None:
     if source.startswith("slash_command:"):
         command_name = source.split(":", 1)[1]
         return (
-            f"[System note: the block below was produced by the /{command_name} slash command. "
+            f"[System note: the previous assistant message was produced by the /{command_name} slash command. "
             "It is deterministic PostHog code, not assistant-authored content.]"
         )
     return None
@@ -64,11 +64,7 @@ def convert_assistant_message_to_anthropic_message(
     history: list[messages.BaseMessage] = []
     content = get_anthropic_thinking_from_assistant_message(message)
     if message.content:
-        text = message.content
-        provenance_note = _get_provenance_note(message)
-        if provenance_note:
-            text = f"{provenance_note}\n\n{text}"
-        content.append({"type": "text", "text": text})
+        content.append({"type": "text", "text": message.content})
 
     # Filter out tool calls without a tool response, so the completion doesn't fail.
     tool_calls = [tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_map]
@@ -92,6 +88,12 @@ def convert_assistant_message_to_anthropic_message(
                 content=[{"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}],
             ),
         )
+
+    # Provenance note goes as a follow-up HumanMessage rather than prefilling the AIMessage
+    # — prefilling assistant content isn't supported in Sonnet 4.6+.
+    provenance_note = _get_provenance_note(message)
+    if provenance_note:
+        history.append(messages.HumanMessage(content=[{"type": "text", "text": provenance_note}]))
 
     return history
 
