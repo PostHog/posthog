@@ -2154,14 +2154,6 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         """
         return _get_partition_settings(cursor, schema, table_name, logger)
 
-    def get_rows_to_sync(
-        self,
-        cursor: psycopg.Cursor,
-        count_query: sql.Composed,
-        logger: FilteringBoundLogger,
-    ) -> int:
-        return _get_rows_to_sync(cursor, count_query, logger)
-
     # ------------------------------------------------------------------
     # Pipeline build
     # ------------------------------------------------------------------
