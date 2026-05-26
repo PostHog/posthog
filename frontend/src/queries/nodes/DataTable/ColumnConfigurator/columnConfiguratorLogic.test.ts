@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { columnConfiguratorLogic } from './columnConfiguratorLogic'
@@ -51,5 +52,29 @@ describe('columnConfiguratorLogic', () => {
         }).toMatchValues({
             columns: ['a', 'b', 'ant', 'aardvark', 'added'],
         })
+    })
+
+    it('treats transient load failures of saved column configuration as a benign degraded state', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/column_configurations/': () => [503, {}],
+            },
+        })
+
+        const persistedLogic = columnConfiguratorLogic({
+            key: 'persisted',
+            columns: startingColumns,
+            setColumns: () => {},
+            contextKey: 'live_events',
+        })
+        persistedLogic.mount()
+
+        await expectLogic(persistedLogic, () => {
+            persistedLogic.actions.loadSavedColumnConfiguration()
+        })
+            .toDispatchActions(['loadSavedColumnConfigurationSuccess'])
+            .toMatchValues({
+                savedColumnConfiguration: null,
+            })
     })
 })

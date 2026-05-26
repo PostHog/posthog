@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
@@ -44,6 +44,15 @@ interface EventsSyntheticMarker {
 }
 
 type TableViewSavedFilter = AnyPropertyFilter | EventSyntheticMarker | EventsSyntheticMarker
+
+function isTransientTransportError(error: unknown): boolean {
+    if (!(error instanceof ApiError)) {
+        return false
+    }
+    // status is undefined when fetch itself rejected (e.g. `TypeError: Failed to fetch`),
+    // and 5xx covers transient upstream/gateway failures (500, 502, 503, 504).
+    return error.status === undefined || (error.status >= 500 && error.status <= 504)
+}
 
 function getViewData(
     props: TableViewLogicProps,
@@ -307,9 +316,14 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.error('Error deleting view')
         },
 
-        loadViewsFailure: (error) => {
-            posthog.captureException(error)
+        loadViewsFailure: ({ errorObject }) => {
             lemonToast.error('Error loading views')
+            // Saved table views are a non-critical UX enhancement that loads on mount —
+            // treat transient transport failures (network blips, 5xx) as a benign degraded
+            // state and only report unexpected error shapes to error tracking.
+            if (!isTransientTransportError(errorObject)) {
+                posthog.captureException(errorObject)
+            }
         },
 
         submitNewViewFormSuccess: ({ newViewForm }) => {

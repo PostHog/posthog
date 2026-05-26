@@ -57,14 +57,21 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     if (!props.contextKey) {
                         return null
                     }
-                    const response = await api.columnConfigurations.list({
-                        teamId: teamLogic.values.currentTeamId || undefined,
-                        context_key: props.contextKey,
-                    })
-                    if (response.results && response.results.length > 0) {
-                        return { id: response.results[0].id, columns: response.results[0].columns || [] }
+                    try {
+                        const response = await api.columnConfigurations.list({
+                            teamId: teamLogic.values.currentTeamId || undefined,
+                            context_key: props.contextKey,
+                        })
+                        if (response.results && response.results.length > 0) {
+                            return { id: response.results[0].id, columns: response.results[0].columns || [] }
+                        }
+                        return null
+                    } catch {
+                        // Saved column preferences are a non-critical UX enhancement — if the
+                        // background fetch fails (transient 5xx, network blip), degrade silently
+                        // to defaults rather than bubbling to the global error boundary.
+                        return null
                     }
-                    return null
                 },
             },
         ],
