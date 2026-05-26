@@ -482,6 +482,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => [...groupAnalyticsTaxonomicGroups, ...groupAnalyticsTaxonomicGroupNames],
         ],
+        // Combined into a single selector so taxonomicGroups stays under kea's 16-dep
+        // tuple type limit; consumers spread directly. Both are meta-groups appearing
+        // adjacent at the end of taxonomicGroups.
+        allMetaTaxonomicGroups: [
+            (s) => [s.suggestedFiltersTaxonomicGroups, s.recentPinnedTaxonomicGroups],
+            (
+                suggestedFiltersTaxonomicGroups: TaxonomicFilterGroup[],
+                recentPinnedTaxonomicGroups: TaxonomicFilterGroup[]
+            ): TaxonomicFilterGroup[] => [...suggestedFiltersTaxonomicGroups, ...recentPinnedTaxonomicGroups],
+        ],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
@@ -520,14 +530,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.schemaColumns,
                 (_, props) => props.schemaColumnsLoading,
                 s.hogQLExpressionTaxonomicGroups,
-                s.suggestedFiltersTaxonomicGroups,
+                s.allMetaTaxonomicGroups,
                 s.propertyFilters,
                 s.eventMetadataTaxonomicGroups,
                 s.maxAIContextTaxonomicGroups,
                 s.cohortTaxonomicGroups,
                 s.apmTaxonomicGroups,
                 s.featureFlags,
-                s.recentPinnedTaxonomicGroups,
                 s.replayTaxonomicGroups,
                 s.posthogResourcesTaxonomicGroups,
             ],
@@ -539,14 +548,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
                 hogQLExpressionTaxonomicGroups: TaxonomicFilterGroup[],
-                suggestedFiltersTaxonomicGroups: TaxonomicFilterGroup[],
+                allMetaTaxonomicGroups: TaxonomicFilterGroup[],
                 propertyFilters,
                 eventMetadataTaxonomicGroups: TaxonomicFilterGroup[],
                 maxAIContextTaxonomicGroups: TaxonomicFilterGroup[],
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 apmTaxonomicGroups: TaxonomicFilterGroup[],
                 featureFlags: Record<string, boolean | string | undefined>,
-                recentPinnedTaxonomicGroups: TaxonomicFilterGroup[],
                 replayTaxonomicGroups: TaxonomicFilterGroup[],
                 posthogResourcesTaxonomicGroups: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => {
@@ -1028,8 +1036,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ...hogQLExpressionTaxonomicGroups,
                     ...replayTaxonomicGroups,
                     ...maxAIContextTaxonomicGroups,
-                    ...suggestedFiltersTaxonomicGroups,
-                    ...recentPinnedTaxonomicGroups,
+                    ...allMetaTaxonomicGroups,
                     ...allGroupAnalyticsTaxonomicGroups,
                 ]
 
