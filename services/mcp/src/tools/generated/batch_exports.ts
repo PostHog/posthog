@@ -9,6 +9,8 @@ import {
     BatchExportsPartialUpdateBody,
     BatchExportsPartialUpdateParams,
     BatchExportsRetrieveParams,
+    FileDownloadBatchExportsCancelCreateBody,
+    FileDownloadBatchExportsCancelCreateParams,
     FileDownloadBatchExportsCreateBody,
     FileDownloadBatchExportsRetrieveParams,
 } from '@/generated/batch_exports/api'
@@ -168,6 +170,46 @@ const batchExportsList = (): ToolBase<
     },
 })
 
+const FileDownloadBatchExportsCancelCreateSchema = FileDownloadBatchExportsCancelCreateParams.omit({
+    project_id: true,
+}).extend(FileDownloadBatchExportsCancelCreateBody.shape)
+
+const fileDownloadBatchExportsCancelCreate = (): ToolBase<
+    typeof FileDownloadBatchExportsCancelCreateSchema,
+    unknown
+> => ({
+    name: 'file-download-batch-exports-cancel-create',
+    schema: FileDownloadBatchExportsCancelCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsCancelCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.file !== undefined) {
+            body['file'] = params.file
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.include !== undefined) {
+            body['include'] = params.include
+        }
+        if (params.exclude !== undefined) {
+            body['exclude'] = params.exclude
+        }
+        if (params.data_interval_start !== undefined) {
+            body['data_interval_start'] = params.data_interval_start
+        }
+        if (params.data_interval_end !== undefined) {
+            body['data_interval_end'] = params.data_interval_end
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/${encodeURIComponent(String(params.id))}/cancel/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsCreateBody
 
 const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExportsCreateSchema, unknown> => ({
@@ -208,6 +250,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'batch-export-get': batchExportGet,
     'batch-export-update': batchExportUpdate,
     'batch-exports-list': batchExportsList,
+    'file-download-batch-exports-cancel-create': fileDownloadBatchExportsCancelCreate,
     'file-download-batch-exports-create': fileDownloadBatchExportsCreate,
     'file-download-batch-exports-retrieve': fileDownloadBatchExportsRetrieve,
 }
