@@ -79,9 +79,10 @@ class DashboardTile(models.Model):
     )
     # Denormalized from `dashboard.team_id` so this table can be exposed via HogQL,
     # whose printer injects `WHERE team_id = <ctx.team_id>` against every PostgresTable.
-    # Auto-populated in save() when omitted. Nullable here only because the rollout
-    # backfills before flipping NOT NULL in a later migration.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, db_index=False)
+    # Auto-populated in save() when omitted. The index is created concurrently
+    # outside Django state (migration 0004) and not declared here, so db_index=False
+    # keeps state and DB in sync.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
 
     # Tile layout and style
     layouts = models.JSONField(default=dict)
