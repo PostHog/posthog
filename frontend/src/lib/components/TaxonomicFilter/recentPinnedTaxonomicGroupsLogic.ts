@@ -1,16 +1,11 @@
-import { kea, key, path, props, selectors } from 'kea'
-
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
-    TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-
-import type { recentPinnedTaxonomicGroupsLogicType } from './recentPinnedTaxonomicGroupsLogicType'
 
 export const RECENT_PINNED_TAB_DEFINITIONS: TaxonomicFilterGroup[] = [
     {
@@ -40,13 +35,3 @@ export const RECENT_PINNED_TAB_DEFINITIONS: TaxonomicFilterGroup[] = [
         getPopoverHeader: () => 'Pinned',
     } as TaxonomicFilterGroup,
 ]
-
-export const recentPinnedTaxonomicGroupsLogic = kea<recentPinnedTaxonomicGroupsLogicType>([
-    props({} as TaxonomicFilterLogicProps),
-    key((props) => `${props.taxonomicFilterLogicKey}`),
-    path((key) => ['lib', 'components', 'TaxonomicFilter', 'recentPinnedTaxonomicGroupsLogic', key]),
-
-    selectors({
-        recentPinnedTaxonomicGroups: [() => [], (): TaxonomicFilterGroup[] => RECENT_PINNED_TAB_DEFINITIONS],
-    }),
-])

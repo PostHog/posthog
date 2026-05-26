@@ -62,7 +62,7 @@ import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsL
 import { miscTaxonomicGroupsLogic } from './miscTaxonomicGroupsLogic'
 import { posthogResourcesTaxonomicGroupsLogic } from './posthogResourcesTaxonomicGroupsLogic'
 import { propertyTabsTaxonomicGroupsLogic } from './propertyTabsTaxonomicGroupsLogic'
-import { recentPinnedTaxonomicGroupsLogic } from './recentPinnedTaxonomicGroupsLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from './recentPinnedTaxonomicGroupsLogic'
 import { replayTaxonomicGroupsLogic } from './replayTaxonomicGroupsLogic'
 import { revenueAnalyticsTaxonomicGroupsLogic } from './revenueAnalyticsTaxonomicGroupsLogic'
 import { shortcutValueTaxonomicGroupsLogic } from './shortcutValueTaxonomicGroupsLogic'
@@ -250,8 +250,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['suggestedFiltersTaxonomicGroups'],
             apmTaxonomicGroupsLogic,
             ['apmTaxonomicGroups'],
-            recentPinnedTaxonomicGroupsLogic,
-            ['recentPinnedTaxonomicGroups'],
             replayTaxonomicGroupsLogic,
             ['replayTaxonomicGroups'],
             posthogResourcesTaxonomicGroupsLogic,
@@ -430,13 +428,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         // Combined into a single selector so taxonomicGroups stays under kea's 16-dep
         // tuple type limit; consumers spread directly. Both are meta-groups appearing
-        // adjacent at the end of taxonomicGroups.
+        // adjacent at the end of taxonomicGroups. Recent/Pinned are a static constant
+        // imported directly, so only the dynamic suggested-filters tab needs to be
+        // a selector input.
         allMetaTaxonomicGroups: [
-            (s) => [s.suggestedFiltersTaxonomicGroups, s.recentPinnedTaxonomicGroups],
-            (
-                suggestedFiltersTaxonomicGroups: TaxonomicFilterGroup[],
-                recentPinnedTaxonomicGroups: TaxonomicFilterGroup[]
-            ): TaxonomicFilterGroup[] => [...suggestedFiltersTaxonomicGroups, ...recentPinnedTaxonomicGroups],
+            (s) => [s.suggestedFiltersTaxonomicGroups],
+            (suggestedFiltersTaxonomicGroups: TaxonomicFilterGroup[]): TaxonomicFilterGroup[] => [
+                ...suggestedFiltersTaxonomicGroups,
+                ...RECENT_PINNED_TAB_DEFINITIONS,
+            ],
         ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
