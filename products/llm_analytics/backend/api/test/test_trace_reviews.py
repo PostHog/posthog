@@ -114,7 +114,7 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(
             results[0]["trace_url"],
-            f"https://us.posthog.com/project/{self.team.id}/llm-analytics/traces/trace_link_check",
+            f"https://us.posthog.com/project/{self.team.id}/ai-observability/traces/trace_link_check",
         )
 
     def test_can_create_review_without_score_or_comment(self):

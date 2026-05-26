@@ -5,6 +5,7 @@ import { IconSearch } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { urls } from 'scenes/urls'
@@ -30,10 +31,12 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { shouldFilterTestAccounts, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
+    const { shouldFilterTestAccounts, useWebAnalyticsPrecompute, hiddenTiles, productTab } =
+        useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setShouldFilterTestAccounts, setTileVisibility } = useActions(webAnalyticsLogic)
+    const { setShouldFilterTestAccounts, setUseWebAnalyticsPrecompute, setTileVisibility } =
+        useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
@@ -56,6 +59,19 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     <LemonSwitch checked={shouldFilterTestAccounts} size="xsmall" />
                     Filter out internal and test users
                 </ButtonPrimitive>
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+                    <Tooltip title="When on, eligible web analytics tiles (currently overview and paths) load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => {
+                                setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
+                            }}
+                        >
+                            <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
+                            Allow precompute
+                        </ButtonPrimitive>
+                    </Tooltip>
+                )}
             </ScenePanelActionsSection>
             {showTileToggles && availableTiles.length > 0 && (
                 <>

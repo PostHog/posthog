@@ -8,8 +8,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
 logger = structlog.get_logger(__name__)
 

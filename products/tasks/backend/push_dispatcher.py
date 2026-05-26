@@ -23,11 +23,15 @@ from typing import TYPE_CHECKING, Literal
 
 from django.core.cache import cache
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 
+from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
+
+from products.tasks.backend.models import TaskPresence
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -135,7 +139,33 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         return
 
     data = {"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)}
+    suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task_run.task_id)
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.
-    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data))
+    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed))
+
+
+def _suppressed_push_token_ids_for_task(*, user_id: int, task_id) -> list[str]:
+    """Return all of the user's UserPushToken UUIDs (as strings) when at least one device
+    has beaconed presence for this task — otherwise an empty list.
+
+    The contract documented on the beacon endpoint is "if any device is
+    provably watching, suppress the others". The watching device doesn't need
+    a push either — it's already rendering the task UI in real time — so when
+    any presence row is active we suppress the entire fanout for the user.
+    Computed at enqueue time; the Celery dispatch is essentially instant so
+    the race window against the 30-second beacon cadence is irrelevant.
+
+    ``unscoped`` is the right escape hatch here: the dispatcher fires from a
+    mix of Temporal activities and model methods that don't have the DRF
+    team-context ContextVar set. Both queries are scoped through
+    ``user_id`` and ``task_id`` and the presence rows are tenant-safe by
+    virtue of their FK to a team-scoped Task.
+    """
+    has_active_presence = (
+        TaskPresence.objects.unscoped().filter(task_id=task_id, user_id=user_id, expires_at__gt=timezone.now()).exists()
+    )
+    if not has_active_presence:
+        return []
+    return [str(pid) for pid in UserPushToken.objects.filter(user_id=user_id).values_list("id", flat=True)]

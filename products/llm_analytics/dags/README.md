@@ -1,6 +1,6 @@
-# LLMA (LLM Analytics) Dagster Location
+# LLMA (AI observability) Dagster location
 
-Data pipelines for LLM analytics and observability.
+Data pipelines for AI observability.
 
 ## Overview
 
@@ -24,7 +24,7 @@ products/llm_analytics/dags/
 │       ├── trace_counts.sql       # Unique trace count metrics
 │       ├── session_counts.sql     # Unique session count metrics
 │       ├── trace_error_rates.sql  # Trace-level error rates
-│       └── pageview_counts.sql    # LLM Analytics pageview metrics
+│       └── pageview_counts.sql    # AI observability pageview metrics
 └── __init__.py
 
 Tests: products/llm_analytics/dags/tests/daily_metrics/test_sql_metrics.py

@@ -100,6 +100,8 @@ pub fn resolve_consistency(
     let level = get_consistency(read_options);
     if level.is_some() {
         counter!("personhog_router_consistency_source", "source" => "body").increment(1);
+    } else {
+        counter!("personhog_router_consistency_source", "source" => "none").increment(1);
     }
     level
 }

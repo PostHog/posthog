@@ -82,6 +82,12 @@ pub struct Config {
     /// 0 = disabled (connections live indefinitely).
     #[envconfig(default = "300")]
     pub grpc_max_connection_age_secs: u64,
+
+    /// Maximum concurrent gRPC requests before load shedding.
+    /// When exceeded, new requests get an immediate UNAVAILABLE response
+    /// so the router retries on another pod. 0 = disabled.
+    #[envconfig(default = "0")]
+    pub max_concurrent_requests: usize,
 }
 
 impl Config {

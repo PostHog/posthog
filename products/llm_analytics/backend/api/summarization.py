@@ -480,7 +480,7 @@ representation, and uses an LLM to create a concise summary with line references
 
 The response includes the structured summary, the text representation, and metadata.
         """,
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @llma_track_latency("llma_summarize")
     @monitor(feature=None, endpoint="llma_summarize", method="POST")
@@ -608,7 +608,7 @@ with their titles.
 - Avoid unnecessary LLM calls for already-summarized traces
 - Display summary previews without generating new summaries
         """,
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @action(detail=False, methods=["post"], url_path="batch_check")
     @llma_track_latency("llma_summarize_batch_check")

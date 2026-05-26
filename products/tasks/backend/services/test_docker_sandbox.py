@@ -12,7 +12,9 @@ from products.tasks.backend.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class,
     parse_sandbox_repo_mount_map,
+    redact_sandbox_command,
 )
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 
 
 def docker_available() -> bool:
@@ -70,6 +72,21 @@ class TestSandboxFactory:
 
 class TestDockerSandboxUnit:
     """Unit tests that don't require Docker."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token ./node_modules/.bin/agent-server",
+            "bash -c 'env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token ./node_modules/.bin/agent-server'",
+            "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN='secret token' ./node_modules/.bin/agent-server",
+        ],
+    )
+    def test_redact_sandbox_command_hides_event_ingest_token(self, command):
+        redacted = redact_sandbox_command(command)
+
+        assert "secret-token" not in redacted
+        assert "secret token" not in redacted
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>" in redacted
 
     @pytest.mark.parametrize(
         "input_url,expected_url",
@@ -151,6 +168,24 @@ class TestDockerSandboxUnit:
         assert result.exit_code == 0
         assert result.stdout == "hello world"
         assert result.stderr == ""
+
+    @patch("products.tasks.backend.services.docker_sandbox.DockerSandbox._run")
+    def test_execute_redacts_event_ingest_token_from_error_context(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(stdout="true", returncode=0),
+            RuntimeError("boom"),
+        ]
+
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with pytest.raises(SandboxExecutionError) as exc:
+            sandbox.execute("env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token agent-server")
+
+        assert exc.value.context["command"] == "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted> agent-server"
+        assert "secret-token" not in exc.value.context["command"]
 
     @pytest.mark.parametrize(
         "repository",
@@ -474,6 +509,7 @@ class TestDockerSandboxUnit:
                     provider="openai",
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
+                    event_ingest_token="ingest-token",
                 )
 
         command = mock_execute.call_args_list[0][0][0]
@@ -481,6 +517,7 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
