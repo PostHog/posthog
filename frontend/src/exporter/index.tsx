@@ -2,7 +2,7 @@ import '~/styles'
 import './Exporter.scss'
 
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
-import { BeforeSendFn } from 'posthog-js'
+import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { Exporter } from '~/exporter/Exporter'
@@ -23,25 +23,37 @@ if (!isInterview) {
     window.JS_POSTHOG_API_KEY = undefined
 }
 
-// The interview URL embeds the SharingConfiguration access token (/interview/<token>/).
-// Redact it from any URL-shaped property posthog-js would send so a viewer of captured events
-// can't reuse the token to start a fresh call as the invitee. Session replay's URL metadata is
-// a separate surface and is not covered by `before_send`.
+// The interview URL embeds the SharingConfiguration access token (/interview/<token>/) and the
+// public start_call API path (/api/user_interviews/share/<token>/start_call/) embeds it too.
+// Redact the token from event URL properties AND from network requests captured in session
+// replay so a viewer of either surface can't reuse the token to start a fresh call as the
+// invitee.
+const INTERVIEW_TOKEN_RE = /\/interview\/[^/?#]+|\/api\/user_interviews\/share\/[^/?#]+/g
 const URL_PROPERTIES = ['$current_url', '$pathname', '$referrer', '$initial_current_url', '$initial_pathname']
-const redactInterviewToken = (value: unknown): unknown =>
-    typeof value === 'string' ? value.replace(/\/interview\/[^/?#]+/, '/interview/<redacted>') : value
+const redactInterviewToken = (value: string): string =>
+    value.replace(INTERVIEW_TOKEN_RE, (match) => match.replace(/\/[^/?#]+$/, '/<redacted>'))
 const interviewBeforeSend: BeforeSendFn = (event) => {
     if (event?.properties) {
         for (const key of URL_PROPERTIES) {
-            if (key in event.properties) {
-                event.properties[key] = redactInterviewToken(event.properties[key])
+            const value = event.properties[key]
+            if (typeof value === 'string') {
+                event.properties[key] = redactInterviewToken(value)
             }
         }
     }
     return event
 }
+const interviewMaskNetworkRequest = (req: CapturedNetworkRequest): CapturedNetworkRequest => {
+    if (req.name) {
+        req.name = redactInterviewToken(req.name)
+    }
+    return req
+}
 
-loadPostHogJS({ beforeSend: isInterview ? interviewBeforeSend : undefined })
+loadPostHogJS({
+    beforeSend: isInterview ? interviewBeforeSend : undefined,
+    sessionRecording: isInterview ? { maskCapturedNetworkRequestFn: interviewMaskNetworkRequest } : undefined,
+})
 initKea({ replaceInitialPathInWindow: false })
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.

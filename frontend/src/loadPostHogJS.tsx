@@ -1,4 +1,4 @@
-import posthog, { BeforeSendFn, PostHogInterface } from 'posthog-js'
+import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,6 +28,11 @@ export interface LoadPostHogJSOptions {
      * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
      */
     beforeSend?: BeforeSendFn | BeforeSendFn[]
+    /**
+     * Extra `session_recording` config merged on top of the defaults — useful for overriding URL
+     * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
+     */
+    sessionRecording?: Partial<SessionRecordingOptions>
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
@@ -153,6 +158,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             },
             session_recording: {
                 blockSelector: '.ph-replay-block',
+                ...options.sessionRecording,
             },
             person_profiles: 'always',
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
