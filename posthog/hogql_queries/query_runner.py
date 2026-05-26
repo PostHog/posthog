@@ -1231,15 +1231,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def calculate(self) -> R:
         self.validate()
-        # `posthog/api/services/query.py` tags the wrapped query payload on
-        # HTTP requests, but non-HTTP callers (Temporal workflows, Celery
-        # tasks, Dagster jobs) reach the runner directly and leave
-        # `log_comment.query` empty. Tag the inner query unconditionally so
-        # every path captures `dateRange`, properties, etc. — and so each
-        # runner in a long-lived activity (e.g. the weekly digest fan-out
-        # which calls four different runners in sequence) records its own
-        # payload instead of inheriting the first one.
-        tag_queries(query=self.query.model_dump(mode="json"))
         return self._calculate()
 
     def validate(self) -> None:
