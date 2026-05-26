@@ -2421,6 +2421,7 @@ export interface EndpointType extends WithAccessControl {
     materialization?: EndpointVersionMaterializationType
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
+    tags?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */

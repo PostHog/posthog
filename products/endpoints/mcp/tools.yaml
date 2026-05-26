@@ -150,6 +150,9 @@ tools:
         description: >
             List all versions for an endpoint, in descending order (latest first). Each version contains the query
             snapshot, description, data freshness, and materialization status at that point in time.
+    endpoints-bulk-update-tags-create:
+        operation: endpoints_bulk_update_tags_create
+        enabled: false
     endpoints-get-all:
         operation: endpoints_list
         enabled: true
