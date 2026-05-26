@@ -1,4 +1,4 @@
-import posthog, { PostHogInterface } from 'posthog-js'
+import posthog, { BeforeSendFn, PostHogInterface } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,7 +21,16 @@ const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
     )
 }
 
-export function loadPostHogJS(): void {
+export interface LoadPostHogJSOptions {
+    /**
+     * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
+     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
+     * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
+     */
+    beforeSend?: BeforeSendFn | BeforeSendFn[]
+}
+
+export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -41,6 +50,7 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

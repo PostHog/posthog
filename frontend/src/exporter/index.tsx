@@ -2,7 +2,7 @@ import '~/styles'
 import './Exporter.scss'
 
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
-import posthog from 'posthog-js'
+import { BeforeSendFn } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { Exporter } from '~/exporter/Exporter'
@@ -23,30 +23,25 @@ if (!isInterview) {
     window.JS_POSTHOG_API_KEY = undefined
 }
 
-loadPostHogJS()
-
-if (isInterview) {
-    // The URL embeds the SharingConfiguration access token (/interview/<token>/). Redact it from
-    // any URL-like property posthog-js would send so a viewer of captured events can't reuse the
-    // token to start a fresh call as the invitee. Session replay's URL metadata is a separate
-    // surface and is not covered by `before_send` — we accept that tradeoff for now in exchange
-    // for not mutating shared browser state from the analytics layer.
-    const redactInterviewToken = (value: unknown): unknown =>
-        typeof value === 'string' ? value.replace(/\/interview\/[^/?#]+/, '/interview/<redacted>') : value
-    const URL_PROPERTIES = ['$current_url', '$pathname', '$referrer', '$initial_current_url', '$initial_pathname']
-    posthog.setConfig({
-        before_send: (event) => {
-            if (event?.properties) {
-                for (const key of URL_PROPERTIES) {
-                    if (key in event.properties) {
-                        event.properties[key] = redactInterviewToken(event.properties[key])
-                    }
-                }
+// The interview URL embeds the SharingConfiguration access token (/interview/<token>/).
+// Redact it from any URL-shaped property posthog-js would send so a viewer of captured events
+// can't reuse the token to start a fresh call as the invitee. Session replay's URL metadata is
+// a separate surface and is not covered by `before_send`.
+const URL_PROPERTIES = ['$current_url', '$pathname', '$referrer', '$initial_current_url', '$initial_pathname']
+const redactInterviewToken = (value: unknown): unknown =>
+    typeof value === 'string' ? value.replace(/\/interview\/[^/?#]+/, '/interview/<redacted>') : value
+const interviewBeforeSend: BeforeSendFn = (event) => {
+    if (event?.properties) {
+        for (const key of URL_PROPERTIES) {
+            if (key in event.properties) {
+                event.properties[key] = redactInterviewToken(event.properties[key])
             }
-            return event
-        },
-    })
+        }
+    }
+    return event
 }
+
+loadPostHogJS({ beforeSend: isInterview ? interviewBeforeSend : undefined })
 initKea({ replaceInitialPathInWindow: false })
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
