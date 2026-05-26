@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
@@ -871,6 +872,43 @@ class UserAccessControl:
     # ------------------------------------------------------------
     # Filtering querysets
     # ------------------------------------------------------------
+
+    @cached_property
+    def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
+        """
+        Per-resource object IDs the user is denied access to. Empty for org admins.
+        Explicit (member/role) rules win over defaults. Mirrors filter_queryset_by_access_level.
+        Used by the HogQL printer guard and the HogQL cache-key fingerprint.
+        """
+        org_membership = self._organization_membership
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return {}
+
+        result: dict[APIScopeObject, set[str]] = {}
+        for resource in ACCESS_CONTROL_RESOURCES:
+            blocked = self._compute_blocked_resource_ids(resource)
+            if blocked:
+                result[resource] = blocked
+        return result
+
+    def _compute_blocked_resource_ids(self, resource: APIScopeObject) -> set[str]:
+        # TODO: refactor filter_queryset_by_access_level to share the same logic
+        filters = self.access_controls_filters_for_queryset(resource)
+        access_controls = self.get_access_controls(filters)
+
+        by_resource_id: dict[str, list[_AccessControl]] = defaultdict(list)
+        for ac in access_controls:
+            if ac.resource_id:
+                by_resource_id[ac.resource_id].append(ac)
+
+        blocked: set[str] = set()
+        for resource_id, acs in by_resource_id.items():
+            explicit = [ac for ac in acs if ac.role_id or ac.organization_member_id]
+            winning_tier = explicit or acs
+            if all(ac.access_level == NO_ACCESS_LEVEL for ac in winning_tier):
+                blocked.add(resource_id)
+
+        return blocked
 
     def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
