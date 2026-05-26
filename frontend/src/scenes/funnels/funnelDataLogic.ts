@@ -636,8 +636,38 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         indexedSteps: [
             (s) => [s.steps],
-            (steps) =>
-                Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
+            (steps) => {
+                if (!Array.isArray(steps)) {
+                    return []
+                }
+                // Pair rows on `breakdown_value` (no `compare_label`) so current/previous of the
+                // same series share the same base color. The downstream color resolver prefers
+                // `colorIndex` over `seriesIndex` (see `getTrendResultCustomizationColorToken`),
+                // and `LineGraph.processDataset` then dims the previous-period series to 50% alpha.
+                const colorIndexMap = new Map<string, number>()
+                for (const step of steps) {
+                    const key = getFunnelDatasetKey(step)
+                    if (!colorIndexMap.has(key)) {
+                        colorIndexMap.set(key, colorIndexMap.size)
+                    }
+                }
+                return steps.map((step, index) => {
+                    // The funnels runner tags compare rows with `compare_label` but doesn't set
+                    // `compare: true`. `LineGraph.processDataset` requires both to dim the previous
+                    // line — normalize here so the previous-period series renders at 50% alpha.
+                    const stepWithCompare = step as typeof step & {
+                        compare_label?: 'current' | 'previous'
+                        compare?: boolean
+                    }
+                    return {
+                        ...step,
+                        seriesIndex: index,
+                        colorIndex: colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0,
+                        id: index,
+                        compare: stepWithCompare.compare_label != null ? true : stepWithCompare.compare,
+                    }
+                })
+            },
         ],
         getFunnelsColorToken: [
             (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
