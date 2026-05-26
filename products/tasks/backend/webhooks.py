@@ -142,9 +142,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
         SignalReport.Status.DELETED,
         SignalReport.Status.SUPPRESSED,
     )
-    linked_reports = list(
-        SignalReport.objects.filter(report_tasks__task_id=task_id).distinct().only("id", "status")
-    )
+    linked_reports = list(SignalReport.objects.filter(report_tasks__task_id=task_id).distinct().only("id", "status"))
     reports_to_resolve = [r for r in linked_reports if r.status not in terminal_statuses]
     skipped_terminal = [r for r in linked_reports if r.status in terminal_statuses]
 
