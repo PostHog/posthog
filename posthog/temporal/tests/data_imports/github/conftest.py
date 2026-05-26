@@ -7,7 +7,14 @@ import pytest
 from dateutil import parser as dateutil_parser
 
 from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS, WORKFLOW_RUNS
+from posthog.temporal.tests.data_imports.github.data import (
+    COMMITS,
+    ISSUES,
+    PULL_REQUESTS,
+    STARGAZERS,
+    WORKFLOW_JOBS,
+    WORKFLOW_RUNS,
+)
 
 
 class MockGithubAPI:
@@ -61,11 +68,15 @@ class MockGithubAPI:
         path = urlparse(request.url).path
         resource = path.split("/")[-1]
 
-        if resource not in self.RESOURCES:
+        if resource == "jobs":
+            # Fan-out child: /repos/{owner}/{repo}/actions/runs/{run_id}/jobs
+            run_id = int(path.split("/")[-2])
+            data = [dict(job) for job in WORKFLOW_JOBS if job.get("run_id") == run_id]
+        elif resource not in self.RESOURCES:
             context.status_code = 404
             return []
-
-        data = list(self.RESOURCES[resource])
+        else:
+            data = list(self.RESOURCES[resource])
 
         if self.max_updated is not None:
             max_dt = dateutil_parser.parse(self.max_updated)

@@ -103,9 +103,10 @@ def _resolve_sort_mode(
     pagination via sort=created&direction=asc) and only flip to their
     configured sort once a cutoff exists. workflow_runs is different: it ignores
     sort/direction and always returns newest-first, so it emits desc on every
-    sync — including the first.
+    sync — including the first. workflow_jobs inherits that order: it fans out
+    over workflow_runs newest-first, so its jobs land newest-first too.
     """
-    if endpoint == "workflow_runs":
+    if endpoint in ("workflow_runs", "workflow_jobs"):
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode
@@ -265,6 +266,146 @@ def _get_item_filter(endpoint: str) -> Callable[[dict[str, Any]], bool] | None:
     return None
 
 
+@retry(
+    retry=retry_if_exception_type((GithubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _fetch_page(page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
+    response = make_tracked_session().get(page_url, headers=headers, timeout=60)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
+
+    if not response.ok:
+        logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
+        response.raise_for_status()
+
+    return response
+
+
+def _iter_pages(
+    url: str,
+    headers: dict[str, str],
+    response_data_path: str | None,
+    logger: FilteringBoundLogger,
+    max_pages: int | None = None,
+    page_cap_context: dict[str, Any] | None = None,
+) -> Iterator[tuple[list[dict[str, Any]], str, str | None]]:
+    """Yield (items, page_url, next_url) for each page of a paginated GitHub list,
+    unwrapping the envelope and following the Link header. Stops at ``max_pages``,
+    logging a structured warning when the cap is reached. An empty or ``null``
+    envelope body simply ends iteration — there is nothing to truncate."""
+    page_count = 0
+    while True:
+        response = _fetch_page(url, headers, logger)
+        data = response.json()
+        if response_data_path and isinstance(data, dict):
+            data = data.get(response_data_path) or []
+        if not isinstance(data, list) or not data:
+            return
+        next_url = _parse_next_url(response.headers.get("Link", ""))
+        yield data, url, next_url
+        page_count += 1
+        if not next_url:
+            return
+        if max_pages is not None and page_count >= max_pages:
+            logger.warning(
+                "Github: per-parent page cap reached; remaining pages skipped",
+                max_pages=max_pages,
+                **(page_cap_context or {}),
+            )
+            return
+        url = next_url
+
+
+def _iter_jobs_for_run(
+    repository: str,
+    run_id: Any,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: GithubEndpointConfig,
+) -> Iterator[dict[str, Any]]:
+    path = config.path.format(repository=repository, run_id=run_id)
+    params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
+    url = f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
+    for jobs, _page_url, _next_url in _iter_pages(
+        url,
+        headers,
+        config.response_data_path,
+        logger,
+        max_pages=config.max_pages_per_parent,
+        page_cap_context={"repository": repository, "run_id": run_id},
+    ):
+        yield from jobs
+
+
+def _fan_out_get_rows(
+    personal_access_token: str,
+    repository: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GithubResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> Iterator[Any]:
+    """Single-hop parent->child fan-out: walk the parent endpoint newest-first and
+    emit every child row for each parent. Incremental bounding happens on the
+    parent's created_at cursor (the same desc early-stop workflow_runs uses);
+    children upsert by primary key, so re-reading a boundary parent is harmless.
+
+    The child cursor value (max job created_at) is compared against the parent's
+    created_at — they coincide closely since a job is created when its run starts,
+    so the watermark sits slightly above the newest run's timestamp. Re-reading a
+    boundary parent is harmless (jobs upsert by id), but note the inverse: a run
+    that was in_progress when first synced drops below the watermark once it
+    finishes, so its terminal job conclusions and any later-added jobs are not
+    re-fetched. This is the same created_at-cursor staleness workflow_runs carries;
+    the workflow_run webhook (followup) is the fix, not re-scanning history.
+    """
+    child_config = GITHUB_ENDPOINTS[endpoint]
+    assert child_config.fan_out_parent is not None  # guarded by the get_rows dispatch
+    parent_config = GITHUB_ENDPOINTS[child_config.fan_out_parent]
+    headers = _get_headers(personal_access_token, endpoint)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+
+    parent_field = incremental_field or parent_config.default_incremental_field or "created_at"
+    parent_cutoff = db_incremental_field_last_value if should_use_incremental_field else None
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        parent_url: str = resume_config.next_url
+        logger.debug(f"Github: resuming {endpoint} fan-out from parent URL: {parent_url}")
+    else:
+        parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
+
+    for runs, page_url, _next_url in _iter_pages(parent_url, headers, parent_config.response_data_path, logger):
+        stop_after_this_page = _should_stop_desc(runs, "desc", parent_field, parent_cutoff)
+
+        for run in runs:
+            run_id = run.get("id")
+            if run_id is None:
+                continue
+            # Only fan out parents at/above the watermark; older ones were synced before.
+            if parent_cutoff is not None and _is_older_than_cutoff(run.get(parent_field), parent_cutoff):
+                continue
+            for job in _iter_jobs_for_run(repository, run_id, headers, logger, child_config):
+                batcher.batch(job)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+                    # Checkpoint the parent page; resume re-fans it out and dedupes by id.
+                    if not stop_after_this_page:
+                        resumable_source_manager.save_state(GithubResumeConfig(next_url=page_url))
+
+        if stop_after_this_page:
+            break
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def get_rows(
     personal_access_token: str,
     repository: str,
@@ -276,6 +417,19 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
+    if config.fan_out_parent is not None:
+        yield from _fan_out_get_rows(
+            personal_access_token=personal_access_token,
+            repository=repository,
+            endpoint=endpoint,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            incremental_field=incremental_field,
+        )
+        return
+
     headers = _get_headers(personal_access_token, endpoint)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
@@ -303,26 +457,8 @@ def get_rows(
     else:
         url = _build_initial_url(config, repository, initial_params)
 
-    @retry(
-        retry=retry_if_exception_type((GithubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> requests.Response:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=60)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response
-
     while True:
-        response = fetch_page(url)
+        response = _fetch_page(url, headers, logger)
 
         data = response.json()
         # Most GitHub list endpoints return a JSON array at the top level,

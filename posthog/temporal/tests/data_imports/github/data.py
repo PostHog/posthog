@@ -183,6 +183,83 @@ WORKFLOW_RUNS = [
     },
 ]
 
+# Jobs fan out from WORKFLOW_RUNS by run_id. steps[] stays nested exactly as the
+# API returns it — the pipeline JSON-serializes nested struct/list columns on write.
+WORKFLOW_JOBS = [
+    {
+        "id": 20001,
+        "run_id": 1001,
+        "run_attempt": 1,
+        "name": "build",
+        "status": "completed",
+        "conclusion": "success",
+        "workflow_name": "CI",
+        "head_branch": "master",
+        "runner_name": "ubuntu-latest",
+        "created_at": "2026-01-20T10:00:05Z",
+        "started_at": "2026-01-20T10:00:30Z",
+        "completed_at": "2026-01-20T10:10:00Z",
+        "steps": [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1},
+            {"name": "Build", "status": "completed", "conclusion": "success", "number": 2},
+        ],
+    },
+    {
+        "id": 20002,
+        "run_id": 1001,
+        "run_attempt": 1,
+        "name": "test",
+        "status": "completed",
+        "conclusion": "success",
+        "workflow_name": "CI",
+        "head_branch": "master",
+        "runner_name": "ubuntu-latest",
+        "created_at": "2026-01-20T10:00:06Z",
+        "started_at": "2026-01-20T10:10:05Z",
+        "completed_at": "2026-01-20T10:20:00Z",
+        "steps": [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1},
+            {"name": "Run tests", "status": "completed", "conclusion": "success", "number": 2},
+        ],
+    },
+    {
+        "id": 20003,
+        "run_id": 1002,
+        "run_attempt": 1,
+        "name": "test",
+        "status": "completed",
+        "conclusion": "failure",
+        "workflow_name": "CI",
+        "head_branch": "feature/foo",
+        "runner_name": "ubuntu-latest",
+        "created_at": "2026-01-22T10:00:05Z",
+        "started_at": "2026-01-22T10:00:40Z",
+        "completed_at": "2026-01-22T10:15:00Z",
+        "steps": [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1},
+            {"name": "Run tests", "status": "completed", "conclusion": "failure", "number": 2},
+        ],
+    },
+    {
+        "id": 20004,
+        "run_id": 1003,
+        "run_attempt": 1,
+        "name": "deploy",
+        "status": "in_progress",
+        "conclusion": None,
+        "workflow_name": "Deploy",
+        "head_branch": "master",
+        "runner_name": "ubuntu-latest",
+        "created_at": "2026-01-25T10:00:05Z",
+        "started_at": "2026-01-25T10:00:20Z",
+        "completed_at": None,  # still running
+        "steps": [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1},
+            {"name": "Deploy", "status": "in_progress", "conclusion": None, "number": 2},
+        ],
+    },
+]
+
 STARGAZERS = [
     {
         "starred_at": "2026-01-10T10:00:00Z",

@@ -1,5 +1,7 @@
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from unittest import mock
 
@@ -15,6 +17,8 @@ from posthog.temporal.data_imports.sources.github.github import (
     _format_incremental_value,
     _is_issue_not_pr,
     _is_older_than_cutoff,
+    _iter_jobs_for_run,
+    _iter_pages,
     _parse_next_url,
     _should_stop_desc,
     get_rows,
@@ -475,6 +479,17 @@ class TestGithubSourceSortMode:
                 datetime(2026, 1, 15, tzinfo=UTC),
                 "desc",
             ),
+            # workflow_jobs fans out over workflow_runs newest-first, so it emits
+            # desc on every sync — same as its parent.
+            ("workflow_jobs_full_refresh", "workflow_jobs", False, None, "desc"),
+            ("workflow_jobs_first_sync_no_cutoff", "workflow_jobs", True, None, "desc"),
+            (
+                "workflow_jobs_incremental_with_cutoff",
+                "workflow_jobs",
+                True,
+                datetime(2026, 1, 15, tzinfo=UTC),
+                "desc",
+            ),
         ]
     )
     def test_sort_mode(
@@ -795,3 +810,268 @@ class _ChunkingBatcher:
             self._buffer = []
             return table
         raise Exception("No chunks available to yield")
+
+
+class _RoutingSession:
+    """Routes GitHub GET calls by URL so two-level runs->jobs fan-out can be mocked
+    without depending on request order. Records every requested URL."""
+
+    def __init__(
+        self,
+        runs_pages: list[tuple[Any, str]],
+        jobs_by_run: dict[int, tuple[Any, str]],
+    ) -> None:
+        self._runs_pages = list(runs_pages)
+        self._jobs_by_run = jobs_by_run
+        self.calls: list[str] = []
+
+    def get(self, url: str, headers: Any = None, timeout: Any = None) -> Any:
+        self.calls.append(url)
+        if "/jobs" in url:
+            run_id = int(urlparse(url).path.split("/")[-2])
+            body, link = self._jobs_by_run.get(run_id, ({"total_count": 0, "jobs": []}, ""))
+            return _make_response(body=body, link=link)
+        body, link = self._runs_pages.pop(0)
+        return _make_response(body=body, link=link)
+
+
+def _run(created_at: str, run_id: int) -> dict[str, Any]:
+    return {"id": run_id, "created_at": created_at}
+
+
+def _runs_envelope(*runs: dict[str, Any]) -> dict[str, Any]:
+    return {"total_count": len(runs), "workflow_runs": list(runs)}
+
+
+def _jobs_envelope(*jobs: dict[str, Any]) -> dict[str, Any]:
+    return {"total_count": len(jobs), "jobs": list(jobs)}
+
+
+class TestFanOutJobs:
+    """workflow_jobs fans out over workflow_runs and emits each run's jobs."""
+
+    def _patch_batcher(self) -> Any:
+        return mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.Batcher",
+            autospec=False,
+            side_effect=lambda logger, chunk_size, chunk_size_bytes: _ImmediateBatcher(),
+        )
+
+    def _fan_out(self, session: _RoutingSession, **kwargs: Any) -> list[Any]:
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+                return_value=session,
+            ),
+        ):
+            return list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_jobs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=_make_manager(),
+                    **kwargs,
+                )
+            )
+
+    def test_each_job_carries_run_id_and_nested_steps(self) -> None:
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-22T00:00:00Z", 1002), _run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1002: (_jobs_envelope({"id": 3, "run_id": 1002, "steps": [{"name": "test", "number": 1}]}), ""),
+                1001: (
+                    _jobs_envelope(
+                        {"id": 1, "run_id": 1001, "steps": [{"name": "build", "number": 1}]},
+                        {"id": 2, "run_id": 1001, "steps": []},
+                    ),
+                    "",
+                ),
+            },
+        )
+
+        rows = self._fan_out(session, should_use_incremental_field=False)
+
+        assert [row["id"] for row in rows] == [3, 1, 2]
+        assert all("run_id" in row for row in rows)
+        # steps[] is yielded nested (a list), not pre-flattened or stringified —
+        # the pipeline JSON-serializes it on write.
+        assert rows[0]["steps"] == [{"name": "test", "number": 1}]
+        assert isinstance(rows[1]["steps"], list)
+
+    def test_child_request_uses_filter_all_and_per_page_only(self) -> None:
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={1001: (_jobs_envelope({"id": 1, "run_id": 1001}), "")},
+        )
+
+        self._fan_out(session, should_use_incremental_field=False)
+
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert len(jobs_calls) == 1
+        assert "/repos/owner/repo/actions/runs/1001/jobs" in jobs_calls[0]
+        params = parse_qs(urlparse(jobs_calls[0]).query)
+        assert params["filter"] == ["all"]
+        assert params["per_page"] == ["100"]
+        # No params that would trip the parent's 1,000-result search cap or are
+        # unsupported on the jobs endpoint.
+        assert "since" not in params
+        assert "created" not in params
+        assert "sort" not in params
+        assert "state" not in params
+
+    def test_null_jobs_envelope_does_not_crash_or_truncate(self) -> None:
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-22T00:00:00Z", 1002), _run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1002: ({"total_count": 0, "jobs": None}, ""),  # run with no jobs yet
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        rows = self._fan_out(session, should_use_incremental_field=False)
+
+        # Empty/null envelope for one run contributes nothing; the other run's
+        # jobs still land.
+        assert [row["id"] for row in rows] == [1]
+
+    def test_incremental_fans_out_only_runs_at_or_above_cutoff(self) -> None:
+        cutoff = datetime(2026, 1, 22, tzinfo=UTC)
+        # Runs are newest-first. 1003 is above the cutoff; 1001 is below it.
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-25T00:00:00Z", 1003), _run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        rows = self._fan_out(
+            session,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="created_at",
+        )
+
+        # Only the run above the cutoff is fanned out; the older run is skipped
+        # entirely — no jobs request is made for it.
+        assert [row["id"] for row in rows] == [9]
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert any("/runs/1003/jobs" in c for c in jobs_calls)
+        assert not any("/runs/1001/jobs" in c for c in jobs_calls)
+
+    def test_resume_starts_from_saved_parent_page_url(self) -> None:
+        saved_url = "https://api.github.com/repos/owner/repo/actions/runs?per_page=100&page=3"
+        manager = _make_manager(can_resume=True, resume_state=GithubResumeConfig(next_url=saved_url))
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={1001: (_jobs_envelope({"id": 1, "run_id": 1001}), "")},
+        )
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+                return_value=session,
+            ),
+        ):
+            list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_jobs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert session.calls[0] == saved_url
+        manager.load_state.assert_called_once()
+
+
+class TestIterPages:
+    """Generic paginator shared by the fan-out: envelope unwrap, Link following,
+    and the per-parent page cap."""
+
+    def test_unwraps_envelope_and_follows_link(self) -> None:
+        responses = [
+            _make_response(
+                body={"total_count": 3, "jobs": [{"id": 1}]},
+                link='<https://api.github.com/x?page=2>; rel="next"',
+            ),
+            _make_response(body={"total_count": 3, "jobs": [{"id": 2}]}, link=""),
+        ]
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
+
+        assert [items for items, _url, _next in pages] == [[{"id": 1}], [{"id": 2}]]
+
+    @parameterized.expand(
+        [
+            ("null_body", {"total_count": 0, "jobs": None}),
+            ("empty_dict", {}),
+            ("empty_list", {"total_count": 0, "jobs": []}),
+        ]
+    )
+    def test_empty_or_null_envelope_yields_no_pages(self, _name: str, body: Any) -> None:
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = [_make_response(body=body, link="")]
+            pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
+
+        assert pages == []
+
+    def test_page_cap_stops_and_logs(self) -> None:
+        # Every page links to a next page; the cap must halt pagination.
+        responses = [
+            _make_response(body={"jobs": [{"id": i}]}, link='<https://api.github.com/x?page=n>; rel="next"')
+            for i in range(5)
+        ]
+        logger = mock.Mock()
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            pages = list(
+                _iter_pages(
+                    "https://api.github.com/x",
+                    {},
+                    "jobs",
+                    logger,
+                    max_pages=2,
+                    page_cap_context={"repository": "owner/repo", "run_id": 1001},
+                )
+            )
+
+        assert len(pages) == 2
+        logger.warning.assert_called_once()
+        assert logger.warning.call_args.kwargs["max_pages"] == 2
+        assert logger.warning.call_args.kwargs["run_id"] == 1001
+
+    def test_iter_jobs_for_run_builds_path_and_passes_cap(self) -> None:
+        config = dataclasses.replace(GITHUB_ENDPOINTS["workflow_jobs"], max_pages_per_parent=1)
+        responses = [
+            _make_response(
+                body=_jobs_envelope({"id": 1, "run_id": 1001}),
+                link='<https://api.github.com/x?page=2>; rel="next"',
+            ),
+        ]
+        logger = mock.Mock()
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            jobs = list(_iter_jobs_for_run("owner/repo", 1001, {}, logger, config))
+
+        assert [job["id"] for job in jobs] == [1]
+        url = mock_get.return_value.get.call_args_list[0].args[0]
+        assert "/repos/owner/repo/actions/runs/1001/jobs" in url
+        assert "filter=all" in url
+        # Cap of 1 page reached (a next link exists) → warning emitted.
+        logger.warning.assert_called_once()

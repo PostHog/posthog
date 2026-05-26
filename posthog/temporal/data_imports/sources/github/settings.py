@@ -18,6 +18,16 @@ class GithubEndpointConfig:
     # (e.g. /actions/runs returns {"total_count": N, "workflow_runs": [...]}).
     # None means the response body is itself the list.
     response_data_path: Optional[str] = None
+    # Fan-out: name of the parent endpoint whose rows seed this child's path.
+    # When set, the endpoint is fetched by walking the parent (reusing its
+    # pagination/incremental bounding) and calling this child once per parent
+    # row, substituting the parent id into the {run_id} path placeholder.
+    fan_out_parent: Optional[str] = None
+    # Extra static query params for the request (e.g. {"filter": "all"}).
+    extra_params: Optional[dict[str, str]] = None
+    # Hard cap on pages fetched per parent in a fan-out, to bound runaway
+    # pagination. A structured warning is logged if the cap is reached.
+    max_pages_per_parent: int = 50
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -118,6 +128,37 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="created_at",
         sort_mode="desc",  # API always returns newest-first; sort/direction are ignored
         response_data_path="workflow_runs",
+    ),
+    "workflow_jobs": GithubEndpointConfig(
+        name="workflow_jobs",
+        # Child of workflow_runs: {run_id} is filled per parent run during fan-out.
+        path="/repos/{repository}/actions/runs/{run_id}/jobs",
+        partition_key="created_at",  # Set at job creation; non-null even while queued/running.
+        incremental_fields=[
+            # The jobs endpoint exposes no server-side time filter, so workflow_jobs
+            # cannot have its own cursor. We bound incremental syncs at the parent:
+            # walk workflow_runs newest-first, stop once run.created_at crosses below
+            # the watermark, and fan out jobs only for runs at/above it (see
+            # github.py). Jobs upsert by id, so re-reading a boundary run is harmless.
+            #
+            # Same created_at-cursor staleness as workflow_runs applies: a run whose
+            # jobs finish well after newer runs have landed won't be re-fanned-out
+            # once it drops below the watermark. The eventual fix is the workflow_run
+            # webhook (followup), not re-scanning history.
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        sort_mode="desc",  # Emitted parent-newest-first, so jobs land newest-first too.
+        response_data_path="jobs",
+        fan_out_parent="workflow_runs",
+        # filter=all returns jobs across every run_attempt (retries), not just the
+        # latest execution — required for retry/runner-utilization analysis.
+        extra_params={"filter": "all"},
     ),
 }
 
