@@ -2367,6 +2367,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeHost?: boolean
     limit?: integer
     offset?: integer
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown[]
@@ -2378,6 +2380,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 

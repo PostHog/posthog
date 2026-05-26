@@ -62,6 +62,7 @@ class TestAITemporalModuleIntegrity:
             "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
+            "block_posthog_code_task_if_no_personal_github_activity",
             "create_posthog_code_task_for_repo_activity",
             "forward_posthog_code_followup_activity",
             "post_posthog_code_picker_timeout_activity",

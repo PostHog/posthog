@@ -79,6 +79,7 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
@@ -99,6 +100,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ):
         from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 
@@ -122,7 +124,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
     def __post_init__(self):
         self.update_hogql_modifiers()
@@ -302,6 +304,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_type="TrendsActorsQueryOptions",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -374,6 +377,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_type="TrendsQuery",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,

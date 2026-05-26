@@ -1752,7 +1752,7 @@ export const llmSkillsCreate = async (
 
 export const getLlmSkillsNameRetrieveUrl = (
     projectId: string,
-    skillName: string,
+    skillIdentifier: string,
     params?: LlmSkillsNameRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -1766,33 +1766,33 @@ export const getLlmSkillsNameRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/llm_skills/name/${skillName}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/llm_skills/name/${skillName}/`
+        ? `/api/environments/${projectId}/llm_skills/name/${skillIdentifier}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/name/${skillIdentifier}/`
 }
 
 export const llmSkillsNameRetrieve = async (
     projectId: string,
-    skillName: string,
+    skillIdentifier: string,
     params?: LlmSkillsNameRetrieveParams,
     options?: RequestInit
 ): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameRetrieveUrl(projectId, skillName, params), {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameRetrieveUrl(projectId, skillIdentifier, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillName: string) => {
-    return `/api/environments/${projectId}/llm_skills/name/${skillName}/`
+export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillIdentifier: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillIdentifier}/`
 }
 
 export const llmSkillsNamePartialUpdate = async (
     projectId: string,
-    skillName: string,
+    skillIdentifier: string,
     patchedLLMSkillPublishApi?: PatchedLLMSkillPublishApi,
     options?: RequestInit
 ): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillName), {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillIdentifier), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2033,7 +2033,7 @@ export const taggersTestHogCreate = async (
     })
 }
 
-export const getLlmAnalyticsPersonalSpendListUrl = (params?: LlmAnalyticsPersonalSpendListParams) => {
+export const getLlmAnalyticsPersonalSpendListUrl = (params: LlmAnalyticsPersonalSpendListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -2050,10 +2050,10 @@ export const getLlmAnalyticsPersonalSpendListUrl = (params?: LlmAnalyticsPersona
 }
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. Pass `product=<ai_product>` to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`); omit it for an aggregate view. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendList = async (
-    params?: LlmAnalyticsPersonalSpendListParams,
+    params: LlmAnalyticsPersonalSpendListParams,
     options?: RequestInit
 ): Promise<PersonalSpendAnalysisResponseApi[]> => {
     return apiMutator<PersonalSpendAnalysisResponseApi[]>(getLlmAnalyticsPersonalSpendListUrl(params), {

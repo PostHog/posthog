@@ -1365,7 +1365,7 @@ const llmaSkillGet = (): ToolBase<typeof LlmaSkillGetSchema, Schemas.LLMSkill> =
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_identifier))}/`,
             query: {
                 version: params.version,
             },
@@ -1437,7 +1437,7 @@ const llmaSkillUpdate = (): ToolBase<typeof LlmaSkillUpdateSchema, Schemas.LLMSk
         }
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_identifier))}/`,
             body,
         })
         return result
