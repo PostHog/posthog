@@ -7123,6 +7123,13 @@ class ExperimentParameters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    excluded_variants: list[str] | None = Field(
+        default=None,
+        description=(
+            "Variant keys to exclude from metric result calculations. Excluded variants"
+            " are still served to users but omitted from statistical analysis."
+        ),
+    )
     feature_flag_variants: list[ExperimentVariant] | None = Field(
         default=None,
         description=(
