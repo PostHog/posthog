@@ -1206,6 +1206,32 @@ class TestExperimentService(APIBaseTest):
 
         assert "global filter properties" in str(ctx.exception)
 
+    @parameterized.expand([("regex",), ("not_regex",)])
+    def test_update_experiment_allows_existing_invalid_regex_in_flag_filters(self, operator):
+        experiment = self._create_draft_experiment()
+        flag = experiment.feature_flag
+        flag.filters["groups"][0]["properties"] = [
+            {"key": "email", "value": "[unclosed", "operator": operator, "type": "person"}
+        ]
+        flag.save(update_fields=["filters"])
+
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                },
+            },
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == "[unclosed"
+        assert flag.filters["groups"][0]["properties"][0]["operator"] == operator
+
     def test_update_experiment_syncs_feature_flag_variants_for_draft(self):
         experiment = self._create_draft_experiment()
         service = self._service()
@@ -3756,55 +3782,74 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.id is not None
 
-    def test_duplicate_metric_uuids_raises_validation_error(self):
-        """Metrics with duplicate UUIDs should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Dup UUIDs",
-                feature_flag_key="dup-uuid-flag",
-                allow_unknown_events=True,
-                metrics=[
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "$pageview"},
-                    },
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "other_event"},
-                    },
-                ],
-            )
+    def test_duplicate_metric_uuids_within_list_are_regenerated(self):
+        """Duplicate metric UUIDs within one list should be silently regenerated.
 
-    def test_duplicate_metric_uuids_across_primary_and_secondary_raises(self):
-        """Duplicate UUIDs across primary and secondary metrics should also be rejected."""
+        First occurrence keeps the supplied uuid; later occurrences get fresh ones,
+        and the ordering array is rewritten to match.
+        """
+        shared_uuid = "11bfb66a-51f5-48d0-a87e-bde2b4c958a6"
         service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Dup UUIDs Cross",
-                feature_flag_key="dup-uuid-cross-flag",
-                allow_unknown_events=True,
-                metrics=[
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "$pageview"},
-                    },
-                ],
-                metrics_secondary=[
-                    {
-                        "kind": "ExperimentMetric",
-                        "metric_type": "mean",
-                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
-                        "source": {"kind": "EventsNode", "event": "other_event"},
-                    },
-                ],
-            )
+        experiment = service.create_experiment(
+            name="Dup UUIDs",
+            feature_flag_key="dup-uuid-flag",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        uuid_0 = experiment.metrics[0]["uuid"]
+        uuid_1 = experiment.metrics[1]["uuid"]
+        assert uuid_0 == shared_uuid
+        assert uuid_1 != shared_uuid
+        UUID(uuid_1)
+        assert experiment.primary_metrics_ordered_uuids is not None
+        assert set(experiment.primary_metrics_ordered_uuids) == {uuid_0, uuid_1}
+
+    def test_duplicate_metric_uuids_across_primary_and_secondary_are_regenerated(self):
+        """Cross-list collisions are deduped — secondary gets a fresh uuid."""
+        shared_uuid = "11bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Dup UUIDs Cross",
+            feature_flag_key="dup-uuid-cross-flag",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+            metrics_secondary=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert experiment.metrics_secondary is not None
+        primary_uuid = experiment.metrics[0]["uuid"]
+        secondary_uuid = experiment.metrics_secondary[0]["uuid"]
+        assert primary_uuid == shared_uuid
+        assert secondary_uuid != shared_uuid
+        UUID(secondary_uuid)
 
     def test_metrics_without_uuids_get_auto_assigned(self):
         """Metrics with no UUID should get unique auto-generated UUIDs on create."""
@@ -3890,6 +3935,275 @@ class TestExperimentService(APIBaseTest):
         UUID(uuid_0)  # raises ValueError if not a valid UUID
         UUID(uuid_1)
         assert uuid_0 != uuid_1
+
+    def test_update_dedupes_metric_uuids_on_input(self):
+        """Updating an experiment with duplicate uuids in the payload should regenerate the dups."""
+        self._create_flag(key="dup-update-flag")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="To dedupe",
+            feature_flag_key="dup-update-flag",
+            allow_unknown_events=True,
+        )
+        shared_uuid = "11bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        updated = service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": shared_uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": shared_uuid,
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            },
+            allow_unknown_events=True,
+        )
+        assert updated.metrics is not None
+        uuid_0 = updated.metrics[0]["uuid"]
+        uuid_1 = updated.metrics[1]["uuid"]
+        assert uuid_0 == shared_uuid
+        assert uuid_1 != shared_uuid
+        UUID(uuid_1)
+
+    def test_soft_delete_succeeds_when_stored_metrics_had_duplicate_uuids(self):
+        """An experiment with corrupt (duplicated) uuids in storage should still be soft-deletable.
+
+        Pre-migration data could have two metrics sharing one uuid in the DB. The
+        post-migration code path should not block a soft-delete PATCH on that row.
+        """
+        self._create_flag(key="corrupt-soft-delete")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Corrupt",
+            feature_flag_key="corrupt-soft-delete",
+            allow_unknown_events=True,
+        )
+        # Bypass the service to plant corrupt data, mirroring what legacy rows look like.
+        shared_uuid = "22bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        Experiment.objects.filter(id=experiment.id).update(
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": shared_uuid,
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+            primary_metrics_ordered_uuids=[shared_uuid, shared_uuid],
+        )
+        experiment.refresh_from_db()
+
+        updated = service.update_experiment(experiment, {"deleted": True}, allow_unknown_events=True)
+        assert updated.deleted is True
+
+    def test_clone_regenerates_metric_uuids(self):
+        """Cloning an experiment must produce metrics with fresh uuids — never shared with the source."""
+        self._create_flag(key="clone-fresh-uuids")
+        service = self._service()
+        source = service.create_experiment(
+            name="Source",
+            feature_flag_key="clone-fresh-uuids",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+            metrics_secondary=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert source.metrics is not None
+        assert source.metrics_secondary is not None
+        source_primary_uuid = source.metrics[0]["uuid"]
+        source_secondary_uuid = source.metrics_secondary[0]["uuid"]
+
+        dup = service.duplicate_experiment(source)
+
+        assert dup.metrics is not None
+        assert dup.metrics_secondary is not None
+        dup_primary_uuid = dup.metrics[0]["uuid"]
+        dup_secondary_uuid = dup.metrics_secondary[0]["uuid"]
+        assert dup_primary_uuid != source_primary_uuid
+        assert dup_secondary_uuid != source_secondary_uuid
+        UUID(dup_primary_uuid)
+        UUID(dup_secondary_uuid)
+        # Ordering arrays should reference the new uuids, not the source ones.
+        assert dup.primary_metrics_ordered_uuids == [dup_primary_uuid]
+        assert dup.secondary_metrics_ordered_uuids == [dup_secondary_uuid]
+
+    def test_dedup_regenerates_inline_uuids_that_collide_with_saved_metric_uuid(self):
+        """When an inline metric reuses a saved-metric's uuid, dedup must regenerate
+        the inline copy so each ordering entry resolves to exactly one thing.
+
+        The saved-metric link is independent of the inline metrics array, but its
+        uuid lives alongside inline-metric uuids in primary_metrics_ordered_uuids.
+        An inline metric reusing the saved-metric uuid would make ordering ambiguous.
+        """
+        self._create_flag(key="dedup-with-saved")
+        saved_metric_uuid = "33bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM with dup uuid",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="With Saved + Dup",
+            feature_flag_key="dedup-with-saved",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+        )
+        # Sanity: the saved-metric uuid is in the ordering.
+        assert experiment.primary_metrics_ordered_uuids == [saved_metric_uuid]
+
+        # Now the user sends an update with two inline metrics, both reusing the
+        # saved-metric's uuid (the case where an LLM/frontend has inlined the
+        # shared metric twice).
+        updated = service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": saved_metric_uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": saved_metric_uuid,
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            },
+            allow_unknown_events=True,
+        )
+        # Both inline metrics get fresh uuids — neither shares the saved-metric uuid.
+        assert updated.metrics is not None
+        uuid_0 = updated.metrics[0]["uuid"]
+        uuid_1 = updated.metrics[1]["uuid"]
+        assert uuid_0 != saved_metric_uuid
+        assert uuid_1 != saved_metric_uuid
+        assert uuid_0 != uuid_1
+        UUID(uuid_0)
+        UUID(uuid_1)
+        # The saved-metric uuid is still in ordering, plus both new inline uuids.
+        assert updated.primary_metrics_ordered_uuids is not None
+        assert saved_metric_uuid in updated.primary_metrics_ordered_uuids
+        assert uuid_0 in updated.primary_metrics_ordered_uuids
+        assert uuid_1 in updated.primary_metrics_ordered_uuids
+        # The saved-metric link itself is untouched.
+        assert list(updated.experimenttosavedmetric_set.values_list("saved_metric_id", flat=True)) == [sm.id]
+
+    def test_create_regenerates_inline_uuid_that_collides_with_saved_metric_uuid(self):
+        """Same protection on create: inline metric reusing a saved-metric uuid gets regenerated."""
+        self._create_flag(key="create-dedup-with-saved")
+        saved_metric_uuid = "55bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Create Dedup with Saved",
+            feature_flag_key="create-dedup-with-saved",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": saved_metric_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        inline_uuid = experiment.metrics[0]["uuid"]
+        assert inline_uuid != saved_metric_uuid
+        UUID(inline_uuid)
+        assert experiment.primary_metrics_ordered_uuids is not None
+        assert saved_metric_uuid in experiment.primary_metrics_ordered_uuids
+        assert inline_uuid in experiment.primary_metrics_ordered_uuids
+
+    def test_clone_regenerates_uuids_even_when_source_uuid_matches_saved_metric(self):
+        """Cloning regenerates inline metric uuids so they no longer collide with the
+        saved metric's uuid carried by the cloned saved-metric link."""
+        self._create_flag(key="clone-saved-collision")
+        saved_metric_uuid = "44bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        source = service.create_experiment(
+            name="With Saved + Inline Same UUID",
+            feature_flag_key="clone-saved-collision",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert source.metrics is not None
+        source_inline_uuid = source.metrics[0]["uuid"]
+
+        dup = service.duplicate_experiment(source)
+
+        # Clone's inline metric has a fresh uuid.
+        assert dup.metrics is not None
+        dup_inline_uuid = dup.metrics[0]["uuid"]
+        assert dup_inline_uuid != source_inline_uuid
+        UUID(dup_inline_uuid)
+        # Saved metric uuid (carried via the link in the clone) must still be in ordering.
+        assert dup.primary_metrics_ordered_uuids is not None
+        assert saved_metric_uuid in dup.primary_metrics_ordered_uuids
+        assert dup_inline_uuid in dup.primary_metrics_ordered_uuids
+        # Cloned saved-metric link points to the same saved metric (same team).
+        assert list(dup.experimenttosavedmetric_set.values_list("saved_metric_id", flat=True)) == [sm.id]
 
     def _base_queryset(self):
         return Experiment.objects.filter(team=self.team)

@@ -2647,6 +2647,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand(
+            [
+                ("using_sample_before_group_by", "select 1 from events using sample 0.1"),
+                ("bare_sample_statement_level", "select 1 from events where 1 sample 0.1 group by 1"),
+                ("using_sample_after_qualify", "select 1 from events qualify 1 using sample 0.1"),
+                ("sample_after_unpivot", "select 1 from (a positional join b) unpivot (m for n in (o)) sample 0.5"),
+                ("table_and_statement_sample", "select 1 from events sample 0.1 using sample 0.2"),
+            ]
+        )
+        def test_statement_level_sample_rejected(self, _name: str, query: str):
+            # `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for; every backend rejects rather than silently dropping it.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
         def test_select_with_columns(self):
             self.assertEqual(
                 self._select("with event as boo select boo from events"),
@@ -2715,6 +2729,31 @@ def parser_test_factory(backend: HogQLParserBackend):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
                 ),
             )
+
+        def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
+            # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`. Every backend must reject via `JoinExpr.__post_init__`; the rust-py path covers this via `PyEmitter::set_field` re-firing `__post_init__` because `join_type` is written post-construction by `chain_join`.
+            q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
+            with self.assertRaises((ValueError, ExposedHogQLError)) as cm:
+                self._select(q)
+            self.assertIn("Invalid join type", str(cm.exception))
+
+        def test_deeply_nested_expression_does_not_stack_overflow(self):
+            # Deep paren input must surface a clean `SyntaxError`, not stack-OOM in the recursive-descent loop. Cap lives at `MAX_EXPR_RECURSION_DEPTH = 1000`, mirrors ClickHouse's `max_parser_depth`. cpp / python paths have their own stack characteristics so the assertion is rust-specific.
+            if backend not in ("rust-json", "rust-py"):
+                self.skipTest("rust-specific recursion cap")
+            deep = "(" * 1500 + "1" + ")" * 1500
+            with self.assertRaises(SyntaxError) as cm:
+                self._expr(deep)
+            self.assertIn("too deeply nested", str(cm.exception).lower())
+
+        def test_ctes_inject_into_paren_wrapped_inner_with(self):
+            # An outer WITH attached to a paren-wrapped inner that already has its own WITH must surface both CTEs, with the outer's appended after the inner's (matches cpp's `VISIT(SelectStmtWithParens)` ordering).
+            node = cast(
+                ast.SelectQuery,
+                self._select("WITH a AS (SELECT 1) (WITH b AS (SELECT 2) SELECT * FROM b)"),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["b", "a"])
 
         def test_ctes_preserve_declaration_order(self):
             node = cast(
@@ -5851,7 +5890,7 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @no_memory_leak_check
         def test_join_op_grammar_alts_validation(self):
-            # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
+            # `joinOp` has three disjoint alts:
             # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
             # at most once per alt, and the three alts don't share INNER /
             # LEFT / RIGHT / FULL. Rust's source-order loop set booleans
@@ -6628,12 +6667,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3 ON 4",
                 # Mixed CROSS in chain: constraint can't fall through.
                 "SELECT * FROM a JOIN b ON 1 CROSS JOIN c ON 2",
+                # Statement-level `USING SAMPLE` (the peel loop must not treat the `USING` as a join constraint): it's DuckDB's statement-level sample, which HogQL doesn't implement, so it's rejected rather than silently dropped.
+                "SELECT * FROM t USING SAMPLE 0.5",
+                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
             ):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="rust-json")
-            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN, and statement-level `USING SAMPLE` (peel loop must not intercept).
+            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN.
             for src in (
                 "SELECT * FROM a JOIN b ON 1",
                 "SELECT * FROM a JOIN b USING (x)",
@@ -6641,8 +6683,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a CROSS JOIN b",
                 "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
-                "SELECT * FROM t USING SAMPLE 0.5",
-                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
                 # Outer JOIN around a parens-wrapped inner JoinExpr still attaches one constraint at the outer level.
                 "SELECT * FROM (a JOIN b) JOIN c ON 1",
                 "SELECT * FROM a JOIN (b JOIN c ON 1) ON 2",

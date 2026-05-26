@@ -2,7 +2,7 @@
 
 CDCExtractionWorkflow: source-level scheduled workflow that reads all WAL changes
 from the replication slot, groups them by table, and writes them through the
-pipeline (S3BatchWriter → KafkaBatchProducer → Kafka consumer → DeltaLake).
+pipeline (S3BatchWriter → PostgresProducer → warehouse-sources-load consumer → DeltaLake).
 """
 
 from __future__ import annotations

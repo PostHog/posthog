@@ -1,4 +1,4 @@
-import { fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/dom'
 import { useEffect, useState } from 'react'
 
 import type { ChartTheme } from './core/types'
@@ -36,7 +36,7 @@ function buildTheme(): ChartTheme {
         gridColor: readCssVar('color-graph-axis-line'),
         crosshairColor: readCssVar('color-graph-crosshair'),
         tooltipBackground: readCssVar('color-bg-surface-tooltip'),
-        tooltipColor: readCssVar('color-text-primary'),
+        tooltipColor: readCssVar('color-text-primary-inverse'),
     }
 }
 
@@ -96,17 +96,20 @@ export async function playHoverAtFraction(
         },
         { timeout: 3000 }
     )
-    const rect = wrapper.getBoundingClientRect()
-    fireEvent.mouseMove(wrapper, {
-        clientX: rect.left + rect.width * fraction,
-        clientY: rect.top + rect.height * yFraction,
-    })
+    // Re-fire mousemove inside the waitFor: the chart's onMouseMove bails until
+    // ResizeObserver has populated scales/dimensions, so a single dispatch races
+    // the first measurement pass. Re-dispatching is cheap and idempotent.
     await waitFor(
         () => {
+            const rect = wrapper.getBoundingClientRect()
+            fireEvent.mouseMove(wrapper, {
+                clientX: rect.left + rect.width * fraction,
+                clientY: rect.top + rect.height * yFraction,
+            })
             if (!document.querySelector('[data-hog-charts-tooltip]')) {
                 throw new Error('tooltip not yet rendered')
             }
         },
-        { timeout: 1000 }
+        { timeout: 3000 }
     )
 }

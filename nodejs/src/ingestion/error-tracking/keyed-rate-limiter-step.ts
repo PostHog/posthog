@@ -64,12 +64,14 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
             return inputs.map((input) => ok(input))
         }
 
-        // Per-input key (null means "skip this input"). Cost summed per unique key
-        // so we issue exactly one Redis call per key — same pattern as logs-rate-limiter.
-        // Bucket config (if provided) snapshots the first input per key — all inputs in
-        // a key group are expected to agree (e.g. team-keyed limits all share a team).
         const keyForInput: (string | null)[] = new Array(inputs.length)
-        const requestByKey = new Map<string, KeyedRateLimitRequest>()
+        const limitedForInput: boolean[] = new Array(inputs.length).fill(false)
+        const perInputRequests: KeyedRateLimitRequest[] = []
+        const requestIndexForInput: number[] = new Array(inputs.length).fill(-1)
+        const bucketConfigByKey = new Map<
+            string,
+            Partial<Pick<KeyedRateLimitRequest, 'bucketSize' | 'refillRate' | 'ttlSeconds'>>
+        >()
 
         for (let i = 0; i < inputs.length; i++) {
             const key = opts.getKey(inputs[i])
@@ -77,28 +79,28 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
             if (key === null) {
                 continue
             }
-            const inputCost = costFn(inputs[i])
-            const existing = requestByKey.get(key)
-            if (existing) {
-                existing.cost += inputCost
-            } else {
-                const overrides = opts.getBucketConfig?.(inputs[i]) ?? {}
-                requestByKey.set(key, { id: key, cost: inputCost, ...overrides })
+            if (!bucketConfigByKey.has(key)) {
+                bucketConfigByKey.set(key, opts.getBucketConfig?.(inputs[i]) ?? {})
             }
+            requestIndexForInput[i] = perInputRequests.length
+            perInputRequests.push({
+                id: key,
+                cost: costFn(inputs[i]),
+                ...bucketConfigByKey.get(key),
+            })
         }
 
-        const limitedKeys = new Set<string>()
-        if (requestByKey.size > 0) {
-            const rateLimitResults = await opts.rateLimiter.rateLimitGrouped(Array.from(requestByKey.values()))
-            for (const [key, result] of rateLimitResults) {
-                if (result.isRateLimited) {
-                    limitedKeys.add(key)
+        if (perInputRequests.length > 0) {
+            const rateLimitResults = await opts.rateLimiter.rateLimitGrouped(perInputRequests)
+            for (let i = 0; i < inputs.length; i++) {
+                const reqIdx = requestIndexForInput[i]
+                if (reqIdx === -1) {
+                    continue
                 }
+                limitedForInput[i] = rateLimitResults[reqIdx][1].isRateLimited
             }
         }
 
-        // Aggregate outcomes per (team, key, outcome) so we emit one app_metrics2
-        // row per unique tuple regardless of input volume in this batch.
         const outcomeBuckets = new Map<
             string,
             { teamId: number; key: string; outcome: RateLimitOutcome; count: number }
@@ -108,7 +110,7 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
             if (key === null) {
                 continue
             }
-            const outcome: RateLimitOutcome = limitedKeys.has(key) ? 'rate_limited' : 'allowed'
+            const outcome: RateLimitOutcome = limitedForInput[i] ? 'rate_limited' : 'allowed'
             outcomeCounter.inc({ app_source: opts.appSource, outcome, reporting_mode: reportingModeLabel })
 
             if (opts.appMetricsAggregator) {
@@ -138,7 +140,7 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
 
         return inputs.map((input, i) => {
             const key = keyForInput[i]
-            if (key === null || !limitedKeys.has(key) || opts.reportingMode) {
+            if (key === null || !limitedForInput[i] || opts.reportingMode) {
                 return ok(input)
             }
             return drop<T>(dropReason)

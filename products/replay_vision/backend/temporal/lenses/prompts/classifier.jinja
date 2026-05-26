@@ -1,7 +1,0 @@
-{% extends "base.jinja" %}
-{% from "_macros.jinja" import cite_in %}
-{% block task %}Categorize this session according to: {{ user_prompt }}
-
-Choose tags from this fixed vocabulary: [{{ vocabulary }}]. {% if multi_label %}Pick every tag that applies.{% else %}Pick exactly one tag.{% endif %} Use `reasoning` to justify your choice.
-
-{{ cite_in('reasoning') }}{% endblock %}

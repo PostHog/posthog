@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Insight, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -735,15 +736,25 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual(response.json()["count"], 1)
 
-    def test_list_ignores_malformed_tags_param(self):
+    @parameterized.expand(
+        [
+            ("not_json", "not-json"),
+            ("bare_token", "billing"),
+            ("json_string", '"billing"'),
+            ("json_object", '{"name":"billing"}'),
+            ("list_of_ints", "[1, 2]"),
+            ("mixed_list", '["billing", 1]'),
+        ]
+    )
+    def test_list_rejects_malformed_tags_param(self, _name, tags_value):
         Tag.objects.create(name="billing", team=self.team)
         self._create_account(name="Account A")
         self._create_account(name="Account B")
 
-        response = self.client.get(f"{self.endpoint_base}?tags=not-json")
+        response = self.client.get(f"{self.endpoint_base}?tags={tags_value}")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIn("Must be a JSON-encoded list of strings.", str(response.json()))
 
     def test_list_ignores_empty_tags_array(self):
         self._create_account(name="Account A")
@@ -762,10 +773,10 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             # Query budget for a tag-filtered account list. Constant regardless of result count
-            # because tagged_items is prefetched once. If a query is added, please confirm it
-            # does not scale with the number of accounts before raising the limit:
+            # because tagged_items and notebooks are prefetched once. If a query is added, please
+            # confirm it does not scale with the number of accounts before raising the limit:
             # 1: load Django session
             # 2: load authenticated user
             # 3: load user's current organization
@@ -776,7 +787,8 @@ class TestAccountViewSet(APIBaseTest):
             # 8: load constance instance setting (rate limit config)
             # 9: COUNT(*) for pagination
             # 10: SELECT page of accounts filtered by tag name
-            # 11: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
+            # 11: prefetch resourcenotebook (joined with notebook) for the page
+            # 12: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
             response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
@@ -791,6 +803,335 @@ class TestAccountViewSet(APIBaseTest):
 
         new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
         self.assertGreater(new_logs, initial_logs)
+
+    def test_list_accounts_filter_by_csm_user_id(self):
+        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B", _properties={"csm": {"id": 9, "email": "b@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
+        names = [r["name"] for r in response.json()["results"]]
+        assert names == ["A"]
+
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_by_csm_unassigned(self, _name, unassigned_kwargs):
+        self._create_account(name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?csm=unassigned")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
+
+    def test_list_accounts_filter_by_account_executive_user_id(self):
+        self._create_account(name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_executive=7")
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    def test_list_accounts_filter_by_account_owner_user_id(self):
+        self._create_account(name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_owner=7")
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_all_roles_unassigned(self, _name, unassigned_kwargs):
+        # Created through the manager, so every role key is present and csm has a real id.
+        self._create_account(name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?all_roles_unassigned=true")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
+
+    def test_list_accounts_filter_combined_role_and_tags(self):
+        account_a = self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account_b = self._create_account(name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account_c = self._create_account(name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
+        set_tags_on_object(["enterprise"], account_a)
+        set_tags_on_object(["startup"], account_b)
+        set_tags_on_object(["enterprise"], account_c)
+        response = self.client.get(f'/api/environments/{self.team.id}/accounts/?csm=7&tags=["enterprise"]')
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    def test_list_accounts_invalid_csm_value_is_ignored(self):
+        # Malformed user id should be a no-op (return both accounts), not "match nothing".
+        self._create_account(name="A")
+        self._create_account(name="B", _properties={"csm": {"id": 7, "email": "b@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=not-a-user")
+        assert response.status_code == status.HTTP_200_OK
+        names = sorted(r["name"] for r in response.json()["results"])
+        assert names == ["A", "B"]
+
+    def test_list_accounts_ordering_by_name_asc(self):
+        # Create in alphabetical order so default `-created_at` order is [Banana, Apple];
+        # ordering=name only matches if the filter actually flips the order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=name")
+        assert [r["name"] for r in response.json()["results"]] == ["Apple", "Banana"]
+
+    def test_list_accounts_ordering_by_name_desc(self):
+        # Default `-created_at` order would be [Apple, Banana]; ordering=-name flips to [Banana, Apple].
+        self._create_account(name="Banana")
+        self._create_account(name="Apple")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=-name")
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
+
+    def test_list_accounts_invalid_ordering_is_ignored(self):
+        # Malformed ordering should fall back to default `-created_at` order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=robert');drop")
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
+
+    @parameterized.expand(
+        [
+            ("name_exact", "Acme Corp", ["Acme Corp"]),
+            ("name_partial_case_insensitive", "acme", ["Acme Corp"]),
+            ("external_id_partial", "glx-9", ["Globex"]),
+            ("matches_name_or_external_id", "1", ["Acme Corp"]),
+            ("no_match", "zzzz", []),
+        ]
+    )
+    def test_list_accounts_search(self, _name, search, expected):
+        self._create_account(name="Acme Corp", external_id="acme-1")
+        self._create_account(name="Globex", external_id="glx-99")
+        response = self.client.get(f"{self.endpoint_base}?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected)
+
+    def test_list_accounts_blank_search_returns_all(self):
+        self._create_account(name="Acme Corp")
+        self._create_account(name="Globex")
+        response = self.client.get(f"{self.endpoint_base}?search=")
+        assert sorted(r["name"] for r in response.json()["results"]) == ["Acme Corp", "Globex"]
+
+    def test_list_accounts_search_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(team=other_team, name="Acme Corp")
+        self._create_account(name="Acme Corp")
+        response = self.client.get(f"{self.endpoint_base}?search=acme")
+        assert len(response.json()["results"]) == 1
+
+    def test_list_accounts_role_filter_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(
+            team=other_team,
+            name="OtherTeamAccount",
+            _properties={"csm": {"id": 7, "email": "a@x.com"}},
+        )
+        self._create_account(name="MyAccount", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
+        assert [r["name"] for r in response.json()["results"]] == ["MyAccount"]
+
+    def test_retrieve_returns_empty_notebooks_when_none_linked(self):
+        account = self._create_account()
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["notebooks"], [])
+
+    def test_retrieve_returns_all_linked_notebooks(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        account = self._create_account()
+        notebook_a = Notebook.objects.create(
+            team=self.team, title="A", content=[], visibility=Notebook.Visibility.INTERNAL
+        )
+        notebook_b = Notebook.objects.create(
+            team=self.team, title="B", content=[], visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook_a, account=account)
+        ResourceNotebook.objects.create(notebook=notebook_b, account=account)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(set(response.json()["notebooks"]), {notebook_a.short_id, notebook_b.short_id})
+
+    def test_list_includes_notebooks_field(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        account = self._create_account()
+        notebook = Notebook.objects.create(
+            team=self.team, title="Existing", content=[], visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=account)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        result = next(r for r in response.json()["results"] if r["id"] == str(account.id))
+        self.assertEqual(result["notebooks"], [notebook.short_id])
+
+
+class TestAccountNotebookViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp")
+        self.endpoint_base = f"/api/environments/{self.team.id}/accounts/{self.account.id}/notebooks/"
+
+    def test_create_account_notebook_uses_internal_visibility(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Q3 call", "content": {"type": "doc", "content": []}},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        data = response.json()
+        self.assertIn("short_id", data)
+        self.assertEqual(data["title"], "Q3 call")
+
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=data["short_id"])
+        self.assertEqual(notebook.team, self.team)
+        self.assertEqual(notebook.visibility, Notebook.Visibility.INTERNAL)
+        self.assertEqual(notebook.created_by, self.user)
+
+        self.assertTrue(
+            ResourceNotebook.objects.filter(notebook=notebook, account=self.account).exists(),
+        )
+
+    def test_list_returns_only_notebooks_for_account(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        account_notebook = Notebook.objects.create(
+            team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=account_notebook, account=self.account)
+
+        other_account = Account.objects.unscoped().create(team=self.team, name="Other")
+        other_notebook = Notebook.objects.create(
+            team=self.team, title="Other note", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=other_notebook, account=other_account)
+
+        Notebook.objects.create(team=self.team, title="Standalone", content={}, visibility=Notebook.Visibility.DEFAULT)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = [n["short_id"] for n in response.json()["results"]]
+        self.assertEqual(short_ids, [account_notebook.short_id])
+
+    def test_retrieve_returns_notebook_for_account(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        notebook = Notebook.objects.create(
+            team=self.team, title="Note", content={"foo": "bar"}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+
+        response = self.client.get(f"{self.endpoint_base}{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        data = response.json()
+        self.assertEqual(data["short_id"], notebook.short_id)
+        self.assertEqual(data["title"], "Note")
+        self.assertEqual(data["content"], {"foo": "bar"})
+
+    def test_retrieve_notebook_not_linked_to_account_returns_404(self):
+        from products.notebooks.backend.models import Notebook
+
+        unrelated = Notebook.objects.create(
+            team=self.team, title="Unrelated", content={}, visibility=Notebook.Visibility.DEFAULT
+        )
+
+        response = self.client.get(f"{self.endpoint_base}{unrelated.short_id}/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_destroy_notebook_for_account(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        notebook = Notebook.objects.create(
+            team=self.team, title="Note", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+        notebook_pk = notebook.pk
+
+        response = self.client.delete(f"{self.endpoint_base}{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        self.assertFalse(Notebook.objects.filter(pk=notebook_pk).exists())
+        self.assertFalse(ResourceNotebook.objects.filter(account=self.account).exists())
+
+    def test_create_for_unknown_account_returns_404(self):
+        bad_url = f"/api/environments/{self.team.id}/accounts/00000000-0000-0000-0000-000000000000/notebooks/"
+
+        response = self.client.post(bad_url, {"title": "X"}, format="json")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_other_team_account_is_not_accessible(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = Account.objects.unscoped().create(team=other_team, name="Other team")
+
+        url = f"/api/environments/{self.team.id}/accounts/{other_account.id}/notebooks/"
+        response = self.client.post(url, {"title": "X"}, format="json")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_internal_account_notebooks_do_not_appear_in_notebooks_list(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        notebook = Notebook.objects.create(
+            team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = [n["short_id"] for n in response.json()["results"]]
+        self.assertNotIn(notebook.short_id, short_ids)
+
+    def test_authentication_required(self):
+        self.client.logout()
+
+        for method, url in [
+            ("GET", self.endpoint_base),
+            ("POST", self.endpoint_base),
+            ("GET", f"{self.endpoint_base}abc123/"),
+            ("DELETE", f"{self.endpoint_base}abc123/"),
+        ]:
+            with self.subTest(method=method, url=url):
+                response = getattr(self.client, method.lower())(url, format="json")
+                self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_list_excludes_non_internal_notebooks_linked_to_account(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        internal_notebook = Notebook.objects.create(
+            team=self.team, title="Internal", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=internal_notebook, account=self.account)
+
+        default_notebook = Notebook.objects.create(
+            team=self.team, title="Default", content={}, visibility=Notebook.Visibility.DEFAULT
+        )
+        ResourceNotebook.objects.create(notebook=default_notebook, account=self.account)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = [n["short_id"] for n in response.json()["results"]]
+        self.assertIn(internal_notebook.short_id, short_ids)
+        self.assertNotIn(default_notebook.short_id, short_ids)
 
 
 @pytest.mark.ee
@@ -1026,3 +1367,28 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         response = self.client.get(self.accounts_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- Account notebooks inherit object-level access from the parent account --
+
+    def test_account_notebooks_404_when_parent_account_access_denied(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        url = f"{self.accounts_url}{self.account.id}/notebooks/"
+
+        list_response = self.client.get(url)
+        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        create_response = self.client.post(url, {"title": "x"}, format="json")
+        self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)

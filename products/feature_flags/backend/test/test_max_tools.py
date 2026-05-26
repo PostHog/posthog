@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonPropertyFilter, PropertyOperator
 
 from posthog.models import FeatureFlag
@@ -426,6 +428,36 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert len(flag.filters["multivariate"]["variants"]) == 2
         assert flag.filters["aggregation_group_type_index"] == 0
         assert len(flag.filters["groups"][0]["properties"]) == 1
+
+    @parameterized.expand(
+        [
+            ("regex", PropertyOperator.REGEX),
+            ("not_regex", PropertyOperator.NOT_REGEX),
+        ]
+    )
+    async def test_create_flag_rejects_invalid_regex(self, _name, operator):
+        tool = self._create_tool()
+
+        schema = FeatureFlagCreationSchema(
+            key="bad-regex-flag",
+            name="Bad Regex Flag",
+            groups=[
+                FeatureFlagGroupType(
+                    properties=[
+                        PersonPropertyFilter(
+                            key="email",
+                            value="[unclosed",
+                            operator=operator,
+                        )
+                    ],
+                    rollout_percentage=None,
+                )
+            ],
+        )
+
+        result, artifact = await tool._arun_impl(feature_flag=schema)
+        assert "Failed to create feature flag" in result
+        assert "invalid regex pattern" in result
 
     @staticmethod
     async def _get_tag_names(flag: FeatureFlag) -> list[str]:

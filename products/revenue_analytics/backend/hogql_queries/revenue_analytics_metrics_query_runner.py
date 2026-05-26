@@ -510,6 +510,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                 query_type="revenue_analytics_metrics_query",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

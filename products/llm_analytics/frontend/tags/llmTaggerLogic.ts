@@ -245,19 +245,16 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                               prompt: !('prompt' in values.tagger_config && values.tagger_config.prompt)
                                   ? 'Prompt is required'
                                   : undefined,
-                              // kea-forms expects per-tag errors as an array matching tags[]. The
-                              // array type does not allow `undefined` slots, so use `{}` for
-                              // tags with no error. Synthesize a single-entry error for the
-                              // empty-tags case so the form stays invalid (the UI guardrail
-                              // blocks reaching this state, but a programmatic removeTag could).
+                              // Blank tag rows are stripped on submit (see below), so they must not
+                              // block saving — otherwise the empty row that "Add tag" appends silently
+                              // invalidates the whole form, and unrelated edits (conditions, enabled,
+                              // sampling) appear unsavable until the row is removed. Only require that
+                              // at least one named tag survives the strip. The single-entry array is
+                              // how kea-forms keeps the form invalid for the no-named-tags case.
                               tags:
-                                  values.tagger_config.tags.length === 0
+                                  values.tagger_config.tags.filter((t) => t.name.trim()).length === 0
                                       ? [{ name: 'At least one tag is required' }]
-                                      : values.tagger_config.tags.some((t) => !t.name.trim())
-                                        ? values.tagger_config.tags.map((t) =>
-                                              !t.name.trim() ? { name: 'All tags must have a name' } : {}
-                                          )
-                                        : undefined,
+                                      : undefined,
                           },
             }),
             submit: async (values: TaggerForm) => {

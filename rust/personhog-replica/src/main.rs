@@ -316,7 +316,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             server = server.max_connection_age(age);
         }
         if let Err(e) = server
-            .layer(GrpcMetricsLayer)
+            .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
                 PersonHogReplicaServer::new(service)

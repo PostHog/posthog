@@ -1452,15 +1452,44 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            # Injection-shaped strings — whitespace / punctuation makes them obviously not identifiers.
             ("sql_injection", "; DROP TABLE events --"),
             ("union_injection", "current_date UNION SELECT 1"),
             ("whitespace", "current date"),
             ("special_chars", "now()"),
             ("empty_string", ""),
+            # Python-valid identifiers outside `VALID_KEYWORD_NAMES` — would emit unquoted as arbitrary ClickHouse tokens if the gate only checked `isidentifier()`.
+            ("python_identifier_but_not_keyword", "hello"),
+            ("looks_like_keyword_uppercase", "CURRENT_DATE"),
+            ("dunder_attr", "__class__"),
+            ("sql_keyword_select", "SELECT"),
         ]
     )
     def test_keyword_rejects_invalid_names(self, _name: str, keyword_name: str):
-        node = ast.Keyword(name=keyword_name)
+        # `Keyword.__post_init__` rejects at construction; `visit_keyword` re-checks at print time (defense-in-depth catches the `setattr` bypass path).
+        with self.assertRaises((ValueError, QueryError)):
+            node = ast.Keyword(name=keyword_name)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+            print_prepared_ast(node, context=context, dialect="clickhouse", stack=[select_query])
+
+    @parameterized.expand(
+        [
+            ("current_date",),
+            ("current_time",),
+            ("current_timestamp",),
+            ("localtime",),
+            ("localtimestamp",),
+        ]
+    )
+    def test_keyword_accepts_valid_names(self, keyword_name: str):
+        # The five names in `ast.VALID_KEYWORD_NAMES`, kept in sync with `resolver.POSTGRES_KEYWORD_TYPES` via import-time assert.
+        ast.Keyword(name=keyword_name)
+
+    def test_keyword_printer_rejects_setattr_bypass(self):
+        # `setattr`-after-construction skips `__post_init__`; the printer's allowlist re-check stops the bypass.
+        node = ast.Keyword(name="current_date")
+        node.name = "; DROP TABLE events --"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         with self.assertRaises(QueryError):
@@ -4013,6 +4042,81 @@ class TestPrinter(BaseTest):
         result = self._expr(expr)
         self.assertNotIn("$session_id_uuid", result)
 
+    @parameterized.expand(
+        [
+            (
+                "single_level_struct",
+                {
+                    "membership": {
+                        "clickhouse": "Tuple(type String, tier String)",
+                        "hogql": "StructDatabaseField",
+                        "valid": True,
+                        "fields": {
+                            "type": {"clickhouse": "String", "hogql": "string", "valid": True},
+                            "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        },
+                    }
+                },
+                "SELECT membership.type FROM members",
+                "tupleElement(members.membership",
+                "JSONExtractRaw(members.membership",
+            ),
+            (
+                "nested_struct",
+                {
+                    "customer": {
+                        "clickhouse": "Tuple(address Tuple(city String))",
+                        "hogql": "StructDatabaseField",
+                        "valid": True,
+                        "fields": {
+                            "address": {
+                                "clickhouse": "Tuple(city String)",
+                                "hogql": "StructDatabaseField",
+                                "valid": True,
+                                "fields": {
+                                    "city": {
+                                        "clickhouse": "String",
+                                        "hogql": "string",
+                                        "valid": True,
+                                    },
+                                },
+                            }
+                        },
+                    }
+                },
+                "SELECT customer.address.city FROM members",
+                "tupleElement(tupleElement(members.customer",
+                "JSONExtractRaw(members.customer",
+            ),
+        ]
+    )
+    def test_data_warehouse_struct_dot_notation_emits_tuple_element(
+        self, _name, columns, query, expected_substring, forbidden_substring
+    ):
+        """Regression test for #58480.
+
+        Parquet struct columns surface in HogQL as ``StructDatabaseField``
+        backed by a ClickHouse ``Tuple(...)`` column. Dot notation on these
+        columns must emit ``tupleElement(col, 'field')`` (chained for nested
+        structs) rather than the ``JSONExtractRaw(col, 'field')`` chain used
+        for JSON-string columns, because ClickHouse rejects ``JSONExtractRaw``
+        on a ``Tuple`` argument with ``illegal type: Tuple(...)``.
+        """
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="members",
+            format="Parquet",
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns=columns,
+        )
+
+        printed = self._select(query)
+
+        self.assertNotIn(forbidden_substring, printed)
+        self.assertIn(expected_substring, printed)
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
@@ -5988,7 +6092,7 @@ class TestPostgresPrinter(BaseTest):
             ("toInt", "toInt(3.14)", "CAST(3.14 AS BIGINT)"),
             ("toFloat", "toFloat(1)", "CAST(1 AS DOUBLE PRECISION)"),
             ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
-            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
+            ("toFloatOrDefault", "toFloatOrDefault('1.5', 0)", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
             ("toIntOrZero", "toIntOrZero('42')", "CAST(%(hogql_val_0)s AS BIGINT)"),
             ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
             ("toUUID", "toUUID('abc')", "CAST(%(hogql_val_0)s AS UUID)"),

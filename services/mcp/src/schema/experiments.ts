@@ -245,6 +245,76 @@ export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'se
     return [...entries].sort((a, b) => position(a) - position(b))
 }
 
+/**
+ * Strip UI-only bulk fields from a query response. The compiled SQL bodies and the
+ * per-step session samples can together account for ~90% of the payload. None of it
+ * is usable by an MCP caller — `step_sessions` powers the frontend's funnel step-bar
+ * "view sessions" linkbacks, `insight` is the rendered visualization payload for
+ * the legacy trends/funnels charts, and anyone debugging a compiled query should
+ * hit the dedicated query API directly. Statistical fields (sum, sum_squares,
+ * step_counts, number_of_samples, credible_intervals, etc.) are left untouched,
+ * including per-breakdown statistics in `breakdown_results` — the sessions inside
+ * each breakdown entry are stripped, but the breakdown stats themselves are kept
+ * because they are real per-segment analysis data.
+ */
+function stripBulkFields(data: unknown): unknown {
+    if (data === null || typeof data !== 'object') {
+        return data
+    }
+    const {
+        clickhouse_sql: _omitSql,
+        hogql: _omitHogql,
+        insight: _omitInsight,
+        baseline: rawBaseline,
+        variant_results: rawVariantResults,
+        breakdown_results: rawBreakdownResults,
+        ...rest
+    } = data as Record<string, unknown>
+
+    const stripVariantBulk = (variant: unknown): unknown => {
+        if (variant === null || typeof variant !== 'object') {
+            return variant
+        }
+        const { step_sessions: _omitStepSessions, ...variantRest } = variant as Record<string, unknown>
+        return variantRest
+    }
+
+    const stripBreakdownBulk = (entry: unknown): unknown => {
+        if (entry === null || typeof entry !== 'object') {
+            return entry
+        }
+        const { baseline: bdBaseline, variants: bdVariants, ...bdRest } = entry as Record<string, unknown>
+        return {
+            ...bdRest,
+            ...(bdBaseline !== undefined ? { baseline: stripVariantBulk(bdBaseline) } : {}),
+            ...(bdVariants !== undefined
+                ? {
+                      variants: Array.isArray(bdVariants) ? bdVariants.map(stripVariantBulk) : bdVariants,
+                  }
+                : {}),
+        }
+    }
+
+    return {
+        ...rest,
+        ...(rawBaseline !== undefined ? { baseline: stripVariantBulk(rawBaseline) } : {}),
+        ...(rawVariantResults !== undefined
+            ? {
+                  variant_results: Array.isArray(rawVariantResults)
+                      ? rawVariantResults.map(stripVariantBulk)
+                      : rawVariantResults,
+              }
+            : {}),
+        ...(rawBreakdownResults !== undefined
+            ? {
+                  breakdown_results: Array.isArray(rawBreakdownResults)
+                      ? rawBreakdownResults.map(stripBreakdownBulk)
+                      : rawBreakdownResults,
+              }
+            : {}),
+    }
+}
+
 export function transformExperimentResults(input: {
     experiment: Experiment
     exposures: ExperimentExposureQueryResponse
@@ -297,7 +367,7 @@ export function transformExperimentResults(input: {
             results: results.map((result, index) => ({
                 index,
                 metric: entries[index]!.summary,
-                data: result,
+                data: stripBulkFields(result),
             })),
         }
     }
