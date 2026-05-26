@@ -1497,10 +1497,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
         # Delete all schema sync schedules over a single shared Temporal connection — see
-        # the matching comment in `create`.
-        schedule_delete_errors = bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
-        for schema_id, schedule_delete_error in schedule_delete_errors:
-            capture_exception(schedule_delete_error, {"schema_id": schema_id})
+        # the matching comment in `create`. Guarded so a Temporal-connect failure here
+        # doesn't skip the source/discovery schedule and S3 cleanup below.
+        try:
+            schedule_delete_errors = bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
+            for schema_id, schedule_delete_error in schedule_delete_errors:
+                capture_exception(schedule_delete_error, {"schema_id": schema_id})
+        except Exception as e:
+            capture_exception(e)
 
         for schema in schemas:
             try:
