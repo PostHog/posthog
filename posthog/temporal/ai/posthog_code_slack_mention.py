@@ -141,6 +141,17 @@ class PostHogCodeRepoCascadeOutcome:
 
 
 @dataclass
+class PostHogCodeSlackRepoDecisionData:
+    # Return type of the legacy `select_posthog_code_repository_activity`,
+    # preserved for in-flight workflows started before the discovery-agent
+    # rollout. Delete with the patch-removal PR.
+    mode: str
+    repository: str | None
+    reason: str
+    repo_count: int
+
+
+@dataclass
 class SlackRepoSelectionOutcome:
     """Discovery-agent result wrapped at the activity boundary.
 
@@ -268,72 +279,161 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not thread_messages:
                 return
 
-            cascade = await _execute_posthog_code_activity(
-                cascade_posthog_code_repository_activity,
-                inputs,
-                event.get("text", ""),
-            )
-
+            # The activity swap from `select_posthog_code_repository_activity` to
+            # `cascade_posthog_code_repository_activity` would otherwise trip a
+            # nondeterminism error on replay for workflows started before this
+            # code rolled out. Delete this gate (and the legacy stub activity)
+            # once all pre-rollout workflows have drained — they live at most
+            # ~25 minutes (activity timeouts + picker wait).
             repository: str | None
-            if cascade.mode == "auto":
-                repository = cascade.repository
-            elif cascade.mode == "no_repo":
-                repository = None
-            else:
-                # Multiple candidates and no explicit mention. Cheap Haiku
-                # check first to skip the agent entirely for analytics/config
-                # questions; otherwise hand off to the discovery agent.
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
+            if workflow.patched("posthog-code-repo-discovery-agent-2026-05"):
+                cascade = await _execute_posthog_code_activity(
+                    cascade_posthog_code_repository_activity,
+                    inputs,
                     event.get("text", ""),
-                    thread_messages,
                 )
-                if not needs_repo:
+
+                if cascade.mode == "auto":
+                    repository = cascade.repository
+                elif cascade.mode == "no_repo":
                     repository = None
                 else:
-                    outcome = await _execute_posthog_code_agent_activity(
-                        discover_posthog_code_repository_via_agent_activity,
-                        inputs,
-                        channel,
-                        event,
+                    # Multiple candidates and no explicit mention. Cheap Haiku
+                    # check first to skip the agent entirely for analytics/config
+                    # questions; otherwise hand off to the discovery agent.
+                    needs_repo = await _execute_posthog_code_activity(
+                        classify_posthog_code_task_needs_repo_activity,
+                        event.get("text", ""),
                         thread_messages,
-                        user_id,
                     )
-
-                    if outcome.status == "found":
-                        repository = outcome.repository
-                    elif outcome.status == "no_match":
+                    if not needs_repo:
                         repository = None
                     else:
-                        # Agent crashed/timed out/hallucinated — italicize its reason
-                        # above the picker guidance so the user sees why.
-                        picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
+                        outcome = await _execute_posthog_code_agent_activity(
+                            discover_posthog_code_repository_via_agent_activity,
+                            inputs,
+                            channel,
+                            event,
+                            thread_messages,
+                            user_id,
+                        )
+
+                        if outcome.status == "found":
+                            repository = outcome.repository
+                        elif outcome.status == "no_match":
+                            repository = None
+                        else:
+                            # Agent crashed/timed out/hallucinated — italicize its reason
+                            # above the picker guidance so the user sees why.
+                            picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
+                            await _execute_posthog_code_activity(
+                                post_posthog_code_repo_picker_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                slack_user_id,
+                                event,
+                                workflow.info().workflow_id,
+                                picker_guidance,
+                                True,
+                            )
+                            try:
+                                await workflow.wait_condition(
+                                    lambda: self._repo_selection_resolved,
+                                    timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                                )
+                            except TimeoutError:
+                                await _execute_posthog_code_activity(
+                                    post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                                )
+                                return
+                            repository = self._selected_repo
+            else:
+                # Legacy pre-agent flow. Master's behavior at the time of the
+                # rollout, kept verbatim so in-flight workflows started before
+                # this code was deployed can finish their replay.
+                decision = await _execute_posthog_code_activity(
+                    select_posthog_code_repository_activity,
+                    inputs,
+                    event.get("text", ""),
+                    thread_messages,
+                    user_id,
+                    channel,
+                )
+                if decision.mode == "picker":
+                    if decision.reason == "no_repos":
                         await _execute_posthog_code_activity(
-                            post_posthog_code_repo_picker_activity,
+                            create_posthog_code_task_for_repo_activity,
                             inputs,
                             channel,
                             thread_ts,
                             slack_user_id,
+                            user_id,
                             event,
-                            workflow.info().workflow_id,
-                            picker_guidance,
-                            True,
+                            thread_messages,
+                            None,
                         )
-                        try:
-                            await workflow.wait_condition(
-                                lambda: self._repo_selection_resolved,
-                                timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
-                            )
-                        except TimeoutError:
+                        return
+                    if decision.reason == "no_rule_match":
+                        needs_repo = await _execute_posthog_code_activity(
+                            classify_posthog_code_task_needs_repo_activity,
+                            event.get("text", ""),
+                            thread_messages,
+                        )
+                        if not needs_repo:
                             await _execute_posthog_code_activity(
-                                post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                                create_posthog_code_task_for_repo_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                slack_user_id,
+                                user_id,
+                                event,
+                                thread_messages,
+                                None,
                             )
                             return
-                        repository = self._selected_repo
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_repo_picker_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        event,
+                        workflow.info().workflow_id,
+                        POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+                        True,
+                    )
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._repo_selection_resolved,
+                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                        )
+                    except TimeoutError:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        )
+                        return
 
+                    if self._selected_repo and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                        return
+                    await _execute_posthog_code_activity(
+                        create_posthog_code_task_for_repo_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        user_id,
+                        event,
+                        thread_messages,
+                        self._selected_repo,
+                    )
+                    return
+                repository = decision.repository
+                if not repository:
+                    return
             if repository and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                 return
-
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
@@ -652,6 +752,37 @@ def cascade_posthog_code_repository_activity(
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=explicit_repo, reason="explicit_mention")
 
     return PostHogCodeRepoCascadeOutcome(mode="agent_needed", repository=None, reason="needs_agent")
+
+
+@activity.defn
+def select_posthog_code_repository_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+    user_id: int | None = None,
+    channel: str = "",
+) -> PostHogCodeSlackRepoDecisionData:
+    # Legacy activity preserved only so workflows started before the
+    # discovery-agent rollout can finish their replay under the new worker
+    # (see `workflow.patched(...)` in the run method). Workflows that already
+    # completed this step use their recorded result; this body only executes
+    # for the narrow case of a workflow that happens to be mid-activity at
+    # deploy time, in which case it routes to the manual picker. Delete with
+    # the patch-removal PR after the rollout drains.
+    from products.slack_app.backend.api import _get_full_repo_names
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack-posthog-code",
+        integration_id=inputs.slack_team_id,
+    )
+    all_repos = _get_full_repo_names(integration)
+    return PostHogCodeSlackRepoDecisionData(
+        mode="picker",
+        repository=None,
+        reason="no_rule_match",
+        repo_count=len(all_repos),
+    )
 
 
 @activity.defn
