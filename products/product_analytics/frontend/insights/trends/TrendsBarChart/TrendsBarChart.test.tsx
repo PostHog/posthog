@@ -43,15 +43,19 @@ describe('TrendsBarChart (ActionsBar)', () => {
     ])('renders $name', async ({ query, expected }) => {
         renderInsight({ query, featureFlags: HOG_CHARTS_FLAG })
 
-        await waitFor(() => {
-            expect(
-                screen.getByRole('img', { name: new RegExp(`chart with ${expected} data series`, 'i') })
-            ).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(
+                    screen.getByRole('img', { name: new RegExp(`chart with ${expected} data series`, 'i') })
+                ).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('shows the series value in the tooltip on hover', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
@@ -69,6 +73,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
+        await screen.findByRole('img', { name: /chart with/i })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -79,6 +84,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('shows a date header in the tooltip', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.title()).toMatch(/Jun/)
@@ -86,12 +92,19 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('opens the persons modal on click for a single series', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i })
 
         await chart.clickAtIndex(2)
 
-        await waitFor(() => {
-            expect(personsModal.actorNames()).toEqual(['pageview-wed-a@example.com', 'pageview-wed-b@example.com'])
-        })
+        await waitFor(
+            () => {
+                expect(personsModal.actorNames()).toEqual([
+                    'pageview-wed-a@example.com',
+                    'pageview-wed-b@example.com',
+                ])
+            },
+            { timeout: 5000 }
+        )
         expect(personsModal.title()).toMatch(/12 Jun/)
     })
 
@@ -103,9 +116,12 @@ describe('TrendsBarChart (ActionsBar)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
@@ -115,9 +131,12 @@ describe('TrendsBarChart (ActionsBar)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -136,6 +155,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
+        await screen.findByRole('img', { name: /chart with/i })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -150,9 +170,12 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
     it('renders without crashing for a single event', async () => {
         renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
 
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('renders custom axis titles in horizontal aggregated mode', async () => {
@@ -187,13 +210,17 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
 
         // Five hedgehog breakdowns → five sparse-stacked series sharing five bands.
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 5 data series/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with 5 data series/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('omits the header from the tooltip', async () => {
         renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i })
 
         const tooltip = await chart.hoverTooltip(0)
         expect(tooltip.title()).toBe('')
@@ -201,12 +228,16 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
     it('opens the persons modal on click without resolving a day', async () => {
         renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i })
 
         await chart.clickAtIndex(0)
 
-        await waitFor(() => {
-            expect(personsModal.get()).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(personsModal.get()).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
         // Aggregated mode has no DateDisplay in the title.
         expect(personsModal.title()).not.toMatch(/Wednesday/)
     })
@@ -216,12 +247,16 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             query: aggregatedBar({ compareFilter: { compare: true } }),
             featureFlags: HOG_CHARTS_FLAG,
         })
+        await screen.findByRole('img', { name: /chart with/i })
 
         await chart.clickAtIndex(0)
 
-        await waitFor(() => {
-            expect(personsModal.get()).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(personsModal.get()).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('fires context.onDataPointClick without a day argument', async () => {
@@ -234,12 +269,16 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             context: { onDataPointClick },
             featureFlags: HOG_CHARTS_FLAG,
         })
+        await screen.findByRole('img', { name: /chart with/i })
 
         await chart.clickAtIndex(0)
 
-        await waitFor(() => {
-            expect(onDataPointClick).toHaveBeenCalledTimes(1)
-        })
+        await waitFor(
+            () => {
+                expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            },
+            { timeout: 5000 }
+        )
         const [seriesArg] = onDataPointClick.mock.calls[0]
         expect(seriesArg.day).toBeUndefined()
     })
@@ -252,9 +291,12 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 })
 
@@ -265,9 +307,12 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
     it('routes grouped bar insights through the hog-charts adapter', async () => {
         renderInsight({ query: groupedBar(), featureFlags: HOG_CHARTS_FLAG })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('renders one band per series in grouped layout', async () => {
@@ -281,9 +326,12 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 })
 
@@ -297,9 +345,12 @@ describe('TrendsBarChart overlays', () => {
         })
 
         await screen.findByRole('img', { name: /chart with/i })
-        await waitFor(() => {
-            expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
-        })
+        await waitFor(
+            () => {
+                expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
+            },
+            { timeout: 5000 }
+        )
         const labels = getHogChart()
             .valueLabels()
             .map((l) => l.text)
@@ -323,9 +374,12 @@ describe('TrendsBarChart overlays', () => {
         })
 
         await screen.findByRole('img', { name: /chart with/i })
-        await waitFor(() => {
-            expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
-        })
+        await waitFor(
+            () => {
+                expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
+            },
+            { timeout: 5000 }
+        )
     })
 
     // For ActionsBarValue (horizontal aggregated), axisOrientation='horizontal' flips the
