@@ -728,7 +728,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             { results: [], count: 0 } as SavedSessionRecordingPlaylistsResult,
             {
                 loadCollectionsForBulkAdd: async (_, breakpoint) => {
-                    await breakpoint(300)
                     const response = await api.recordings.listPlaylists(
                         toParams({
                             limit: 30,
@@ -1283,7 +1282,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadCollectionsForBulkAdd(null)
             }
         },
-        setAddToCollectionSearch: () => {
+        setAddToCollectionSearch: async (_, breakpoint) => {
+            await breakpoint(200)
             actions.loadCollectionsForBulkAdd(null)
         },
         handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
