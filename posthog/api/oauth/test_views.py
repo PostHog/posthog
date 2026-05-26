@@ -458,7 +458,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("refresh_token", data)
         self.assertIn("scope", data)
         self.assertIn("scoped_organizations", data)
-        self.assertNotIn("scoped_teams", data)
+        self.assertIn("scoped_teams", data)
 
         access_token = data["access_token"]
         refresh_token = data["refresh_token"]
@@ -687,7 +687,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", token_response_data)
         self.assertIn("refresh_token", token_response_data)
-        self.assertNotIn("scoped_teams", token_response_data)
+        self.assertEqual(token_response_data["scoped_teams"], scoped_teams)
 
         access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
 
@@ -712,7 +712,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", refresh_token_response_data)
         self.assertIn("refresh_token", refresh_token_response_data)
-        self.assertNotIn("scoped_teams", refresh_token_response_data)
+        self.assertEqual(refresh_token_response_data["scoped_teams"], scoped_teams)
 
         access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
 
@@ -2216,9 +2216,10 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("refresh_token", response_data)
         self.assertIn("token_type", response_data)
         self.assertIn("scoped_organizations", response_data)
-        self.assertNotIn("scoped_teams", response_data)
+        self.assertIn("scoped_teams", response_data)
         self.assertEqual(response_data["token_type"], "Bearer")
         self.assertEqual(response_data["scoped_organizations"], [])
+        self.assertEqual(response_data["scoped_teams"], [])
 
     def test_token_endpoint_with_invalid_json_payload(self):
         response = self.client.post(

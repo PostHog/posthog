@@ -813,6 +813,7 @@ class OAuthTokenView(TokenView):
 
                 if access_token_value:
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
 
                     if region_info := get_region_info():
