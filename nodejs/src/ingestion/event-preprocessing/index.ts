@@ -8,6 +8,7 @@ export { createParseKafkaMessageStep } from './parse-kafka-message'
 export { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
 export {
     createOnlyCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
     createSkipCookielessRateLimitToOverflowStep,
 } from './rate-limit-to-overflow-step'
 export { createResolveTeamStep } from './resolve-team'

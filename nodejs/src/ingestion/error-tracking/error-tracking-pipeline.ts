@@ -22,8 +22,8 @@ import {
     createOverflowLaneTTLRefreshStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
+    createRateLimitToOverflowStep,
     createResolveTeamStep,
-    createSkipCookielessRateLimitToOverflowStep,
 } from '../event-preprocessing'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
@@ -230,12 +230,9 @@ export function createErrorTrackingPipeline(
                                 // Empty / undefined → no-op.
                                 const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
                                 const preCymbal = afterRateLimit
-                                    // Rate-limit high-volume token:distinct_id pairs to overflow.
-                                    // Cookieless events are skipped here — error tracking has no cookieless
-                                    // processing step, so we'd otherwise collapse every cookieless exception
-                                    // onto the single sentinel key.
+                                    // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
-                                        createSkipCookielessRateLimitToOverflowStep(
+                                        createRateLimitToOverflowStep(
                                             preservePartitionLocality,
                                             overflowRedirectService
                                         )
