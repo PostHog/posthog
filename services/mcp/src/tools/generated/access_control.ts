@@ -9,27 +9,6 @@ import {
 } from '@/generated/access_control/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const PropertyAccessControlsRetrieveSchema = PropertyAccessControlsRetrieveQueryParams
-
-const propertyAccessControlsRetrieve = (): ToolBase<
-    typeof PropertyAccessControlsRetrieveSchema,
-    Schemas.PropertyAccessControlState
-> => ({
-    name: 'property-access-controls-retrieve',
-    schema: PropertyAccessControlsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof PropertyAccessControlsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PropertyAccessControlState>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/property_access_controls/`,
-            query: {
-                property_definition_id: params.property_definition_id,
-            },
-        })
-        return result
-    },
-})
-
 const PropertyAccessControlsCreateSchema = PropertyAccessControlsCreateBody
 
 const propertyAccessControlsCreate = (): ToolBase<
@@ -82,8 +61,29 @@ const propertyAccessControlsDestroy = (): ToolBase<typeof PropertyAccessControls
     },
 })
 
+const PropertyAccessControlsRetrieveSchema = PropertyAccessControlsRetrieveQueryParams
+
+const propertyAccessControlsRetrieve = (): ToolBase<
+    typeof PropertyAccessControlsRetrieveSchema,
+    Schemas.PropertyAccessControlState
+> => ({
+    name: 'property-access-controls-retrieve',
+    schema: PropertyAccessControlsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof PropertyAccessControlsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PropertyAccessControlState>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/property_access_controls/`,
+            query: {
+                property_definition_id: params.property_definition_id,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'property-access-controls-retrieve': propertyAccessControlsRetrieve,
     'property-access-controls-create': propertyAccessControlsCreate,
     'property-access-controls-destroy': propertyAccessControlsDestroy,
+    'property-access-controls-retrieve': propertyAccessControlsRetrieve,
 }
