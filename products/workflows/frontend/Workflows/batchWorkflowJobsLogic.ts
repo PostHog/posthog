@@ -1,6 +1,6 @@
 import { kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -34,10 +34,17 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
         jobs: [(s) => [s.batchWorkflowJobs], (batchWorkflowJobs) => batchWorkflowJobs || []],
     }),
     urlToAction(({ props, actions }) => ({
-        [urls.workflow(props.id || 'new', 'logs')]: () => {
+        [urls.workflow(props.id || 'new', 'logs')]: (_1, _2, _3, _4, previousLocation) => {
+            // Skip refetch when path didn't change — LogsViewer writes its search filter to the URL on every keystroke.
+            if (previousLocation?.pathname === router.values.location.pathname) {
+                return
+            }
             actions.loadBatchWorkflowJobs()
         },
-        [urls.workflow(props.id || 'new', 'metrics')]: () => {
+        [urls.workflow(props.id || 'new', 'metrics')]: (_1, _2, _3, _4, previousLocation) => {
+            if (previousLocation?.pathname === router.values.location.pathname) {
+                return
+            }
             actions.loadBatchWorkflowJobs()
         },
     })),
