@@ -191,25 +191,48 @@ const YANDEX_FALLBACK_CIDRS: &[(&str, BotCategory)] = &[
 ];
 
 /// Machine-fetchable provider lists, embedded at compile time. Refresh via
-/// `rust/feature-flags/scripts/refresh_bot_ips.sh`. Each entry maps the
-/// whole provider list to a single [`BotCategory`] — the category is a
-/// metric label, not per-IP metadata.
-const PROVIDERS: &[(&str, &str, BotCategory)] = &[
-    (
-        "googlebot",
-        include_str!("bot_ips/googlebot.json"),
-        BotCategory::Google,
-    ),
-    (
-        "bingbot",
-        include_str!("bot_ips/bingbot.json"),
-        BotCategory::Crawler,
-    ),
-    (
-        "applebot",
-        include_str!("bot_ips/applebot.json"),
-        BotCategory::Other,
-    ),
+/// `rust/feature-flags/scripts/refresh_bot_ips.sh`. The whole provider list
+/// maps to a single [`BotCategory`] — the category is a metric label, not
+/// per-IP metadata.
+///
+/// `min_v4_prefix` / `min_v6_prefix` tighten the global [`MIN_V4_PREFIX`] /
+/// [`MIN_V6_PREFIX`] floors to a provider-realistic ceiling, one bit looser
+/// than the widest entry currently published. An upstream refresh that
+/// suddenly widens past this floor fails the test suite (and server start)
+/// before it can ship.
+struct Provider {
+    name: &'static str,
+    blob: &'static str,
+    category: BotCategory,
+    min_v4_prefix: u32,
+    min_v6_prefix: u32,
+}
+
+const PROVIDERS: &[Provider] = &[
+    // Googlebot: widest currently published `/27` v4, `/64` v6.
+    Provider {
+        name: "googlebot",
+        blob: include_str!("bot_ips/googlebot.json"),
+        category: BotCategory::Google,
+        min_v4_prefix: 23,
+        min_v6_prefix: 64,
+    },
+    // Bingbot: widest currently published `/22`.
+    Provider {
+        name: "bingbot",
+        blob: include_str!("bot_ips/bingbot.json"),
+        category: BotCategory::Crawler,
+        min_v4_prefix: 22,
+        min_v6_prefix: 64,
+    },
+    // Applebot: widest currently published `/24`.
+    Provider {
+        name: "applebot",
+        blob: include_str!("bot_ips/applebot.json"),
+        category: BotCategory::Other,
+        min_v4_prefix: 24,
+        min_v6_prefix: 64,
+    },
 ];
 
 /// Schema of every provider JSON: `{"prefixes": [{"ipv4Prefix"|"ipv6Prefix": "..."}, ...]}`.
@@ -233,31 +256,55 @@ struct BotIpEntry {
 /// `(cidr, category)` vector consumed by [`build_ranges`]. Runs once at
 /// `LazyLock` initialization (warmed at server start via [`warm_caches`]).
 ///
-/// Panics on malformed embedded JSON or an entry that has both or neither of
-/// `ipv4Prefix` / `ipv6Prefix` — these are build-time bugs in the vendored
-/// JSON, not runtime conditions. Mirror of [`build_ranges`]'s panic policy
-/// on invalid CIDRs.
+/// Panics on malformed embedded JSON, an entry that has both or neither of
+/// `ipv4Prefix` / `ipv6Prefix`, or an entry that exceeds the provider's own
+/// width floor (see [`Provider::min_v4_prefix`] / `min_v6_prefix`). The
+/// per-provider floor catches upstream drift earlier than the global floor
+/// in [`build_ranges`] would; both checks run as defense-in-depth.
 fn load_published_cidrs() -> Vec<(String, BotCategory)> {
     let mut out = Vec::new();
-    for (name, blob, category) in PROVIDERS {
-        let manifest: BotIpManifest = serde_json::from_str(blob)
-            .unwrap_or_else(|e| panic!("malformed bot IP JSON for {name}: {e}"));
+    for provider in PROVIDERS {
+        let manifest: BotIpManifest = serde_json::from_str(provider.blob)
+            .unwrap_or_else(|e| panic!("malformed bot IP JSON for {}: {e}", provider.name));
         for (idx, entry) in manifest.prefixes.into_iter().enumerate() {
             let cidr = match (entry.ipv4_prefix, entry.ipv6_prefix) {
                 (Some(v4), None) => v4,
                 (None, Some(v6)) => v6,
                 _ => panic!(
-                    "bot IP JSON {name} entry {idx} must have exactly one of \
-                     ipv4Prefix / ipv6Prefix"
+                    "bot IP JSON {} entry {idx} must have exactly one of \
+                     ipv4Prefix / ipv6Prefix",
+                    provider.name,
                 ),
             };
-            out.push((cidr, *category));
+            enforce_provider_floor(provider, &cidr);
+            out.push((cidr, provider.category));
         }
     }
     for (cidr, category) in YANDEX_FALLBACK_CIDRS {
         out.push(((*cidr).to_string(), *category));
     }
     out
+}
+
+/// Per-provider width-floor check. Fails fast if an upstream refresh
+/// publishes a CIDR wider than the provider's documented ceiling — caught
+/// at `LazyLock` init / server start, not silently shipped.
+fn enforce_provider_floor(provider: &Provider, cidr: &str) {
+    let parsed = parse_cidr(cidr)
+        .unwrap_or_else(|| panic!("invalid CIDR from provider {}: {cidr}", provider.name));
+    let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
+    let (max_host_bits, floor_prefix) = if parsed.is_v4 {
+        (32 - provider.min_v4_prefix, provider.min_v4_prefix)
+    } else {
+        (128 - provider.min_v6_prefix, provider.min_v6_prefix)
+    };
+    assert!(
+        host_bits <= max_host_bits,
+        "provider {} CIDR {cidr} is broader than its per-provider floor (/{}); \
+         widen the floor deliberately if upstream genuinely publishes this",
+        provider.name,
+        floor_prefix,
+    );
 }
 
 /// Half-open is tempting but inclusive `[start, end]` is what fits CIDR
@@ -834,28 +881,62 @@ mod tests {
         /// without this guard).
         #[test]
         fn each_provider_json_is_well_formed() {
-            for (name, blob, _) in PROVIDERS {
-                let manifest: BotIpManifest = serde_json::from_str(blob)
-                    .unwrap_or_else(|e| panic!("{name} JSON failed to parse: {e}"));
+            for provider in PROVIDERS {
+                let manifest: BotIpManifest = serde_json::from_str(provider.blob)
+                    .unwrap_or_else(|e| panic!("{} JSON failed to parse: {e}", provider.name));
                 assert!(
                     !manifest.prefixes.is_empty(),
-                    "{name} JSON has no prefixes — likely an upstream outage \
+                    "{} JSON has no prefixes — likely an upstream outage \
                      or shape change",
+                    provider.name,
                 );
                 for (idx, entry) in manifest.prefixes.iter().enumerate() {
                     assert!(
                         entry.ipv4_prefix.is_some() ^ entry.ipv6_prefix.is_some(),
-                        "{name} entry {idx} must have exactly one of \
+                        "{} entry {idx} must have exactly one of \
                          ipv4Prefix / ipv6Prefix",
+                        provider.name,
                     );
                 }
             }
         }
 
+        /// Per-provider floor: each provider's published CIDRs must fit
+        /// within its own declared min-prefix. Tighter than the global floor,
+        /// catches upstream drift earlier.
         #[test]
-        fn published_cidrs_respect_width_floor() {
-            for (cidr, _) in load_published_cidrs() {
-                let parsed = parse_cidr(&cidr).expect("provider CIDR parses");
+        fn each_provider_respects_its_own_width_floor() {
+            for provider in PROVIDERS {
+                let manifest: BotIpManifest =
+                    serde_json::from_str(provider.blob).expect("provider JSON parses");
+                for entry in manifest.prefixes {
+                    let cidr = entry
+                        .ipv4_prefix
+                        .or(entry.ipv6_prefix)
+                        .expect("entry has exactly one prefix");
+                    let parsed = parse_cidr(&cidr).expect("provider CIDR parses");
+                    let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
+                    let (max_host_bits, floor) = if parsed.is_v4 {
+                        (32 - provider.min_v4_prefix, provider.min_v4_prefix)
+                    } else {
+                        (128 - provider.min_v6_prefix, provider.min_v6_prefix)
+                    };
+                    assert!(
+                        host_bits <= max_host_bits,
+                        "{} CIDR {cidr} exceeds its per-provider floor (/{})",
+                        provider.name,
+                        floor,
+                    );
+                }
+            }
+        }
+
+        /// Yandex stays on the global floor (its widest entry is `/17`,
+        /// inside the `/16` ceiling).
+        #[test]
+        fn yandex_respects_global_width_floor() {
+            for (cidr, _) in YANDEX_FALLBACK_CIDRS {
+                let parsed = parse_cidr(cidr).expect("yandex CIDR parses");
                 let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
                 let max_host_bits = if parsed.is_v4 {
                     32 - MIN_V4_PREFIX
@@ -864,7 +945,7 @@ mod tests {
                 };
                 assert!(
                     host_bits <= max_host_bits,
-                    "{cidr} exceeds the provider-CIDR width floor",
+                    "{cidr} exceeds the global width floor",
                 );
             }
         }
@@ -885,6 +966,20 @@ mod tests {
                 "2001::/16".to_string(),
                 BotCategory::Google,
             )]));
+        }
+
+        /// Per-provider floor panics with a provider-specific message before
+        /// the global floor would have. Construct a synthetic Applebot entry
+        /// at `/16` (within the global `/16` floor but well past Applebot's
+        /// own `/24` floor) and assert the per-provider check fires.
+        #[test]
+        #[should_panic(expected = "broader than its per-provider floor")]
+        fn enforce_provider_floor_rejects_over_widening() {
+            let applebot = PROVIDERS
+                .iter()
+                .find(|p| p.name == "applebot")
+                .expect("applebot provider present");
+            enforce_provider_floor(applebot, "17.0.0.0/16");
         }
     }
 

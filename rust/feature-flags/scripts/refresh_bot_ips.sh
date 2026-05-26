@@ -12,26 +12,28 @@
 #   counterpart to the (manual) Yandex update flow.
 #
 # WHAT IT DOES
-#   1. Fetches the three machine-readable provider JSONs:
+#   1. Fetches the three machine-readable provider JSONs into a single staging
+#      tempdir:
 #        - Googlebot   developers.google.com/search/apis/ipranges/googlebot.json
 #        - Bingbot     www.bing.com/toolbox/bingbot.json
 #        - Applebot    search.developer.apple.com/applebot.json
-#      Each fetch lands in a tempfile, is validated with `jq empty`, then is
-#      atomically moved into `rust/feature-flags/src/utils/bot_ips/<name>.json`.
-#   2. Prints `git diff --stat` for the bot_ips/ directory so the operator can
-#      see at a glance what changed.
-#   3. Prints a Yandex reminder block. Yandex's IP list page
+#      Each fetch is validated with `jq empty`. If any fetch or validation
+#      fails, NOTHING in `src/utils/bot_ips/` is modified.
+#   2. Backs up the current JSONs to a second tempdir, then atomically moves
+#      all three staged JSONs into `src/utils/bot_ips/`.
+#   3. Runs `cargo test -p feature-flags utils::bot_detection`. The test suite
+#      includes coverage (every published CIDR classifies), schema (each JSON
+#      parses; entries have exactly one of ipv4Prefix/ipv6Prefix), and
+#      width-floor (per-provider + global) tests. If tests fail, the script
+#      restores the previous JSONs from backup so the working tree is left
+#      exactly as it was.
+#   4. Prints `git diff --stat` for `bot_ips/` so the operator can see what
+#      changed, plus a Yandex reminder block. Yandex's IP list page
 #      (https://yandex.com/ips/) is behind a SmartCaptcha and not machine
 #      fetchable, so the script cannot refresh it. It dumps the current
 #      `YANDEX_FALLBACK_CIDRS` const from `bot_detection.rs` and asks the
 #      operator to compare against the browser-rendered yandex.com/ips/ page
 #      and edit the const inline if it has drifted.
-#   4. Runs `cargo test -p feature-flags utils::bot_detection`. The test
-#      suite includes coverage (every published CIDR classifies), schema
-#      (each JSON parses; entries have exactly one of ipv4Prefix/ipv6Prefix),
-#      and width-floor (no entry wider than /16 v4 or /32 v6) tests, so any
-#      upstream regression surfaces as a red test before the operator
-#      commits.
 #
 # USAGE
 #   From the posthog repo (or anywhere — the script resolves its own path):
@@ -39,7 +41,9 @@
 #
 #   Optional flags:
 #       --skip-tests   Skip the cargo test step (useful for CI or when you
-#                      just want the JSON diff and intend to test separately)
+#                      just want the JSON diff and intend to test separately).
+#                      With this flag, the stage-then-commit step still runs;
+#                      only the test gate is skipped.
 #       --no-color     Disable ANSI colors in output
 #
 # PREREQUISITES
@@ -48,10 +52,12 @@
 #
 # EXIT STATUS
 #   0   all three fetches succeeded, JSONs are valid, cargo test passed
-#   1   one or more fetches failed (network, 4xx, malformed JSON)
-#   2   `cargo test` failed — inspect the diff and the test output before
-#       committing; consider rolling back via `git checkout
-#       rust/feature-flags/src/utils/bot_ips/`
+#       (or was skipped); working tree contains the refreshed JSONs.
+#   1   one or more fetches failed (network, 4xx, malformed JSON); working
+#       tree is UNCHANGED.
+#   2   `cargo test` failed after the refresh was staged; the previous JSONs
+#       have been RESTORED from backup so the working tree is unchanged.
+#       Inspect the printed test output for the failure mode.
 #
 # AFTER A SUCCESSFUL RUN
 #   - Review `git diff rust/feature-flags/src/utils/bot_ips/` and the
@@ -103,51 +109,89 @@ if [[ ! -f "$BOT_DETECTION_RS" ]]; then
     exit 1
 fi
 
-# --- fetch helper -------------------------------------------------------------
+# --- temp dirs + cleanup ------------------------------------------------------
+STAGE_DIR="$(mktemp -d)"
+BACKUP_DIR="$(mktemp -d)"
+# Single trap cleans both temp dirs on any exit path. Set early so even
+# pre-fetch failures (e.g. missing curl/jq) don't leak.
+trap 'rm -rf "$STAGE_DIR" "$BACKUP_DIR"' EXIT
+
+# --- providers + fetch helper -------------------------------------------------
 PROVIDERS=(
     "googlebot|https://developers.google.com/search/apis/ipranges/googlebot.json"
     "bingbot|https://www.bing.com/toolbox/bingbot.json"
     "applebot|https://search.developer.apple.com/applebot.json"
 )
 
-fetch_one() {
+# Strip CRLF line endings if present and ensure exactly one trailing newline.
+# Microsoft serves bingbot.json with CRLF line endings; without this normalization
+# the file would round-trip through git as a perpetual CRLF→LF diff churn.
+# Apple's file ships with one trailing newline, Google's with none; the trim +
+# re-append step gives all three vendored copies a byte-identical tail shape.
+normalize_line_endings() {
+    local file="$1"
+    [[ -s "$file" ]] || return 0
+    local normalized
+    normalized="$(mktemp)"
+    # `$(...)` captures the CR-stripped content and bash strips any trailing
+    # newlines from a command-substitution. `printf '%s\n'` then puts exactly
+    # one back. Files here top out at ~25KB so loading into memory is fine.
+    local content
+    content="$(tr -d '\r' < "$file")"
+    printf '%s\n' "$content" > "$normalized"
+    mv "$normalized" "$file"
+}
+
+# Fetch one provider into $STAGE_DIR/<name>.json. Validates with `jq empty`.
+# Returns nonzero on any failure; nothing in $JSON_DIR is touched.
+fetch_to_stage() {
     local name="$1"
     local url="$2"
-    local dest="$JSON_DIR/${name}.json"
-    local tmp
-    tmp="$(mktemp)"
-    trap 'rm -f "$tmp"' RETURN
+    local staged="$STAGE_DIR/${name}.json"
 
     echo -e "${BOLD}↳${RESET} fetching $name from $url"
-    if ! curl -fsSL --max-time 30 "$url" -o "$tmp"; then
+    if ! curl -fsSL --max-time 30 "$url" -o "$staged"; then
         echo -e "  ${RED}fetch failed${RESET}" >&2
         return 1
     fi
-    if ! jq empty "$tmp" 2>/dev/null; then
-        echo -e "  ${RED}invalid JSON${RESET} (saved to $tmp for inspection)" >&2
-        # don't delete the tempfile on validation failure so the operator can debug
-        trap - RETURN
+    if ! jq empty "$staged" 2>/dev/null; then
+        echo -e "  ${RED}invalid JSON${RESET}" >&2
         return 1
     fi
+    normalize_line_endings "$staged"
     local count
-    count="$(jq '.prefixes | length' "$tmp")"
-    mv "$tmp" "$dest"
-    trap - RETURN
-    echo -e "  ${GREEN}ok${RESET} → ${dest#"$FF_DIR/"} ($count prefixes)"
+    count="$(jq '.prefixes | length' "$staged")"
+    echo -e "  ${GREEN}ok${RESET} → staged ($count prefixes)"
 }
 
-# --- run fetches --------------------------------------------------------------
-echo -e "${BOLD}Refreshing bot IP JSONs in${RESET} $JSON_DIR"
+# --- stage all three fetches --------------------------------------------------
+echo -e "${BOLD}Staging bot IP JSON refresh in${RESET} $STAGE_DIR"
 fail=0
 for entry in "${PROVIDERS[@]}"; do
     name="${entry%%|*}"
     url="${entry##*|}"
-    fetch_one "$name" "$url" || fail=1
+    fetch_to_stage "$name" "$url" || fail=1
 done
 if [[ "$fail" -ne 0 ]]; then
-    echo -e "${RED}one or more provider fetches failed; aborting${RESET}" >&2
+    echo -e "${RED}one or more provider fetches failed; nothing on disk changed${RESET}" >&2
     exit 1
 fi
+
+# --- backup current JSONs + atomic commit -------------------------------------
+# Backup must happen before we move staged files into place so we can restore
+# on cargo test failure. `cp -p` preserves mtime so a restore is bit-identical.
+for entry in "${PROVIDERS[@]}"; do
+    name="${entry%%|*}"
+    src="$JSON_DIR/${name}.json"
+    if [[ -f "$src" ]]; then
+        cp -p "$src" "$BACKUP_DIR/${name}.json"
+    fi
+done
+
+for entry in "${PROVIDERS[@]}"; do
+    name="${entry%%|*}"
+    mv "$STAGE_DIR/${name}.json" "$JSON_DIR/${name}.json"
+done
 
 # --- show diff ----------------------------------------------------------------
 echo
@@ -190,13 +234,20 @@ echo
 echo -e "${BOLD}Running cargo test -p feature-flags utils::bot_detection ...${RESET}"
 if ! (cd "$FF_DIR/.." && cargo test -p feature-flags utils::bot_detection --quiet); then
     echo
-    echo -e "${RED}cargo test failed.${RESET} The refreshed JSONs have already been written."
-    echo "Inspect:"
-    echo "  - test output above for the failing case"
-    echo "  - git diff $JSON_DIR for what changed"
-    echo "If upstream published a /15 or wider, MIN_V4_PREFIX in bot_detection.rs"
-    echo "rejects it — widening the floor is a deliberate policy decision."
-    echo "To roll back: git checkout -- $JSON_DIR"
+    echo -e "${RED}cargo test failed.${RESET} Restoring previous JSONs from backup."
+    for entry in "${PROVIDERS[@]}"; do
+        name="${entry%%|*}"
+        backup="$BACKUP_DIR/${name}.json"
+        if [[ -f "$backup" ]]; then
+            cp -p "$backup" "$JSON_DIR/${name}.json"
+        fi
+    done
+    echo "Working tree restored to its pre-script state. Inspect the test output above."
+    echo "Common causes:"
+    echo "  - Upstream published a CIDR wider than a per-provider floor in"
+    echo "    bot_detection.rs PROVIDERS (Apple /24, Bingbot /22, Google /23 v4 / /64 v6)."
+    echo "    Widening the floor is a deliberate policy decision."
+    echo "  - Upstream changed JSON shape (entry missing both ipv4Prefix and ipv6Prefix)."
     exit 2
 fi
 
