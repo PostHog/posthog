@@ -348,7 +348,7 @@ def test_validate_credentials_skips_webhook_only_resource(endpoint):
     mock_client = mock.MagicMock()
 
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
-        result = validate_credentials("api_key", endpoint)
+        result = validate_credentials("api_key", [endpoint])
 
     assert result is True
     # No list method should be called when validating a webhook-only resource.
