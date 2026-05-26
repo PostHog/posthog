@@ -9,6 +9,7 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
   attributed to the topic creator. Signature-verified; idempotent on ``call.id``.
 """
 
+import re
 import hmac
 import json
 import string
@@ -23,10 +24,11 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.schema import EmbeddingModelName
 
@@ -35,11 +37,85 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
+from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from ..models import UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
+
+
+class _MetricsEmittingIPThrottle(IPThrottle):
+    """`IPThrottle` subclass that emits `rate_limit_exceeded_total` on rejection.
+
+    Kept here (not on the base `IPThrottle`) on purpose: tweaking the base would tighten
+    the signature of `allow_request` and cascade into unrelated products that subclass
+    `IPThrottle`. Keeping the metric emission product-local means user_interviews owns
+    its own alerting surface without touching other products' code.
+    """
+
+    def allow_request(self, request: Request, view: Any) -> bool:
+        from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path
+
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id="", scope=self.scope, path=route, route=route).inc()
+        return bool(allowed)
+
+
+class InterviewStartCallIPThrottle(_MetricsEmittingIPThrottle):
+    """Per-IP cap on `start_call`. The endpoint is `AllowAny`, so without this any caller
+    can spin DB queries on share-token lookups indefinitely. 60/min comfortably handles
+    legitimate interviewees clicking Start (one share token can't dial multiple times in
+    the same minute), and any single IP burst above that is almost certainly probing."""
+
+    scope = "user_interviews_start_call_ip"
+    rate = "60/minute"
+
+
+class VapiWebhookIPThrottle(_MetricsEmittingIPThrottle):
+    """Per-IP cap on `vapi_webhook`. Vapi calls us a small handful of times per interview
+    (status-update + end-of-call-report), but its egress is shared across all of our tenants,
+    so the bucket has to be generous enough that a noisy concurrent interview hour doesn't
+    bleed onto a normal one. 1200/min is well above legitimate aggregate volume while still
+    stopping a persistent attacker from driving HMAC-verification CPU or structured-log
+    volume from a single IP. Rejection emits `rate_limit_exceeded_total` via the parent
+    mixin so we can alert if it ever trips."""
+
+    scope = "user_interviews_vapi_webhook_ip"
+    rate = "1200/minute"
+
+
+class InterviewStartCallTokenThrottle(SimpleRateThrottle):
+    """Per-share-token cap on `start_call`. The access_token uniquely identifies one
+    interviewee invitation; a legitimate user clicks Start once. Anything above 10/min on
+    the same token is automation. Keying on the token (not IP) means an attacker rotating
+    IPs can't drive unbounded share-resolve DB lookups for a single guessed token."""
+
+    scope = "user_interviews_start_call_token"
+    rate = "10/minute"
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        resolver_match = getattr(request, "resolver_match", None)
+        token = resolver_match.kwargs.get("access_token") if resolver_match else None
+        if not token:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": token}
+
+    def allow_request(self, request: Request, view: Any) -> bool:
+        from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path
+
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id="", scope=self.scope, path=route, route=route).inc()
+        return bool(allowed)
+
+
+# Vapi's HMAC-SHA256 hex digest is exactly 64 lowercase hex chars; reject other shapes
+# pre-HMAC so casual probes can't drive log/CPU load.
+_VAPI_SIGNATURE_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 _EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
@@ -197,6 +273,7 @@ def _build_first_message(
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@throttle_classes([InterviewStartCallIPThrottle, InterviewStartCallTokenThrottle])
 def start_call(request: Request, access_token: str) -> Response:
     """Return the Vapi credentials + assistant overrides for a public interview share.
 
@@ -281,6 +358,7 @@ def start_call(request: Request, access_token: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@throttle_classes([VapiWebhookIPThrottle])
 def vapi_webhook(request: Request) -> Response:
     """Receive a Vapi ``end-of-call-report`` and persist it as a UserInterview.
 
@@ -298,10 +376,13 @@ def vapi_webhook(request: Request) -> Response:
             {"error": "Vapi webhook secret is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-    provided = request.headers.get("x-vapi-signature") or request.headers.get("X-Vapi-Signature")
-    expected = (
-        hmac.new(settings.VAPI_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest() if provided else None
-    )
+    provided = request.headers.get("X-Vapi-Signature")
+    # Pre-HMAC shape gate: Vapi's HMAC-SHA256 hex digest is exactly 64 lowercase hex chars.
+    # Anything else can't possibly be a valid signature, so reject before we compute the
+    # HMAC over the body — saves CPU and stops casual probes from filling diagnostic logs.
+    if not provided or not _VAPI_SIGNATURE_RE.match(provided):
+        return Response({"error": "missing or malformed signature"}, status=status.HTTP_401_UNAUTHORIZED)
+    expected = hmac.new(settings.VAPI_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest()
     logger.info(
         "user_interviews_vapi_webhook_received",
         header_keys=sorted(request.headers.keys()),

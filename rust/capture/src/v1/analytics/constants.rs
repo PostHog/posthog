@@ -10,7 +10,7 @@ pub const ACCEPT_JSON: HeaderValue = HeaderValue::from_static("application/json"
 /// Accepted compression encodings advertised in Accept-Encoding response header.
 pub const ACCEPT_ENCODING_ALL: HeaderValue = HeaderValue::from_static("gzip, deflate, br, zstd");
 
-/// Retry-After value (seconds) sent on retryable error responses (429, 408, 5xx).
+/// Retry-After value (seconds) sent on retryable error responses (408, 5xx).
 /// SDKs are expected to layer their own jittered exponential backoff on top of this floor.
 pub const DEFAULT_RETRY_AFTER_SECS: HeaderValue = HeaderValue::from_static("1");
 
@@ -47,6 +47,9 @@ pub(super) const CAPTURE_V1_EVENTS_DROPPED: &str = "capture_v1_events_dropped";
 
 /// Counter for events marked as quota-limited, labeled by resource bucket.
 pub(crate) const CAPTURE_V1_EVENTS_QUOTA_LIMITED: &str = "capture_v1_events_quota_limited";
+
+/// Counter for events rerouted to the overflow topic by the burst limiter.
+pub(super) const CAPTURE_V1_OVERFLOW_ROUTED: &str = "capture_v1_events_rerouted_overflow";
 
 /// Counter/gauge key for the per-token global rate limiter.
 pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";

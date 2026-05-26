@@ -23,7 +23,10 @@ const mockEnv = {
     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
 } as any
 
-function makeContextMillEntry(name: string, uri: string): { name: string; uri: string; resource: { mimeType: string; description: string; text: string } } {
+function makeContextMillEntry(
+    name: string,
+    uri: string
+): { name: string; uri: string; resource: { mimeType: string; description: string; text: string } } {
     return {
         name,
         uri,
@@ -50,7 +53,12 @@ describe('ResourceCatalog', () => {
             vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
             vi.mocked(filterValidEntries).mockReturnValue(entries as any)
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                { name: 'greet', title: 'Greet', description: 'A greeting', messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }] },
+                {
+                    name: 'greet',
+                    title: 'Greet',
+                    description: 'A greeting',
+                    messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }],
+                },
             ] as any)
 
             const catalog = new ResourceCatalog(mockEnv)
@@ -115,7 +123,12 @@ describe('ResourceCatalog', () => {
             vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
             vi.mocked(filterValidEntries).mockReturnValue([])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                { name: 'test-prompt', title: 'T', description: 'D', messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }] },
+                {
+                    name: 'test-prompt',
+                    title: 'T',
+                    description: 'D',
+                    messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                },
             ] as any)
 
             const catalog = new ResourceCatalog(mockEnv)

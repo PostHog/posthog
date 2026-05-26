@@ -18,6 +18,20 @@ export function barContainsPointOnBandAxis(
         : point.x >= bar.x && point.x <= bar.x + bar.width
 }
 
+/** True when the cursor is in the bar's band slot but outside its filled value extent —
+ *  the strict complement of {@link barContainsPointOnBandAxis} on the value axis. Used
+ *  to distinguish track-region hover from bar-region hover. Caller is expected to have
+ *  already established band-axis containment. */
+export function cursorOutsideBarFillExtent(
+    bar: BarRect,
+    point: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    return isHorizontal
+        ? point.x < bar.x || point.x > bar.x + bar.width
+        : point.y < bar.y || point.y > bar.y + bar.height
+}
+
 export interface SeriesKeysAtCursorArgs {
     series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>[]
     label: string

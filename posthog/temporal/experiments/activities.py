@@ -37,6 +37,8 @@ from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
 
+EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
+
 
 @database_sync_to_async
 def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
@@ -59,7 +61,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
         time_filter,
         deleted=False,
         status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
     ).exclude(
         Q(metrics__isnull=True) | Q(metrics=[]),
         Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
@@ -310,7 +312,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
         time_filter,
         deleted=False,
         status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
     for experiment in experiments:
