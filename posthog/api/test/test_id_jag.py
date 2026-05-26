@@ -667,6 +667,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             "client_id": client_id,
             "scope": scope,
             "app_org": _PROVIDER_NAME,
+            "org_id": str(self.organization.id),
             "iat": now,
             "exp": now + exp_seconds,
             "jti": f"at-{now}",

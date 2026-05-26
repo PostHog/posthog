@@ -549,10 +549,12 @@ class APIScopePermission(ScopeBasePermission):
             scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
             scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
         elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
-            # ID-JAG access tokens do not carry team/org scoping today — the
-            # ID-JAG protocol delegates resource-server access by user identity
-            # + scope, and the user's normal team/org membership governs access.
-            scoped_organizations = None
+            # ID-JAG access tokens are bound to the specific PostHog Organization
+            # whose OrganizationDomain pinned the trusted IdP — carried in the
+            # `org_id` claim. Pin `scoped_organizations` to that single org so
+            # the token cannot reach other orgs the resolved user happens to
+            # be a member of (cross-org confused-deputy defense).
+            scoped_organizations = [request.successful_authenticator.organization_id]
             scoped_teams = None
         else:
             raise ValueError("Unexpected authentication type")

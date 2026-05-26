@@ -11,7 +11,6 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.user import User
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -35,24 +34,46 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain__iexact=domain).first()
 
-    def email_belongs_to_member_of_verified_org(self, email: str) -> bool:
+    def get_verified_for_email_address_and_issuer(
+        self, email: str, issuer: str
+    ) -> tuple[Optional["OrganizationDomain"], Optional[str]]:
         """
-        Whether `email` belongs to an active `User` who is a member of an
-        `Organization` that has verified the email's domain.
+        Resolve the `OrganizationDomain` that should authorize an ID-JAG
+        assertion for `email` signed by `issuer`. Returns
+        `(org_domain, error)` where `error` is `None` on success or a
+        human-readable description of the failure mode otherwise.
+
+        Lookup is by `(domain, issuer)` (not `.first()`) so the chosen org is
+        deterministic and cannot be steered by row ordering when multiple
+        organizations have verified the same domain. The returned org is the
+        one whose IdP signed the assertion — callers should scope the issued
+        access token to that org and require user membership there.
         """
         if "@" not in email:
-            return False
+            return None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
         domain = email[email.index("@") + 1 :].lower()
-        matching_org_ids = list(
-            self.verified_domains().filter(domain__iexact=domain).values_list("organization_id", flat=True)
-        )
-        if not matching_org_ids:
-            return False
-        return User.objects.filter(
-            is_active=True,
-            email__iexact=email,
-            organization_membership__organization_id__in=matching_org_ids,
-        ).exists()
+        normalized_issuer = (issuer or "").rstrip("/")
+
+        verified_for_domain = list(self.verified_domains().filter(domain__iexact=domain))
+        if not verified_for_domain:
+            return None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
+
+        configured = [d for d in verified_for_domain if (d.id_jag_issuer_url or "").rstrip("/")]
+        if not configured:
+            return None, "ID-JAG is not configured for this domain (id_jag_issuer_url is unset)"
+
+        matching = [d for d in configured if (d.id_jag_issuer_url or "").rstrip("/") == normalized_issuer]
+        if not matching:
+            return None, "ID-JAG iss does not match the IdP configured for this email's domain"
+
+        if len(matching) > 1:
+            # Ambiguous config — multiple orgs verified the same domain AND
+            # configured the same IdP issuer. This is a case that will rqeuire
+            # manual intervention to resolve since it is not clear if one of
+            # or both of the org domains are valid
+            return None, "ID-JAG configuration is ambiguous: multiple OrganizationDomains share this (domain, issuer)"
+
+        return matching[0], None
 
     def get_is_saml_available_for_email(self, email: str) -> bool:
         """

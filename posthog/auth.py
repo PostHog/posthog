@@ -466,6 +466,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
 
     id_jag_claims: dict[str, Any]
     scopes: list[str]
+    organization_id: str
 
     @classmethod
     def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
@@ -544,7 +545,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                     issuer=site_url,
                     leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                     options={
-                        "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "scope"],
+                        "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "scope", "org_id"],
                         "verify_signature": True,
                         "verify_exp": True,
                         "verify_aud": True,
@@ -569,13 +570,34 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                 )
             _provider, user_sub = sub_parts
 
-            try:
-                user = User.objects.filter(is_active=True).get(email__iexact=user_sub)
-            except User.DoesNotExist:
-                raise AuthenticationFailed(detail="No PostHog user matches the ID-JAG access token subject.")
+            organization_id = str(claims.get("org_id") or "")
+            if not organization_id:
+                raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
+
+            # Resolve the user by (email, org_id) so the token only authenticates
+            # against the specific organization it was minted for. This prevents
+            # a token from authenticating as another user that happens to share
+            # the email, and re-validates membership at every request (the user
+            # may have been removed from the org after the token was issued).
+            user_qs = User.objects.filter(
+                is_active=True,
+                email__iexact=user_sub,
+                organization_membership__organization_id=organization_id,
+            ).distinct()
+            users = list(user_qs[:2])
+            if not users:
+                raise AuthenticationFailed(
+                    detail="No active PostHog user matches the ID-JAG access token subject for this organization."
+                )
+            if len(users) > 1:
+                raise AuthenticationFailed(
+                    detail="ID-JAG access token resolves to multiple users; refusing to authenticate."
+                )
+            user = users[0]
 
             self.id_jag_claims = claims
             self.scopes = str(claims.get("scope") or "").split()
+            self.organization_id = organization_id
 
             tag_queries(
                 user_id=user.pk,

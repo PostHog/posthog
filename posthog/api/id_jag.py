@@ -29,6 +29,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
 
 logger = structlog.get_logger(__name__)
@@ -200,10 +201,12 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
+def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, "OrganizationDomain"]:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
-    claims plus the provider name we stamp into the issued access token's `sub`.
+    claims, the provider name we stamp into the issued access token's `sub`,
+    and the `OrganizationDomain` row that owns the trusted IdP config (used to
+    bind the issued access token to a single organization).
 
     Raises `IdJagError` (with the right RFC 6749 error code) on every documented
     failure mode at https://xaa.dev/docs/error-codes
@@ -226,19 +229,12 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
         raise InvalidGrantError("ID-JAG is missing the iss claim")
 
     id_jag_sub = unverified_claims.get("sub") or ""
-    org_domain = OrganizationDomain.objects.get_verified_for_email_address(id_jag_sub) if "@" in id_jag_sub else None
-    if org_domain is None:
-        raise InvalidGrantError("ID-JAG sub email domain is not a verified domain for any PostHog organization")
+
+    org_domain, error = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_sub, issuer)
+    if org_domain is None or error:
+        raise InvalidGrantError(error or "ID-JAG configuration is invalid")
 
     expected_issuer = (org_domain.id_jag_issuer_url or "").rstrip("/")
-    if not expected_issuer:
-        raise InvalidGrantError("ID-JAG is not configured for this domain (id_jag_issuer_url is unset)")
-
-    if issuer != expected_issuer:
-        raise InvalidGrantError(
-            f"ID-JAG iss does not match the IdP configured for this domain (expected {expected_issuer})"
-        )
-
     provider_name = org_domain.domain
 
     try:
@@ -301,18 +297,30 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
     verified_sub = claims.get("sub") or ""
-    if not OrganizationDomain.objects.email_belongs_to_member_of_verified_org(verified_sub):
+
+    # The sub must be an active member of the *specific* organization whose
+    # OrganizationDomain pinned this IdP — not merely a member of any org that
+    # also verified this domain. The issued access token is scoped to
+    # `org_domain.organization_id` downstream, so membership must be enforced
+    # on that exact org.
+    is_member = User.objects.filter(
+        is_active=True,
+        email__iexact=verified_sub,
+        organization_membership__organization_id=org_domain.organization_id,
+    ).exists()
+    if not is_member:
         raise InvalidGrantError(
-            "ID-JAG sub is not an active member of an organization that has verified this email's domain"
+            "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
         )
 
-    return claims, provider_name
+    return claims, provider_name, org_domain
 
 
 def _construct_access_token_payload(
     claims: IdJagClaims,
     provider_name: str,
     granted_scopes: list[str],
+    organization_id: Any,
 ) -> dict[str, Any]:
     """
     Constructs the payload for the JWT access token which will be issued to the ID-JAG caller.
@@ -330,6 +338,7 @@ def _construct_access_token_payload(
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
         "app_org": provider_name,
+        "org_id": str(organization_id),
         "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),
@@ -407,7 +416,7 @@ def issue_access_token(assertion: str, requested_scope: str | list[str] | None) 
     handler. Returns `(access_token, granted_scopes, expires_in_seconds)`.
     """
 
-    claims, provider_name = _verify_and_extract_id_jag_token(assertion)
+    claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
 
     id_jag_scopes = _parse_scope_list(claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
@@ -416,7 +425,7 @@ def issue_access_token(assertion: str, requested_scope: str | list[str] | None) 
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-    payload = _construct_access_token_payload(claims, provider_name, granted)
+    payload = _construct_access_token_payload(claims, provider_name, granted, org_domain.organization.pk)
     token = _construct_access_token(payload)
     return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS
 
@@ -463,7 +472,7 @@ class IdJagViewSet(APIView):
         request_client_id = data.get("client_id")
 
         try:
-            claims, provider_name = _verify_and_extract_id_jag_token(assertion)
+            claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
         except IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             return e.to_response()
@@ -479,7 +488,7 @@ class IdJagViewSet(APIView):
         granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
 
         try:
-            payload = _construct_access_token_payload(claims, provider_name, granted)
+            payload = _construct_access_token_payload(claims, provider_name, granted, org_domain.organization.pk)
             access_token = _construct_access_token(payload)
         except IdJagError as e:
             logger.exception("id_jag_access_token_signing_failed", error=e.error_code, description=e.description)
