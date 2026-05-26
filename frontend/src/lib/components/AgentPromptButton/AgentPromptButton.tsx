@@ -86,7 +86,7 @@ const AGENTS: AgentDef[] = [
         key: 'claude-code',
         name: 'Claude Code',
         logo: claudeLogo,
-        buildDeepLink: (p) => withLimit(p, LIMIT_CLAUDE_CODE, (t) => `claude-cli://open?q=${encodeURIComponent(t)}`),
+        buildDeepLink: (p) => withLimit(p, LIMIT_CLAUDE_CODE, (t) => `claude://code/new?q=${encodeURIComponent(t)}`),
     },
     {
         key: 'cursor',
