@@ -287,6 +287,33 @@ export class ErrorTrackingConsumer {
         }
 
         const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
+            // Per-stack cap runs before the team-global cap so a runaway issue
+            // gets dropped against its own bucket instead of draining the
+            // team-global budget on its way out.
+            {
+                rateLimiter: this.rateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => {
+                    if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
+                        return null
+                    }
+                    const sig = preCymbalGroupKey(input.event)
+                    return sig ? `${input.team.id}:exceptions:stack:${sig}` : null
+                },
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:per_stack',
+                getBucketConfig: (input) => {
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.perIssueRateLimitValue!
+                    const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: value,
+                        refillRate: value / (minutes * 60),
+                    }
+                },
+            },
             // Team-global cap: every $exception event for a team consumes one token
             // from a per-team bucket.
             {
@@ -309,31 +336,6 @@ export class ErrorTrackingConsumer {
                     const settings = input.errorTrackingSettings!
                     const value = settings.projectRateLimitValue!
                     const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
-                    return {
-                        bucketSize: value,
-                        refillRate: value / (minutes * 60),
-                    }
-                },
-            },
-            // Per-stack cap: independent opt-in from the team-global limit.
-            {
-                rateLimiter: this.rateLimiter,
-                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
-                appSource: 'exceptions',
-                getKey: (input) => {
-                    if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
-                        return null
-                    }
-                    const sig = preCymbalGroupKey(input.event)
-                    return sig ? `${input.team.id}:exceptions:stack:${sig}` : null
-                },
-                getTeamId: (input) => input.team.id,
-                reportingMode: this.config.rateLimiterReportingMode,
-                dropReason: 'rate_limited:per_stack',
-                getBucketConfig: (input) => {
-                    const settings = input.errorTrackingSettings!
-                    const value = settings.perIssueRateLimitValue!
-                    const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
                     return {
                         bucketSize: value,
                         refillRate: value / (minutes * 60),
