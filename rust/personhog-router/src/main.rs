@@ -59,7 +59,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Proxy mode: {}", config.proxy_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
-    tracing::info!("Replica channels: {}", config.replica_channels);
+    tracing::info!(
+        "Replica channels: {} heavy, {} light",
+        config.replica_channels,
+        config.replica_light_channels
+    );
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -162,6 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_send_message_size: config.grpc_max_send_message_size,
         max_recv_message_size: config.grpc_max_recv_message_size,
         num_channels: config.replica_channels,
+        num_light_channels: config.replica_light_channels,
     }));
 
     // In leader mode, wire up etcd coordination and the leader backend

@@ -23,7 +23,7 @@ use crate::config::RetryConfig;
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
 
-const KNOWN_METHODS: &[&str] = &[
+pub const KNOWN_METHODS: &[&str] = &[
     "CheckCohortMembership",
     "CountCohortMembers",
     "CreateGroup",
@@ -240,7 +240,7 @@ impl RawProxyInner {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
 
         for attempt in 0..=self.retry_config.max_retries {
-            let channel = self.replica.next_raw_channel();
+            let channel = self.replica.next_raw_channel_for(method);
 
             let body = BoxBody::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
 
