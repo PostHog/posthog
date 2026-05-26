@@ -5375,6 +5375,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'query_performance'
     | 'replay_scanner'
     | 'revenue_analytics'
     | 'session_recording'
