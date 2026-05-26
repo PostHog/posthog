@@ -554,6 +554,201 @@
             "readOnlyHint": true
         }
     },
+    "autoresearch-archive-create": {
+        "description": "Soft-delete a pipeline. Stops daily scoring and training. Prediction history and model artifacts are preserved. Archived pipelines are excluded from autoresearch-list. This is reversible only via direct DB access — use pause instead if you want to temporarily stop a pipeline.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Archive pipeline",
+        "title": "Archive pipeline",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-create": {
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. Required: name and target_event. The prediction_mode defaults to 'adoption' (predict first-time occurrence). horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call autoresearch-train-create to run stub training and generate a champion model.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Create a pipeline",
+        "title": "Create a pipeline",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-list": {
+        "description": "List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event, horizon, prediction mode, and timestamps. Use autoresearch-retrieve to get full details including population definitions.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List pipelines",
+        "title": "List pipelines",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-models-list": {
+        "description": "List champion, challenger, and archived model versions for a pipeline. Each model includes its holdout_score, role, recipe_hash, is_preliminary flag, and agent_description. The active scoring model has role='champion'. Use the recipe_hash to detect when the champion has changed across training runs.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List models for a pipeline",
+        "title": "List models for a pipeline",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-models-retrieve": {
+        "description": "Get full details for a specific model version, including the portable model recipe (feature SQL, transforms, model class, params) and feature importance explanation.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Get model",
+        "title": "Get model",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-pause-create": {
+        "description": "Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. Use autoresearch-resume-create to restart.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Pause pipeline",
+        "title": "Pause pipeline",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-resume-create": {
+        "description": "Resume a paused pipeline. Returns 400 if the pipeline is not currently paused.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Resume pipeline",
+        "title": "Resume pipeline",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-retrieve": {
+        "description": "Get full details for a specific autoresearch pipeline by ID, including population definitions, training configuration, and current status.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Get pipeline",
+        "title": "Get pipeline",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-runs-list": {
+        "description": "List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status to understand scoring history. run_type is 'inference' for daily scoring runs.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List inference runs",
+        "title": "List inference runs",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-score-create": {
+        "description": "Score the inference population using the champion model and emit 'autoresearch_prediction' events for each user. Returns the inference run object with rows_scored and status. Requires a champion model — run autoresearch-train-create first if the pipeline has no champion. Each scored user gets a '$autoresearch_p_y' property on their prediction event and a person property update. After scoring, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Run inference (score users)",
+        "title": "Run inference (score users)",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-train-create": {
+        "description": "Start a training run for a pipeline. Creates a champion model and marks the pipeline as running. Currently synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training run object with status, iteration_count, and best_holdout_score. After training completes, call autoresearch-score-create to run inference and emit prediction events. You can optionally override the iteration_budget for this run.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Start training",
+        "title": "Start training",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-training-runs-list": {
+        "description": "List training runs for a pipeline, ordered most recent first. Check status (completed/failed), iteration_count, and best_holdout_score to understand training history.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List training runs",
+        "title": "List training runs",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-validate-create": {
+        "description": "Validate a proposed autoresearch pipeline before creating it. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Use 'adoption' mode for predicting first-time events; use 'continuation' for repeat events. Always validate before creating.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Validate a pipeline definition",
+        "title": "Validate a pipeline definition",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "batch-export-create": {
         "description": "Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination types are permitted by the API but typically must be created via the PostHog UI because their credentials are stored in the destination config. Always specify the model field (events, persons, or sessions) — omitting it defaults to events but the field should be set explicitly.",
         "category": "Data pipelines",

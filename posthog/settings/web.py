@@ -470,6 +470,9 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+        "AutoresearchPipelineStatusEnum": "products.autoresearch.backend.models.AutoresearchPipeline.Status",
+        "AutoresearchPredictionModeEnum": "products.autoresearch.backend.models.AutoresearchPipeline.PredictionMode",
+        "AutoresearchRunStatusEnum": "products.autoresearch.backend.models.AutoresearchRun.Status",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

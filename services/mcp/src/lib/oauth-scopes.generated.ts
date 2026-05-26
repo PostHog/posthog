@@ -25,6 +25,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'annotation:write',
     'approvals:read',
     'approvals:write',
+    'autoresearch:read',
+    'autoresearch:write',
     'batch_export:read',
     'batch_export:write',
     'batch_import:read',

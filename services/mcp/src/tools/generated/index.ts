@@ -4,6 +4,7 @@ import type { ToolBase, ZodObjectAny } from '@/tools/types'
 import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
+import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
@@ -42,6 +43,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...actions,
     ...alerts,
     ...annotations,
+    ...autoresearch,
     ...batch_exports,
     ...cdp_function_templates,
     ...cdp_functions,

@@ -4530,6 +4530,417 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
+     */
+    export type AutoresearchModelModelRecipe = { [key: string]: unknown };
+
+    /**
+     * Global feature importance and directionality. Used to explain top drivers on the model card.
+     */
+    export type AutoresearchModelModelExplanation = { [key: string]: unknown };
+
+    /**
+     * * `champion` - Champion
+    * `challenger` - Challenger
+    * `archived` - Archived
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Champion: 'champion',
+      Challenger: 'challenger',
+      Archived: 'archived',
+    } as const;
+
+    export interface AutoresearchModel {
+      /** Unique UUID of this model version. */
+      readonly id: string;
+      /** Pipeline this model belongs to. */
+      pipeline: string;
+      /** Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.
+
+      * `champion` - Champion
+      * `challenger` - Challenger
+      * `archived` - Archived */
+      role?: RoleEnum;
+      /** SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs. */
+      readonly recipe_hash: string;
+      /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
+      model_recipe: AutoresearchModelModelRecipe;
+      /** Global feature importance and directionality. Used to explain top drivers on the model card. */
+      model_explanation: AutoresearchModelModelExplanation;
+      /**
+         * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured.
+         * @nullable
+         */
+      realized_score?: number | null;
+      /**
+         * Expected calibration error (ECE). Lower is better; well-calibrated models have ECE < 0.05.
+         * @nullable
+         */
+      calibration_error?: number | null;
+      /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
+      metrics?: unknown;
+      /** The agent's own plain-English description of what this recipe does and why it was chosen. */
+      agent_description?: string;
+      /**
+         * Start of the training data window (inclusive).
+         * @nullable
+         */
+      trained_on_start?: string | null;
+      /**
+         * End of the training data window (exclusive).
+         * @nullable
+         */
+      trained_on_end?: string | null;
+      /** True if this model has not yet been validated against realized online outcomes. */
+      is_preliminary?: boolean;
+      /**
+         * Timestamp when this model was promoted to champion.
+         * @nullable
+         */
+      promoted_at?: string | null;
+      /**
+         * Timestamp when this model was archived (superseded or retired).
+         * @nullable
+         */
+      archived_at?: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * Full target definition including event filters and positive-label conditions.
+     */
+    export type AutoresearchPipelineTargetDefinition = { [key: string]: unknown };
+
+    /**
+     * Population used for training. Defines which users can appear as training examples.
+     */
+    export type AutoresearchPipelineTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Population scored daily. Typically broader than the training population.
+     */
+    export type AutoresearchPipelineInferencePopulation = { [key: string]: unknown };
+
+    /**
+     * * `adoption` - Adoption
+    * `continuation` - Continuation
+     */
+    export type AutoresearchPredictionModeEnum = typeof AutoresearchPredictionModeEnum[keyof typeof AutoresearchPredictionModeEnum];
+
+
+    export const AutoresearchPredictionModeEnum = {
+      Adoption: 'adoption',
+      Continuation: 'continuation',
+    } as const;
+
+    /**
+     * * `draft` - Draft
+    * `bootstrapping` - Bootstrapping
+    * `running` - Running
+    * `converged` - Converged
+    * `paused` - Paused
+    * `archived` - Archived
+     */
+    export type AutoresearchPipelineStatusEnum = typeof AutoresearchPipelineStatusEnum[keyof typeof AutoresearchPipelineStatusEnum];
+
+
+    export const AutoresearchPipelineStatusEnum = {
+      Draft: 'draft',
+      Bootstrapping: 'bootstrapping',
+      Running: 'running',
+      Converged: 'converged',
+      Paused: 'paused',
+      Archived: 'archived',
+    } as const;
+
+    export interface AutoresearchPipeline {
+      /** Unique UUID of this pipeline. */
+      readonly id: string;
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * @maxLength 255
+         */
+      target_event: string;
+      /** Full target definition including event filters and positive-label conditions. */
+      target_definition: AutoresearchPipelineTargetDefinition;
+      /**
+         * Prediction horizon in days. The model predicts whether the target event occurs within this window.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      horizon_days?: number;
+      /** 'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.
+
+      * `adoption` - Adoption
+      * `continuation` - Continuation */
+      prediction_mode?: AutoresearchPredictionModeEnum;
+      /** Population used for training. Defines which users can appear as training examples. */
+      training_population: AutoresearchPipelineTrainingPopulation;
+      /** Population scored daily. Typically broader than the training population. */
+      inference_population: AutoresearchPipelineInferencePopulation;
+      /**
+         * Re-score the inference population every N days.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_budget?: number;
+      /** Iterations remaining in the current budget. */
+      readonly iteration_budget_remaining: number;
+      /**
+         * Target AUC threshold. Training stops early if this score is reached.
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no AUC improvement is seen in this many consecutive iterations.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+      /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
+
+      * `draft` - Draft
+      * `bootstrapping` - Bootstrapping
+      * `running` - Running
+      * `converged` - Converged
+      * `paused` - Paused
+      * `archived` - Archived */
+      readonly status: AutoresearchPipelineStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /**
+         * Timestamp of the most recent completed inference run.
+         * @nullable
+         */
+      readonly last_scored_at: string | null;
+    }
+
+    /**
+     * Full target definition. Can be left empty to use target_event alone.
+     */
+    export type AutoresearchPipelineCreateTargetDefinition = { [key: string]: unknown };
+
+    /**
+     * Training population filter. Use {} for all identified users.
+     */
+    export type AutoresearchPipelineCreateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Inference population filter. Defaults to training_population if not set.
+     */
+    export type AutoresearchPipelineCreateInferencePopulation = { [key: string]: unknown };
+
+    export interface AutoresearchPipelineCreate {
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * @maxLength 255
+         */
+      target_event: string;
+      /** Full target definition. Can be left empty to use target_event alone. */
+      target_definition?: AutoresearchPipelineCreateTargetDefinition;
+      /**
+         * Prediction horizon in days. The model predicts whether the target event occurs within this window.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      horizon_days?: number;
+      /** 'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.
+
+      * `adoption` - Adoption
+      * `continuation` - Continuation */
+      prediction_mode?: AutoresearchPredictionModeEnum;
+      /** Training population filter. Use {} for all identified users. */
+      training_population?: AutoresearchPipelineCreateTrainingPopulation;
+      /** Inference population filter. Defaults to training_population if not set. */
+      inference_population?: AutoresearchPipelineCreateInferencePopulation;
+      /**
+         * Re-score the inference population every N days. Default: 1.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop. Default: 50.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_budget?: number;
+      /**
+         * Target AUC threshold. Training stops early if reached. Default: 0.75.
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no improvement in this many consecutive iterations. Default: 10.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+    }
+
+    /**
+     * * `inference` - Inference
+    * `validation` - Validation
+    * `notebook` - Notebook
+     */
+    export type RunTypeEnum = typeof RunTypeEnum[keyof typeof RunTypeEnum];
+
+
+    export const RunTypeEnum = {
+      Inference: 'inference',
+      Validation: 'validation',
+      Notebook: 'notebook',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+    * `running` - Running
+    * `completed` - Completed
+    * `failed` - Failed
+     */
+    export type AutoresearchRunStatusEnum = typeof AutoresearchRunStatusEnum[keyof typeof AutoresearchRunStatusEnum];
+
+
+    export const AutoresearchRunStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface AutoresearchRun {
+      /** Unique UUID of this run. */
+      readonly id: string;
+      /** Pipeline this run belongs to. */
+      pipeline: string;
+      /**
+         * Model used for scoring. Null for validation or notebook runs.
+         * @nullable
+         */
+      model?: string | null;
+      /** Type of run: 'inference' (daily scoring), 'validation' (outcome evaluation), or 'notebook' (report generation).
+
+      * `inference` - Inference
+      * `validation` - Validation
+      * `notebook` - Notebook */
+      run_type: RunTypeEnum;
+      /** Run status: pending, running, completed, or failed.
+
+      * `pending` - Pending
+      * `running` - Running
+      * `completed` - Completed
+      * `failed` - Failed */
+      status?: AutoresearchRunStatusEnum;
+      /**
+         * Number of users scored in this inference run.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      rows_scored?: number | null;
+      /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+      metrics: unknown;
+      /** Error message if the run failed. */
+      error?: string;
+      /**
+         * Timestamp when the run started.
+         * @nullable
+         */
+      started_at?: string | null;
+      /**
+         * Timestamp when the run completed or failed.
+         * @nullable
+         */
+      completed_at?: string | null;
+      readonly created_at: string;
+    }
+
+    export interface AutoresearchTrainingRun {
+      /** Unique UUID of this training run. */
+      readonly id: string;
+      /** Pipeline this training run belongs to. */
+      pipeline: string;
+      /**
+         * Task sandbox run ID. Null for stub/synchronous training runs.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /** Run status: pending, running, completed, or failed.
+
+      * `pending` - Pending
+      * `running` - Running
+      * `completed` - Completed
+      * `failed` - Failed */
+      readonly status: AutoresearchRunStatusEnum;
+      /**
+         * Maximum iterations allowed for this run.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_budget?: number;
+      /** Number of iterations completed. */
+      readonly iteration_count: number;
+      /**
+         * Best holdout AUC achieved across all iterations in this run.
+         * @nullable
+         */
+      readonly best_holdout_score: number | null;
+      /** Error message if the run failed. */
+      readonly error: string;
+      /**
+         * Timestamp when the training run started.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * Timestamp when the training run completed or failed.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      readonly created_at: string;
+    }
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -22027,6 +22438,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
+    * `autoresearch` - Autoresearch
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22040,6 +22452,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
     } as const;
 
     /**
@@ -22145,6 +22558,42 @@ export namespace Schemas {
       previous?: string | null;
       count?: number;
       results?: AsyncDeletionStatus[];
+    }
+
+    export interface PaginatedAutoresearchModelList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchModel[];
+    }
+
+    export interface PaginatedAutoresearchPipelineList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchPipeline[];
+    }
+
+    export interface PaginatedAutoresearchRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchRun[];
+    }
+
+    export interface PaginatedAutoresearchTrainingRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchTrainingRun[];
     }
 
     export interface PaginatedBatchExportBackfillList {
@@ -26208,6 +26657,81 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Full target definition. Can be left empty to use target_event alone.
+     */
+    export type PatchedAutoresearchPipelineCreateTargetDefinition = { [key: string]: unknown };
+
+    /**
+     * Training population filter. Use {} for all identified users.
+     */
+    export type PatchedAutoresearchPipelineCreateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Inference population filter. Defaults to training_population if not set.
+     */
+    export type PatchedAutoresearchPipelineCreateInferencePopulation = { [key: string]: unknown };
+
+    export interface PatchedAutoresearchPipelineCreate {
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * @maxLength 255
+         */
+      target_event?: string;
+      /** Full target definition. Can be left empty to use target_event alone. */
+      target_definition?: PatchedAutoresearchPipelineCreateTargetDefinition;
+      /**
+         * Prediction horizon in days. The model predicts whether the target event occurs within this window.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      horizon_days?: number;
+      /** 'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.
+
+      * `adoption` - Adoption
+      * `continuation` - Continuation */
+      prediction_mode?: AutoresearchPredictionModeEnum;
+      /** Training population filter. Use {} for all identified users. */
+      training_population?: PatchedAutoresearchPipelineCreateTrainingPopulation;
+      /** Inference population filter. Defaults to training_population if not set. */
+      inference_population?: PatchedAutoresearchPipelineCreateInferencePopulation;
+      /**
+         * Re-score the inference population every N days. Default: 1.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop. Default: 50.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_budget?: number;
+      /**
+         * Target AUC threshold. Training stops early if reached. Default: 0.75.
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no improvement in this many consecutive iterations. Default: 10.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'.
+         * @maxLength 255
+         */
+      output_person_property?: string;
     }
 
     /**
@@ -35408,6 +35932,15 @@ export namespace Schemas {
       Service: 'service',
     } as const;
 
+    export interface StartTrainingRequest {
+      /**
+         * Override the pipeline iteration budget for this training run.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -37170,6 +37703,104 @@ export namespace Schemas {
       results: CampaignAuditResult[];
       /** All UTM events with match status */
       all_utm_events: UtmEvent[];
+    }
+
+    /**
+     * * `adoption` - adoption
+    * `continuation` - continuation
+     */
+    export type ValidatePipelineRequestPredictionModeEnum = typeof ValidatePipelineRequestPredictionModeEnum[keyof typeof ValidatePipelineRequestPredictionModeEnum];
+
+
+    export const ValidatePipelineRequestPredictionModeEnum = {
+      Adoption: 'adoption',
+      Continuation: 'continuation',
+    } as const;
+
+    export interface ValidatePipelineRequest {
+      /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. */
+      target_event: string;
+      /**
+         * Predict whether the target event occurs within this many days.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /** 'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.
+
+      * `adoption` - adoption
+      * `continuation` - continuation */
+      prediction_mode?: ValidatePipelineRequestPredictionModeEnum;
+      /** Population filter for training examples. Use {} for all identified users. */
+      training_population?: unknown;
+      /** Population filter for daily scoring. Defaults to training_population if not provided. */
+      inference_population?: unknown;
+    }
+
+    /**
+     * * `info` - info
+    * `warning` - warning
+    * `error` - error
+     */
+    export type ValidationWarningSeverityEnum = typeof ValidationWarningSeverityEnum[keyof typeof ValidationWarningSeverityEnum];
+
+
+    export const ValidationWarningSeverityEnum = {
+      Info: 'info',
+      Warning: 'warning',
+      Error: 'error',
+    } as const;
+
+    export interface ValidationWarning {
+      /** Machine-readable warning code, e.g. 'low_volume' or 'extreme_imbalance'. */
+      code: string;
+      /** Human-readable warning description. */
+      message: string;
+      /** Severity level. 'error' blocks creation; 'warning' requires acknowledgement.
+
+      * `info` - info
+      * `warning` - warning
+      * `error` - error */
+      severity: ValidationWarningSeverityEnum;
+    }
+
+    export interface ValidatePipelineResponse {
+      /** True if the pipeline definition is valid and training can start. */
+      can_proceed: boolean;
+      /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
+      requires_acknowledgement: boolean;
+      /**
+         * Estimated number of user-level training rows based on the population and lookback window.
+         * @nullable
+         */
+      estimated_training_rows: number | null;
+      /**
+         * Estimated number of positive examples (users who performed the target event).
+         * @nullable
+         */
+      positive_count: number | null;
+      /**
+         * Estimated number of negative examples.
+         * @nullable
+         */
+      negative_count: number | null;
+      /**
+         * Fraction of the training population that performed the target event.
+         * @nullable
+         */
+      base_rate: number | null;
+      /**
+         * Estimated number of users in the inference (daily scoring) population.
+         * @nullable
+         */
+      inference_population_size: number | null;
+      /** List of validation warnings. Check 'severity' — 'error' blocks creation. */
+      warnings: ValidationWarning[];
+      /**
+         * Internal error message if validation itself failed to run.
+         * @nullable
+         */
+      error: string | null;
     }
 
     export interface ViewLinkValidation {
@@ -42575,6 +43206,50 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AutoresearchListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AutoresearchModelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AutoresearchRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AutoresearchTrainingRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type BatchExportsListParams = {

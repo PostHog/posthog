@@ -418,6 +418,28 @@ groups: PostgresTable = PostgresTable(
     },
 )
 
+autoresearch_pipelines: PostgresTable = PostgresTable(
+    name="autoresearch_pipelines",
+    postgres_table_name="autoresearch_autoresearchpipeline",
+    access_scope="autoresearch",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "target_event": StringDatabaseField(name="target_event"),
+        "horizon_days": IntegerDatabaseField(name="horizon_days"),
+        "prediction_mode": StringDatabaseField(name="prediction_mode"),
+        "status": StringDatabaseField(name="status"),
+        "iteration_budget": IntegerDatabaseField(name="iteration_budget"),
+        "iteration_budget_remaining": IntegerDatabaseField(name="iteration_budget_remaining"),
+        "output_person_property": StringDatabaseField(name="output_person_property"),
+        "last_scored_at": DateTimeDatabaseField(name="last_scored_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 group_type_mappings: PostgresTable = PostgresTable(
     name="group_type_mappings",
     postgres_table_name="posthog_grouptypemapping",
@@ -1182,6 +1204,7 @@ class SystemTables(TableNode):
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tasks": TableNode(name="tasks", table=tasks),
+        "autoresearch_pipelines": TableNode(name="autoresearch_pipelines", table=autoresearch_pipelines),
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),

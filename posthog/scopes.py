@@ -21,6 +21,7 @@ APIScopeObject = Literal[
     "alert",
     "annotation",
     "approvals",
+    "autoresearch",
     "batch_export",
     "batch_import",
     "business_knowledge",

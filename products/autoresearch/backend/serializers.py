@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -15,60 +16,63 @@ from products.autoresearch.backend.models import (
 # ── Typed schema wrappers for JSONField -----------------------------------
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": "Full target definition. May include event filters, action IDs, and positive-label conditions.",
+        "example": {"event": "$pageview", "filters": []},
+    }
+)
 class TargetDefinitionField(serializers.JSONField):
-    """Full target definition: event filters and positive-label logic."""
-
-    class Meta:
-        swagger_schema_fields = {
-            "type": "object",
-            "description": "Full target definition. May include event filters, action IDs, and positive-label conditions.",
-            "example": {"event": "$pageview", "filters": []},
-        }
+    pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": "Population definition as a HogQL cohort or filter object. Use {} for 'all identified users'.",
+        "example": {"properties": [{"key": "email", "type": "person", "operator": "is_set"}]},
+    }
+)
 class PopulationDefinitionField(serializers.JSONField):
-    """HogQL cohort or property filter definition for a training/inference population."""
-
-    class Meta:
-        swagger_schema_fields = {
-            "type": "object",
-            "description": "Population definition as a HogQL cohort or filter object. "
-            "Use {} for 'all identified users'.",
-            "example": {"properties": [{"key": "email", "type": "person", "operator": "is_set"}]},
-        }
+    pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Portable recipe artifact. Contains feature_sql (HogQL), feature_transforms, "
+            "model_class, model_params, fit_signature, trained_on, holdout_score, and agent_description."
+        ),
+        "example": {
+            "feature_sql": "SELECT distinct_id, countIf(event='$pageview') AS pageviews_30d FROM events ...",
+            "feature_transforms": [],
+            "model_class": "sklearn.linear_model.LogisticRegression",
+            "model_params": {"C": 1.0, "max_iter": 200},
+            "fit_signature": "abc123",
+            "trained_on": "2026-04-01 to 2026-05-01",
+            "holdout_score": 0.72,
+            "agent_description": "Stub recipe: universal engagement features",
+        },
+    }
+)
 class ModelRecipeField(serializers.JSONField):
-    """Portable, versioned model recipe: feature SQL, transforms, model class, params."""
-
-    class Meta:
-        swagger_schema_fields = {
-            "type": "object",
-            "description": "Portable recipe artifact. Contains feature_sql (HogQL), feature_transforms, "
-            "model_class, model_params, fit_signature, trained_on, holdout_score, and agent_description.",
-            "example": {
-                "feature_sql": "SELECT distinct_id, countIf(event='$pageview') AS pageviews_30d FROM events ...",
-                "feature_transforms": [],
-                "model_class": "sklearn.linear_model.LogisticRegression",
-                "model_params": {"C": 1.0, "max_iter": 200},
-                "fit_signature": "abc123",
-                "trained_on": "2026-04-01 to 2026-05-01",
-                "holdout_score": 0.72,
-                "agent_description": "Stub recipe: universal engagement features",
-            },
-        }
+    pass
 
 
-class ModelExplanationField(serializers.JSONField):
-    """Global model explanation: top feature importances, directionality, and leakage warnings."""
-
-    class Meta:
-        swagger_schema_fields = {
-            "type": "object",
-            "description": "Global feature importance bundle: top features by gain, directionality "
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Global feature importance bundle: top features by gain, directionality "
             "(positive/negative impact on predicted probability), stability across runs, "
-            "and leakage warning annotations.",
-        }
+            "and leakage warning annotations."
+        ),
+    }
+)
+class ModelExplanationField(serializers.JSONField):
+    pass
 
 
 # ── Core serializers ------------------------------------------------------
@@ -119,6 +123,32 @@ class AutoresearchPipelineSerializer(serializers.ModelSerializer):
             "iteration_budget_remaining",
             "status",
         ]
+        extra_kwargs = {
+            "id": {"help_text": "Unique UUID of this pipeline."},
+            "name": {"help_text": "Display name for the pipeline."},
+            "description": {"help_text": "Optional free-text description."},
+            "target_event": {"help_text": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'."},
+            "horizon_days": {
+                "help_text": "Prediction horizon in days. The model predicts whether the target event occurs within this window."
+            },
+            "prediction_mode": {
+                "help_text": "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence."
+            },
+            "cadence_days": {"help_text": "Re-score the inference population every N days."},
+            "iteration_budget": {"help_text": "Total training iterations allowed for the autoresearch loop."},
+            "iteration_budget_remaining": {"help_text": "Iterations remaining in the current budget."},
+            "success_auc": {"help_text": "Target AUC threshold. Training stops early if this score is reached."},
+            "plateau_iterations": {
+                "help_text": "Stop training if no AUC improvement is seen in this many consecutive iterations."
+            },
+            "output_person_property": {
+                "help_text": "Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'."
+            },
+            "status": {
+                "help_text": "Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived."
+            },
+            "last_scored_at": {"help_text": "Timestamp of the most recent completed inference run."},
+        }
 
 
 class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
@@ -155,6 +185,28 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
             "plateau_iterations",
             "output_person_property",
         ]
+        extra_kwargs = {
+            "name": {"help_text": "Display name for the pipeline."},
+            "description": {"help_text": "Optional free-text description."},
+            "target_event": {"help_text": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'."},
+            "horizon_days": {
+                "help_text": "Prediction horizon in days. The model predicts whether the target event occurs within this window."
+            },
+            "prediction_mode": {
+                "help_text": "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence."
+            },
+            "cadence_days": {"help_text": "Re-score the inference population every N days. Default: 1."},
+            "iteration_budget": {
+                "help_text": "Total training iterations allowed for the autoresearch loop. Default: 50."
+            },
+            "success_auc": {"help_text": "Target AUC threshold. Training stops early if reached. Default: 0.75."},
+            "plateau_iterations": {
+                "help_text": "Stop training if no improvement in this many consecutive iterations. Default: 10."
+            },
+            "output_person_property": {
+                "help_text": "Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'."
+            },
+        }
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         if not data.get("output_person_property"):
@@ -196,6 +248,38 @@ class AutoresearchModelSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "recipe_hash", "created_at", "updated_at"]
+        extra_kwargs = {
+            "id": {"help_text": "Unique UUID of this model version."},
+            "pipeline": {"help_text": "Pipeline this model belongs to."},
+            "role": {
+                "help_text": "Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'."
+            },
+            "recipe_hash": {
+                "help_text": "SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs."
+            },
+            "holdout_score": {
+                "help_text": "AUC on the held-out test split at training time. Preliminary signal before online labels mature."
+            },
+            "realized_score": {
+                "help_text": "Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured."
+            },
+            "calibration_error": {
+                "help_text": "Expected calibration error (ECE). Lower is better; well-calibrated models have ECE < 0.05."
+            },
+            "metrics": {
+                "help_text": "Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts."
+            },
+            "agent_description": {
+                "help_text": "The agent's own plain-English description of what this recipe does and why it was chosen."
+            },
+            "trained_on_start": {"help_text": "Start of the training data window (inclusive)."},
+            "trained_on_end": {"help_text": "End of the training data window (exclusive)."},
+            "is_preliminary": {
+                "help_text": "True if this model has not yet been validated against realized online outcomes."
+            },
+            "promoted_at": {"help_text": "Timestamp when this model was promoted to champion."},
+            "archived_at": {"help_text": "Timestamp when this model was archived (superseded or retired)."},
+        }
 
 
 class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
@@ -224,6 +308,18 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
             "completed_at",
             "created_at",
         ]
+        extra_kwargs = {
+            "id": {"help_text": "Unique UUID of this training run."},
+            "pipeline": {"help_text": "Pipeline this training run belongs to."},
+            "task_run_id": {"help_text": "Task sandbox run ID. Null for stub/synchronous training runs."},
+            "status": {"help_text": "Run status: pending, running, completed, or failed."},
+            "iteration_budget": {"help_text": "Maximum iterations allowed for this run."},
+            "iteration_count": {"help_text": "Number of iterations completed."},
+            "best_holdout_score": {"help_text": "Best holdout AUC achieved across all iterations in this run."},
+            "error": {"help_text": "Error message if the run failed."},
+            "started_at": {"help_text": "Timestamp when the training run started."},
+            "completed_at": {"help_text": "Timestamp when the training run completed or failed."},
+        }
 
 
 class AutoresearchIterationSerializer(serializers.ModelSerializer):
@@ -274,6 +370,19 @@ class AutoresearchRunSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+        extra_kwargs = {
+            "id": {"help_text": "Unique UUID of this run."},
+            "pipeline": {"help_text": "Pipeline this run belongs to."},
+            "model": {"help_text": "Model used for scoring. Null for validation or notebook runs."},
+            "run_type": {
+                "help_text": "Type of run: 'inference' (daily scoring), 'validation' (outcome evaluation), or 'notebook' (report generation)."
+            },
+            "status": {"help_text": "Run status: pending, running, completed, or failed."},
+            "rows_scored": {"help_text": "Number of users scored in this inference run."},
+            "error": {"help_text": "Error message if the run failed."},
+            "started_at": {"help_text": "Timestamp when the run started."},
+            "completed_at": {"help_text": "Timestamp when the run completed or failed."},
+        }
 
 
 # ── Validation serializers -------------------------------------------------

@@ -1,0 +1,301 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Autoresearch
+feature: autoresearch
+url_prefix: /autoresearch
+ui_apps: {}
+tools:
+    autoresearch-validate-create:
+        operation: autoresearch_validate_create
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate a pipeline definition
+        description: >
+            Validate a proposed autoresearch pipeline before creating it. Returns volume estimates, base rate, positive
+            and negative example counts, and a list of warnings. Check 'can_proceed' before calling
+            autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are
+            non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives
+            (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Use 'adoption' mode for
+            predicting first-time events; use 'continuation' for repeat events. Always validate before creating.
+
+    autoresearch-create:
+        operation: autoresearch_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a pipeline
+        description: >
+            Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first —
+            this endpoint does not block on validation errors. Required: name and target_event. The prediction_mode
+            defaults to 'adoption' (predict first-time occurrence). horizon_days defaults to 7. The output
+            person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After
+            creating, call autoresearch-train-create to run stub training and generate a champion model.
+        enrich_url: '{id}'
+        exclude_params:
+            - id
+            - created_by
+            - created_at
+            - updated_at
+            - last_scored_at
+            - status
+            - iteration_budget_remaining
+
+    autoresearch-list:
+        operation: autoresearch_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List pipelines
+        description: >
+            List autoresearch prediction pipelines for the current project. Archived pipelines are excluded.
+            Each pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target
+            event, horizon, prediction mode, and timestamps. Use autoresearch-retrieve to get full details including
+            population definitions.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - target_event
+                - horizon_days
+                - prediction_mode
+                - status
+                - iteration_budget
+                - iteration_budget_remaining
+                - last_scored_at
+                - created_at
+                - updated_at
+
+    autoresearch-retrieve:
+        operation: autoresearch_retrieve
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get pipeline
+        description: >
+            Get full details for a specific autoresearch pipeline by ID, including population definitions,
+            training configuration, and current status.
+        enrich_url: '{id}'
+
+    autoresearch-train-create:
+        operation: autoresearch_train_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start training
+        description: >
+            Start a training run for a pipeline. Creates a champion model and marks the pipeline as running.
+            Currently synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training
+            run object with status, iteration_count, and best_holdout_score. After training completes, call
+            autoresearch-score-create to run inference and emit prediction events. You can optionally override
+            the iteration_budget for this run.
+
+    autoresearch-score-create:
+        operation: autoresearch_score_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run inference (score users)
+        description: >
+            Score the inference population using the champion model and emit 'autoresearch_prediction' events for
+            each user. Returns the inference run object with rows_scored and status. Requires a champion model —
+            run autoresearch-train-create first if the pipeline has no champion. Each scored user gets a
+            '$autoresearch_p_y' property on their prediction event and a person property update. After scoring,
+            query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events
+            WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>'
+            ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.
+
+    autoresearch-pause-create:
+        operation: autoresearch_pause_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Pause pipeline
+        description: >
+            Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. Use
+            autoresearch-resume-create to restart.
+
+    autoresearch-resume-create:
+        operation: autoresearch_resume_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Resume pipeline
+        description: >
+            Resume a paused pipeline. Returns 400 if the pipeline is not currently paused.
+
+    autoresearch-archive-create:
+        operation: autoresearch_archive_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Archive pipeline
+        description: >
+            Soft-delete a pipeline. Stops daily scoring and training. Prediction history and model artifacts are
+            preserved. Archived pipelines are excluded from autoresearch-list. This is reversible only via direct
+            DB access — use pause instead if you want to temporarily stop a pipeline.
+
+    autoresearch-models-list:
+        operation: autoresearch_models_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List models for a pipeline
+        description: >
+            List champion, challenger, and archived model versions for a pipeline. Each model includes its
+            holdout_score, role, recipe_hash, is_preliminary flag, and agent_description. The active scoring model
+            has role='champion'. Use the recipe_hash to detect when the champion has changed across training runs.
+        response:
+            include:
+                - id
+                - pipeline
+                - role
+                - recipe_hash
+                - holdout_score
+                - realized_score
+                - is_preliminary
+                - agent_description
+                - trained_on_start
+                - trained_on_end
+                - promoted_at
+                - created_at
+
+    autoresearch-models-retrieve:
+        operation: autoresearch_models_retrieve
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get model
+        description: >
+            Get full details for a specific model version, including the portable model recipe (feature SQL,
+            transforms, model class, params) and feature importance explanation.
+
+    autoresearch-training-runs-list:
+        operation: autoresearch_training_runs_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List training runs
+        description: >
+            List training runs for a pipeline, ordered most recent first. Check status (completed/failed),
+            iteration_count, and best_holdout_score to understand training history.
+        response:
+            include:
+                - id
+                - pipeline
+                - status
+                - iteration_budget
+                - iteration_count
+                - best_holdout_score
+                - error
+                - started_at
+                - completed_at
+                - created_at
+
+    autoresearch-runs-list:
+        operation: autoresearch_runs_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List inference runs
+        description: >
+            List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and
+            status to understand scoring history. run_type is 'inference' for daily scoring runs.
+        response:
+            include:
+                - id
+                - pipeline
+                - model
+                - run_type
+                - status
+                - rows_scored
+                - error
+                - started_at
+                - completed_at
+                - created_at
+
+    # Disabled — not useful for MCP (use list + retrieve instead)
+    autoresearch-runs-retrieve:
+        operation: autoresearch_runs_retrieve
+        enabled: false
+    autoresearch-training-runs-retrieve:
+        operation: autoresearch_training_runs_retrieve
+        enabled: false
+
+    # Disabled — destructive / full-replace not appropriate for agents
+    autoresearch-destroy:
+        operation: autoresearch_destroy
+        enabled: false
+    autoresearch-update:
+        operation: autoresearch_update
+        enabled: false
+    autoresearch-partial-update:
+        operation: autoresearch_partial_update
+        enabled: false
