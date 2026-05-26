@@ -149,6 +149,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
 ) -> Router {
     let state = State {
         sink,
@@ -173,7 +174,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         replay_overflow_limiter,
-        v1_sink_router: None,
+        v1_sink_router,
     };
 
     // Very permissive CORS policy, as old SDK versions

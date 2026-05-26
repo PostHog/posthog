@@ -7,7 +7,9 @@ use axum::response::Response;
 use axum::Router;
 use chrono::Utc;
 
-use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
+use super::constants::{
+    ACCEPT_ENCODING_ALL, ACCEPT_JSON, CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING,
+};
 use crate::router::State;
 use crate::v1::constants::{CAPTURE_V1_RESPONSE_TIME, POSTHOG_REQUEST_ID};
 
@@ -38,6 +40,8 @@ pub(super) async fn v1_common_headers(req: Request, next: Next) -> Response {
     if let Some(id) = request_id {
         headers.insert(POSTHOG_REQUEST_ID, id);
     }
+    headers.insert(header::ACCEPT, ACCEPT_JSON);
+    headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
     response
 }
@@ -112,6 +116,26 @@ mod tests {
         assert!(
             parsed.is_ok(),
             "Date header is not valid RFC 2822: {date:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn common_headers_sets_accept_and_encoding() {
+        let resp = test_router()
+            .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(header::ACCEPT).expect("Accept missing"),
+            "application/json"
+        );
+        assert_eq!(
+            resp.headers()
+                .get(header::ACCEPT_ENCODING)
+                .expect("Accept-Encoding missing"),
+            "gzip, deflate, br, zstd"
         );
     }
 
