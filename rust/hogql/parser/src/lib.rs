@@ -195,6 +195,9 @@ mod tests {
         let ok = run(|| Ok(serde_json::json!({"node": "Constant"})));
         assert!(ok.contains("Constant"), "got: {ok}");
         let err = run(|| Err(error::ParseError::syntax("nope", 1, 2)));
-        assert!(err.contains("SyntaxError") && err.contains("nope"), "got: {err}");
+        assert!(
+            err.contains("SyntaxError") && err.contains("nope"),
+            "got: {err}"
+        );
     }
 }
