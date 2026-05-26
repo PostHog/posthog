@@ -55,7 +55,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // strict; only the lone-placeholder case is suppressed.
         let body_is_placeholder = subsequent.is_empty()
             && !matches!(
-                first.get("node").and_then(Value::as_str),
+                self.emit.node_kind(&first).as_deref(),
                 Some("SelectQuery") | Some("SelectSetQuery")
             );
         let trailing = self.parse_trailing_set_decorators(body_is_placeholder)?;
@@ -295,7 +295,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///   `OFFSET columnExpr`
     fn parse_set_trailing_limit_offset(
         &mut self,
-        out: &mut Vec<(String, Value)>,
+        out: &mut Vec<(String, E::Value)>,
     ) -> Result<(), ParseError> {
         if self.eat_kw(Kw::Limit)? {
             // The initial parse stops at BP_MULT+1 so `limit_resolve_percent`
