@@ -45,7 +45,9 @@ export class LifecycleBuilder<S extends Record<string, object> = Record<never, o
     }
 
     build(name: string): Lifecycle<S> {
-        return new Lifecycle<S>(name, this.services, this.lifecycle)
+        const services = this.services
+        const runner = new ServiceRunner(this.lifecycle)
+        return new Lifecycle<S>(name, () => services, runner)
     }
 }
 
@@ -61,9 +63,18 @@ export interface StartedLifecycle<S extends Record<string, object>> {
 }
 
 // ---------------------------------------------------------------------------
-// Service runner: encapsulates "actually run the registered services".
+// Runner: pluggable "boot/teardown" implementation behind the state machine.
 
-class ServiceRunner {
+interface Runner {
+    start(): Promise<void>
+    stop(): Promise<void>
+}
+
+/**
+ * Boots and tears down the ordered list of services. Tracks which services
+ * successfully started so `stop` only tears those down.
+ */
+class ServiceRunner implements Runner {
     private started: ServiceLifecycle[] = []
 
     constructor(private readonly services: ReadonlyArray<ServiceLifecycle>) {}
@@ -99,14 +110,71 @@ class ServiceRunner {
     }
 }
 
+/**
+ * Runs a child lifecycle on top of a parent lifecycle. On `start`: start
+ * (or refcount onto) the parent, resolve its services, hand them to the
+ * configure callback to build a child lifecycle, then start the child.
+ * On `stop`: stop the child then release the parent. The parent boot is
+ * shared across all chains rooted at it via the parent's own refcount.
+ */
+class ChainedRunner<SParent extends Record<string, object>, SChild extends Record<string, object>> implements Runner {
+    private parentHandle?: StartedLifecycle<SParent>
+    private childHandle?: StartedLifecycle<SChild>
+
+    constructor(
+        private readonly parent: Lifecycle<SParent>,
+        private readonly configure: (
+            parentServices: SParent,
+            builder: LifecycleBuilder<Record<never, object>>
+        ) => LifecycleBuilder<SChild>,
+        private readonly childName: string
+    ) {}
+
+    async start(): Promise<void> {
+        const parentHandle = await this.parent.start()
+        try {
+            const childLifecycle = this.configure(parentHandle.services, LifecycleBuilder.empty()).build(this.childName)
+            this.childHandle = await childLifecycle.start()
+            this.parentHandle = parentHandle
+        } catch (err) {
+            // Child construction or start failed; release the parent reference
+            // we just acquired so we don't leak it.
+            try {
+                await parentHandle.stop()
+            } catch {
+                // best-effort; propagate the original child error
+            }
+            throw err
+        }
+    }
+
+    async stop(): Promise<void> {
+        const childHandle = this.childHandle
+        const parentHandle = this.parentHandle
+        this.childHandle = undefined
+        this.parentHandle = undefined
+        try {
+            if (childHandle) {
+                await childHandle.stop()
+            }
+        } finally {
+            if (parentHandle) {
+                await parentHandle.stop()
+            }
+        }
+    }
+
+    getServices(): SParent & SChild {
+        if (!this.parentHandle || !this.childHandle) {
+            throw new Error(`chained lifecycle "${this.childName}" is not started`)
+        }
+        return { ...this.parentHandle.services, ...this.childHandle.services }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Caller set: refcount with single-shot release callbacks.
 
-/**
- * Sequential-ID refcount. Each `register` mints a new id and returns a
- * release callback that, on first call, removes the caller and returns
- * `true`; subsequent calls are no-ops returning `false`.
- */
 class CallerSet {
     private callers = new Set<number>()
     private nextId = 0
@@ -139,12 +207,6 @@ interface LifecycleContext {
     callerCount(): number
 }
 
-/** A state's synchronous response to `onStart`/`onStop`:
- *   - `transition`: replace the current state and re-apply the same call.
- *   - `wait`: park on this promise, then re-apply against current state.
- *   - `done`: call complete.
- *   - `failed`: call complete with an error; the driver applies `next` and
- *     throws. */
 type Outcome =
     | { kind: 'transition'; next: LifecycleState }
     | { kind: 'wait'; on: Promise<unknown> }
@@ -165,17 +227,11 @@ class StoppedState implements LifecycleState {
     }
 }
 
-/** Services are coming up. Both start and stop callers park on the in-flight
- * boot, then re-evaluate against the resulting Started (or Stopped on
- * failure) state. */
 class StartingState implements LifecycleState {
     private settled: 'pending' | 'ok' | { error: unknown } = 'pending'
     private readonly waitOn: Promise<void>
 
     constructor(startPromise: Promise<void>) {
-        // Always-resolves promise that records the outcome. Drivers can park
-        // on `waitOn` without worrying about rejection; the next snapshot
-        // surfaces success or failure via `settled`.
         this.waitOn = startPromise.then(
             () => {
                 this.settled = 'ok'
@@ -204,9 +260,6 @@ class StartingState implements LifecycleState {
     }
 }
 
-/** Services are running. Start returns immediately (refcount already taken
- * by the driver). Stop checks whether this was the last caller; if so,
- * teardown begins. */
 class StartedState implements LifecycleState {
     onStart(_ctx: LifecycleContext): Outcome {
         return { kind: 'done' }
@@ -219,10 +272,6 @@ class StartedState implements LifecycleState {
     }
 }
 
-/** Services are coming down. A start arriving here parks on the in-flight
- * teardown and transitions to Stopped regardless of stop success — the
- * caller just wants the slate clear before booting fresh. A stop here also
- * parks; it surfaces an error if teardown failed. */
 class StoppingState implements LifecycleState {
     private settled: 'pending' | 'ok' | { error: unknown } = 'pending'
     private readonly waitOn: Promise<void>
@@ -256,14 +305,6 @@ class StoppingState implements LifecycleState {
     }
 }
 
-/**
- * Drives the state classes. `start`/`stop` loop until the current state
- * returns `done` or `failed`, applying transitions and parking on `wait`
- * outcomes along the way. Because state methods are synchronous, the
- * transition between observing the state and applying the outcome is
- * atomic — concurrent callers can't slip in and cause duplicate side
- * effects.
- */
 class StateMachine {
     private state: LifecycleState = new StoppedState()
 
@@ -301,15 +342,17 @@ class StateMachine {
 export class Lifecycle<S extends Record<string, object> = Record<never, object>> {
     private readonly machine = new StateMachine()
     private readonly callers = new CallerSet()
-    private readonly runner: ServiceRunner
+    private readonly servicesProvider: () => S
+    private readonly runner: Runner
     private readonly ctx: LifecycleContext
 
     constructor(
         readonly name: string,
-        readonly services: S,
-        lifecycle: ReadonlyArray<ServiceLifecycle>
+        servicesProvider: () => S,
+        runner: Runner
     ) {
-        this.runner = new ServiceRunner(lifecycle)
+        this.servicesProvider = servicesProvider
+        this.runner = runner
         this.ctx = {
             runStart: () => this.runner.start(),
             runStop: () => this.runner.stop(),
@@ -328,10 +371,28 @@ export class Lifecycle<S extends Record<string, object> = Record<never, object>>
         return this.makeHandle(release)
     }
 
+    /**
+     * Build a child lifecycle on top of this one. The `configure` callback
+     * receives this lifecycle's started services and a fresh builder, and
+     * returns the builder with the child's services registered. The returned
+     * lifecycle's services are `parent ∪ child`.
+     *
+     * On `start`: this lifecycle is started (or refcounted onto), then the
+     * callback runs with the resolved services and the child is started.
+     * On `stop`: the child is stopped, then this lifecycle is released.
+     */
+    chain<S2 extends Record<string, object>>(
+        name: string,
+        configure: (parentServices: S, builder: LifecycleBuilder<Record<never, object>>) => LifecycleBuilder<S2>
+    ): Lifecycle<S & S2> {
+        const runner = new ChainedRunner<S, S2>(this, configure, name)
+        return new Lifecycle<S & S2>(name, () => runner.getServices(), runner)
+    }
+
     private makeHandle(release: () => boolean): StartedLifecycle<S> {
         return {
             name: this.name,
-            services: this.services,
+            services: this.servicesProvider(),
             stop: async (): Promise<void> => {
                 if (!release()) {
                     return

@@ -253,4 +253,99 @@ describe('Lifecycle', () => {
         expect(startCalls).toBe(2)
         expect(stopCalls).toBe(2)
     })
+
+    it('chains a child lifecycle on top of a parent', async () => {
+        const log: string[] = []
+        const a = makeService('a', log)
+        const b = makeService('b', log)
+
+        const parent = newLifecycleBuilder().register('a', a).build('parent')
+        const child = parent.chain('child', (services, builder) => {
+            // Services from the parent must be available here.
+            expect(services.a).toBe(a)
+            return builder.register('b', b)
+        })
+
+        const started = await child.start()
+
+        expect(log).toEqual(['start:a', 'start:b'])
+        expect(started.name).toBe('child')
+        expect(started.services).toEqual({ a, b })
+
+        await started.stop()
+        // Child first, then parent.
+        expect(log).toEqual(['start:a', 'start:b', 'stop:b', 'stop:a'])
+    })
+
+    it('refcounts the parent across multiple chained lifecycles', async () => {
+        const log: string[] = []
+        const a = makeService('a', log)
+        const b = makeService('b', log)
+        const c = makeService('c', log)
+
+        const parent = newLifecycleBuilder().register('a', a).build('parent')
+        const childB = parent.chain('childB', (_services, builder) => builder.register('b', b))
+        const childC = parent.chain('childC', (_services, builder) => builder.register('c', c))
+
+        const hB = await childB.start()
+        const hC = await childC.start()
+
+        // Parent boots exactly once even though both chains started.
+        expect(a.startCalls).toBe(1)
+        expect(b.startCalls).toBe(1)
+        expect(c.startCalls).toBe(1)
+
+        await hB.stop()
+        // Releasing one chain doesn't tear the parent down — the other chain
+        // still holds it.
+        expect(a.stopCalls).toBe(0)
+        expect(b.stopCalls).toBe(1)
+
+        await hC.stop()
+        // Last chain released; parent now stops.
+        expect(a.stopCalls).toBe(1)
+        expect(c.stopCalls).toBe(1)
+    })
+
+    it('rolls back the parent when the child fails to start', async () => {
+        const log: string[] = []
+        const a = makeService('a', log)
+        const failing: ConsumerManagedService = {
+            start: jest.fn((): Promise<void> => Promise.reject(new Error('child boom'))),
+            stop: jest.fn((): Promise<void> => Promise.resolve()),
+        }
+
+        const parent = newLifecycleBuilder().register('a', a).build('parent')
+        const child = parent.chain('child', (_services, builder) => builder.register('bad', failing))
+
+        await expect(child.start()).rejects.toThrow('child boom')
+
+        // Parent was started, then released when the child failed.
+        expect(a.startCalls).toBe(1)
+        expect(a.stopCalls).toBe(1)
+    })
+
+    it('reconstructs the child on each restart', async () => {
+        const log: string[] = []
+        const a = makeService('a', log)
+        let buildCalls = 0
+
+        const parent = newLifecycleBuilder().register('a', a).build('parent')
+        const child = parent.chain('child', (_services, builder) => {
+            buildCalls++
+            const b = makeService(`b${buildCalls}`, log)
+            return builder.register('b', b)
+        })
+
+        const h1 = await child.start()
+        await h1.stop()
+
+        const h2 = await child.start()
+        await h2.stop()
+
+        expect(buildCalls).toBe(2)
+        expect(a.startCalls).toBe(2)
+        expect(a.stopCalls).toBe(2)
+        expect(log).toEqual(['start:a', 'start:b1', 'stop:b1', 'stop:a', 'start:a', 'start:b2', 'stop:b2', 'stop:a'])
+    })
 })
