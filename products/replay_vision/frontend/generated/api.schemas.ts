@@ -348,21 +348,6 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
-export type VisionObservationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Session recording id to return observations for.
-     */
-    session_id: string
-}
-
 /**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
@@ -389,6 +374,21 @@ export interface EstimateResponseApi {
     estimated_observations_per_month: number
     /** Sampling rate applied to the projection. Echoed from the request. */
     sampling_rate: number
+}
+
+export type VisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string
 }
 
 export type VisionScannersListParams = {
