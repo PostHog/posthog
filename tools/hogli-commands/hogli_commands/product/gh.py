@@ -10,14 +10,16 @@ _fetch_err: str = ""
 _fetch_attempted: bool = False
 
 
-def get_team_slugs(repo: str = "PostHog/posthog") -> tuple[set[str] | None, str]:
-    """Fetch the GitHub team slugs that have access to ``repo``. Cached after the first call.
+def get_team_slugs(org: str = "PostHog") -> tuple[set[str] | None, str]:
+    """Fetch GitHub team slugs visible in ``org``. Cached after the first call.
 
-    Uses ``/repos/{repo}/teams`` rather than ``/orgs/{org}/teams`` for two reasons:
-      1. It matches the exact set that ``POST /pulls/{n}/requested_reviewers`` accepts —
-         a team has to be a *collaborator on the repo*, not merely exist in the org.
-      2. It only needs the default ``GITHUB_TOKEN`` ``contents: read`` scope, so CI can
-         validate without provisioning an org-scoped app token.
+    Uses ``/orgs/{org}/teams`` (requires ``members: read``) rather than the
+    repo-collaborator endpoint ``/repos/{repo}/teams``. The repo endpoint would
+    be the tighter check semantically (the reviewer assignment API only accepts
+    repo collaborator teams), but the assign-reviewers GitHub App doesn't have
+    the scope for it. The "team exists in org but lacks repo access" gap is
+    covered defensively by assign-reviewers.js's 422 fallback, which retries
+    each team individually and logs the bad slugs.
 
     Returns ``(slugs, error_message)``. ``slugs`` is ``None`` when the fetch failed.
     """
@@ -34,7 +36,7 @@ def get_team_slugs(repo: str = "PostHog/posthog") -> tuple[set[str] | None, str]
 
     try:
         result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/teams", "--paginate", "--jq", ".[].slug"],
+            ["gh", "api", f"orgs/{org}/teams", "--paginate", "--jq", ".[].slug"],
             capture_output=True,
             text=True,
             timeout=15,
