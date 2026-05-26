@@ -755,6 +755,9 @@ export const STL: Record<string, STLFunction> = {
                 if (!marked) {
                     marked = new Set()
                 }
+                if (typeof x === 'bigint') {
+                    return x.toString()
+                }
                 if (typeof x === 'object' && x !== null) {
                     if (marked.has(x)) {
                         return null

@@ -1883,6 +1883,31 @@ describe('hogvm execute', () => {
         )
     })
 
+    test('jsonStringify handles BigInt values', () => {
+        // BigInt values from external data (e.g. event properties) should be
+        // converted to strings instead of throwing
+        // "TypeError: Do not know how to serialize a BigInt"
+        // Test the STL function directly since BigInt can't be expressed as bytecode opcodes
+        const { STL } = require('../stl/stl')
+        const stringify = STL.jsonStringify.fn
+
+        // BigInt primitive
+        expect(stringify([9007199254740993n])).toEqual('"9007199254740993"')
+
+        // BigInt inside an object
+        expect(stringify([{ id: 9007199254740993n, name: 'test' }])).toEqual(
+            '{"id":"9007199254740993","name":"test"}'
+        )
+
+        // BigInt inside an array
+        expect(stringify([[123n, 456n]])).toEqual('["123","456"]')
+
+        // Mixed object with BigInt and normal values
+        expect(stringify([{ count: 5n, label: 'hello', active: true }])).toEqual(
+            '{"count":"5","label":"hello","active":true}'
+        )
+    })
+
     test('can not modify globals', () => {
         const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
         expect(
