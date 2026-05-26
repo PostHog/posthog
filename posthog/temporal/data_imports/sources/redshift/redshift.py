@@ -44,7 +44,6 @@ from posthog.temporal.data_imports.sources.common.sql.incremental import Increme
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 __all__ = [
     "JsonAsStringLoader",
@@ -727,14 +726,18 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # Pipeline build — the dlt `SourceResponse` for a single table
     # ------------------------------------------------------------------
 
-    def build_pipeline(self, config: RedshiftSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # `chunk_size_override` lives on `ExternalDataSchema.sync_type_config`
-        # — there is no field for it on `SourceInputs`, so we read it
-        # here. The lookup is cheap (single-row PK fetch) and runs once
-        # per pipeline.
-        schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
-        chunk_size_override = schema_row.chunk_size_override
-
+    def build_pipeline(
+        self,
+        config: RedshiftSourceConfig,
+        inputs: SourceInputs,
+        *,
+        chunk_size_override: int | None = None,
+    ) -> SourceResponse:
+        # `chunk_size_override` is sourced from
+        # `ExternalDataSchema.sync_type_config` by the caller
+        # (`RedshiftSource.source_for_pipeline`) — keeping the ORM
+        # lookup at the source layer lets the driver stay free of
+        # Django model imports.
         table_name = inputs.schema_name
         if not table_name:
             raise ValueError("Table name is missing")

@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.sources.generated_configs import RedshiftSour
 from posthog.temporal.data_imports.sources.redshift.redshift import RedshiftImplementation
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 _REDSHIFT_IMPLEMENTATION = RedshiftImplementation()
 
@@ -177,3 +179,13 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
+
+    def source_for_pipeline(self, config: RedshiftSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        # Resolve `chunk_size_override` (stored on
+        # `ExternalDataSchema.sync_type_config`) here so the driver
+        # implementation in `redshift.py` stays free of Django ORM
+        # imports.
+        schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
+        return self.get_implementation.build_pipeline(
+            config, inputs, chunk_size_override=schema_row.chunk_size_override
+        )

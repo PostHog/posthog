@@ -439,20 +439,12 @@ def build_pipeline_mocks(mocker):
         "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
         side_effect=connect_side_effect,
     )
-
-    # `ExternalDataSchema.objects.get(...)` lookup
-    schema_row = MagicMock()
-    schema_row.chunk_size_override = None
-    schema_get = mocker.patch(
-        "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
-        return_value=schema_row,
-    )
-    return mock_connect, streaming_cursor, schema_get, schema_row
+    return mock_connect, streaming_cursor
 
 
 class TestBuildPipeline:
     def test_returns_source_response(self, build_pipeline_mocks):
-        mock_connect, _, _, _ = build_pipeline_mocks
+        mock_connect, _ = build_pipeline_mocks
         impl = RedshiftImplementation()
         response = impl.build_pipeline(_make_config(), _make_inputs())
         assert response.name == "messages"
@@ -461,17 +453,15 @@ class TestBuildPipeline:
         assert mock_connect.called
 
     def test_streaming_drains_without_error(self, build_pipeline_mocks):
-        _, streaming_cursor, _, _ = build_pipeline_mocks
+        _, streaming_cursor = build_pipeline_mocks
         impl = RedshiftImplementation()
         response = impl.build_pipeline(_make_config(), _make_inputs())
         list(response.items())  # type: ignore[arg-type]
         # streaming cursor.execute should have been invoked for the streaming query
         assert streaming_cursor.execute.called
 
-    def test_chunk_size_override_is_applied(self, build_pipeline_mocks, mocker):
-        _, _, _, schema_row = build_pipeline_mocks
-        schema_row.chunk_size_override = 4242
+    def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")
         impl = RedshiftImplementation()
-        impl.build_pipeline(_make_config(), _make_inputs())
-        mocked_chunk_size.assert_not_called()  # override skips chunk-size probe
+        impl.build_pipeline(_make_config(), _make_inputs(), chunk_size_override=4242)
+        mocked_chunk_size.assert_not_called()
