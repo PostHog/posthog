@@ -190,6 +190,7 @@ class TestOAuthAPI(APIBaseTest):
             hash_client_secret=True,
             algorithm="RS256",
             is_first_party=True,
+            is_org_scoped=True,
         )
 
         url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
@@ -204,7 +205,33 @@ class TestOAuthAPI(APIBaseTest):
         grant = OAuthGrant.objects.get(code=code)
 
         self.assertEqual(grant.scoped_teams, [])
-        self.assertEqual(grant.scoped_organizations, [str(self.organization.id)])
+        self.assertIn(str(self.organization.id), grant.scoped_organizations)
+
+    def test_first_party_app_without_org_scoped_flag_backfills_teams(self):
+        first_party_app = OAuthApplication.objects.create(
+            name="First Party App Legacy",
+            client_id="first_party_legacy_client_id",
+            client_secret="first_party_legacy_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=True,
+            is_org_scoped=False,
+        )
+
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+
+        self.assertIn(self.team.pk, grant.scoped_teams)
+        self.assertIn(str(self.organization.id), grant.scoped_organizations)
 
     def test_authorize_missing_client_id(self):
         url = self.base_authorization_url

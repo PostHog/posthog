@@ -89,6 +89,14 @@ class OAuthApplication(AbstractApplication):
         default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
     )
 
+    # When True on a first-party app, auto-approved tokens are scoped to every organization the user
+    # belongs to and carry no team scoping, so they can hit org-level endpoints. When False, the
+    # legacy behavior applies (all orgs and all teams in scoped_teams).
+    is_org_scoped: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="If True on a first-party app, issued tokens are org-scoped only (no team scoping).",
+    )
+
     auth_brand: models.CharField = models.CharField(
         max_length=32,
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],

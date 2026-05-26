@@ -585,15 +585,16 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # First-party apps skip consent screen entirely
         if application.is_first_party:
             try:
-                current_organization = request.user.organization
-                if current_organization is None:
-                    return self.error_response(
-                        OAuthToolkitError("No active organization for user."),
-                        application,
-                        state=request.query_params.get("state"),
-                    )
-                credentials["scoped_organizations"] = [str(current_organization.id)]
-                credentials["scoped_teams"] = []
+                org_ids = request.user.organizations.values_list("id", flat=True)
+                credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
+
+                if application.is_org_scoped:
+                    credentials["scoped_teams"] = []
+                else:
+                    # Legacy behavior: also scope to every team the user can access so old
+                    # clients that key off scoped_teams keep working until they migrate.
+                    team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                    credentials["scoped_teams"] = list(team_ids)
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
