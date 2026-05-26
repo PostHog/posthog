@@ -86,7 +86,7 @@ export function TrendsTooltip({
         data.sort(
             (a, b) =>
                 b.count - a.count ||
-                (a.label === undefined || b.label === undefined ? -1 : a.label.localeCompare(b.label))
+                (a.label === undefined || b.label === undefined ? 0 : a.label.localeCompare(b.label))
         )
         return data.map((s, id) => ({ ...s, id }))
     }, [context.seriesData, context.dataIndex])
