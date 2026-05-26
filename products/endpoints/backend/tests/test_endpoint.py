@@ -1046,6 +1046,117 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
 
 
+class TestEndpointTags(ClickhouseTestMixin, APIBaseTest):
+    """Cover the Tag mixin wired into the Endpoints viewset."""
+
+    ENDPOINT = "endpoints"
+
+    def setUp(self):
+        super().setUp()
+        self.sample_hogql_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1",
+        }
+
+    def _create(self, name: str, **extra: Any) -> dict:
+        payload: dict[str, Any] = {"name": name, "query": self.sample_hogql_query}
+        payload.update(extra)
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        return response.json()
+
+    def test_create_with_tags(self):
+        from posthog.models import Tag
+
+        response_data = self._create("ep_create_tags", tags=["alpha", "beta"])
+
+        self.assertEqual(sorted(response_data["tags"]), ["alpha", "beta"])
+        self.assertEqual(Tag.objects.filter(team_id=self.team.id).count(), 2)
+
+    def test_create_without_tags_returns_empty_list(self):
+        response_data = self._create("ep_no_tags")
+        self.assertEqual(response_data["tags"], [])
+
+    def test_patch_replaces_tags(self):
+        self._create("ep_patch", tags=["alpha", "beta"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_patch/",
+            {"tags": ["gamma"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], ["gamma"])
+
+    def test_patch_with_empty_list_clears_tags(self):
+        from posthog.models import Tag
+
+        self._create("ep_clear", tags=["alpha"])
+        self.assertEqual(Tag.objects.filter(team_id=self.team.id, name="alpha").count(), 1)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_clear/",
+            {"tags": []},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], [])
+        # Orphaned tag is cleaned up
+        self.assertEqual(Tag.objects.filter(team_id=self.team.id, name="alpha").count(), 0)
+
+    def test_patch_without_tags_field_keeps_tags(self):
+        self._create("ep_keep", tags=["alpha"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_keep/",
+            {"description": "updated"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], ["alpha"])
+
+    def test_retrieve_returns_tags(self):
+        self._create("ep_get", tags=["alpha"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/ep_get/")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["alpha"])
+
+    def test_list_returns_tags(self):
+        self._create("ep_list_1", tags=["alpha"])
+        self._create("ep_list_2", tags=["beta", "gamma"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        results = {r["name"]: sorted(r["tags"]) for r in response.json()["results"]}
+        self.assertEqual(results["ep_list_1"], ["alpha"])
+        self.assertEqual(results["ep_list_2"], ["beta", "gamma"])
+
+    def test_tags_not_a_list_returns_400(self):
+        # Pydantic validates the shape via EndpointRequest.tags: list[str] | None
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": "ep_bad", "query": self.sample_hogql_query, "tags": "not-a-list"},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+
+    def test_tags_are_scoped_per_team(self):
+        from posthog.models import Tag
+
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        Tag.objects.create(name="alpha", team_id=other_team.id)
+
+        self._create("ep_scope", tags=["alpha"])
+
+        team_tags = Tag.objects.filter(name="alpha")
+        self.assertEqual(team_tags.count(), 2)
+        self.assertEqual(set(team_tags.values_list("team_id", flat=True)), {self.team.id, other_team.id})
+
+
 class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()

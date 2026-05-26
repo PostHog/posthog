@@ -12,6 +12,7 @@
  * `running` - Running
  * `succeeded` - Succeeded
  * `failed` - Failed
+ * `ineligible` - Ineligible
  */
 export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
 
@@ -20,6 +21,7 @@ export const ObservationStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Ineligible: 'ineligible',
 } as const
 
 /**
@@ -182,14 +184,15 @@ export interface ReplayObservationApi {
     readonly scanner_id: string
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
-    /** Observation status (pending, running, succeeded, failed).
+    /** Observation status (pending, running, succeeded, failed, ineligible).
 
   * `pending` - Pending
   * `running` - Running
   * `succeeded` - Succeeded
-  * `failed` - Failed */
+  * `failed` - Failed
+  * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on failure; includes the malformed model response when validation fails. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -477,6 +480,7 @@ export type VisionScannersObservationsListParams = {
 * `running` - Running
 * `succeeded` - Succeeded
 * `failed` - Failed
+* `ineligible` - Ineligible
  */
     status?: VisionScannersObservationsListStatus
     /**
@@ -493,6 +497,7 @@ export type VisionScannersObservationsListStatus =
 
 export const VisionScannersObservationsListStatus = {
     Failed: 'failed',
+    Ineligible: 'ineligible',
     Pending: 'pending',
     Running: 'running',
     Succeeded: 'succeeded',
