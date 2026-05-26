@@ -457,11 +457,11 @@ services:
                 TIMEOUT=60
                 ELAPSED=0
                 until rpk topic list --brokers kafka:9092 2>/dev/null; do
-                    echo "Waiting for Kafka broker... (elapsed: ${ELAPSED}s)"
+                    echo "Waiting for Kafka broker... (elapsed: $${ELAPSED}s)"
                     sleep 2
-                    ELAPSED=$((ELAPSED + 2))
-                    if [ $ELAPSED -ge $TIMEOUT ]; then
-                        echo "Timeout waiting for Kafka broker after ${TIMEOUT}s"
+                    ELAPSED=$$((ELAPSED + 2))
+                    if [ $$ELAPSED -ge $$TIMEOUT ]; then
+                        echo "Timeout waiting for Kafka broker after $${TIMEOUT}s"
                         exit 1
                     fi
                 done
