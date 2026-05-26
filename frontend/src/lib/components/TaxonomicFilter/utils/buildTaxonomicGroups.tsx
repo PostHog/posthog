@@ -7,7 +7,7 @@ import {
     buildAutocaptureSeriesShortcuts,
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
-import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTaxonomicGroupsLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
     DataWarehousePopoverField,
     SimpleOption,

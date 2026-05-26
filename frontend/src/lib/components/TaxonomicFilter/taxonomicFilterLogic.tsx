@@ -62,7 +62,7 @@ import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsL
 import { miscTaxonomicGroupsLogic } from './miscTaxonomicGroupsLogic'
 import { posthogResourcesTaxonomicGroupsLogic } from './posthogResourcesTaxonomicGroupsLogic'
 import { propertyTabsTaxonomicGroupsLogic } from './propertyTabsTaxonomicGroupsLogic'
-import { RECENT_PINNED_TAB_DEFINITIONS } from './recentPinnedTaxonomicGroupsLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from './recentPinnedTabDefinitions'
 import { replayTaxonomicGroupsLogic } from './replayTaxonomicGroupsLogic'
 import { revenueAnalyticsTaxonomicGroupsLogic } from './revenueAnalyticsTaxonomicGroupsLogic'
 import { shortcutValueTaxonomicGroupsLogic } from './shortcutValueTaxonomicGroupsLogic'
