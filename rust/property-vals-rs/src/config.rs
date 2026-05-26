@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+use std::convert::Infallible;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::{num::ParseIntError, str::FromStr};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -44,6 +47,9 @@ pub struct Config {
     #[envconfig(default = "100")]
     pub rollout_percentage: u8,
 
+    #[envconfig(default = "")]
+    pub excluded_property_keys: PropertyKeyList,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
@@ -68,6 +74,35 @@ impl FromStr for TeamList {
             teams.push(team.parse()?);
         }
         Ok(TeamList { teams })
+    }
+}
+
+/// Property keys to skip during fan_out — pure write amplification on these
+/// (identifier-shaped properties like `$insert_id`, `$session_id`, `distinct_id`)
+/// is wasted work that nobody searches against in autocomplete.
+#[derive(Clone, Default)]
+pub struct PropertyKeyList {
+    pub keys: Arc<HashSet<String>>,
+}
+
+impl PropertyKeyList {
+    pub fn contains(&self, key: &str) -> bool {
+        self.keys.contains(key)
+    }
+}
+
+impl FromStr for PropertyKeyList {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let keys: HashSet<String> = s
+            .split(',')
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect();
+        Ok(PropertyKeyList {
+            keys: Arc::new(keys),
+        })
     }
 }
 
