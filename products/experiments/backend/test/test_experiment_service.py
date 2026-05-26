@@ -4910,56 +4910,33 @@ class TestValidateExperimentParametersExcludedVariants:
             ]
         }
 
-    def test_no_excluded_variants_is_valid(self):
-        ExperimentService.validate_experiment_parameters(self._base_params())
+    @pytest.mark.parametrize(
+        "extra_params",
+        [
+            {},
+            {"excluded_variants": []},
+            {"excluded_variants": ["test-2"]},
+            {"excluded_variants": ["test-2", "test-2"]},
+        ],
+    )
+    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
+        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
 
-    def test_empty_list_is_valid(self):
-        params = {**self._base_params(), "excluded_variants": []}
-        ExperimentService.validate_experiment_parameters(params)
-
-    def test_excluding_a_test_variant_is_valid(self):
-        params = {**self._base_params(), "excluded_variants": ["test-2"]}
-        ExperimentService.validate_experiment_parameters(params)
-
-    def test_excluding_unknown_key_raises(self):
-        params = {**self._base_params(), "excluded_variants": ["does-not-exist"]}
-        with pytest.raises(ValidationError, match="unknown variants"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_excluding_control_raises(self):
-        params = {**self._base_params(), "excluded_variants": ["control"]}
-        with pytest.raises(ValidationError, match="baseline variant cannot be excluded"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_excluding_holdout_pseudo_key_raises(self):
-        params = {**self._base_params(), "excluded_variants": ["holdout-42"]}
-        with pytest.raises(ValidationError, match="cannot exclude holdout"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_excluding_all_test_variants_raises(self):
-        params = {**self._base_params(), "excluded_variants": ["test-1", "test-2"]}
-        with pytest.raises(ValidationError, match="at least one test variant"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_non_list_excluded_variants_raises(self):
-        params = {**self._base_params(), "excluded_variants": "test-2"}
-        with pytest.raises(ValidationError, match="must be a list of strings"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_non_string_entries_raises(self):
-        params = {**self._base_params(), "excluded_variants": [123]}
-        with pytest.raises(ValidationError, match="must be a list of strings"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_excluding_custom_baseline_raises(self):
-        params = {
-            **self._base_params(),
-            "stats_config": {"baseline_variant_key": "test-1"},
-            "excluded_variants": ["test-1"],
-        }
-        with pytest.raises(ValidationError, match="baseline variant cannot be excluded"):
-            ExperimentService.validate_experiment_parameters(params)
-
-    def test_duplicate_excluded_variants_is_valid(self):
-        params = {**self._base_params(), "excluded_variants": ["test-2", "test-2"]}
-        ExperimentService.validate_experiment_parameters(params)
+    @pytest.mark.parametrize(
+        "extra_params,match",
+        [
+            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
+            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
+            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
+            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
+            ({"excluded_variants": "test-2"}, "must be a list of strings"),
+            ({"excluded_variants": [123]}, "must be a list of strings"),
+            (
+                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
+                "baseline variant cannot be excluded",
+            ),
+        ],
+    )
+    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
+        with pytest.raises(ValidationError, match=match):
+            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
