@@ -3,8 +3,13 @@
  * `./lib`: load env, hand defaults to the factory, swap in the real
  * Claude-Agent-SDK executor (`AssServerExecutor`), wire SIGTERM / SIGINT,
  * call `start()`. Everything heavier lives in the factory.
+ *
+ * `AGENT_RUNNER_TEST_EXECUTOR` env-var override selects a deterministic
+ * substitute executor for the agent-tests harness's subprocess runner.
+ * Unset = production behaviour (real `AssServerExecutor`).
  */
 import { reapOrphanedSandboxes } from '@repo/ass-sandbox'
+import type { Principal } from '@repo/ass-server/types'
 
 import {
     ApplicationsRepository,
@@ -23,6 +28,8 @@ import {
 
 import { AssServerExecutor } from './ass-server-executor'
 import { loadConfig } from './config'
+import { type SessionExecutor } from './executor'
+import { EchoExecutor } from './executor-stub'
 import { createRunner } from './lib'
 import { selectToolSandboxKind } from './tool-sandbox'
 
@@ -49,20 +56,17 @@ async function main(): Promise<void> {
         logger.warn({ err }, 'orphaned-sandbox reap skipped')
     }
 
-    // The SDK executor pulls in @anthropic-ai/claude-agent-sdk (ESM,
-    // awkward to load via ts-jest), so the factory doesn't pre-wire it —
-    // the bin constructs the shared deps, the executor, and hands the
-    // bundle to the factory.
-    //
-    // ANTHROPIC_API_KEY is optional in the config schema so the runner can
-    // boot under a test executor (EchoExecutor / PrincipalEchoExecutor)
-    // without a credential. The bin enforces it here, before constructing
-    // AssServerExecutor — fail fast in prod, stay loose for tests.
-    if (!config.anthropicApiKey) {
+    // Pick the executor. Default = the real SDK executor (production path).
+    // Tests opt in to a deterministic substitute via `AGENT_RUNNER_TEST_EXECUTOR`
+    // — keeps the bin a single entry point for both prod and the agent-tests
+    // harness's subprocess runner.
+    const testExecutorKind = process.env.AGENT_RUNNER_TEST_EXECUTOR
+    if (!testExecutorKind && !config.anthropicApiKey) {
         throw new Error(
             'ANTHROPIC_API_KEY is required to run the SDK executor — set it in your shell or repo-root .env'
         )
     }
+
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const repository = new ApplicationsRepository({ db: posthogDb, encryption })
@@ -84,7 +88,44 @@ async function main(): Promise<void> {
 
     const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
 
-    const executor = new AssServerExecutor({ bundleStore, repository, sandboxInstances, bus, logProducer })
+    let executor: SessionExecutor
+    switch (testExecutorKind) {
+        case 'echo':
+            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=echo — running deterministic EchoExecutor, no SDK calls')
+            executor = new EchoExecutor()
+            break
+        case 'principal-echo':
+            // Pure-test affordance: render the caller principal into the
+            // assistant message so the harness can assert end-to-end
+            // (ingress → queue → runner → executor → bus → Kafka → CH).
+            // Lives here (not in the lib) because it's gated by env and
+            // never exported.
+            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=principal-echo — runs without the SDK')
+            executor = {
+                runTurn: async (input) => ({
+                    kind: 'completed',
+                    message: {
+                        role: 'assistant',
+                        content: renderPrincipal(input.job.principal),
+                        at: new Date().toISOString(),
+                    },
+                    output: {
+                        renderedPrincipal: renderPrincipal(input.job.principal),
+                        principal: input.job.principal,
+                    },
+                }),
+            }
+            break
+        case undefined:
+        case '':
+        case 'sdk':
+            executor = new AssServerExecutor({ bundleStore, repository, sandboxInstances, bus, logProducer })
+            break
+        default:
+            throw new Error(
+                `Unknown AGENT_RUNNER_TEST_EXECUTOR='${testExecutorKind}'. Expected: echo, principal-echo, sdk.`
+            )
+    }
 
     const runner = await createRunner({
         posthogDb,
@@ -109,6 +150,21 @@ async function main(): Promise<void> {
     }
     process.on('SIGTERM', () => void shutdown('SIGTERM'))
     process.on('SIGINT', () => void shutdown('SIGINT'))
+}
+
+/**
+ * Render the caller principal into a deterministic flat string. Mirrored
+ * exactly by services/agent-tests/src/harness/executors.ts so test
+ * assertions can compare across both paths (in-process and subprocess).
+ */
+function renderPrincipal(principal: Principal | null): string {
+    if (principal === null) {
+        return 'principal: none'
+    }
+    if (principal.kind === 'service') {
+        return `principal: service caller=${principal.caller} org=${principal.orgId}`
+    }
+    return `principal: user space=${principal.spaceId} userId=${principal.userId} provider=${principal.provider}`
 }
 
 main().catch((err: unknown) => {

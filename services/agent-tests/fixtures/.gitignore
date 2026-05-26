@@ -1,0 +1,3 @@
+# Bundler artifacts — `ass-bundler` writes here when `bundleAndUpload`
+# runs in the test harness. Reproducible per run; never commit.
+*/.ass/

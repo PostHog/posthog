@@ -12,12 +12,30 @@ import { createIngress } from './lib'
 loadDevEnv()
 
 async function main(): Promise<void> {
-    const ingress = await createIngress()
+    // Test-mode overrides. Both gated on env presence; production never
+    // sets these. Used by services/agent-tests's subprocess harness to
+    // configure the in-process behaviour ingress can't otherwise read
+    // from config.
+    const testInternalSecret = process.env.AGENT_INGRESS_TEST_INTERNAL_SECRET
+    const testSecretsJson = process.env.AGENT_INGRESS_TEST_SECRETS_JSON
+    const testSecrets: Record<string, string> = testSecretsJson ? JSON.parse(testSecretsJson) : {}
+
+    const ingress = await createIngress({
+        queueName: process.env.AGENT_INGRESS_QUEUE_NAME || undefined,
+        verifyPostHogInternal: testInternalSecret
+            ? async (req) =>
+                  req.headers['x-posthog-internal'] === testInternalSecret
+                      ? { kind: 'service', orgId: 'posthog', caller: 'posthog-internal' }
+                      : null
+            : undefined,
+        loadSecret: Object.keys(testSecrets).length > 0 ? async (name) => testSecrets[name] ?? null : undefined,
+    })
     const { port } = await ingress.start()
     logger.info('agent-ingress listening', {
         port,
         routingMode: ingress.deps.routingMode,
         domainSuffix: ingress.deps.routingMode === 'domain' ? ingress.deps.domainSuffix : undefined,
+        testMode: Boolean(testInternalSecret || testSecretsJson),
     })
 
     const shutdown = async (signal: string): Promise<void> => {

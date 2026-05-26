@@ -1,4 +1,4 @@
-import { post, readPrincipal, waitForStatus } from '../harness/clients'
+import { post, readPrincipal, waitForStatus } from '../../harness/clients'
 /**
  * Headline runtime test — proves the principal flows all the way through
  * the production pipes, end-to-end:
@@ -19,9 +19,9 @@ import { post, readPrincipal, waitForStatus } from '../harness/clients'
  *   2. agent_sessions.principal matches what was stamped → ingress persisted it
  *   3. log_entries(instance_id=sessionId) has rows       → Kafka→CH path is alive
  */
-import { type AgentCluster, startCluster } from '../harness/cluster'
-import { PrincipalEchoExecutor, renderPrincipal } from '../harness/executors'
-import { createApp, setTeamSecret } from '../harness/fixtures'
+import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { renderPrincipal } from '../../harness/executors'
+import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-runtime-team-secret'
 
@@ -29,7 +29,7 @@ describe('runtime: ingress → runner → executor → logs', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ executor: new PrincipalEchoExecutor() })
+        cluster = await startCluster({ executor: 'principal-echo' })
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
     }, 30_000)
 

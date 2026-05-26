@@ -184,6 +184,18 @@ export class AssServerExecutor implements SessionExecutor {
                 cancelled = true
                 logger.info({ sessionId }, 'cancel received — aborting run')
                 handle.abort()
+                return
+            }
+            if (msg.type === 'user_message') {
+                // A `/send/:id` arrived. If the agent is currently
+                // suspended inside an `ask_for_input` call, this resolves
+                // it; otherwise (no waiter yet) `send` returns false and
+                // the message is dropped — same semantics as the dev
+                // ass-server harness.
+                const delivered = handle.send(msg.content)
+                if (!delivered) {
+                    logger.warn({ sessionId }, 'user_message dropped — agent had no pending ask_for_input waiter')
+                }
             }
         })
         try {

@@ -1,4 +1,4 @@
-import { post, postSlack, send } from '../harness/clients'
+import { post, postSlack, send } from '../../harness/clients'
 /**
  * Session-control strict-match e2e. The control endpoints (`/listen`,
  * `/send`, `/cancel`) gate the caller's re-resolved principal against the
@@ -12,9 +12,8 @@ import { post, postSlack, send } from '../harness/clients'
  * a PAT caller authenticates but the service principal it produces
  * doesn't match the session's user principal — 403.
  */
-import { type AgentCluster, startCluster } from '../harness/cluster'
-import { PrincipalEchoExecutor } from '../harness/executors'
-import { createApp, createIdentitySpace, setTeamSecret } from '../harness/fixtures'
+import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-strict-team-secret'
 const SLACK_SIGNING_SECRET = 'e2e-strict-slack-signing'
@@ -24,7 +23,7 @@ describe('strict principal-match on /send', () => {
 
     beforeAll(async () => {
         cluster = await startCluster({
-            executor: new PrincipalEchoExecutor(),
+            executor: 'principal-echo',
             secrets: { SLACK_SIGNING_SECRET },
         })
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)

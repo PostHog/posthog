@@ -97,6 +97,13 @@ export interface CreateAppInput {
     prompt?: string
     /** Override team_id; defaults to 1 (the local default project). */
     teamId?: number
+    /**
+     * Point the revision at a real bundle in object storage. App tests
+     * pass the output of `bundleAndUpload` here so `AssServerExecutor`
+     * can actually download + run the agent. Isolated tests omit it —
+     * they use stub executors that never read the bundle.
+     */
+    bundle?: { s3Key: string; sha256: string; sizeBytes?: number }
 }
 
 export interface CreatedApp {
@@ -147,14 +154,17 @@ export async function createApp(cleanup: CleanupRegistry, input: CreateAppInput)
         required_secrets: [],
     }
 
+    const bundleKey = input.bundle?.s3Key ?? 's3://e2e-stub'
+    const bundleSize = input.bundle?.sizeBytes ?? 0
+    const bundleSha = input.bundle?.sha256 ?? ''
     const { rows: revRows } = await cleanup.pool.query<{ id: string }>(
         `INSERT INTO agent_stack_agentapplicationrevision
             (id, team_id, application_id, state, deployment_status, bundle_s3_key, bundle_size, bundle_sha256,
              top_level_config, parsed_manifest, created_at, updated_at)
-         VALUES (gen_random_uuid(), $1, $2, 'ready', 'live', 's3://e2e', 0, '',
-                 $3::jsonb, NULL, NOW(), NOW())
+         VALUES (gen_random_uuid(), $1, $2, 'ready', 'live', $3, $4, $5,
+                 $6::jsonb, NULL, NOW(), NOW())
          RETURNING id::text AS id`,
-        [teamId, applicationId, JSON.stringify(manifest)]
+        [teamId, applicationId, bundleKey, bundleSize, bundleSha, JSON.stringify(manifest)]
     )
     const revisionId = revRows[0].id
 

@@ -1,12 +1,12 @@
-import { postSlack, readPrincipal } from '../harness/clients'
+import { postSlack, readPrincipal } from '../../harness/clients'
 /**
  * Slack identity e2e — every shape of Layer-2 identity resolution against
  * real Postgres + the Django-owned `agent_stack_*` tables. Each happy case
  * asserts both the stamped `user` principal AND that the AgentUser row was
  * actually persisted in the identity space.
  */
-import { type AgentCluster, startCluster } from '../harness/cluster'
-import { createApp, createIdentitySpace, setTeamSecret } from '../harness/fixtures'
+import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-slack-team-secret'
 const SLACK_SIGNING_SECRET = 'e2e-slack-signing'

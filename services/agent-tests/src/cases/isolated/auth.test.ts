@@ -1,4 +1,4 @@
-import { post, readPrincipal } from '../harness/clients'
+import { post, readPrincipal } from '../../harness/clients'
 /**
  * Caller-auth e2e — one suite per policy. Each case posts to `/run` against
  * a freshly created app fixture, asserts the ingress response, and (for
@@ -8,8 +8,8 @@ import { post, readPrincipal } from '../harness/clients'
  * there's nothing to dequeue. The runtime path is exercised in
  * `runtime.test.ts` — this file focuses on Layer-1 caller-auth behaviour.
  */
-import { type AgentCluster, startCluster } from '../harness/cluster'
-import { createApp, setTeamSecret } from '../harness/fixtures'
+import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-auth-team-secret'
 const SHARED_SECRET_ENV = 'E2E_SHARED_SECRET'

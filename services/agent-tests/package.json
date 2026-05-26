@@ -15,9 +15,13 @@
         "test": "jest --runInBand --forceExit"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.658.1",
         "@posthog/agent-core": "workspace:*",
         "@posthog/agent-ingress": "workspace:*",
         "@posthog/agent-runner": "workspace:*",
+        "@posthog/ass": "link:../../../agent-stack/packages/ass",
+        "@repo/ass-bundler": "link:../../../agent-stack/packages/ass-bundler",
+        "@repo/ass-config": "link:../../../agent-stack/packages/ass-config",
         "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
         "pg": "^8.10.0",
         "supertest": "^7.0.0",

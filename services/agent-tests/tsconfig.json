@@ -6,8 +6,12 @@
         "declaration": false,
         "sourceMap": true,
         "rootDir": "src/",
-        "moduleResolution": "node",
+        // Use bundler resolution so TS reads workspace `exports` subpath maps
+        // (we import `@repo/ass-bundler/bundle` etc.). Jest's `moduleNameMapper`
+        // handles the same at runtime — see jest.config.js.
+        "moduleResolution": "bundler",
         "ignoreDeprecations": "6.0",
+        "allowJs": true,
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "strict": true,
