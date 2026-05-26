@@ -1442,6 +1442,32 @@ export type RetrieveFileDownloadResponseApi =
 
 /**
  * * `events` - events
+ * `persons` - persons
+ * `sessions` - sessions
+ */
+export type FileDownloadBatchExportOnDemandModelEnumApi =
+    (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
+
+export const FileDownloadBatchExportOnDemandModelEnumApi = {
+    Events: 'events',
+    Persons: 'persons',
+    Sessions: 'sessions',
+} as const
+
+/**
+ * Request shape for a FileDownload batch export on demand.
+ */
+export interface FileDownloadBatchExportOnDemandApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadBatchExportOnDemandModelEnumApi
+    include?: string[]
+    exclude?: string[]
+    data_interval_start: string
+    data_interval_end: string
+}
+
+/**
+ * * `events` - events
  */
 export type FileDownloadEventsRequestModelEnumApi =
     (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]

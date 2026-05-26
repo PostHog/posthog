@@ -16,6 +16,7 @@ import type {
     PatchedReplayScannerApi,
     ReplayObservationApi,
     ReplayScannerApi,
+    VisionObservationsListParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
 } from './api.schemas'
@@ -36,6 +37,54 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/vision/observations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/vision/observations/`
+}
+
+/**
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ */
+export const visionObservationsList = async (
+    projectId: string,
+    params: VisionObservationsListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayObservationListApi> => {
+    return apiMutator<PaginatedReplayObservationListApi>(getVisionObservationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/vision/observations/${id}/`
+}
+
+/**
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ */
+export const visionObservationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayObservationApi> => {
+    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getVisionScannersListUrl = (projectId: string, params?: VisionScannersListParams) => {
     const normalizedParams = new URLSearchParams()
