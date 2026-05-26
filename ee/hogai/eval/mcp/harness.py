@@ -26,6 +26,7 @@ import subprocess
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MCP_PACKAGE_DIR = REPO_ROOT / "services" / "mcp"
@@ -65,7 +66,7 @@ class WranglerProcess:
         self.posthog_api_base_url = posthog_api_base_url
         self.log_path = log_path or Path("/tmp/wrangler-mcp-eval.log")
         self._process: subprocess.Popen | None = None
-        self._log_handle = None
+        self._log_handle: IO[str] | None = None
 
     def start(self) -> None:
         if self._process is not None:

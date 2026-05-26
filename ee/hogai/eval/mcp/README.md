@@ -8,7 +8,7 @@ PRs) final-answer correctness and tool-selection relevance.
 
 ## Architecture
 
-```
+```text
 prompt → Anthropic SDK → MCP Python client → wrangler dev (services/mcp) → Django (PostHog)
 ```
 

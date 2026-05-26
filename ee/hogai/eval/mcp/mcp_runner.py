@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
+from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlock
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -44,16 +45,16 @@ class RunResult:
     iterations: int = 0
 
 
-def _mcp_tools_to_anthropic(mcp_tools: list[Any]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _mcp_tools_to_anthropic(mcp_tools: list[Any]) -> list[ToolParam]:
+    out: list[ToolParam] = []
     for tool in mcp_tools:
         schema = tool.inputSchema or {"type": "object", "properties": {}}
         out.append(
-            {
-                "name": tool.name,
-                "description": tool.description or "",
-                "input_schema": schema,
-            }
+            ToolParam(
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=schema,
+            )
         )
     return out
 
@@ -79,7 +80,7 @@ async def _run_loop(
     tools_resp = await session.list_tools()
     anthropic_tools = _mcp_tools_to_anthropic(tools_resp.tools)
 
-    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    messages: list[MessageParam] = [{"role": "user", "content": prompt}]
     result = RunResult(final_answer="")
     overall_start = time.monotonic()
 
@@ -100,10 +101,10 @@ async def _run_loop(
             result.final_answer = _extract_text(response.content)
             break
 
-        tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
+        tool_use_blocks = [b for b in response.content if isinstance(b, ToolUseBlock)]
         messages.append({"role": "assistant", "content": response.content})
 
-        tool_results: list[dict[str, Any]] = []
+        tool_results: list[ToolResultBlockParam] = []
         for block in tool_use_blocks:
             args = block.input if isinstance(block.input, dict) else {}
             call_start = time.monotonic()
