@@ -32,6 +32,8 @@ interface Candidate {
     width: number
     color: string
     above: boolean
+    /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
+    centerAnchor: boolean
 }
 
 function defaultLocaleFormatter(v: number): string {
@@ -59,7 +61,8 @@ function pushCandidate(
     text: string,
     categoricalCoord: number,
     valueCoord: number,
-    above: boolean
+    above: boolean,
+    centerAnchor: boolean = false
 ): void {
     const textWidth = ctx ? ctx.measureText(text).width : text.length * 6
     const width = textWidth + LABEL_HORIZONTAL_CHROME
@@ -72,6 +75,7 @@ function pushCandidate(
         width,
         color,
         above,
+        centerAnchor,
     })
 }
 
@@ -175,8 +179,8 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             }
 
             let displayValue = rawValue
-            // In percent layout, anchor *below* the segment's stacked top so the label hangs
-            // inside its own segment (matches chart.js) instead of floating at the seam above.
+            // In percent layout we center the label across the segment's stacked top (see
+            // `centerAnchor` below), so `above` is unused — keep it false to be explicit.
             let above = isPercent ? false : yValue >= 0
 
             if (isPercent) {
@@ -208,7 +212,8 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
                 valueCoord,
-                above
+                above,
+                isPercent
             )
         }
     }
@@ -225,11 +230,21 @@ interface Rect {
 function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     if (isHorizontal) {
         const halfH = LABEL_HEIGHT / 2
-        const left = c.above ? c.x : c.x - c.width
+        let left: number
+        if (c.centerAnchor) {
+            left = c.x - c.width / 2
+        } else {
+            left = c.above ? c.x : c.x - c.width
+        }
         return { left, right: left + c.width, top: c.y - halfH, bottom: c.y + halfH }
     }
     const halfW = c.width / 2
-    const top = c.above ? c.y - LABEL_HEIGHT : c.y
+    let top: number
+    if (c.centerAnchor) {
+        top = c.y - LABEL_HEIGHT / 2
+    } else {
+        top = c.above ? c.y - LABEL_HEIGHT : c.y
+    }
     return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
 }
 
@@ -303,6 +318,9 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
 }
 
 function transformFor(c: Candidate, isHorizontal: boolean): string {
+    if (c.centerAnchor) {
+        return 'translate(-50%, -50%)'
+    }
     if (isHorizontal) {
         return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
     }
