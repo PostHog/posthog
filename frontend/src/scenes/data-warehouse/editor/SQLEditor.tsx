@@ -7,12 +7,16 @@ import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightModalsLogic } from 'scenes/insights/insightModalsLogic'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -29,7 +33,7 @@ import {
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -523,64 +527,21 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 />
                             </>
                         ) : editingInsight ? (
-                            <>
-                                <LemonButton
-                                    disabledReason={
-                                        !isSourceQueryLastRun
-                                            ? 'Run latest query changes before saving'
-                                            : !updateInsightButtonEnabled
-                                              ? 'No updates to save'
-                                              : undefined
-                                    }
-                                    loading={insightLoading}
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => updateInsight()}
-                                    sideAction={{
-                                        icon: <IconChevronDown />,
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={[
-                                                        {
-                                                            label: 'Save as new insight...',
-                                                            disabledReason: saveAsDisabledReason,
-                                                            onClick: () => saveAsInsight(),
-                                                        },
-                                                        {
-                                                            label: 'Save as new view...',
-                                                            disabledReason:
-                                                                saveAsDisabledReason ?? saveAsViewAccessDisabledReason,
-                                                            onClick: () => saveAsView(),
-                                                        },
-                                                        ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
-                                                            ? [
-                                                                  {
-                                                                      label: 'Save as endpoint...',
-                                                                      disabledReason: saveAsDisabledReason,
-                                                                      onClick: () => saveAsEndpoint(),
-                                                                  },
-                                                              ]
-                                                            : []),
-                                                    ]}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    Update insight
-                                </LemonButton>
-                                <LemonButton
-                                    onClick={() => closeEditingObject()}
-                                    icon={<IconX />}
-                                    type="secondary"
-                                    size="small"
-                                    noPadding
-                                    aria-label="close"
-                                    tooltip={closeObjectTooltip}
-                                />
-                            </>
+                            <EditingInsightActions
+                                editingInsight={editingInsight}
+                                insightLoading={insightLoading}
+                                isSourceQueryLastRun={isSourceQueryLastRun}
+                                updateInsightButtonEnabled={updateInsightButtonEnabled}
+                                saveAsDisabledReason={saveAsDisabledReason}
+                                saveAsViewAccessDisabledReason={saveAsViewAccessDisabledReason}
+                                endpointsEnabled={!!featureFlags[FEATURE_FLAGS.ENDPOINTS]}
+                                onUpdateInsight={updateInsight}
+                                onSaveAsInsight={saveAsInsight}
+                                onSaveAsView={saveAsView}
+                                onSaveAsEndpoint={saveAsEndpoint}
+                                onCloseEditingObject={closeEditingObject}
+                                closeObjectTooltip={closeObjectTooltip}
+                            />
                         ) : (
                             <LemonButton
                                 type="primary"
@@ -623,4 +584,185 @@ function VariablesQuerySync(): null {
     }, [queryInput, setEditorQuery])
 
     return null
+}
+
+interface EditingInsightActionsProps {
+    editingInsight: QueryBasedInsightModel
+    insightLoading: boolean
+    isSourceQueryLastRun: boolean
+    updateInsightButtonEnabled: boolean
+    saveAsDisabledReason: string | undefined
+    saveAsViewAccessDisabledReason: string | null
+    endpointsEnabled: boolean
+    onUpdateInsight: () => void
+    onSaveAsInsight: () => void
+    onSaveAsView: () => void
+    onSaveAsEndpoint: () => void
+    onCloseEditingObject: () => void
+    closeObjectTooltip: string
+}
+
+function EditingInsightActions({
+    editingInsight,
+    insightLoading,
+    isSourceQueryLastRun,
+    updateInsightButtonEnabled,
+    saveAsDisabledReason,
+    saveAsViewAccessDisabledReason,
+    endpointsEnabled,
+    onUpdateInsight,
+    onSaveAsInsight,
+    onSaveAsView,
+    onSaveAsEndpoint,
+    onCloseEditingObject,
+    closeObjectTooltip,
+}: EditingInsightActionsProps): JSX.Element {
+    // Mount insightLogic with the editingInsight as cachedInsight so we don't refetch.
+    // addToDashboardModalLogic and insightModalsLogic both key off these props, so the modal
+    // host below and the menu item below share the same logic instances.
+    const insightLogicProps: InsightLogicProps = useMemo(
+        () => ({
+            dashboardItemId: editingInsight.short_id,
+            cachedInsight: editingInsight,
+        }),
+        [editingInsight]
+    )
+
+    return (
+        <>
+            <BindLogic logic={insightLogic} props={insightLogicProps}>
+                <EditingInsightUpdateButton
+                    insightLogicProps={insightLogicProps}
+                    insightLoading={insightLoading}
+                    isSourceQueryLastRun={isSourceQueryLastRun}
+                    updateInsightButtonEnabled={updateInsightButtonEnabled}
+                    saveAsDisabledReason={saveAsDisabledReason}
+                    saveAsViewAccessDisabledReason={saveAsViewAccessDisabledReason}
+                    endpointsEnabled={endpointsEnabled}
+                    onUpdateInsight={onUpdateInsight}
+                    onSaveAsInsight={onSaveAsInsight}
+                    onSaveAsView={onSaveAsView}
+                    onSaveAsEndpoint={onSaveAsEndpoint}
+                />
+                <EditingInsightAddToDashboardModalHost insightLogicProps={insightLogicProps} />
+            </BindLogic>
+            <LemonButton
+                onClick={onCloseEditingObject}
+                icon={<IconX />}
+                type="secondary"
+                size="small"
+                noPadding
+                aria-label="close"
+                tooltip={closeObjectTooltip}
+            />
+        </>
+    )
+}
+
+interface EditingInsightUpdateButtonProps {
+    insightLogicProps: InsightLogicProps
+    insightLoading: boolean
+    isSourceQueryLastRun: boolean
+    updateInsightButtonEnabled: boolean
+    saveAsDisabledReason: string | undefined
+    saveAsViewAccessDisabledReason: string | null
+    endpointsEnabled: boolean
+    onUpdateInsight: () => void
+    onSaveAsInsight: () => void
+    onSaveAsView: () => void
+    onSaveAsEndpoint: () => void
+}
+
+function EditingInsightUpdateButton({
+    insightLogicProps,
+    insightLoading,
+    isSourceQueryLastRun,
+    updateInsightButtonEnabled,
+    saveAsDisabledReason,
+    saveAsViewAccessDisabledReason,
+    endpointsEnabled,
+    onUpdateInsight,
+    onSaveAsInsight,
+    onSaveAsView,
+    onSaveAsEndpoint,
+}: EditingInsightUpdateButtonProps): JSX.Element {
+    const { openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
+
+    return (
+        <LemonButton
+            disabledReason={
+                !isSourceQueryLastRun
+                    ? 'Run latest query changes before saving'
+                    : !updateInsightButtonEnabled
+                      ? 'No updates to save'
+                      : undefined
+            }
+            loading={insightLoading}
+            type="primary"
+            size="small"
+            onClick={onUpdateInsight}
+            sideAction={{
+                icon: <IconChevronDown />,
+                dropdown: {
+                    placement: 'bottom-end',
+                    overlay: (
+                        <LemonMenuOverlay
+                            items={[
+                                {
+                                    label: 'Add to dashboard...',
+                                    onClick: openAddToDashboardModal,
+                                    'data-attr': 'sql-editor-add-to-dashboard',
+                                },
+                                {
+                                    label: 'Save as new insight...',
+                                    disabledReason: saveAsDisabledReason,
+                                    onClick: onSaveAsInsight,
+                                },
+                                {
+                                    label: 'Save as new view...',
+                                    disabledReason: saveAsDisabledReason ?? saveAsViewAccessDisabledReason,
+                                    onClick: onSaveAsView,
+                                },
+                                ...(endpointsEnabled
+                                    ? [
+                                          {
+                                              label: 'Save as endpoint...',
+                                              disabledReason: saveAsDisabledReason,
+                                              onClick: onSaveAsEndpoint,
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                    ),
+                },
+            }}
+        >
+            Update insight
+        </LemonButton>
+    )
+}
+
+function EditingInsightAddToDashboardModalHost({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element {
+    const { insightProps, canEditInsight } = useValues(insightLogic(insightLogicProps))
+    const theInsightModalsLogic = insightModalsLogic(insightLogicProps)
+    const { isAddToDashboardModalOpen } = useValues(theInsightModalsLogic)
+    const { closeAddToDashboardModal } = useActions(theInsightModalsLogic)
+
+    return (
+        <>
+            <AddToDashboardModal
+                data-attr="sql-editor-insight-add-to-dashboard-modal"
+                isOpen={isAddToDashboardModalOpen}
+                closeModal={closeAddToDashboardModal}
+                insightProps={insightProps}
+                canEditInsight={canEditInsight}
+            />
+            <NewDashboardModal />
+        </>
+    )
 }
