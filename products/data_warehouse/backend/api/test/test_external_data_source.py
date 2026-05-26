@@ -2794,6 +2794,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_source.get_schemas.return_value = [
             SourceSchema(name="table_1", supports_incremental=False, supports_append=False, row_count=42)
         ]
+        mock_source.get_endpoint_permissions.return_value = {}
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -2885,6 +2886,7 @@ class TestExternalDataSource(APIBaseTest):
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
                     "detected_primary_keys": ["id"],
+                    "permission_error": None,
                 }
             ]
 
@@ -2952,6 +2954,7 @@ class TestExternalDataSource(APIBaseTest):
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
                     "detected_primary_keys": ["id"],
+                    "permission_error": None,
                 }
             ]
 
