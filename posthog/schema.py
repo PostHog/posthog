@@ -20867,6 +20867,7 @@ class ExperimentRatioMetric(BaseModel):
     conversion_window: int | None = None
     conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
     denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     fingerprint: str | None = None
     goal: ExperimentMetricGoal | None = None
     isSharedMetric: bool | None = None
@@ -20874,6 +20875,7 @@ class ExperimentRatioMetric(BaseModel):
     metric_type: Literal["ratio"] = "ratio"
     name: str | None = None
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -20885,8 +20887,10 @@ class ExperimentRatioMetricTypeProps(BaseModel):
         extra="forbid",
     )
     denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     metric_type: Literal["ratio"] = "ratio"
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
 
 
 class ExperimentRetentionMetric(BaseModel):

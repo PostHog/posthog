@@ -17980,6 +17980,9 @@
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "denominator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
+                },
                 "fingerprint": {
                     "type": "string"
                 },
@@ -18002,6 +18005,9 @@
                 },
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "numerator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
                 },
                 "response": {
                     "type": "object"
@@ -18026,12 +18032,18 @@
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "denominator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
+                },
                 "metric_type": {
                     "const": "ratio",
                     "type": "string"
                 },
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "numerator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
                 }
             },
             "required": ["metric_type", "numerator", "denominator"],

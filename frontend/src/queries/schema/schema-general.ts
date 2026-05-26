@@ -3644,6 +3644,11 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RATIO
     numerator: ExperimentMetricSource
     denominator: ExperimentMetricSource
+    // Winsorization is applied to the numerator and denominator independently,
+    // each with its own percentile bounds and computed thresholds. There is no
+    // per-user ratio to cap, so capping operates on the two component aggregates.
+    numerator_outlier_handling?: ExperimentMetricOutlierHandling
+    denominator_outlier_handling?: ExperimentMetricOutlierHandling
 }
 
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
