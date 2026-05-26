@@ -178,6 +178,15 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    /// gRPC address of cymbal-server for shadow comparison.
+    /// Empty string disables the shadow lane.
+    #[envconfig(from = "CYMBAL_SHADOW_GRPC_ADDR", default = "")]
+    pub shadow_grpc_addr: String,
+
+    /// Fraction of batches (0.0–1.0) to shadow. 0.0 = disabled.
+    #[envconfig(from = "CYMBAL_SHADOW_SAMPLE_RATE", default = "0.0")]
+    pub shadow_sample_rate: f64,
 }
 
 impl Config {

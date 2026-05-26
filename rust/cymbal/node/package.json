@@ -1,0 +1,38 @@
+{
+    "name": "@posthog/cymbal",
+    "version": "0.1.0",
+    "description": "Node.js client for Cymbal's gRPC ingestion API",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "types": "src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "require": "./dist/index.js",
+            "default": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "clean": "rm -rf dist",
+        "generate": "mkdir -p src/generated && protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es --es_out=src/generated --es_opt=target=ts -I ../crates/api/proto ../crates/api/proto/cymbal/v1/pipeline.proto",
+        "build": "pnpm run generate && tsc",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@bufbuild/protobuf": "^2.11.0",
+        "@connectrpc/connect": "^2.1.1",
+        "@connectrpc/connect-node": "^2.1.1"
+    },
+    "devDependencies": {
+        "@bufbuild/protoc-gen-es": "^2.11.0",
+        "@types/node": "catalog:",
+        "typescript": "catalog:"
+    },
+    "files": [
+        "dist",
+        "src"
+    ],
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

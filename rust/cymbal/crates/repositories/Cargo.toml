@@ -1,0 +1,27 @@
+[package]
+name = "cymbal-repositories"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+chrono = { workspace = true }
+common-redis = { path = "../../../common/redis" }
+common-types = { path = "../../../common/types" }
+cymbal-rules = { path = "../rules" }
+cymbal-symbol-store = { path = "../symbol-store" }
+metrics = { workspace = true }
+moka = { workspace = true }
+posthog-rs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

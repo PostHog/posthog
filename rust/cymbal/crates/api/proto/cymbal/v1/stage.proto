@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package cymbal.v1;
+
+service CymbalStageRuntime {
+  rpc ProcessStage(StageBatch) returns (StageBatchResult);
+}
+
+message StageStart {
+  string batch_id = 1;
+  string stage_id = 2;
+  string input_type = 3;
+  string output_type = 4;
+  map<string, string> metadata = 5;
+}
+
+message StageBatch {
+  StageStart start = 1;
+  repeated StageItem items = 2;
+}
+
+message StageBatchResult {
+  repeated StageItemResult results = 1;
+  repeated StageItemError errors = 2;
+  StageLoad load = 3;
+}
+
+message StageLoad {
+  uint64 current_in_flight_stage_batches = 1;
+  uint64 max_in_flight_stage_batches = 2;
+  bool overloaded = 3;
+  uint64 current_in_flight_items = 4;
+  uint64 max_in_flight_items = 5;
+  bool draining = 6;
+  // Stage IDs this pod currently serves. The pipeline dispatcher filters
+  // candidate endpoints on this set so callers can roll independently from
+  // callees during version transitions: a pod advertising `resolution:v1`
+  // only receives `resolution:v1` traffic even if DNS / routing config
+  // still lists it for `resolution:v2`. Empty means "unknown" and the
+  // dispatcher falls back to its existing routing-config-based selection.
+  repeated string served_stage_ids = 7;
+}
+
+message StageItem {
+  string item_id = 1;
+  string type = 2;
+  bytes payload = 3;
+}
+
+message StageItemResult {
+  string item_id = 1;
+  string type = 2;
+  bytes payload = 3;
+}
+
+message StageItemError {
+  string item_id = 1;
+  string code = 2;
+  string message = 3;
+  bool retryable = 4;
+}

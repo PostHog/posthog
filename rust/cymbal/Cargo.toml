@@ -1,8 +1,16 @@
 [package]
-name = "cymbal"
+name = "cymbal-legacy"
 version = "0.1.0"
 edition = "2021"
 publish = false
+
+[lib]
+name = "cymbal"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cymbal-legacy"
+path = "src/main.rs"
 
 [dependencies]
 tokio = { workspace = true }
@@ -46,6 +54,10 @@ futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tower.workspace = true
 tiktoken-rs.workspace = true
+cymbal-api  = { path = "crates/api" }
+tonic       = { workspace = true }
+rand        = { workspace = true }
+prost-types = { workspace = true }
 
 
 [dev-dependencies]

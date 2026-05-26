@@ -1,20 +1,110 @@
-# Cymbal, for error tracking
+# Cymbal
 
-You throw 'em, we catch 'em.
+Cymbal is PostHog's error-tracking processing service.
+Node ingestion sends `$exception` batches to Cymbal over gRPC; Cymbal runs resolution, grouping, linking, rate limiting, and alerting stages, then streams one final outcome per input event.
 
-### Terms
+Cymbal is a crate workspace area, not a standalone Rust package: run Rust commands through the parent `rust/Cargo.toml` manifest.
+There is no endpoint named `/process`, and public ingestion requests do not expose stage IDs, stage chains, or stage artifacts.
 
-We use a lot of terms in this and other error tracking code, with implied meanings. Here are some of them:
+## API shape
 
-- **Issue**: A group of errors, representing, ideally, one bug.
-- **Error**: An event capable of producing an error fingerprint, letting it be grouped into an issue. May or may not have one or more stack traces.
-- **Fingerprint**: A unique identifier for class of errors. Generated based on the error type and message, and the stack if we have one (with or without raw frames). Notably, multiple fingerprints might be 1 error, because e.g. our ability to process stack frames (based on available symbol sets) changes over time, or our fingerprinting heuristics get better. We do not encode this "class of errors" notions anywhere - it's just important to remember an "issue" might group multiple fingerprints that all have the same "unprocessed" stack trace, but different "processed" ones, or even just that were received at different time.
-- **Stack trace**: You know what a stack trace is. A list of frames, raw or otherwise, most recent call last. It's important to keep in mind that some languages have the notion of `chained exceptions`, which means that a single error can have multiple stack traces.
-- **Stack context**: The combination of language, operating system, runtime, dev tools, and whatever else that uniquely identifies a "type" of raw frame.
-- **Raw frame**: A context specific, unprocessed frame. For some contexts, this means no symbols, for others, it might have symbols but need some other processing.
-- **Frame**: A unified representation of a stack frame. Context, and pretty flexible as a result, this is what we output. Frames have all kinds of fields, and can even signal if they're the result of successful resolving or not.
-- **Symbol**: A human-readable representation of the function whose calling caused a frame to be pushed. This is what we try to resolve from raw frames, where we can. Some frames don't have an associated symbol, due to e.g. anonymous closures, etc.
-- **Resolving**: The generic term we use for going from a raw frame to a frame. The most important step here is symbolification, which is the process of resolving a symbol from a raw frame. That process varies a lot from context to context.
-- **Symbol set**: A bunch of bytes, that can be interpreted in some way, to go from a raw frame to a symbol, provided the frame is "in" the symbol set (the function it represents is part of the set of functions whose symbols are in this set). These are highly context specific.
-- **Symbol set reference**: Effectively a "pointer" to a symbol set - or the "name" of a symbol set, if you prefer. Uniquely maps a frame to a symbol set. Raw frames are required to be able to produce one of these. Again, these are highly context specific (they're a URL in frontend javascript, for example).
-- **Symbol set store**: Anything that can be given a symbol set reference, and try to give back a vec of bytes. We use a layering pattern to construct a single "base" one of these, and then wrap it in internal storing, caching, etc.
+The public API lives in [`crates/api/proto/cymbal/v1/pipeline.proto`](crates/api/proto/cymbal/v1/pipeline.proto):
+
+```text
+CymbalIngestion.ProcessExceptionBatch(ProcessExceptionBatchRequest)
+    -> stream ProcessExceptionBatchResult
+```
+
+A public request contains batch context, exception events, and processing options.
+Each event carries JSON properties as `properties_json` bytes so JSON semantics stay intact at the wire boundary.
+The response stream emits one `next`, `drop`, `retry`, or `error` outcome per event.
+
+The internal remote-stage API lives in [`crates/api/proto/cymbal/v1/stage.proto`](crates/api/proto/cymbal/v1/stage.proto):
+
+```text
+CymbalStageRuntime.ProcessStage(StageBatch) -> StageBatchResult
+```
+
+`ProcessStage` is only for Cymbal pipeline and stage deployments.
+It carries typed stage envelopes, opaque payload bytes, item results, item errors, and optional stage-load observations.
+
+## Living docs
+
+- [`docs/architecture.md`](docs/architecture.md) — stable architecture invariants, API boundaries, stage flow, and domain glossary.
+- [`crates/README.md`](crates/README.md) — the main “where do I edit?” crate map for agents and humans.
+- [`docs/operations.md`](docs/operations.md) — server modes, local smoke tests, routing knobs, metrics, readiness, and runbooks.
+- [`docs/testing.md`](docs/testing.md) — Cymbal-local test selection, coverage commands, and baseline notes.
+- [`docs/compatibility.md`](docs/compatibility.md) — the only living inventory of retained compatibility surfaces and cleanup criteria.
+- [`docs/reusable-pipeline-framework.md`](docs/reusable-pipeline-framework.md) — how to reuse Cymbal's routing/capacity primitives in another pipeline.
+- [`docs/architecture-decisions/`](docs/architecture-decisions/) — final architecture decisions.
+
+## Binaries
+
+| Binary          | Purpose                                     | Entry                       |
+| --------------- | ------------------------------------------- | --------------------------- |
+| `cymbal-server` | New gRPC pipeline (production target)       | `rust/cymbal/crates/server` |
+| `cymbal-legacy` | Old HTTP pipeline for shadow parity testing | `rust/cymbal/src/`          |
+
+During the shadow phase both binaries run; Node talks HTTP to `cymbal-legacy` on port
+3302, which optionally shadows to `cymbal-server` on port 50150.
+
+## Common local commands
+
+Run these from `rust/cymbal/` unless noted.
+
+```sh
+# Workspace discovery and formatting
+cargo metadata --manifest-path ../Cargo.toml --format-version 1 --no-deps
+cargo fmt --check --manifest-path ../Cargo.toml --all
+
+# Local Cymbal-only playground: Postgres, Redis, object storage, pipeline, and resolution stage
+mprocs -c mprocs.yaml
+
+# Contract snapshots for the public ingestion API
+cargo test --manifest-path ../Cargo.toml -p cymbal-server --test pipeline_snapshots
+
+# Lower-level mixed local/remote smoke once mprocs services are ready
+CYMBAL_PIPELINE_ENDPOINT=http://127.0.0.1:50150 cargo run --manifest-path ../Cargo.toml -p cymbal-server --example process_batch
+```
+
+From the repository root, use the main PostHog stack when you need to prove Node error-tracking ingestion calls Cymbal over gRPC:
+
+```sh
+hogli dev:setup # select the error_tracking intent, or include nodejs_error_tracking + error_symbolication
+hogli start     # or hogli up -d && hogli wait
+pnpm --filter=@posthog/nodejs run smoke:cymbal-main-stack
+```
+
+## Validation checklist
+
+Use this package set for broad Cymbal Rust validation:
+
+```sh
+cargo test --manifest-path ../Cargo.toml \
+  -p cymbal-api \
+  -p cymbal-core \
+  -p cymbal-domain \
+  -p cymbal-fingerprinting \
+  -p cymbal-pipeline \
+  -p cymbal-repositories \
+  -p cymbal-runtime \
+  -p cymbal-rules \
+  -p cymbal-alerting \
+  -p cymbal-grouping \
+  -p cymbal-linking \
+  -p cymbal-rate-limiting \
+  -p cymbal-resolution \
+  -p cymbal-symbol-store \
+  -p cymbal-symbolication \
+  -p cymbal-server \
+  --no-fail-fast
+
+git diff --check
+```
+
+If protobufs change, regenerate the local Node client instead of editing generated bindings by hand:
+
+```sh
+pnpm --dir node run generate
+pnpm --dir node typecheck
+```

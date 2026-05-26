@@ -1,0 +1,147 @@
+---
+source: cymbal/crates/server/tests/pipeline_snapshots.rs
+expression: "snapshot_payload(&request, &results)"
+---
+{
+  "request": {
+    "context": {
+      "batch_id": "mixed-outcomes-snapshot",
+      "metadata": {
+        "source": "snapshot-test"
+      }
+    },
+    "events": [
+      {
+        "distinct_id": "distinct-next-event",
+        "event_id": "next-event",
+        "properties_json": {
+          "$exception_list": [
+            {
+              "stacktrace": {
+                "frames": [
+                  {
+                    "colno": 5,
+                    "filename": "app.js",
+                    "function": "runExample",
+                    "lineno": 10
+                  }
+                ]
+              },
+              "type": "Error",
+              "value": "mixed outcome next"
+            }
+          ],
+          "$exception_message": "mixed outcome next",
+          "$exception_type": "Error"
+        },
+        "team_id": 1
+      },
+      {
+        "distinct_id": "distinct-drop-event",
+        "event_id": "drop-event",
+        "properties_json": {
+          "$exception_list": [
+            {
+              "stacktrace": {
+                "frames": [
+                  {
+                    "colno": 5,
+                    "filename": "app.js",
+                    "function": "runExample",
+                    "lineno": 10
+                  }
+                ]
+              },
+              "type": "Error",
+              "value": "missing team"
+            }
+          ],
+          "$exception_message": "missing team",
+          "$exception_type": "Error"
+        },
+        "team_id": 0
+      },
+      {
+        "distinct_id": "distinct-error-event",
+        "event_id": "error-event",
+        "properties_json": "{",
+        "team_id": 1
+      }
+    ],
+    "options": null
+  },
+  "results": [
+    {
+      "event_id": "next-event",
+      "metadata": {},
+      "outcome": "Next",
+      "properties_json": {
+        "$exception_fingerprint": "4dfd42b797a87e6a46f721db3399d3edccfa63a735570fb9b5289203e1825e8c36acec51532e78283c2511dce6fbc176b0c9f9f86e0f7b09052264b04f732b41",
+        "$exception_fingerprint_record": [
+          {
+            "id": "next-event:0",
+            "pieces": [
+              "Exception Type"
+            ],
+            "type": "exception"
+          },
+          {
+            "pieces": [
+              "Source file name",
+              "Mangled function name",
+              "Line number",
+              "Column number"
+            ],
+            "raw_id": "",
+            "type": "frame"
+          }
+        ],
+        "$exception_functions": [
+          "runExample"
+        ],
+        "$exception_handled": false,
+        "$exception_list": [
+          {
+            "id": "next-event:0",
+            "stacktrace": {
+              "frames": [
+                {
+                  "colno": 5,
+                  "filename": "app.js",
+                  "function": "runExample",
+                  "lineno": 10
+                }
+              ]
+            },
+            "type": "Error",
+            "value": "mixed outcome next"
+          }
+        ],
+        "$exception_message": "mixed outcome next",
+        "$exception_proposed_fingerprint": "4dfd42b797a87e6a46f721db3399d3edccfa63a735570fb9b5289203e1825e8c36acec51532e78283c2511dce6fbc176b0c9f9f86e0f7b09052264b04f732b41",
+        "$exception_sources": [
+          "app.js"
+        ],
+        "$exception_type": "Error",
+        "$exception_types": [
+          "Error"
+        ],
+        "$exception_values": [
+          "mixed outcome next"
+        ]
+      }
+    },
+    {
+      "event_id": "drop-event",
+      "outcome": "Drop",
+      "reason": "missing_team_id"
+    },
+    {
+      "code": "invalid_properties_json",
+      "event_id": "error-event",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "outcome": "Error",
+      "retryable": false
+    }
+  ]
+}

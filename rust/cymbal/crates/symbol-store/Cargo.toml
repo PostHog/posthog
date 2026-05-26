@@ -1,0 +1,40 @@
+[package]
+name = "cymbal-symbol-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+common-dns = { path = "../../../common/dns" }
+common-metrics = { path = "../../../common/metrics" }
+metrics = { workspace = true }
+mockall = { workspace = true, optional = true }
+posthog-symbol-data = { path = "../../../common/symbol_data" }
+proguard = "5.6.2"
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sourcemap = "9.0.0"
+sqlx = { workspace = true }
+symbolic = { version = "12.12", features = ["sourcemapcache", "debuginfo", "symcache", "demangle"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+zip = "4.0"
+
+[features]
+test-utils = ["mockall"]
+
+[dev-dependencies]
+httpmock = { workspace = true }
+mockall = { workspace = true }
+
+[lints]
+workspace = true

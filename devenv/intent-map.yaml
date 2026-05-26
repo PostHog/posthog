@@ -34,7 +34,7 @@ capabilities:
         docker_profiles: [replay]
 
     error_symbolication:
-        description: 'Error stack trace symbolication service'
+        description: 'Cymbal gRPC error tracking pipeline and stage services'
         requires: [event_ingestion]
         docker_profiles: []
 
@@ -157,7 +157,7 @@ capabilities:
 
     nodejs_error_tracking:
         description: 'Node.js Error Tracking - exception event ingestion'
-        requires: [event_ingestion]
+        requires: [event_ingestion, error_symbolication]
         docker_profiles: []
 
     batch_imports:

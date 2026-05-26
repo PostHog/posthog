@@ -1,0 +1,8 @@
+Uncaught Error: kaboom from Hermes
+    at c (address at ./build/android/index.android.bundle.hbc:1:8258)
+    at b (address at ./build/android/index.android.bundle.hbc:1:8277)
+    at anonymous (address at ./build/android/index.android.bundle.hbc:1:8228)
+    at loadModuleImplementation (address at ./build/android/index.android.bundle.hbc:1:1755)
+    at guardedLoadModule (address at ./build/android/index.android.bundle.hbc:1:1249)
+    at metroRequire (address at ./build/android/index.android.bundle.hbc:1:894)
+    at global (address at ./build/android/index.android.bundle.hbc:1:425)

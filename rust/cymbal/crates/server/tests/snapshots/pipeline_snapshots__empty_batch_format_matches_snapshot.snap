@@ -1,0 +1,17 @@
+---
+source: cymbal/crates/server/tests/pipeline_snapshots.rs
+expression: "snapshot_payload(&request, &results)"
+---
+{
+  "request": {
+    "context": {
+      "batch_id": "empty-batch-snapshot",
+      "metadata": {
+        "source": "snapshot-test"
+      }
+    },
+    "events": [],
+    "options": null
+  },
+  "results": []
+}

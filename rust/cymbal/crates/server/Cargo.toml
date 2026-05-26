@@ -1,0 +1,44 @@
+[package]
+name = "cymbal-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+cymbal-alerting = { path = "../stages/alerting" }
+cymbal-api = { path = "../api" }
+cymbal-core = { path = "../core" }
+cymbal-domain = { path = "../domain" }
+cymbal-grouping = { path = "../stages/grouping" }
+cymbal-linking = { path = "../stages/linking" }
+cymbal-pipeline = { path = "../pipeline" }
+cymbal-rate-limiting = { path = "../stages/rate-limiting" }
+cymbal-resolution = { path = "../stages/resolution" }
+cymbal-runtime = { path = "../runtime" }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+insta = { version = "1.46.0", features = ["json"] }
+limiters = { path = "../../../common/limiters" }
+metrics-util = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
+
+[[example]]
+name = "process_batch"
+path = "examples/process_batch/main.rs"
+
+[lints]
+workspace = true

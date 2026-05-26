@@ -101,21 +101,55 @@ case "$RS_SVC" in
     ;;
 
   cymbal)
-    export RUST_LOG=debug,rdkafka=warn
+    # Flox injects a RUST_LOG that only filters its own targets
+    # (`flox=error,...`). If we preserve that verbatim, Cymbal's INFO logs are
+    # filtered out and phrocs never sees the readiness line. Keep explicit user
+    # overrides, but replace the Flox-only default with Cymbal's local default.
+    if [[ -z "${RUST_LOG:-}" || "$RUST_LOG" == "flox=error,flox_rust_sdk=error,flox_watchdog=error" ]]; then
+      export RUST_LOG=info,cymbal_server=info,rdkafka=warn
+    fi
     export RUST_BACKTRACE=1
-    export OBJECT_STORAGE_BUCKET=posthog
-    export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-    export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
-    export FRAME_CACHE_TTL_SECONDS=1
-    export FRAME_RESULT_TTL_MINUTES=0
-    export ASSIGNMENT_RULE_CACHE_TTL_SECS=0
-    export GROUPING_RULE_CACHE_TTL_SECS=0
-    export SUPPRESSION_RULE_CACHE_TTL_SECS=0
-    export BIND_PORT=3302 # HACK! avoid local-dev clash with property-defs-rs port
-    export ALLOW_INTERNAL_IPS="true"
-    export PERSONS_URL="${PERSONS_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
-    export ISSUE_BUCKETS_REDIS_URL="$DEFAULT_REDIS"
-    export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}" # Used to emit signals, via the internal API
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
+    export ISSUE_BUCKETS_REDIS_URL="${ISSUE_BUCKETS_REDIS_URL:-$DEFAULT_REDIS}"
+    export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://127.0.0.1:19000}"
+    export OBJECT_STORAGE_BUCKET="${OBJECT_STORAGE_BUCKET:-posthog}"
+    export OBJECT_STORAGE_REGION="${OBJECT_STORAGE_REGION:-us-east-1}"
+    export OBJECT_STORAGE_ACCESS_KEY_ID="${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}"
+    export OBJECT_STORAGE_SECRET_ACCESS_KEY="${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}"
+    export OBJECT_STORAGE_FORCE_PATH_STYLE="${OBJECT_STORAGE_FORCE_PATH_STYLE:-true}"
+    export OBJECT_STORAGE_PREFIX="${OBJECT_STORAGE_PREFIX:-symbolsets}"
+    export ALLOW_INTERNAL_IPS="${ALLOW_INTERNAL_IPS:-true}"
+    export CYMBAL_MODE="${CYMBAL_MODE:-all}"
+    export CYMBAL_STAGE_IDS="${CYMBAL_STAGE_IDS:-resolution:v1,grouping:v1,linking:v1,alerting:v1}"
+    export GRPC_ADDRESS="${GRPC_ADDRESS:-127.0.0.1:50150}"
+    export CYMBAL_REMOTE_TARGETS="${CYMBAL_REMOTE_TARGETS:-}"
+    export CYMBAL_REMOTE_STAGES="${CYMBAL_REMOTE_STAGES:-}"
+    export CYMBAL_REMOTE_REFRESH_INTERVAL_MS="${CYMBAL_REMOTE_REFRESH_INTERVAL_MS:-1000}"
+    export CYMBAL_REMOTE_CONNECT_TIMEOUT_MS="${CYMBAL_REMOTE_CONNECT_TIMEOUT_MS:-1000}"
+    export CYMBAL_REMOTE_STAGE_TIMEOUT_MS="${CYMBAL_REMOTE_STAGE_TIMEOUT_MS:-5000}"
+    export CYMBAL_MAX_BATCH_EVENTS="${CYMBAL_MAX_BATCH_EVENTS:-1000}"
+    export CYMBAL_READINESS_FILE="${CYMBAL_READINESS_FILE:-/tmp/cymbal-ready}"
+    export CYMBAL_SHUTDOWN_DRAIN_DELAY_MS="${CYMBAL_SHUTDOWN_DRAIN_DELAY_MS:-1000}"
+    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
+    export DEV_RUST_SVC_OVERRIDE=cymbal-server
+    ;;
+
+  cymbal-legacy)
+    if [[ -z "${RUST_LOG:-}" || "$RUST_LOG" == "flox=error,flox_rust_sdk=error,flox_watchdog=error" ]]; then
+      export RUST_LOG=info,rdkafka=warn
+    fi
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
+    export ISSUE_BUCKETS_REDIS_URL="${ISSUE_BUCKETS_REDIS_URL:-$DEFAULT_REDIS}"
+    export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://127.0.0.1:19000}"
+    export OBJECT_STORAGE_BUCKET="${OBJECT_STORAGE_BUCKET:-posthog}"
+    export OBJECT_STORAGE_ACCESS_KEY_ID="${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}"
+    export OBJECT_STORAGE_SECRET_ACCESS_KEY="${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}"
+    export OBJECT_STORAGE_FORCE_PATH_STYLE="${OBJECT_STORAGE_FORCE_PATH_STYLE:-true}"
+    export ALLOW_INTERNAL_IPS="${ALLOW_INTERNAL_IPS:-true}"
+    export BIND_PORT="${BIND_PORT:-3302}"
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-kafka:9092}"
+    export CYMBAL_READINESS_FILE="${CYMBAL_READINESS_FILE:-/tmp/cymbal-legacy-ready}"
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
     ;;
 

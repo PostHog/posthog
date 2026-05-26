@@ -2614,7 +2614,94 @@ dependencies = [
 ]
 
 [[package]]
-name = "cymbal"
+name = "cymbal-alerting"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-metrics",
+ "common-redis",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-repositories",
+ "metrics",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-api"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "prost-types 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
+name = "cymbal-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "rand 0.8.5",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "cymbal-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cymbal-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-fingerprinting"
+version = "0.1.0"
+dependencies = [
+ "cymbal-domain",
+ "cymbal-rules",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-grouping"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-fingerprinting",
+ "cymbal-resolution",
+ "cymbal-rules",
+ "hogvm",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-legacy"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -2631,6 +2718,7 @@ dependencies = [
  "common-metrics",
  "common-redis",
  "common-types",
+ "cymbal-api",
  "envconfig",
  "futures",
  "health",
@@ -2643,6 +2731,8 @@ dependencies = [
  "posthog-rs 0.3.7",
  "posthog-symbol-data",
  "proguard",
+ "prost-types 0.13.5",
+ "rand 0.8.5",
  "rdkafka",
  "regex",
  "reqwest 0.12.28",
@@ -2656,11 +2746,256 @@ dependencies = [
  "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",
+ "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
  "zip 4.6.1",
+]
+
+[[package]]
+name = "cymbal-linking"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-grouping",
+ "cymbal-repositories",
+ "cymbal-rules",
+ "hogvm",
+ "metrics",
+ "moka",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-pipeline"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "cymbal-alerting",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-grouping",
+ "cymbal-linking",
+ "cymbal-rate-limiting",
+ "cymbal-resolution",
+ "futures",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "cymbal-rate-limiting"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-redis",
+ "cymbal-core",
+ "cymbal-domain",
+ "envconfig",
+ "limiters",
+ "metrics",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cymbal-repositories"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "common-redis",
+ "common-types",
+ "cymbal-rules",
+ "cymbal-symbol-store",
+ "metrics",
+ "moka",
+ "posthog-rs 0.3.7",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-resolution"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-metrics",
+ "common-types",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-symbol-store",
+ "cymbal-symbolication",
+ "futures",
+ "metrics",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-rules"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-metrics",
+ "common-types",
+ "cymbal-domain",
+ "hogvm",
+ "metrics",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-runtime"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "chrono",
+ "common-continuous-profiling",
+ "common-redis",
+ "common-types",
+ "cymbal-alerting",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-grouping",
+ "cymbal-linking",
+ "cymbal-rate-limiting",
+ "cymbal-repositories",
+ "cymbal-resolution",
+ "cymbal-rules",
+ "cymbal-symbol-store",
+ "cymbal-symbolication",
+ "envconfig",
+ "metrics",
+ "moka",
+ "posthog-rs 0.3.7",
+ "reqwest 0.12.28",
+ "rustls 0.23.37",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-server"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "cymbal-alerting",
+ "cymbal-api",
+ "cymbal-core",
+ "cymbal-domain",
+ "cymbal-grouping",
+ "cymbal-linking",
+ "cymbal-pipeline",
+ "cymbal-rate-limiting",
+ "cymbal-resolution",
+ "cymbal-runtime",
+ "envconfig",
+ "futures",
+ "insta",
+ "limiters",
+ "metrics",
+ "metrics-util",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cymbal-symbol-store"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-s3",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "common-dns",
+ "common-metrics",
+ "httpmock",
+ "metrics",
+ "mockall",
+ "posthog-symbol-data",
+ "proguard",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sourcemap",
+ "sqlx",
+ "symbolic",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zip 4.6.1",
+]
+
+[[package]]
+name = "cymbal-symbolication"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "common-metrics",
+ "common-types",
+ "cymbal-domain",
+ "cymbal-symbol-store",
+ "metrics",
+ "mockall",
+ "posthog-symbol-data",
+ "proguard",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sourcemap",
+ "sqlx",
+ "symbolic",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

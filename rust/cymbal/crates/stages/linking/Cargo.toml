@@ -1,0 +1,28 @@
+[package]
+name = "cymbal-linking"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+cymbal-core = { path = "../../core" }
+cymbal-domain = { path = "../../domain" }
+cymbal-grouping = { path = "../grouping" }
+cymbal-repositories = { path = "../../repositories" }
+cymbal-rules = { path = "../../rules" }
+hogvm = { path = "../../../../common/hogvm" }
+metrics = { workspace = true }
+moka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

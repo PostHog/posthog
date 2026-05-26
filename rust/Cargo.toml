@@ -34,7 +34,23 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
-  "cymbal",
+  "cymbal",              # cymbal-legacy binary (restored at original path)
+  "cymbal/crates/api",
+  "cymbal/crates/core",
+  "cymbal/crates/domain",
+  "cymbal/crates/fingerprinting",
+  "cymbal/crates/pipeline",
+  "cymbal/crates/rules",
+  "cymbal/crates/repositories",
+  "cymbal/crates/runtime",
+  "cymbal/crates/stages/alerting",
+  "cymbal/crates/stages/grouping",
+  "cymbal/crates/stages/linking",
+  "cymbal/crates/stages/rate-limiting",
+  "cymbal/crates/symbol-store",
+  "cymbal/crates/symbolication",
+  "cymbal/crates/stages/resolution",
+  "cymbal/crates/server",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
@@ -124,6 +140,7 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
 prost = "0.13"
+prost-types = "0.13"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }

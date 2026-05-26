@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package cymbal.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service CymbalIngestion {
+  rpc ProcessExceptionBatch(ProcessExceptionBatchRequest) returns (stream ProcessExceptionBatchResult);
+}
+
+message ProcessExceptionBatchRequest {
+  BatchContext context = 1;
+  repeated ExceptionEvent events = 2;
+  ProcessingOptions options = 3;
+}
+
+message BatchContext {
+  string batch_id = 1;
+  map<string, string> metadata = 2;
+}
+
+message ExceptionEvent {
+  string event_id = 1;
+  int64 team_id = 2;
+  string distinct_id = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  bytes properties_json = 5;
+}
+
+message ProcessingOptions {
+  bool skip_alerting = 1;
+  bool emit_internal_events = 2;
+  bool emit_signals = 3;
+}
+
+message ProcessExceptionBatchResult {
+  string event_id = 1;
+
+  oneof outcome {
+    EnrichedExceptionEvent next = 2;
+    Drop drop = 3;
+    Retry retry = 4;
+    ProcessingError error = 5;
+  }
+}
+
+message EnrichedExceptionEvent {
+  bytes properties_json = 1;
+  map<string, string> metadata = 2;
+}
+
+message Drop {
+  string reason = 1;
+}
+
+message Retry {
+  string reason = 1;
+  uint64 retry_after_ms = 2;
+}
+
+message ProcessingError {
+  string message = 1;
+  string code = 2;
+  bool retryable = 3;
+}

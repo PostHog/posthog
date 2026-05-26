@@ -1,0 +1,105 @@
+---
+source: cymbal/crates/server/tests/pipeline_snapshots.rs
+assertion_line: 204
+expression: "snapshot_payload(&request, &results)"
+---
+{
+  "request": {
+    "context": {
+      "batch_id": "local-pipeline-snapshot",
+      "metadata": {
+        "source": "snapshot-test"
+      }
+    },
+    "events": [
+      {
+        "distinct_id": "distinct-event-1",
+        "event_id": "event-1",
+        "properties_json": {
+          "$exception_list": [
+            {
+              "stacktrace": {
+                "frames": [
+                  {
+                    "colno": 5,
+                    "filename": "app.js",
+                    "function": "runExample",
+                    "lineno": 10
+                  }
+                ]
+              },
+              "type": "Error",
+              "value": "local pipeline example"
+            }
+          ],
+          "$exception_message": "local pipeline example",
+          "$exception_type": "Error"
+        },
+        "team_id": 1
+      }
+    ],
+    "options": null
+  },
+  "results": [
+    {
+      "event_id": "event-1",
+      "metadata": {},
+      "outcome": "Next",
+      "properties_json": {
+        "$exception_fingerprint": "4dfd42b797a87e6a46f721db3399d3edccfa63a735570fb9b5289203e1825e8c36acec51532e78283c2511dce6fbc176b0c9f9f86e0f7b09052264b04f732b41",
+        "$exception_fingerprint_record": [
+          {
+            "id": "event-1:0",
+            "pieces": [
+              "Exception Type"
+            ],
+            "type": "exception"
+          },
+          {
+            "pieces": [
+              "Source file name",
+              "Mangled function name",
+              "Line number",
+              "Column number"
+            ],
+            "raw_id": "",
+            "type": "frame"
+          }
+        ],
+        "$exception_functions": [
+          "runExample"
+        ],
+        "$exception_handled": false,
+        "$exception_list": [
+          {
+            "id": "event-1:0",
+            "stacktrace": {
+              "frames": [
+                {
+                  "colno": 5,
+                  "filename": "app.js",
+                  "function": "runExample",
+                  "lineno": 10
+                }
+              ]
+            },
+            "type": "Error",
+            "value": "local pipeline example"
+          }
+        ],
+        "$exception_message": "local pipeline example",
+        "$exception_proposed_fingerprint": "4dfd42b797a87e6a46f721db3399d3edccfa63a735570fb9b5289203e1825e8c36acec51532e78283c2511dce6fbc176b0c9f9f86e0f7b09052264b04f732b41",
+        "$exception_sources": [
+          "app.js"
+        ],
+        "$exception_type": "Error",
+        "$exception_types": [
+          "Error"
+        ],
+        "$exception_values": [
+          "local pipeline example"
+        ]
+      }
+    }
+  ]
+}

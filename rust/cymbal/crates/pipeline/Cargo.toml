@@ -1,0 +1,23 @@
+[package]
+name = "cymbal-pipeline"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+cymbal-alerting = { path = "../stages/alerting" }
+cymbal-core = { path = "../core" }
+cymbal-domain = { path = "../domain" }
+cymbal-grouping = { path = "../stages/grouping" }
+cymbal-linking = { path = "../stages/linking" }
+cymbal-rate-limiting = { path = "../stages/rate-limiting" }
+cymbal-resolution = { path = "../stages/resolution" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

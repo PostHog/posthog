@@ -1,0 +1,40 @@
+[package]
+name = "cymbal-runtime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+chrono = { workspace = true }
+common-continuous-profiling = { path = "../../../common/continuous_profiling" }
+common-redis = { path = "../../../common/redis" }
+cymbal-alerting = { path = "../stages/alerting" }
+cymbal-core = { path = "../core" }
+cymbal-domain = { path = "../domain" }
+cymbal-grouping = { path = "../stages/grouping" }
+cymbal-linking = { path = "../stages/linking" }
+cymbal-rate-limiting = { path = "../stages/rate-limiting" }
+cymbal-repositories = { path = "../repositories" }
+cymbal-resolution = { path = "../stages/resolution" }
+cymbal-rules = { path = "../rules" }
+cymbal-symbol-store = { path = "../symbol-store" }
+cymbal-symbolication = { path = "../symbolication" }
+common-types = { path = "../../../common/types" }
+envconfig = { workspace = true }
+metrics = { workspace = true }
+moka = { workspace = true, features = ["future"] }
+posthog-rs = { workspace = true, features = ["async-client"] }
+reqwest = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

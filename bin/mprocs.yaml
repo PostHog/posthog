@@ -71,7 +71,7 @@ procs:
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && ERROR_TRACKING_CYMBAL_BASE_URL=http://localhost:3302 PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
         capability: nodejs_error_tracking
         ready_pattern: 'All systems go'
         groups:
@@ -219,12 +219,61 @@ procs:
             layer: Processing
             tech: Rust
 
-    cymbal:
+    cymbal-resolution-stage:
         shell: |-
-            bin/wait-for-docker && \
+            bin/wait-for-docker objectstorage && \
+            rm -f /tmp/cymbal-resolution-ready && \
+            DATABASE_URL=postgres://posthog:posthog@127.0.0.1:5432/posthog \
+            ISSUE_BUCKETS_REDIS_URL=redis://127.0.0.1:6379/ \
+            OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:19000 \
+            CYMBAL_MODE=stage \
+            CYMBAL_LOG_FORMAT=text \
+            CYMBAL_STAGE_IDS=resolution:v1 \
+            GRPC_ADDRESS=127.0.0.1:50151 \
+            CYMBAL_READINESS_FILE=/tmp/cymbal-resolution-ready \
             bin/start-rust-service cymbal
         capability: error_symbolication
-        ready_pattern: 'Server started and listening on *'
+        ready_pattern: 'starting Cymbal gRPC server'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cymbal-pipeline:
+        shell: |-
+            bin/wait-for-docker objectstorage && \
+            rm -f /tmp/cymbal-pipeline-ready && \
+            until [ -f /tmp/cymbal-resolution-ready ]; do sleep 1; done && \
+            DATABASE_URL=postgres://posthog:posthog@127.0.0.1:5432/posthog \
+            ISSUE_BUCKETS_REDIS_URL=redis://127.0.0.1:6379/ \
+            OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:19000 \
+            CYMBAL_MODE=pipeline \
+            CYMBAL_LOG_FORMAT=text \
+            GRPC_ADDRESS=127.0.0.1:50150 \
+            CYMBAL_REMOTE_TARGETS=resolution=127.0.0.1:50151 \
+            CYMBAL_REMOTE_STAGES=resolution:v1=resolution \
+            CYMBAL_RATE_LIMIT_ENABLED=${CYMBAL_RATE_LIMIT_ENABLED:-false} \
+            CYMBAL_RATE_LIMIT_REPORTING_ONLY=${CYMBAL_RATE_LIMIT_REPORTING_ONLY:-false} \
+            CYMBAL_RATE_LIMIT_THRESHOLD=${CYMBAL_RATE_LIMIT_THRESHOLD:-1000000} \
+            CYMBAL_RATE_LIMIT_WINDOW_SECONDS=${CYMBAL_RATE_LIMIT_WINDOW_SECONDS:-60} \
+            CYMBAL_READINESS_FILE=/tmp/cymbal-pipeline-ready \
+            bin/start-rust-service cymbal
+        capability: error_symbolication
+        ready_pattern: 'starting Cymbal gRPC server'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cymbal-legacy:
+        shell: |-
+            bin/wait-for-docker objectstorage && \
+            rm -f /tmp/cymbal-legacy-ready && \
+            BIND_PORT=3302 \
+            CYMBAL_SHADOW_GRPC_ADDR=${CYMBAL_SHADOW_GRPC_ADDR:-} \
+            CYMBAL_SHADOW_SAMPLE_RATE=${CYMBAL_SHADOW_SAMPLE_RATE:-0.0} \
+            CYMBAL_READINESS_FILE=/tmp/cymbal-legacy-ready \
+            bin/start-rust-service cymbal-legacy
+        capability: error_symbolication
+        ready_pattern: 'Server started and listening'
         groups:
             layer: Product services
             tech: Rust

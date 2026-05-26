@@ -24,6 +24,7 @@
   project: vznmbshh6q
 
 - image: cymbal
+  bin: cymbal-server
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
 

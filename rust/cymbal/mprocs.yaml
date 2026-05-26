@@ -1,0 +1,253 @@
+# Local Cymbal pipeline playground.
+#
+# Run from rust/cymbal with:
+#   mprocs -c mprocs.yaml
+#
+# This starts separate local gRPC processes for the pipeline and the resolution
+# stage so remote-stage routing can be tested without Kubernetes.
+
+procs:
+    info:
+        shell: |
+            echo ''
+            echo 'Cymbal local pipeline playground'
+            echo '────────────────────────────────'
+            echo ''
+            echo 'Services:'
+            echo '  postgres       postgres://posthog:posthog@127.0.0.1:5432/posthog'
+            echo '  redis          redis://127.0.0.1:6379'
+            echo '  object storage http://127.0.0.1:19000  S3-compatible MinIO (bucket: symbol-sets)'
+            echo '  pipeline       grpc://127.0.0.1:50150  CymbalIngestion.ProcessExceptionBatch'
+            echo '  resolution     grpc://127.0.0.1:50151  CymbalStageRuntime.ProcessStage'
+            echo ''
+            echo 'Start smoke-test after the gRPC services are ready.'
+            echo 'It runs compact process_batch examples through CymbalIngestion.ProcessExceptionBatch.'
+            echo ''
+            echo 'Start snapshot-tests to run the integration snapshot suite.'
+            echo ''
+            sleep infinity
+        groups:
+            layer: pinned
+            tech: pinned
+
+    postgres:
+        shell: |-
+            rm -f /tmp/cymbal-postgres-schema-ready
+            docker rm -f cymbal-postgres >/dev/null 2>&1 || true
+            docker run --rm --name cymbal-postgres \
+                -p 127.0.0.1:5432:5432 \
+                -e POSTGRES_USER=posthog \
+                -e POSTGRES_PASSWORD=posthog \
+                -e POSTGRES_DB=posthog \
+                -v cymbal-postgres-data:/var/lib/postgresql/data \
+                postgres:15.12-alpine
+        ready_pattern: 'database system is ready to accept connections'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    postgres-ready:
+        shell: |-
+            until docker exec cymbal-postgres pg_isready -U posthog -d posthog >/dev/null 2>&1; do
+                sleep 1
+            done
+
+            echo 'Postgres ready: posthog'
+            sleep infinity
+        ready_pattern: 'Postgres ready'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    postgres-schema:
+        shell: |-
+            until docker exec cymbal-postgres pg_isready -U posthog -d posthog >/dev/null 2>&1; do
+                sleep 1
+            done
+
+            docker exec -i cymbal-postgres psql -U posthog -d posthog -v ON_ERROR_STOP=1 <<'SQL'
+            DROP SCHEMA public CASCADE;
+            CREATE SCHEMA public;
+            SQL
+
+            for migration in tests/test_migrations/*.sql; do
+                echo "Applying ${migration}"
+                docker exec -i cymbal-postgres psql -U posthog -d posthog -v ON_ERROR_STOP=1 < "${migration}"
+            done
+
+            touch /tmp/cymbal-postgres-schema-ready
+            echo 'Postgres schema ready'
+            sleep infinity
+        ready_pattern: 'Postgres schema ready'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    redis:
+        shell: |-
+            docker rm -f cymbal-redis >/dev/null 2>&1 || true
+            docker run --rm --name cymbal-redis \
+                -p 127.0.0.1:6379:6379 \
+                redis:7-alpine
+        ready_pattern: 'Ready to accept connections'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    redis-ready:
+        shell: |-
+            until docker exec cymbal-redis redis-cli ping >/dev/null 2>&1; do
+                sleep 1
+            done
+
+            echo 'Redis ready'
+            sleep infinity
+        ready_pattern: 'Redis ready'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    object-storage:
+        shell: |-
+            rm -f /tmp/cymbal-object-storage-ready
+            docker rm -f cymbal-minio >/dev/null 2>&1 || true
+            docker run --rm --name cymbal-minio \
+                -p 127.0.0.1:19000:9000 \
+                -p 127.0.0.1:19001:9001 \
+                -e MINIO_ROOT_USER=object_storage_root_user \
+                -e MINIO_ROOT_PASSWORD=object_storage_root_password \
+                quay.io/minio/minio server /data --console-address ':9001'
+        ready_pattern: 'API:'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    object-storage-init:
+        shell: |-
+            set -e
+
+            until curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null; do
+                sleep 1
+            done
+
+            docker run --rm --network container:cymbal-minio \
+                -e MC_HOST_cymbal=http://object_storage_root_user:object_storage_root_password@127.0.0.1:9000 \
+                quay.io/minio/mc mb --ignore-existing cymbal/symbol-sets
+            docker run --rm --network container:cymbal-minio \
+                -e MC_HOST_cymbal=http://object_storage_root_user:object_storage_root_password@127.0.0.1:9000 \
+                quay.io/minio/mc ls cymbal/symbol-sets
+
+            touch /tmp/cymbal-object-storage-ready
+            echo 'MinIO bucket ready: symbol-sets'
+            sleep infinity
+        ready_pattern: 'MinIO bucket ready'
+        groups:
+            layer: Infrastructure
+            tech: Docker
+
+    resolution-stage:
+        shell: |-
+            until docker exec cymbal-postgres pg_isready -U posthog -d posthog >/dev/null 2>&1; do
+                sleep 1
+            done
+            until [ -f /tmp/cymbal-postgres-schema-ready ]; do
+                sleep 1
+            done
+            until docker exec cymbal-redis redis-cli ping >/dev/null 2>&1; do
+                sleep 1
+            done
+            until docker run --rm --network container:cymbal-minio \
+                -e MC_HOST_cymbal=http://object_storage_root_user:object_storage_root_password@127.0.0.1:9000 \
+                quay.io/minio/mc ls cymbal/symbol-sets >/dev/null 2>&1; do
+                sleep 1
+            done
+            RUST_LOG=cymbal_server=debug,info \
+            CYMBAL_LOG_FORMAT=text \
+            DATABASE_URL=postgres://posthog:posthog@127.0.0.1:5432/posthog \
+            ISSUE_BUCKETS_REDIS_URL=redis://127.0.0.1:6379/ \
+            OBJECT_STORAGE_BUCKET=symbol-sets \
+            OBJECT_STORAGE_FORCE_PATH_STYLE=true \
+            CYMBAL_MODE=stage \
+            CYMBAL_STAGE_IDS=resolution:v1 \
+            GRPC_ADDRESS=127.0.0.1:50151 \
+            CYMBAL_READINESS_FILE=/tmp/cymbal-resolution-ready \
+            CYMBAL_SHUTDOWN_DRAIN_DELAY_MS=1000 \
+            cargo run -p cymbal-server
+        ready_pattern: 'starting Cymbal gRPC server'
+        groups:
+            layer: Stage services
+            tech: Rust
+
+    pipeline:
+        shell: |-
+            until docker exec cymbal-postgres pg_isready -U posthog -d posthog >/dev/null 2>&1; do
+                sleep 1
+            done
+            until [ -f /tmp/cymbal-postgres-schema-ready ]; do
+                sleep 1
+            done
+            until docker exec cymbal-redis redis-cli ping >/dev/null 2>&1; do
+                sleep 1
+            done
+            until docker run --rm --network container:cymbal-minio \
+                -e MC_HOST_cymbal=http://object_storage_root_user:object_storage_root_password@127.0.0.1:9000 \
+                quay.io/minio/mc ls cymbal/symbol-sets >/dev/null 2>&1; do
+                sleep 1
+            done
+            RUST_LOG=cymbal_server=debug,info \
+            CYMBAL_LOG_FORMAT=text \
+            DATABASE_URL=postgres://posthog:posthog@127.0.0.1:5432/posthog \
+            ISSUE_BUCKETS_REDIS_URL=redis://127.0.0.1:6379/ \
+            OBJECT_STORAGE_BUCKET=symbol-sets \
+            OBJECT_STORAGE_FORCE_PATH_STYLE=true \
+            CYMBAL_MODE=pipeline \
+            GRPC_ADDRESS=127.0.0.1:50150 \
+            CYMBAL_REMOTE_TARGETS=resolution=127.0.0.1:50151 \
+            CYMBAL_REMOTE_STAGES=resolution:v1=resolution \
+            CYMBAL_REMOTE_REFRESH_INTERVAL_MS=1000 \
+            CYMBAL_REMOTE_CONNECT_TIMEOUT_MS=1000 \
+            CYMBAL_REMOTE_STAGE_TIMEOUT_MS=5000 \
+            CYMBAL_RATE_LIMIT_ENABLED=${CYMBAL_RATE_LIMIT_ENABLED:-false} \
+            CYMBAL_RATE_LIMIT_REPORTING_ONLY=${CYMBAL_RATE_LIMIT_REPORTING_ONLY:-false} \
+            CYMBAL_RATE_LIMIT_THRESHOLD=${CYMBAL_RATE_LIMIT_THRESHOLD:-1000000} \
+            CYMBAL_RATE_LIMIT_WINDOW_SECONDS=${CYMBAL_RATE_LIMIT_WINDOW_SECONDS:-60} \
+            CYMBAL_MAX_BATCH_EVENTS=1000 \
+            CYMBAL_READINESS_FILE=/tmp/cymbal-pipeline-ready \
+            CYMBAL_SHUTDOWN_DRAIN_DELAY_MS=1000 \
+            cargo run -p cymbal-server
+        ready_pattern: 'starting Cymbal gRPC server'
+        groups:
+            layer: Pipeline
+            tech: Rust
+
+    smoke-test:
+        shell: |-
+            echo 'Running Cymbal process_batch examples: baseline, variants, mixed outcomes, oversized rejection'
+            echo 'For the opt-in team_id limiter smoke, restart pipeline with CYMBAL_RATE_LIMIT_ENABLED=true CYMBAL_RATE_LIMIT_THRESHOLD=1, then run this process with CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE=true.'
+            CYMBAL_PIPELINE_ENDPOINT=http://127.0.0.1:50150 \
+            CYMBAL_EXAMPLE_VERBOSITY=compact \
+            CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE=${CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE:-false} \
+            CYMBAL_EXAMPLE_OVERSIZED_BATCH_EVENTS=1001 \
+            cargo run -p cymbal-server --example process_batch
+        autostart: false
+        groups:
+            layer: Test
+            tech: Rust
+
+    snapshot-tests:
+        shell: cargo test -p cymbal-server --test pipeline_snapshots --no-fail-fast
+        autostart: false
+        groups:
+            layer: Test
+            tech: Rust
+
+    snapshot-update:
+        shell: INSTA_UPDATE=always cargo test -p cymbal-server --test pipeline_snapshots --no-fail-fast
+        autostart: false
+        groups:
+            layer: Test
+            tech: Rust
+
+group_order:
+    layer: [pinned, Infrastructure, Pipeline, Stage services, Test]
+    tech: [pinned, Docker, Rust]

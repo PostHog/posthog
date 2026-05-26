@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
+    shadow::ShadowClient,
     signals::{MaybeSignalClient, SignalClient},
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
@@ -50,6 +51,10 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+
+    /// Optional shadow gRPC client. `None` when `CYMBAL_SHADOW_GRPC_ADDR` is
+    /// unset or `CYMBAL_SHADOW_SAMPLE_RATE` is 0.0.
+    pub shadow_client: Option<Arc<ShadowClient>>,
 }
 
 impl AppContext {
@@ -210,6 +215,23 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let shadow_client = if !config.shadow_grpc_addr.is_empty()
+            && config.shadow_sample_rate > 0.0
+        {
+            info!(
+                addr = %config.shadow_grpc_addr,
+                sample_rate = config.shadow_sample_rate,
+                "Shadow lane enabled; connecting to cymbal-server gRPC"
+            );
+            Some(Arc::new(
+                ShadowClient::new(&config.shadow_grpc_addr)
+                    .await
+                    .map_err(|e| UnhandledError::Other(format!("Shadow gRPC connect error: {e}")))?,
+            ))
+        } else {
+            None
+        };
+
         Ok(Self {
             health_registry,
             immediate_producer,
@@ -224,6 +246,7 @@ impl AppContext {
             signal_client,
             symbol_resolver,
             issue_cache,
+            shadow_client,
         })
     }
 }

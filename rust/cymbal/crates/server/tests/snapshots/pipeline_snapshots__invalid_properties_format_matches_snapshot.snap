@@ -1,0 +1,36 @@
+---
+source: cymbal/crates/server/tests/pipeline_snapshots.rs
+expression: "snapshot_payload(&request, &results)"
+---
+{
+  "request": {
+    "context": {
+      "batch_id": "invalid-properties-snapshot",
+      "metadata": {
+        "source": "snapshot-test"
+      }
+    },
+    "events": [
+      {
+        "distinct_id": "distinct-invalid-properties",
+        "event_id": "invalid-properties",
+        "properties_json": [
+          "not",
+          "an",
+          "object"
+        ],
+        "team_id": 1
+      }
+    ],
+    "options": null
+  },
+  "results": [
+    {
+      "code": "invalid_properties_json",
+      "event_id": "invalid-properties",
+      "message": "exception properties must be a JSON object",
+      "outcome": "Error",
+      "retryable": false
+    }
+  ]
+}

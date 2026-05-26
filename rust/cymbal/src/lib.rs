@@ -19,6 +19,7 @@ pub mod metric_consts;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
+pub mod shadow;
 pub mod signals;
 pub mod spike_config;
 pub mod stages;

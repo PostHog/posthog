@@ -19,6 +19,7 @@ use crate::{
         ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
         PROCESS_REQUEST_DURATION_SECONDS,
     },
+    shadow,
     stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
@@ -148,9 +149,28 @@ pub async fn process_events(
         })?;
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
+
+    // Clone input events for the shadow lane before they are moved into the batch.
+    // Only allocate when a shadow client is configured.
+    let shadow_events = ctx.shadow_client.as_ref().map(|_| events.clone());
+
     let pipeline = HttpEventPipeline::new(ctx.clone());
     let input = Batch::from(events);
     let output = pipeline.process(input).await;
+
+    // Fire-and-forget: send sampled batches to cymbal-server for fingerprint
+    // parity comparison. The HTTP result is always authoritative.
+    if let (Some(ref shadow), Some(shadow_events)) = (&ctx.shadow_client, shadow_events) {
+        if shadow::should_shadow(ctx.config.shadow_sample_rate) {
+            if let Ok(ref result_batch) = output {
+                let shadow = Arc::clone(shadow);
+                let shadow_results: Vec<Option<AnyEvent>> = result_batch.inner_ref().clone();
+                tokio::spawn(async move {
+                    shadow.compare(shadow_events, shadow_results).await;
+                });
+            }
+        }
+    }
 
     let duration = started_at.elapsed();
     let duration_ms = duration.as_millis() as u64;
