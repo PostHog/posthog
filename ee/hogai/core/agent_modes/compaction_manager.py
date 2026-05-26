@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
+import posthoganalytics
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -522,6 +523,23 @@ class AnthropicConversationCompactionManager(ConversationCompactionManager):
         thinking_config: dict[str, Any] | None = None,
         **kwargs,
     ) -> int:
-        return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
-            messages, thinking=thinking_config, tools=tools
-        )
+        # `thinking` is an Anthropic-specific kwarg; gateway-routed non-Anthropic models reject it.
+        extra_kwargs: dict[str, Any] = {}
+        if isinstance(model, ChatAnthropic):
+            extra_kwargs["thinking"] = thinking_config
+        try:
+            return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+                messages, tools=tools, **extra_kwargs
+            )
+        except (NotImplementedError, TypeError) as e:
+            # Some gateway-routed models (e.g. `hy3-preview`) don't have a tokenizer wired up.
+            # Fall back to the character-based estimator so the assistant turn doesn't crash.
+            posthoganalytics.capture_exception(
+                e,
+                properties={
+                    "tag": "max_ai",
+                    "model_name": getattr(model, "model_name", None) or getattr(model, "model", None),
+                },
+            )
+            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+            return sum(self._get_estimated_langchain_message_tokens(m) for m in messages) + tool_tokens

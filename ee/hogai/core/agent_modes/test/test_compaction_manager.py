@@ -321,7 +321,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
     async def test_get_token_count_calls_model(self):
         """Test that _get_token_count properly calls the model's token counting"""
-        mock_model = MagicMock()
+        from langchain_anthropic import ChatAnthropic
+
+        mock_model = MagicMock(spec=ChatAnthropic)
         mock_model.get_num_tokens_from_messages = MagicMock(return_value=1234)
 
         messages: list[BaseMessage] = [LangchainHumanMessage(content="Test")]
@@ -330,7 +332,56 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         result = await self.window_manager._get_token_count(mock_model, messages, thinking_config=thinking_config)
 
         self.assertEqual(result, 1234)
-        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config, tools=None)
+        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, tools=None, thinking=thinking_config)
+
+    async def test_get_token_count_omits_thinking_for_non_anthropic_model(self):
+        """Non-Anthropic models routed through the LLM gateway must not receive Anthropic-specific kwargs."""
+        mock_model = MagicMock()
+        mock_model.get_num_tokens_from_messages = MagicMock(return_value=42)
+
+        messages: list[BaseMessage] = [LangchainHumanMessage(content="Test")]
+
+        result = await self.window_manager._get_token_count(
+            mock_model, messages, thinking_config={"type": "enabled"}
+        )
+
+        self.assertEqual(result, 42)
+        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, tools=None)
+
+    async def test_get_token_count_falls_back_when_tokenizer_unsupported(self):
+        """When the underlying tokenizer raises NotImplementedError, fall back to char-based estimate."""
+        mock_model = MagicMock()
+        mock_model.model_name = "hy3-preview"
+        mock_model.get_num_tokens_from_messages = MagicMock(
+            side_effect=NotImplementedError(
+                "get_num_tokens_from_messages() is not presently implemented for model hy3-preview"
+            )
+        )
+
+        messages: list[BaseMessage] = [LangchainHumanMessage(content="hello world")]
+
+        with patch("ee.hogai.core.agent_modes.compaction_manager.posthoganalytics.capture_exception") as capture_mock:
+            result = await self.window_manager._get_token_count(mock_model, messages)
+
+        # 11 chars / 4 ≈ 3 tokens — the exact value doesn't matter, but it must be non-zero and not crash.
+        self.assertGreater(result, 0)
+        capture_mock.assert_called_once()
+        _, kwargs = capture_mock.call_args
+        self.assertEqual(kwargs["properties"]["model_name"], "hy3-preview")
+
+    async def test_get_token_count_falls_back_on_type_error(self):
+        """A TypeError from incompatible kwargs (e.g. Anthropic-only signature) also triggers fallback."""
+        mock_model = MagicMock()
+        mock_model.get_num_tokens_from_messages = MagicMock(
+            side_effect=TypeError("got an unexpected keyword argument 'thinking'")
+        )
+
+        messages: list[BaseMessage] = [LangchainHumanMessage(content="hello")]
+
+        with patch("ee.hogai.core.agent_modes.compaction_manager.posthoganalytics.capture_exception"):
+            result = await self.window_manager._get_token_count(mock_model, messages)
+
+        self.assertGreater(result, 0)
 
     def test_update_window_with_large_last_tool_call_message(self):
         """
