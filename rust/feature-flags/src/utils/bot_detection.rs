@@ -292,8 +292,8 @@ fn build_ranges(cidrs: &[(String, BotCategory)]) -> BotIpRanges {
     let mut v4 = Vec::new();
     let mut v6 = Vec::new();
     for (cidr, category) in cidrs {
-        let parsed = parse_cidr(cidr)
-            .unwrap_or_else(|| panic!("invalid CIDR from provider list: {cidr}"));
+        let parsed =
+            parse_cidr(cidr).unwrap_or_else(|| panic!("invalid CIDR from provider list: {cidr}"));
         // `2^host_bits = end - start + 1` for an inclusive [start, end].
         let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
         let max_host_bits = if parsed.is_v4 {
