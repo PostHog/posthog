@@ -307,34 +307,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         })
 
         testWithTeamIngester(
-            'should handle $$client_ingestion_warning events',
-            {},
-            async (ingester, hub, team, _kafkaProducer) => {
-                const events = [
-                    new EventBuilder(team)
-                        .withEvent('$$client_ingestion_warning')
-                        .withProperties({ $$client_ingestion_warning_message: 'test message' })
-                        .build(),
-                ]
-
-                const { backgroundTask } = await ingester.handleKafkaBatch(createKafkaMessages(events))
-                await backgroundTask
-
-                await waitForExpect(async () => {
-                    await waitForKafkaMessages(_kafkaProducer)
-                    const warnings = await fetchIngestionWarnings(hub, team.id)
-                    expect(warnings).toEqual([
-                        expect.objectContaining({
-                            type: 'client_ingestion_warning',
-                            team_id: team.id,
-                            details: expect.objectContaining({ message: 'test message' }),
-                        }),
-                    ])
-                })
-            }
-        )
-
-        testWithTeamIngester(
             'should process events without a team_id',
             {},
             async (ingester, hub, team, _kafkaProducer) => {

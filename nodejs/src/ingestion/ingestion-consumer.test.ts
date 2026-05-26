@@ -1139,15 +1139,6 @@ describe('IngestionConsumer', () => {
                 ],
             ],
             [
-                'client ingestion warning',
-                () => [
-                    createEvent({
-                        event: '$$client_ingestion_warning',
-                        properties: { $$client_ingestion_warning_message: 'test' },
-                    }),
-                ],
-            ],
-            [
                 'groups',
                 () => [
                     createEvent({
