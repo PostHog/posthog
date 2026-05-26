@@ -1,5 +1,7 @@
 import os
+import time
 import subprocess
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -13,6 +15,43 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+
+# TEMP INSTRUMENTATION (throwaway diagnostic branch — do not merge): measures per-phase wall
+# time of the first-package test-DB build to locate the backend-test "stuck at collected"
+# chokepoint. Always on here; opt out with POSTHOG_TIME_DB_SETUP=0. Emitted via
+# pytest_terminal_summary so it lands in the fetchable job log (fixture prints are captured).
+_TIME_DB_SETUP = os.environ.get("POSTHOG_TIME_DB_SETUP", "1").lower() in {"1", "true", "yes"}
+_DBSETUP_TIMINGS: list[str] = []
+
+
+@contextmanager
+def _timed(label: str):
+    if not _TIME_DB_SETUP:
+        yield
+        return
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        line = f"[DBSETUP] {label} {time.perf_counter() - start:.2f}s"
+        _DBSETUP_TIMINGS.append(line)
+        # Also surface in the GitHub Actions job summary when present (bypasses pytest capture).
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            try:
+                with open(summary_path, "a") as f:
+                    f.write(line + "\n")
+            except OSError:
+                pass
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if not _DBSETUP_TIMINGS:
+        return
+    terminalreporter.write_line("")
+    terminalreporter.write_line("=== DB setup phase timings (temp instrumentation) ===")
+    for line in _DBSETUP_TIMINGS:
+        terminalreporter.write_line(line)
 
 
 def create_clickhouse_tables():
@@ -43,31 +82,38 @@ def create_clickhouse_tables():
 
     mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
     if mergetree_queries:
-        run_clickhouse_statement_in_parallel(mergetree_queries)
+        with _timed(f"ch.mergetree n={len(mergetree_queries)}"):
+            run_clickhouse_statement_in_parallel(mergetree_queries)
 
     distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
     if distributed_queries:
-        run_clickhouse_statement_in_parallel(distributed_queries)
+        with _timed(f"ch.distributed n={len(distributed_queries)}"):
+            run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
         if kafka_table_queries:
-            run_clickhouse_statement_in_parallel(kafka_table_queries)
+            with _timed(f"ch.kafka n={len(kafka_table_queries)}"):
+                run_clickhouse_statement_in_parallel(kafka_table_queries)
 
     mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
     if mv_queries:
-        run_clickhouse_statement_in_parallel(mv_queries)
+        with _timed(f"ch.mv n={len(mv_queries)}"):
+            run_clickhouse_statement_in_parallel(mv_queries)
 
     view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
     if view_queries:
-        run_clickhouse_statement_in_parallel(view_queries)
+        with _timed(f"ch.view n={len(view_queries)}"):
+            run_clickhouse_statement_in_parallel(view_queries)
 
     dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
     if dictionary_queries:
-        run_clickhouse_statement_in_parallel(dictionary_queries)
+        with _timed(f"ch.dictionary n={len(dictionary_queries)}"):
+            run_clickhouse_statement_in_parallel(dictionary_queries)
 
     data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-    run_clickhouse_statement_in_parallel(data_queries)
+    with _timed(f"ch.data n={len(data_queries)}"):
+        run_clickhouse_statement_in_parallel(data_queries)
 
 
 def reset_clickhouse_tables():
@@ -248,7 +294,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     # Drop Person-related tables from default database and all FK constraints
     # These tables will exist in the persons_db_writer database via sqlx migrations
-    with django_db_blocker.unblock():
+    with _timed("pg.person_fk_drops"), django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
             # This is needed because:
@@ -291,7 +337,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
-    run_persons_sqlx_migrations(keepdb=django_db_keepdb)
+    with _timed("pg.persons_sqlx"):
+        run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
@@ -311,9 +358,11 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         except:
             pass
 
-    database.create_database()  # Create database if it doesn't exist
+    with _timed("ch.create_database"):
+        database.create_database()  # Create database if it doesn't exist
 
-    create_clickhouse_tables()
+    with _timed("ch.create_tables TOTAL"):
+        create_clickhouse_tables()
 
     yield
 
