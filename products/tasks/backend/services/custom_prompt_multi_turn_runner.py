@@ -98,15 +98,23 @@ class MultiTurnSession:
                 await session.end()
                 raise
         started_at = time.monotonic()
-        last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
-            task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
-        )
-        logger.info(
-            "multi_turn: initial turn completed run=%s duration=%.2fs",
-            task_run.id,
-            time.monotonic() - started_at,
-        )
-        parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        try:
+            last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
+                task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
+            )
+            logger.info(
+                "multi_turn: initial turn completed run=%s duration=%.2fs",
+                task_run.id,
+                time.monotonic() - started_at,
+            )
+            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        except Exception:
+            # The session + sandbox workflow are already spawned, but `start()` is about to
+            # raise so the caller never receives the session to run its own teardown. End it
+            # here so a first-turn poll/parse failure doesn't leak a running workflow/sandbox
+            # until its own timeout — mirrors the `on_task_run_created` failure path above.
+            await session.end()
+            raise
         return session, parsed
 
     async def send_followup(
