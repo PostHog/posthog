@@ -166,7 +166,10 @@ class PersonHogClient:
             # Prevent the channel from transitioning to IDLE between requests.
             ("grpc.client_idle_timeout_ms", client_idle_timeout_ms),
         ]
-        channel = grpc.insecure_channel(addr, options=options)
+        # Gzip compression reduces wire time for large payloads (e.g.
+        # person properties in bulk lookups). The server must also
+        # advertise gzip support for compression to activate.
+        channel = grpc.insecure_channel(addr, options=options, compression=grpc.Compression.Gzip)
         self._channel = grpc.intercept_channel(
             channel,
             ClientNameInterceptor(client_name),
