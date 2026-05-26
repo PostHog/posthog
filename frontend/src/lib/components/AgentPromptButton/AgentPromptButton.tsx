@@ -39,6 +39,8 @@ export interface AgentPromptButtonProps {
      */
     storageKey?: string
     size?: ButtonSize
+    /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
+    defaultOpen?: boolean
     'data-attr'?: string
 }
 
@@ -130,10 +132,11 @@ export function AgentPromptButton({
     actions,
     storageKey = 'agent-prompt-button',
     size = 'sm',
+    defaultOpen = false,
     'data-attr': dataAttr,
 }: AgentPromptButtonProps): JSX.Element | null {
     const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${storageKey}:combo`, null)
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState(defaultOpen)
 
     if (actions.length === 0) {
         return null
