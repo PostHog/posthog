@@ -1715,7 +1715,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["calculation_trigger"] = trigger
 
             # Attach accumulated warehouse sync warnings before caching, so cache hits replay them.
-            if warnings_accumulator:
+            # Guard against response classes that don't carry the field: every analytics response
+            # inherits `warnings` from AnalyticsQueryResponseBase, and several standalone classes
+            # add it explicitly — but a future response class that omits it would otherwise crash
+            # pydantic validation on the extra key (and poison the cache, which set_cache_data has
+            # already written by the time CachedResponse(**dict) raises).
+            if warnings_accumulator and "warnings" in CachedResponse.model_fields:
                 fresh_response_dict["warnings"] = [w.model_dump() for w in warnings_accumulator.values()]
 
             # Don't cache debug queries with errors and export queries

@@ -5891,6 +5891,13 @@
                         "type": "number"
                     },
                     "type": "object"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
@@ -5989,6 +5996,13 @@
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                     },
                     "type": "array"
                 }
@@ -6138,6 +6152,13 @@
                             "type": "array"
                         }
                     ]
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
@@ -6226,6 +6247,13 @@
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                     },
                     "type": "array"
                 }
@@ -6787,6 +6815,13 @@
                 },
                 "timezone": {
                     "type": "string"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
@@ -6884,6 +6919,13 @@
                             "type": "array"
                         }
                     ]
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
@@ -7341,6 +7383,13 @@
                             "type": "array"
                         }
                     ]
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
@@ -8934,6 +8983,13 @@
                 },
                 "timezone": {
                     "type": "string"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
@@ -9089,6 +9145,13 @@
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                     },
                     "type": "array"
                 }
@@ -13458,6 +13521,13 @@
                                         "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                                     },
                                     "type": "array"
+                                },
+                                "warnings": {
+                                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                                    "items": {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    "type": "array"
                                 }
                             },
                             "required": [
@@ -13523,6 +13593,13 @@
                                 "variants": {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                    },
+                                    "type": "array"
+                                },
+                                "warnings": {
+                                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                                    "items": {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                                     },
                                     "type": "array"
                                 }
@@ -17872,6 +17949,13 @@
                         "type": "number"
                     },
                     "type": "object"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind", "timeseries", "total_exposures", "date_range"],
@@ -18089,6 +18173,13 @@
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                     },
                     "type": "array"
                 }
@@ -18645,6 +18736,13 @@
                             "type": "array"
                         }
                     ]
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -19052,6 +19150,13 @@
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                     },
                     "type": "array"
                 }
@@ -22218,6 +22323,13 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -23145,6 +23257,13 @@
                             "type": "array"
                         }
                     ]
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
@@ -27065,6 +27184,13 @@
                             "type": "array"
                         }
                     ]
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["baseline", "variant_results"],
@@ -29068,6 +29194,13 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -29764,6 +29897,13 @@
                                 "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "required": [
@@ -29829,6 +29969,13 @@
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
                             },
                             "type": "array"
                         }
@@ -29941,6 +30088,13 @@
                                     "type": "array"
                                 }
                             ]
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -29972,6 +30126,13 @@
                                 "type": "number"
                             },
                             "type": "object"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "required": ["kind", "timeseries", "total_exposures", "date_range"],
@@ -32376,6 +32537,13 @@
                                 "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "required": [
@@ -32441,6 +32609,13 @@
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
                             },
                             "type": "array"
                         }
@@ -33332,6 +33507,13 @@
                                 "type": "string"
                             },
                             "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "required": ["questions"],
@@ -33644,6 +33826,13 @@
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
                                 "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
                             },
                             "type": "array"
                         }
@@ -38373,6 +38562,13 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["questions"],
@@ -39299,6 +39495,13 @@
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
                     },
                     "type": "array"
                 }
