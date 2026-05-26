@@ -407,7 +407,7 @@ describe('trendsChartTransforms', () => {
                 tooltip: TOOLTIP,
                 showCrosshair: false,
             })
-            expect(config.yAxis).toMatchObject({ format: 'percentage', scale: 'linear', showGrid: true })
+            expect(config.yAxis).toMatchObject({ format: 'percentage_scaled', scale: 'linear', showGrid: true })
             expect(config.percentStackView).toBe(true)
             expect(config.tooltip).toBe(TOOLTIP)
             expect(config.showCrosshair).toBe(false)

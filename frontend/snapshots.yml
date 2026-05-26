@@ -1968,6 +1968,10 @@ snapshots:
         hash: v1.k794b7964.68689d02aa245c2ccd04888b1c2bc578136eda4117f2fff911bde3f5c276b9da.svBnhEDDJ61_Vp6T3AUEjT3wlS2aamf9o-YNooKTRlw
     insights-trendsbarchart--compare--light:
         hash: v1.k794b7964.08db5d36c08b26300a7cd09fddd8f02e9ba973ffcf42e556e7f8ae01a27e907b.jN5qaeiDphtPJ90-0-bNC0jmD0MVkSCj6zjO8XzvZkI
+    insights-trendsbarchart--percent-stack-breakdown--dark:
+        hash: v1.k794b7964.b7e405e7536059add287822bbcae51772fab8005ac1f864ee3c65495eaeec4a9.0o8Vkv9xYOCBk1d35UNO2_kA2Oy9iajzneJBiTlq6vg
+    insights-trendsbarchart--percent-stack-breakdown--light:
+        hash: v1.k794b7964.02fcdcf3d83d1d4a1c0e28e097e1affbecb5d89f803d658bfe90ad49da0bd444.Mqj_tHvOG038o4BV0jE89RHVuDXjLZiYAluTs8Hx1pg
     insights-trendslifecyclechart--stacked--dark:
         hash: v1.k794b7964.f01dae4d665fea93c451e5bb48d6409d586c89856ffb1fff155937c7eb9119d9.coUQ2-TFqEqeP38cPDoiz5RbwkfznST9H3pR5TRbpvg
     insights-trendslifecyclechart--stacked--light:
@@ -4711,7 +4715,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-historical-trends-edit--light:
         hash: v1.k794b7964.fa67675b6f95f0ae9c46eb0e803f9db69702419bb4ccc2d21ea973f9fe49d9cc.Zz4siV83g7nIXf96Nfvy6eN5rRtzwO3CEmv24KSztlA
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--dark:
-        hash: v1.k794b7964.945ed16d72ed2ec67559ed2a478237267bf3fae0ec5437202145e4bbddaa99c2.Pl63KVs13EuxFB41jKCVv-dOTSP27veYuLRl7pFf7UQ
+        hash: v1.k794b7964.2a18d8ba3f9634f9d7c9ece2ad8ee2f6716706ecbb30595102d003ca8ad27184.y6n_yOa8fbdhe6yHOtjclzfTFAJ9hj0Da0VbQIhaj2M
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
