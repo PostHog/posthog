@@ -183,26 +183,20 @@ export function createErrorTrackingPipeline(
     const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
         .messageAware((b) =>
             b
-                // Header-only per-event steps. Cheap; run before the body is parsed.
-                .sequentially((b) =>
-                    b.pipe(createParseHeadersStep()).pipe(
-                        createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                            overflowEnabled,
-                            preservePartitionLocality,
-                        })
-                    )
-                )
-                // Rate-limit high-volume token:distinct_id pairs to overflow before parsing the
-                // body. Cookieless events are skipped — error tracking has no cookieless
-                // processing step, so we'd otherwise collapse every cookieless exception onto
-                // the single sentinel key.
-                .pipeBatch(
-                    createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService)
-                )
-                // Body parse, team resolution, and per-team settings.
                 .sequentially((b) =>
                     b
+                        // Parse headers from Kafka message [REUSE]
+                        .pipe(createParseHeadersStep())
+                        // Apply event restrictions (billing limits, drop/overflow) [REUSE]
+                        .pipe(
+                            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                overflowEnabled,
+                                preservePartitionLocality,
+                            })
+                        )
+                        // Parse Kafka message body [REUSE]
                         .pipe(createParseKafkaMessageStep())
+                        // Resolve team from token [REUSE]
                         .pipe(
                             topHogWrapper(createResolveTeamStep(teamManager), [
                                 countOk('resolved_teams', (output) => ({
@@ -236,9 +230,17 @@ export function createErrorTrackingPipeline(
                                 // Empty / undefined → no-op.
                                 const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
                                 const preCymbal = afterRateLimit
-                                    // Refresh TTLs for overflow lane events (keeps Redis flags alive).
-                                    // Stays here because the lane signal is per-event and only meaningful
-                                    // for events that survived the team-level rate limiters.
+                                    // Rate-limit high-volume token:distinct_id pairs to overflow.
+                                    // Cookieless events are skipped here — error tracking has no cookieless
+                                    // processing step, so we'd otherwise collapse every cookieless exception
+                                    // onto the single sentinel key.
+                                    .pipeBatch(
+                                        createSkipCookielessRateLimitToOverflowStep(
+                                            preservePartitionLocality,
+                                            overflowRedirectService
+                                        )
+                                    )
+                                    // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                 return (
                                     preCymbal
