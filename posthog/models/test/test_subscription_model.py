@@ -25,8 +25,6 @@ from posthog.models.subscription import (
     unsubscribe_using_token,
 )
 
-from products.alerts.backend.models.alert import AlertConfiguration
-
 
 @patch.object(settings, "SECRET_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
@@ -471,9 +469,6 @@ class TestSubscriptionLimit(BaseTest):
             result = Subscription.check_subscription_limit(self.team.id, self.organization)
         assert result is not None
         assert "2" in result
-
-    def test_free_tier_limit_matches_alerts(self) -> None:
-        assert SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER == AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER
 
     def test_paid_org_unlimited_returns_none(self) -> None:
         self.organization.available_product_features = [

@@ -1557,6 +1557,59 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.content
 
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_restore_blocked_when_at_limit(self):
+        # restoring a soft-deleted subscription re-occupies a slot, so it must
+        # respect the cap — otherwise soft-delete + create + restore bypasses it.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        existing = self._seed_subscriptions(5)
+        to_restore = existing[0]
+
+        # Soft-delete one (4 active), then refill to the cap with a fresh POST.
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": True},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.content
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            self._minimal_payload(target_value="refill@b.com"),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        # Now at the cap again — restoring the deleted one would push to 6.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": False},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json().get("attr") == "subscription", response.json()
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_restore_allowed_when_under_limit(self):
+        # with a free slot available, restoring a soft-deleted subscription succeeds.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        existing = self._seed_subscriptions(5)
+        to_restore = existing[0]
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": True},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.content
+
+        # 4 active remain — restoring brings it back to 5, within the cap.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": False},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["deleted"] is False
+
     def test_paid_org_can_create_beyond_free_tier_limit(self):
         # licensed org (enterprise, no numeric cap) can create 7+ subscriptions.
         # APILicensedTest provides an enterprise license with AvailableFeature.SUBSCRIPTIONS,

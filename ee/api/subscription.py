@@ -188,7 +188,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         request = self.context.get("request")
-        if request is not None and request.method == "POST":
+        # Re-run the free-tier cap on create AND on restore (deleted: true → false) —
+        # a soft-deleted row frees its slot, so PATCHing one back to active re-occupies
+        # one and must respect the limit, otherwise a free-tier team could soft-delete +
+        # create + restore its way past the cap.
+        is_create = request is not None and request.method == "POST"
+        is_restoring = self.instance is not None and self.instance.deleted and attrs.get("deleted") is False
+        if is_create or is_restoring:
             msg = Subscription.check_subscription_limit(self.context["team_id"], self.context["get_organization"]())
             if msg:
                 raise ValidationError({"subscription": [msg]})
