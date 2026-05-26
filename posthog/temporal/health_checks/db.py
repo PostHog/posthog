@@ -1,5 +1,5 @@
-from posthog.dags.common.health.types import HealthCheckResult
 from posthog.models.health_issue import HealthIssue
+from posthog.temporal.health_checks.models import HealthCheckResult
 
 
 def _upsert_issues(
