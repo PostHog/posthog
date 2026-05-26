@@ -1,7 +1,4 @@
-from datetime import datetime
 from typing import Optional, cast
-
-import structlog
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -13,31 +10,29 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
-    bigquery_source,
-    delete_all_temp_destination_tables,
-    delete_table,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-    get_leading_indexed_columns_for_schemas as get_bigquery_leading_indexed_columns_for_schemas,
-    get_primary_keys_for_schemas as get_bigquery_primary_keys_for_schemas,
-    get_schemas as get_bigquery_schemas,
-    validate_credentials as validate_bigquery_credentials,
+    BigQueryImplementation,
+    build_destination_table_prefix,
+    validate_bigquery_credentials,
 )
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
+__all__ = ["BigQuerySource", "build_destination_table_prefix"]
 
-def build_destination_table_prefix(schema_id: str | None) -> str:
-    return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
+_BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 
 @SourceRegistry.register
-class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
+class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    @property
+    def get_implementation(self) -> BigQueryImplementation:
+        return _BIGQUERY_IMPLEMENTATION
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
@@ -53,61 +48,6 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             # the table must be reset and fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
-
-    def get_schemas(
-        self,
-        config: BigQuerySourceConfig,
-        team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
-        force_refresh: bool = False,
-    ) -> list[SourceSchema]:
-        bq_schemas = get_bigquery_schemas(
-            config,
-            logger=None,
-            names=names,
-        )
-
-        try:
-            detected_pks = get_bigquery_primary_keys_for_schemas(config, bq_schemas)
-        except Exception as e:
-            structlog.get_logger().warning("Failed to detect primary keys for BigQuery schemas", exc_info=e)
-            detected_pks = {}
-
-        indexed_columns_by_table = get_bigquery_leading_indexed_columns_for_schemas(
-            config, table_names=list(bq_schemas.keys())
-        )
-
-        filtered_results = [
-            (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
-        ]
-
-        def _build_incremental_fields(table_name: str, columns: list[tuple[str, IncrementalFieldType, bool]]) -> list:
-            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            return [
-                {
-                    "label": column_name,
-                    "type": column_type,
-                    "field": column_name,
-                    "field_type": column_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else column_name in indexed_cols,
-                }
-                for column_name, column_type, nullable in columns
-            ]
-
-        return [
-            SourceSchema(
-                name=table_name,
-                supports_incremental=len(columns) > 0,
-                supports_append=len(columns) > 0,
-                incremental_fields=_build_incremental_fields(table_name, columns),
-                columns=bq_schemas[table_name],
-                detected_primary_keys=detected_pks.get(table_name),
-            )
-            for table_name, columns in filtered_results
-            if not table_name.startswith(build_destination_table_prefix(None))
-        ]
 
     def validate_credentials(
         self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -135,93 +75,6 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             return True, None
 
         return False, "Invalid BigQuery credentials"
-
-    def source_for_pipeline(self, config: BigQuerySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        if not config.key_file.private_key:
-            raise ValueError(f"Missing private key for BigQuery: '{inputs.job_id}'")
-
-        region: str | None = None
-        dataset_project_id: str | None = None
-        destination_table_dataset_id = config.dataset_id
-
-        if (
-            config.use_custom_region
-            and config.use_custom_region.enabled
-            and config.use_custom_region.region is not None
-            and config.use_custom_region.region != ""
-        ):
-            region = config.use_custom_region.region
-
-        if (
-            config.dataset_project
-            and config.dataset_project.enabled
-            and config.dataset_project.dataset_project_id is not None
-            and config.dataset_project.dataset_project_id != ""
-        ):
-            dataset_project_id = config.dataset_project.dataset_project_id
-
-        if (
-            config.temporary_dataset
-            and config.temporary_dataset.enabled
-            and config.temporary_dataset.temporary_dataset_id is not None
-            and config.temporary_dataset.temporary_dataset_id != ""
-        ):
-            destination_table_dataset_id = config.temporary_dataset.temporary_dataset_id
-
-        # Including the schema ID in table prefix ensures we only delete tables
-        # from this schema, and that if we fail we will clean up any previous
-        # execution's tables.
-        # Table names in BigQuery can have up to 1024 bytes, so we can be pretty
-        # relaxed with using a relatively long UUID as part of the prefix.
-        destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
-
-        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
-
-        delete_all_temp_destination_tables(
-            dataset_id=destination_table_dataset_id,
-            table_prefix=destination_table_prefix,
-            project_id=config.key_file.project_id,
-            location=region,
-            dataset_project_id=dataset_project_id,
-            private_key=config.key_file.private_key,
-            private_key_id=config.key_file.private_key_id,
-            client_email=config.key_file.client_email,
-            token_uri=config.key_file.token_uri,
-            logger=inputs.logger,
-        )
-
-        try:
-            return bigquery_source(
-                dataset_id=config.dataset_id,
-                project_id=config.key_file.project_id,
-                location=region,
-                dataset_project_id=dataset_project_id,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
-                table_name=inputs.schema_name,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                logger=inputs.logger,
-                bq_destination_table_id=destination_table,
-                incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
-                incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
-        finally:
-            # Delete the destination table (if it exists) after we're done with it
-            delete_table(
-                table_id=destination_table,
-                project_id=config.key_file.project_id,
-                location=region,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
-            )
-            inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
 
     @property
     def get_source_config(self) -> SourceConfig:
