@@ -9,8 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    BulkUpdateTagsRequestApi,
-    BulkUpdateTagsResponseApi,
     EndpointLastExecutionTimesRequestApi,
     EndpointMaterializationApi,
     EndpointRequestApi,
@@ -293,42 +291,6 @@ export const endpointsVersionsList = async (
     return apiMutator<PaginatedEndpointVersionResponseListApi>(getEndpointsVersionsListUrl(projectId, name, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getEndpointsBulkUpdateTagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/endpoints/bulk_update_tags/`
-}
-
-/**
- * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
- */
-export const endpointsBulkUpdateTagsCreate = async (
-    projectId: string,
-    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
-    options?: RequestInit
-): Promise<BulkUpdateTagsResponseApi> => {
-    return apiMutator<BulkUpdateTagsResponseApi>(getEndpointsBulkUpdateTagsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 
