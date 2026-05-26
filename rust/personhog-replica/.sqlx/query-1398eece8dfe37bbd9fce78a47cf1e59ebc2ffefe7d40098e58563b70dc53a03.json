@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, uuid, team_id::bigint as \"team_id!\", properties,\n                   properties_last_updated_at, properties_last_operation,\n                   created_at, version, is_identified,\n                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                   last_seen_at\n            FROM posthog_person\n            WHERE team_id = $1 AND uuid = ANY($2)\n            ",
+  "query": "\n            SELECT id, uuid, team_id::bigint as \"team_id!\", properties::text as \"properties!\",\n                   properties_last_updated_at::text as \"properties_last_updated_at?\",\n                   properties_last_operation::text as \"properties_last_operation?\",\n                   created_at, version, is_identified,\n                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                   last_seen_at\n            FROM posthog_person\n            WHERE team_id = $1 AND id = ANY($2)\n            ",
   "describe": {
     "columns": [
       {
@@ -20,18 +20,18 @@
       },
       {
         "ordinal": 3,
-        "name": "properties",
-        "type_info": "Jsonb"
+        "name": "properties!",
+        "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "properties_last_updated_at",
-        "type_info": "Jsonb"
+        "name": "properties_last_updated_at?",
+        "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "properties_last_operation",
-        "type_info": "Jsonb"
+        "name": "properties_last_operation?",
+        "type_info": "Text"
       },
       {
         "ordinal": 6,
@@ -62,16 +62,16 @@
     "parameters": {
       "Left": [
         "Int4",
-        "UuidArray"
+        "Int8Array"
       ]
     },
     "nullable": [
       false,
       false,
       null,
-      false,
-      true,
-      true,
+      null,
+      null,
+      null,
       false,
       true,
       false,
@@ -79,5 +79,5 @@
       true
     ]
   },
-  "hash": "c97b0d70bce706c87aca8107f7fd04308742ff6027ef5dba69fa292301621575"
+  "hash": "1398eece8dfe37bbd9fce78a47cf1e59ebc2ffefe7d40098e58563b70dc53a03"
 }
