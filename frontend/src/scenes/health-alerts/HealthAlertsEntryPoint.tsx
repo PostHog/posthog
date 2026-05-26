@@ -8,12 +8,14 @@ import {
     AlertCreationView,
     AlertWizardLogicProps,
     alertWizardLogic,
+    applyKindFilter,
+    decorateAlertName,
 } from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
-import { CyclotronJobFiltersType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionSubTemplateType } from '~/types'
 
 import {
     HEALTH_ALERT_DESTINATIONS,
@@ -26,11 +28,12 @@ const HOG_FUNCTION_FILTER_LIST = HEALTH_ALERT_SUB_TEMPLATE_IDS.map(getFiltersFro
 ) as CyclotronJobFiltersType[]
 
 export interface HealthAlertsEntryPointProps {
-    // `logicKey` keeps multiple mounts (e.g. SDK Doctor + central page in the
-    // same session) from sharing wizard state.
     logicKey?: string
     // Restricts the resulting HogFunction's filter to a `kind IN (...)` set.
-    // Omit on the central page to leave filters unrestricted (every kind).
+    // The central scene reads this from the `preset_kinds` URL search param so
+    // per-page entry points (SDK Doctor, Pipeline Status) can deep-link in with
+    // a scoped wizard. Omit (or pass an empty array) to leave filters
+    // unrestricted (every kind).
     presetKinds?: string[]
 }
 
@@ -54,7 +57,7 @@ export function HealthAlertsEntryPoint({
 }
 
 function HealthAlertsEntryPointInner(): JSX.Element {
-    const { alertCreationView, subTemplateIds } = useValues(alertWizardLogic)
+    const { alertCreationView, subTemplateIds, selectedKinds } = useValues(alertWizardLogic)
     const { setAlertCreationView, resetWizard } = useActions(alertWizardLogic)
 
     if (alertCreationView === AlertCreationView.Wizard) {
@@ -78,7 +81,25 @@ function HealthAlertsEntryPointInner(): JSX.Element {
             <HogFunctionTemplateList
                 type="destination"
                 subTemplateIds={subTemplateIds}
-                getConfigurationOverrides={(id) => (id ? getFiltersFromSubTemplateId(id) : undefined)}
+                getConfigurationOverrides={(_id, subTemplate) => {
+                    if (!subTemplate) {
+                        return undefined
+                    }
+                    const overrides: Partial<HogFunctionSubTemplateType> = {}
+                    const filters = applyKindFilter(subTemplate.filters, selectedKinds)
+                    if (filters && filters !== subTemplate.filters) {
+                        overrides.filters = filters
+                    }
+                    if (selectedKinds && selectedKinds.length > 0) {
+                        if (subTemplate.name) {
+                            overrides.name = decorateAlertName(subTemplate.name, selectedKinds)
+                        }
+                        if (subTemplate.description) {
+                            overrides.description = decorateAlertName(subTemplate.description, selectedKinds)
+                        }
+                    }
+                    return Object.keys(overrides).length > 0 ? overrides : undefined
+                }}
                 extraControls={
                     <LemonButton
                         type="secondary"
