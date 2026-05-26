@@ -8,7 +8,8 @@
 import math
 from typing import Optional, cast
 
-from posthog.test.base import BaseTest, MemoryLeakTestMixin, no_memory_leak_check
+from posthog.test.base import BaseTest, MemoryLeakTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -2717,11 +2718,21 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
-            # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`. Every backend must reject via `JoinExpr.__post_init__`; the rust-py path covers this via `PyEmitter::set_field` re-firing `__post_init__` because `join_type` is written post-construction by `chain_join`.
+            # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`, so `JoinExpr.__post_init__` raises `ValueError` on every backend. rust-py writes `join_type` post-construction (via `chain_join`), so `PyEmitter::set_field` re-fires `__post_init__` and restores the original exception — surfacing the same `ValueError` the json backends raise from `cls(**kwargs)`.
             q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
-            with self.assertRaises((ValueError, ExposedHogQLError)) as cm:
+            with self.assertRaises(ValueError) as cm:
                 self._select(q)
             self.assertIn("Invalid join type", str(cm.exception))
+
+        def test_dataclass_post_init_failure_surfaces_original_exception(self):
+            # A dataclass `__post_init__` raising mid-build must surface the ORIGINAL exception on every backend. The json backends raise it straight from `deserialize_ast`; rust-py constructs dataclasses during the parse, so `PyEmitter` restores the exception across its panic/`catch_unwind` boundary instead of wrapping it in an envelope (or leaking a `PanicException`).
+            def always_reject(_self: ast.JoinExpr) -> None:
+                raise ValueError("synthetic post_init failure for test")
+
+            with patch.object(ast.JoinExpr, "__post_init__", always_reject):
+                with self.assertRaises(ValueError) as caught:
+                    parse_select("SELECT 1 FROM a JOIN b ON a.x = b.x", backend=backend)
+            self.assertIn("synthetic post_init failure", str(caught.exception))
 
         def test_deeply_nested_expression_does_not_stack_overflow(self):
             # Deep paren input must surface a clean `SyntaxError`, not stack-OOM in the recursive-descent loop. Cap lives at `MAX_EXPR_RECURSION_DEPTH = 1000`, mirrors ClickHouse's `max_parser_depth`. cpp / python paths have their own stack characteristics so the assertion is rust-specific.
@@ -4601,14 +4612,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        @no_memory_leak_check
         def test_statement_keywords_rejected_as_expressions(self):
             # Hog statement keywords (`fn`, `let`, `while`, …) aren't in the `keyword` rule, unlike `if` / `for` / `return`.
             for kw in ("fn", "fun", "let", "while", "throw", "try", "catch", "finally"):
                 with self.assertRaises(ExposedHogQLError, msg=f"{backend}: {kw!r} should reject"):
                     parse_expr(kw, backend=backend)
 
-        @no_memory_leak_check
         def test_exponent_float_without_fractional_digits(self):
             # FLOATING_LITERAL's fractional digits are optional: `1.e5` is one token, not `1` then ArrayAccess on `e5`.
             cases = {
@@ -4623,7 +4632,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_clause_keyword_after_comma_in_select_columns(self):
             # `select a, where b` is one column + WHERE clause; `select a, where` (no body) is two columns.
             # `where * columns('x')` could also be multiplication, but cpp prefers the clause.
@@ -4650,7 +4658,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 node = parse_select(src, backend=backend)
                 self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_limit_percent_marker_with_compound_body(self):
             # `%` is overloaded (modulo + LIMIT PERCENT); compound LIMIT bodies must bind it as the PERCENT marker.
             cases = (
@@ -4666,7 +4673,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_assignment_lhs_is_any_expression(self):
             # `exprStmt: expression (COLONEQUALS expression)?` — `:=` LHS has no place-expression restriction.
             cases = (
@@ -4682,7 +4688,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_call_as_assignment_target(self):
             # `f() := 1` is `Call(f) := 1`; a statement's leading expr folds its postfix `(…)` even with `:=` after.
             cases = (
@@ -4697,7 +4702,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_assignment_statement_consumes_trailing_semicolon(self):
             # `exprStmt: expression (COLONEQUALS expression)? SEMICOLON?` — `:=`-form consumes its trailing `;`.
             # (`varDecl`'s `LET …` form has no `SEMICOLON?` and must not consume it.)
@@ -4711,7 +4715,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_trailing_limit_offset_compound_body(self):
             # `LIMIT`/`OFFSET` after `LIMIT BY` takes a full `columnExpr` body — lower-precedence tails must bind.
             cases = (
@@ -4724,7 +4727,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_zero_arg_lambda_as_clause_body(self):
             # After `,`, a clause-keyword + `()->` is a lambda clause body; bare `()` makes the keyword a column.
             cases = (
@@ -4738,7 +4740,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_set_level_offset_compound_body(self):
             # `offsetOnlyClause: OFFSET columnExpr` at selectSetStmt level takes a full columnExpr (lower-precedence tails bind).
             cases = (
@@ -4751,7 +4752,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_tuple_or_single_parenthesised_operand(self):
             # Per `columnExprTupleOrSingle`, a parenthesised PIVOT/UNPIVOT operand is always a `Tuple`, even for one element.
             cases = (
@@ -4763,7 +4763,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_binds_to_last_joined_table(self):
             # `joinExpr PIVOT` binds to the immediately-preceding `joinExpr`; after a constraint or explicit parens it wraps the whole chain.
             cases = (
@@ -4777,7 +4776,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.
             cases = (
@@ -4795,7 +4793,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_columns_replace_item_name_is_the_as_keyword(self):
             # `columnsReplace: columnExpr AS identifier` — the replacement name can itself be the keyword `as`.
             cases = (
@@ -4810,7 +4807,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_clause_keyword_then_postfix_op_is_a_column(self):
             # Clause body can't start with a postfix op, so `qualify?.q` / `prewhere::q` keep the keyword as a column.
             for src in (
@@ -4825,7 +4821,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             node = parse_select("select q, having y", backend=backend)
             self.assertEqual(len(node.select), 1, msg=f"{backend}: having y")
 
-        @no_memory_leak_check
         def test_from_after_comma_needs_a_table_reference(self):
             # FROM's body is a `joinExpr`, not a `columnExpr` — `from` after a comma stays a Field unless a table-ref starter follows.
             for src in ("select q, from", "select q, from + 1", "select q, from()"):
@@ -4837,7 +4832,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(len(node.select), 1, msg=f"{backend}: from t")
             self.assertIsNotNone(node.select_from, msg=f"{backend}: from t")
 
-        @no_memory_leak_check
         def test_clause_keyword_asterisk_then_postfix_is_a_clause(self):
             # `<clause-kw> * <postfix-op>` is the clause with `*` spread + postfix; `*` mult RHS can't begin with a postfix op.
             for src in (
@@ -4852,7 +4846,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             node = parse_select("select q, where * r", backend=backend)
             self.assertEqual(len(node.select), 2, msg=f"{backend}: where * r")
 
-        @no_memory_leak_check
         def test_pivot_tuple_or_single_operand_with_postfix(self):
             # PIVOT operand is `Tuple` only when `)` is followed by `FOR`/`IN`; `(n)()` takes the columnExpr branch (paren-expr + postfix call).
             cases = (
@@ -4865,7 +4858,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_window_frame_between_falls_back_to_field(self):
             # After ROWS/RANGE, `between` is ambiguous: `frameBetween` alt OR `frameStart` whose columnExpr is the `between` Field.
             cases = (
@@ -4877,7 +4869,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_operand_containing_in(self):
             # PIVOT operand is full `columnExpr`, so `for n in p in (r)` → operand `n in p` + structural `IN (r)`.
             cases = (
@@ -4891,7 +4882,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_decoration_after_pivot(self):
             # `tableExpr PIVOT (…)` is itself a `tableExpr` — it can chain into alias, FINAL/SAMPLE, further PIVOT, or JOIN.
             cases = (
@@ -4909,7 +4899,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_clause_keyword_as_last_group_by_key(self):
             # The last GROUP BY key can be a clause-keyword Field (e.g. `window`); the next clause then opens normally.
             for kw in ("window", "having", "qualify"):
@@ -4921,7 +4910,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(len(node.group_by or []), 2, msg=f"{backend}: {kw}")
                 self.assertIsNotNone(node.having, msg=f"{backend}: {kw}")
 
-        @no_memory_leak_check
         def test_integer_literal_above_i64_max(self):
             # Above-i64 ints are kept lossless via the `value_type: "number"` string envelope (orjson rejects >64-bit number tokens).
             cases = {
@@ -4939,7 +4927,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
                 self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_string_escape_nul_bel_vtab(self):
             # cpp drops `\0` (NUL ignored), decodes `\a`→0x07, `\v`→0x0B; `\0` also affects quoted identifiers.
             cases = (
@@ -4954,7 +4941,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_reserved_keyword_alias_rejected(self):
             # `assertValidAlias` fires at all four alias sites (AS-infix, alias-before, implicit, table); quoted forms opt out.
             for src in (
@@ -4974,7 +4960,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             ):
                 parse_select(src, backend=backend)
 
-        @no_memory_leak_check
         def test_settings_and_top_clause_error_class(self):
             # SETTINGS/TOP parse but the visitor rejects them — `NotImplementedError` is `InternalHogQLError` and is rewritten to `ExposedHogQLError` at the parser boundary.
             for src in ("SELECT 1 SETTINGS x = 1", "SELECT TOP 5 x FROM t"):
@@ -4985,7 +4970,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIs(type(backend_cm.exception), type(cpp_cm.exception), msg=f"{backend}: {src!r}")
                 self.assertNotIsInstance(backend_cm.exception, SyntaxError, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_window_frame_non_int_bound_keeps_constant(self):
             # Unwrap a frame-bound Constant to a bare number only when integer; floats / strings keep the Constant.
             cases = (
@@ -4998,7 +4982,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_boolean_keyword_as_call_name(self):
             # `true`/`false` are identifiers in the grammar (Bool Constants only as a bare columnIdentifier); as a call name they're `Call(name=...)`.
             # `null` differs — `NULL` is a real lexer keyword, so `null(1)` stays an `ExprCall` on Null Constant.
@@ -5012,7 +4995,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIsInstance(node, ast.Constant, msg=src)
                 self.assertEqual(node.value, val, msg=src)
 
-        @no_memory_leak_check
         def test_hex_integer_literal_baseline(self):
             # Pins plain `0x…` parsing against hex-float-lexer regressions; `e`/`E` are hex digits here, not exponent markers.
             cases = {
@@ -5044,7 +5026,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
                 self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_float_literal_c99(self):
             # Hex-float `FLOATING_LITERAL` is strict C99 — `p`/`P` is the only exponent marker; `e`/`E` always lexes as a hex digit.
             cases = {
@@ -5076,7 +5057,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIsInstance(node.value, float, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_e_is_hex_digit_not_exponent_marker(self):
             # `0x1e+4` is `0x1e` (=30) + `4`, not a hex-float — only `p`/`P` marks the exponent (strict C99, matches ClickHouse).
             for src, op, lhs, rhs in (
@@ -5092,7 +5072,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_float_in_expression_context(self):
             # Pins that the lexer recognises a whole hex-float as one token usable inside arithmetic.
             for src, op, lhs, rhs in (
@@ -5108,13 +5087,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_float_no_integer_part_rejected(self):
             # `0x.8p3` lacks HEX_DIGIT+ before the dot — invalid per both FLOATING_LITERAL and HEXADECIMAL_LITERAL.
             with self.assertRaises(ExposedHogQLError, msg=f"{backend}: '0x.8p3'"):
                 parse_expr("0x.8p3", backend=backend)
 
-        @no_memory_leak_check
         def test_cast_type_arg_with_parenthesized_expr(self):
             # `CAST(x AS name(args))` — the `ColumnTypeExprParam` arglist admits arbitrary columnExprs including ones with their own `(…)`.
             cases = (
@@ -5127,7 +5104,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_subquery_arg_call_then_second_call(self):
             # `f(select 1)()` — `(select 1)` is `ColumnExprCallSelect`, the trailing `()` is a separate `ColumnExprCall` postfix nesting on top.
             cases = (
@@ -5140,7 +5116,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_between_not_lambda_lower_bound(self):
             # `BETWEEN <low>`'s AND-reservation must propagate through a `NOT`-wrapped lambda low bound so the lambda doesn't over-consume `…and c`.
             cases = (
@@ -5152,7 +5127,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_chained_between_inner_end_position(self):
             # Left-recursive `between`: `a between L1 and H1 between L2 and H2` parses as `BetweenExpr(BetweenExpr(a, L1, H1), L2, H2)`.
             # The inner BetweenExpr's `.end` must stop at H1 (offset of `2` here), not extend through H2.
@@ -5167,7 +5141,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
             self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
 
-        @no_memory_leak_check
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
             cases = (
@@ -5184,7 +5157,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_placeholder_statement_then_postfix_call_or_property(self):
             # `{expr}` at statement start is a placeholder; trailing `(…)` or `.x` is a postfix on it (not a `block` statement).
             cases = (
@@ -5198,7 +5170,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_placeholder_as_alias_inside_call_args(self):
             # `f({placeholder} AS alias, …)` — the placeholder is a columnExpr admitting a trailing `AS alias`, just like any other expression.
             # Caught by the retention query builder emitting `has({start_event_timestamps} as _start_event_timestamps, {min_timestamp})`.
@@ -5213,7 +5184,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_is_only_consumes_known_tails(self):
             # `IS` is only `IS [NOT] NULL` / `IS [NOT] DISTINCT FROM y` per cpp's grammar; in Hog program mode anything else falls back to per-token ExprStatements (e.g. `this is a string` parses as four bare identifier statements).
             # Caught by `test_metadata.py::test_string_template` parsing `"this is a {event} string"` as `HogLanguage.HOG`.
@@ -5231,7 +5201,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_window_frame_bound_low_precedence_value(self):
             # Window frame bound is a full `columnExpr` — admits comparison / AND / OR (BETWEEN still splits on its own AND).
             cases = (
@@ -5244,10 +5213,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_join_op_modifier_arity_validation(self):
             # Each `joinOp` alt allows at most one ALL/ANY/ASOF; ANTI/SEMI combine only with ASOF as `ASOF (ANTI|SEMI)`.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT 1 FROM a ANTI ASOF JOIN b ON 1",
@@ -5272,7 +5239,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_group_by_all_falls_back_to_columns_on_postfix(self):
             # `ALL` is also in the `keyword` rule — any postfix after `ALL` makes it a `Field('ALL')` columnExpr, not the all-mode marker.
             for src in (
@@ -5290,10 +5256,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_select("SELECT a FROM t GROUP BY ALL", backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
 
-        @no_memory_leak_check
         def test_with_rollup_cube_totals_chain_grammar(self):
             # `groupByClause … (WITH (CUBE|ROLLUP))? (WITH TOTALS)?` — at most one CUBE/ROLLUP, then optional TOTALS, in order.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT a FROM t GROUP BY a WITH ROLLUP WITH CUBE",
@@ -5316,10 +5280,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_in_list_must_be_non_empty(self):
             # `pivotColumn`'s `IN ( columnExprList )` is non-empty.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend=backend)
@@ -5331,10 +5293,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_select(src, backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
 
-        @no_memory_leak_check
         def test_trim_substring_must_be_string_literal(self):
             # `TRIM (LEADING|TRAILING|BOTH string FROM columnExpr)` — `string` is `STRING_LITERAL | templateString` only.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "TRIM(BOTH x FROM y)",
@@ -5351,7 +5311,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_cte_list_paren_after_non_paren_cte(self):
             # `, (` after a CTE continues the list — paren-subquery or paren-expr as next CTE, not a SELECT-start under trailing-comma tolerance.
             for src in (
@@ -5366,7 +5325,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_group_by_cube_rollup_continues_list(self):
             # `CUBE(...)` / `ROLLUP(...)` followed by `, <more>` is a regular function call; the specialised mode commits only when no list continuation follows.
             for src in (
@@ -5387,7 +5345,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_trailing_comma_after_joined_table_chain(self):
             # A stray trailing comma after a constrained JOIN chain (`FROM a JOIN b ON 1,`) falls off the joinExpr without requiring a next table atom.
             for src in (
@@ -5399,7 +5356,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_unterminated_block_comment_lexes_as_div_asterisk(self):
             # `/* … */` only matches with a closing `*/`; unterminated `/*` falls back to `/ *` tokens that the grammar then evaluates normally.
             for src in ("1 /*", "1 /* "):
@@ -5408,7 +5364,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
             # Unterminated `/*` + ident lexes as `1 / * ident`; expression parse fails on the extraneous tokens.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in ("1 /* unclosed", "a /* unclosed"):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
@@ -5419,10 +5374,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_expr("1 /* ok */ + 2", backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
 
-        @no_memory_leak_check
         def test_interpolate_no_trailing_comma(self):
             # `INTERPOLATE (…)` body is `interpolateExpr (COMMA interpolateExpr)*` — no trailing comma.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError), msg=backend):
                 parse_select(
@@ -5430,7 +5383,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     backend=backend,
                 )
 
-        @no_memory_leak_check
         def test_boolean_dot_chain_is_field_not_array_access(self):
             # `true.x` is `Field(['true','x'])` — bools act as identifiers in `columnIdentifier` chain position, not Bool Constant + `.x` postfix.
             cases = ("true.x", "false.x", "TRUE.x", "true.x.y", "false.foo.bar")
@@ -5444,10 +5396,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_using_empty_parens_rejected(self):
             # `joinConstraintClause` requires a non-empty `columnExprList` in both `USING (…)` and `USING …` forms.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_select("SELECT * FROM a JOIN b USING ()", backend=backend)
@@ -5459,7 +5409,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_select(src, backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
 
-        @no_memory_leak_check
         def test_group_by_cube_rollup_empty_is_function_call(self):
             # Empty `CUBE()`/`ROLLUP()` are ordinary Calls in the GROUP BY position, not mode markers.
             for src in ("SELECT 1 GROUP BY CUBE()", "SELECT 1 GROUP BY ROLLUP()"):
@@ -5472,7 +5421,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_select(src, backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_quoted_identifier_backslash_escapes(self):
             # `QUOTED_IDENTIFIER` admits `\"`, `\\`, and `""` escapes inside `"…"`.
             cases = (
@@ -5486,10 +5434,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_reserved_keywords_rejected_as_identifiers(self):
             # `identifier` excludes NULL_SQL/INF/NAN_SQL/EXCEPT/INTERSECT and Hog-statement keywords (FN/FUN/LET/WHILE/THROW/TRY/CATCH/FINALLY).
-            from posthog.hogql.errors import BaseHogQLError
 
             expr_invalid = (
                 # Postfix DOT
@@ -5554,10 +5500,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 else:
                     self.assertIsNotNone(parse_expr(src, backend=backend), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_bare_asterisk_replace_only_inside_parens(self):
             # `ColumnExprAsterisk` only admits trailing EXCLUDE; `REPLACE` after `*` is valid only inside `(*…)` or `COLUMNS(*…)`.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid_select = ("SELECT * REPLACE (b AS a) FROM t",)
             for src in invalid_select:
@@ -5577,10 +5521,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_filter_clause_invalid_before_within_group(self):
             # `ColumnExprFunctionWithinGroup` has no FILTER slot.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in (
                 "median(x) FILTER (WHERE z) WITHIN GROUP (ORDER BY y)",
@@ -5593,10 +5535,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
 
-        @no_memory_leak_check
         def test_window_function_args_no_distinct_no_inline_order_by(self):
             # `ColumnExprWinFunction` takes a plain `columnExprList` — no DISTINCT, no in-args ORDER BY.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in (
                 "foo(a ORDER BY b) OVER ()",
@@ -5611,10 +5551,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_unary_plus_only_on_numeric_literal(self):
             # `numberLiteral`'s `+` is a sign prefix on number/INF/NAN, not a general unary op.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = ("+a", "+(a)", "+(+a)", "+f(x)")
             for src in invalid:
@@ -5628,10 +5566,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 if src not in ("+nan",):
                     self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_column_cte_requires_identifier_after_as(self):
             # `withExpr: columnExpr AS identifier` — post-AS must be a real identifier, not a number / string / paren group.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "WITH a AS 1 SELECT a",
@@ -5646,11 +5582,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             got = parse_select("WITH a AS b SELECT b", backend=backend)
             self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}")
 
-        @no_memory_leak_check
         def test_limit_offset_with_ties_must_precede_offset(self):
             # `limitAndOffsetClause` is either `LIMIT n PERCENT? (COMMA n)? (WITH TIES)?` (compact) or `LIMIT n PERCENT? (WITH TIES)? OFFSET n` (verbose);
             # `LIMIT n OFFSET m WITH TIES` matches neither — WITH TIES must precede OFFSET in the verbose form.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_select("SELECT a FROM t LIMIT 1 OFFSET 2 WITH TIES", backend=backend)
@@ -5666,7 +5600,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_in_separator_extends_via_postfix_call(self):
             # `pivotColumn`'s LHS extends past any `IN (…) (` (postfix-call on LHS); only the LAST `IN (…)` not followed by `(` is structural.
             cases = (
@@ -5680,7 +5613,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_return_expr_prefix_shortened_when_assignment_follows(self):
             # `return <expr>? <stmt>` where stmt starts with `:=` — cpp backtracks the expr to the shortest prefix that leaves `:=` parseable as the next stmt.
             cases = (
@@ -5699,7 +5631,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_interpolate_as_lambda_value(self):
             # `interpolateExpr: columnExpr (AS columnExpr)?` — AS RHS is a full columnExpr, so a lambda body is valid.
             cases = (
@@ -5720,10 +5651,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hogqlx_tag_in_from_paren_decorations(self):
             # `(<Tag/>)` is `LPAREN joinExpr RPAREN`: alias / FINAL / SAMPLE bind to the tag inside the parens (tableExpr) but not outside (JoinExprParens isn't a tableExpr).
-            from posthog.hogql.errors import BaseHogQLError
 
             accept = (
                 "SELECT 1 FROM (<Tag /> AS y)",
@@ -5744,7 +5673,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend=backend)
 
-        @no_memory_leak_check
         def test_hogqlx_tag_text_accepts_arbitrary_non_brace_non_lt(self):
             # `HOGQLX_TEXT_TEXT: ~[<{]+` — any byte except `<` and `{` is valid tag-body text.
             cases = (
@@ -5760,7 +5688,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hogqlx_tag_identifier_allows_hyphens(self):
             # `HOGQLX_TAG_OPEN`/`_CLOSE` modes admit `[a-zA-Z_][a-zA-Z0-9_-]*` for tag and attribute names — hyphens are part of the ident.
             cases = (
@@ -5776,10 +5703,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_join_expr_parens_does_not_take_outer_alias(self):
             # `JoinExprParens` isn't a `tableExpr`, so alias / FINAL / SAMPLE can't bind to a `(joinExpr)` from outside.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT 1 FROM (t) AS x",
@@ -5803,10 +5728,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_string_literal_unknown_backslash_escapes_rejected(self):
             # `ESCAPE_CHAR_COMMON` is closed: `\b \f \r \n \t \0 \a \v \\ \xNN` plus `\'`; anything else is a lexer error.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 r"'\x'",  # \x without two hex digits
@@ -5833,7 +5756,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_sample_clause_leading_dot_float_value(self):
             # Leading-dot floats `.5` lex as `Dot` + `Number`, so SAMPLE's ratio gate must admit `Dot` when followed by a Number.
             cases = (
@@ -5847,10 +5769,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_sample_clause_only_accepts_number_literals(self):
             # `ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?` — each side is a `numberLiteral` only, not a general columnExpr.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT * FROM t SAMPLE a",
@@ -5874,7 +5794,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_join_op_grammar_alts_validation(self):
             # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
             # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
@@ -5882,7 +5801,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             # LEFT / RIGHT / FULL. Rust's source-order loop set booleans
             # without de-duplicating or cross-validating, so it accepted
             # `INNER LEFT`, `LEFT OUTER LEFT`, `FULL INNER`, etc.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT 1 FROM a INNER LEFT JOIN b ON 1",
@@ -5913,10 +5831,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_capital_F_template_string_only_in_full_template_context(self):
             # `f'…'` is reachable from `templateString` (a `columnExpr`); `F'…'` only from the `fullTemplateString` entry rule.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in ("F'hello'", "F''", "F'{1+2}'"):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
@@ -5927,10 +5843,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_empty_paren_only_clauses_rejected(self):
             # `columnAliases`, `interpolateClause`'s paren body, and `columnsReplaceList` each require ≥ 1 element when parens are present.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid_select = (
                 "SELECT * FROM t AS x ()",
@@ -5966,10 +5880,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_bare_zero_x_prefix_lexes_as_zero_plus_ident(self):
             # `HEXADECIMAL_LITERAL` requires ≥ 1 hex digit after `0x`; otherwise the lexer falls back to `0` then ident `x`.
-            from posthog.hogql.errors import BaseHogQLError
 
             cases = (
                 "SELECT 0x AS y",
@@ -5986,7 +5898,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_cast_type_param_group_mode_classification(self):
             # `IDENT(...)` type expr commits per-group: Param renders via raw text (case-preserved, spaceless), Complex / Nested lowercase + `, `-join.
             # Any depth-0 expr-shaped sibling forces Param mode for the entire group.
@@ -6015,7 +5926,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hogqlx_comments_skipped_between_attributes(self):
             # `HOGQLX_TAG_OPEN`/`_CLOSE` modes skip block + line comments and route unknown bytes to UNEXPECTED_CHARACTER.
             cases = (
@@ -6036,7 +5946,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend=backend)
 
-        @no_memory_leak_check
         def test_float_subnormal_preserved_not_flattened_to_infinity(self):
             # Subnormal floats keep their value (cpp's `strtod`+errno distinguishes underflow from overflow); below the smallest subnormal → 0.0; true overflow → ±Infinity.
             cases_subnormal = (
@@ -6054,7 +5963,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(got.value, expected, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_stmt_rhs_pratt_recovers_on_infix_rhs_failure(self):
             # cpp splits `let x := {} * ()` into two stmts when the `*` infix RHS rejects — the stranded operator + operand become the next stmt.
             cases = (
@@ -6078,7 +5986,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_unpivot_emits_include_nulls_false_by_default(self):
             # `JoinExprUnpivot` always emits `include_nulls` — `false` by default, `true` when `INCLUDE NULLS` is present.
             cases = (
@@ -6090,7 +5997,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_not_with_keyword_infix_treats_not_as_field(self):
             # `NOT <kw-infix> <rhs>` is `Field([not]) <kw-infix> <rhs>` when the infix RHS is valid; otherwise `Not(Field(kw))`.
             cases = (
@@ -6115,7 +6021,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_multi_join_with_stacked_on_using_clauses(self):
             # Multi-JOIN with stacked constraints binds right-associatively: in `a JOIN b JOIN c ON1 ON2`, ON1 attaches to `c`, ON2 to `b`.
             cases = (
@@ -6140,7 +6045,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_enum_cast_rejected_as_unsupported(self):
             # `ColumnTypeExprEnum` (`ident(enumValue,…)` where `enumValue: STRING = number`) is explicitly unsupported by the visitor.
             for src in (
@@ -6156,7 +6060,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIn("ColumnTypeExprEnum", str(cpp_cm.exception), msg=src)
                 self.assertIn("ColumnTypeExprEnum", str(rust_cm.exception), msg=src)
 
-        @no_memory_leak_check
         def test_raw_type_param_text_rejects_null_inf_nan_keywords(self):
             # cpp's `columnTypeExpr` Param alt routes identifier-shaped
             # tokens through the `identifier` rule, which omits NULL /
@@ -6194,7 +6097,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_stmt_expression_pratt_recovers_at_statement_level(self):
             # `x *= 2` has no `*=` token: splits into two stmts (`x` and `* = 2` → Compare(Field('*'), '==', 2)).
             cases = (
@@ -6212,7 +6114,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_let_decl_shortens_rhs_when_trailing_colon_equals(self):
             # `LET ident := <expr>` has no slot for a trailing `:=`; cpp shortens the expr to its leading primary so the trailing `:=` opens a new stmt.
             cases = (
@@ -6236,7 +6137,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_bare_assignment_lead_chains_through_second_colon_equals(self):
             # `IDENT := <rhs> := <outer>` — the *second* `:=` is the stmt-level varAssignment; the leading `IDENT := <rhs>` becomes a NamedArgument lvalue.
             cases = (
@@ -6264,7 +6164,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_column_lhs_extends_past_in_via_infix_operators(self):
             # `pivotColumn`'s LHS extends through ANY infix operator after an `IN(…)`; the structural IN is the LAST one not followed by an extender.
             same_ast = (
@@ -6293,10 +6192,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_parse_order_expr_silently_drops_trailing_tokens(self):
             # `parse_order_expr_json` parses one OrderExpr and silently drops anything trailing (incl. INTERPOLATE, which is one level up).
-            from posthog.hogql.parser import parse_order_expr
 
             for src in (
                 "a ASC extra",
@@ -6308,7 +6205,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_order_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_pivot_group_by_with_empty_list_rejected(self):
             # `GROUP BY` (PIVOT-level included) requires a non-empty `columnExprList`.
             for src in (
@@ -6330,7 +6226,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_return_expr_prefix_shortening_admits_keyword_head(self):
             # A leading keyword (`return return *(...) := X`) is a valid shortening head: expr = Field(['return']), `* (...) := X` is the next stmt.
             cases = (
@@ -6355,7 +6250,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_program(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hogqlx_drops_whitespace_only_children_containing_newline(self):
             # `HogqlxTagElementNested` drops child text runs that are all-whitespace AND contain a newline (so pretty-printed HOGQLX has no spurious Constant children).
             for src in (
@@ -6380,7 +6274,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
             cases = (
@@ -6404,7 +6297,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
             for src in ("a IN COHORT", "a NOT IN COHORT", "a IN cohort"):
@@ -6427,7 +6319,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_tuple_access_rejects_leading_zero_index(self):
             # Postfix `.<index>` requires `DECIMAL_LITERAL`; leading-zero numbers lex as `OCTAL_PREFIX_LITERAL` and are rejected.
             for src in (
@@ -6447,7 +6338,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_with_cte_admits_primary_form_keywords_as_name(self):
             # CTE names can be any keyword in `identifier` — including primary-form heads (CASE / CAST / SELECT / NOT).
             for kw in ("select", "case", "cast", "not"):
@@ -6463,7 +6353,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend=backend)
 
-        @no_memory_leak_check
         def test_join_on_with_comma_separated_exprs_rejected(self):
             # ON takes a comma-separated `columnExprList` per the grammar; the visitor then rejects multi-expr ON as unsupported.
             for src in (
@@ -6486,7 +6375,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_cast_type_compound_loop_stops_at_non_identifier_keyword(self):
             # `columnTypeExpr`'s compound alt is `identifier identifier+`; NULL / INF / NAN aren't in `identifier`, so `cast(x as Int NULL)` rejects.
             # `Array(Int NULL)` is intentionally omitted — that routes through ColumnTypeExprParam's raw-text fallback (separate problem).
@@ -6514,7 +6402,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_call_arg_select_releases_when_followed_by_keyword_infix(self):
             # `f((SELECT 1) IN [1,2])` — the first call arg is the full Compare; keyword-led infixes (IN/LIKE/IS/BETWEEN + NOT-variants) must release the SELECT-as-arg arm.
             cases = (
@@ -6539,7 +6426,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_named_argument_admits_identifier_shaped_keywords(self):
             # `ColumnExprNamedArg: identifier COLONEQUALS columnExpr` — `true`/`false` are plain IDENTIFIERs in the lexer; soft keywords pass via `keyword`.
             cases = (
@@ -6562,7 +6448,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend=backend)
 
-        @no_memory_leak_check
         def test_null_inf_nan_rejected_in_hog_identifier_slots(self):
             # `varDecl`, `funcStmt`, `catchBlock`, `forInStmt`, and lambda heads all route through `identifier`, which omits NULL / INF / NAN / Hog-stmt keywords.
             program_cases = (
@@ -6610,7 +6495,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_fn(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_true_false_admitted_as_identifier_in_chain_and_table_positions(self):
             # `true`/`false` are plain IDENTIFIERs in the lexer; they lift to Bool Constants only in the bare-Field branch.
             expr_cases = ("x.true", "x.false", "x.true.false")
@@ -6628,7 +6512,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_join_constraint_rejected_on_lead_table_and_cross_join(self):
             # `joinConstraintClause` attaches to `JoinExprOp` / `JoinExprPositional` only — not to the lead `JoinExprTable` or `JoinExprCrossOp`.
             for src in (
@@ -6676,7 +6559,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_select(src, backend=backend)
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_columns_exclude_replace_reject_reserved_keywords(self):
             # `columnsExcludeItem` and `columnsReplaceItem` use the strict `identifier` rule (excludes NULL/INF/NAN/EXCEPT/INTERSECT + Hog-stmt keywords).
             for src in (
@@ -6753,7 +6635,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 parse_expr(query, backend="cpp-json")
                 parse_expr(query, backend=backend)
 
-        @no_memory_leak_check
         def test_brace_placeholder_only_positions_reject_dict(self):
             # `tableExpr`, `ratioExpr` (SAMPLE) and the `selectStmtWithParens`
             # placeholder arm all admit only a placeholder `{ columnExpr }`, never
@@ -6782,7 +6663,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             for query in valid_placeholder:
                 parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_empty_columns_call_and_star_spread_rejected(self):
             # Empty `columns()` matches no `ColumnExprColumns*` production. rust
             # built an empty-list ColumnsExpr and accepted it; it must instead let
@@ -6810,7 +6690,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             for query in valid:
                 parse_program(query, backend=backend)
 
-        @no_memory_leak_check
         def test_window_name_rejects_hog_statement_keywords(self):
             # A window name is an `identifier`, which admits only the keywords in
             # cpp's `keyword` rule; the Hog-statement keywords are excluded, so they
@@ -6829,7 +6708,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 parse_expr(f"f() over {name}", backend=backend)
                 parse_select(f"select 1 from t window {name} as (order by x)", backend=backend)
 
-        @no_memory_leak_check
         def test_materialized_keyword_rejected_as_identifier(self):
             # MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED
             # (...)`; the grammar's `keyword` rule omits it, so it is not a valid
@@ -6849,7 +6727,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             ):
                 parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_bare_star_replace_rejected_outside_wrapper(self):
             # `* REPLACE(...)` is a columnExpr only inside the paren forms
             # `(* REPLACE(...))` / `(* EXCLUDE(...) REPLACE(...))` or `COLUMNS(* REPLACE(...))`.
@@ -6872,7 +6749,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             for query in valid:
                 parse_expr(query, backend=backend)
 
-        @no_memory_leak_check
         def test_wrapped_columns_replace_span_excludes_outer_parens(self):
             # Only the BARE `(* [exclude] replace(...))` form has its wrapping parens
             # in the ColumnsExpr ctx. When the ColumnsExpr instead comes from a
@@ -6896,7 +6772,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_between_hoist_inner_wrapper_spans(self):
             # When 2+ wrappers stack outside a BETWEEN (`1 between 2 and 3 as l :: Int`),
             # the hoist-apply loop built each position-less and only the OUTERMOST got
@@ -6923,7 +6798,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_arrow_lambda_block_body_span_with_trailing_postfix(self):
             # An arrow lambda with a Hog BLOCK body (`x -> { … }`) ends at `}`, so a
             # trailing postfix (`. 1`, `[1]`, `:: Int`) cannot fold into the body and
@@ -6947,7 +6821,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_statement_leading_brace_block_vs_call(self):
             # A statement-leading `{...}` is a Block, except when a postfix that
             # cannot itself begin a statement follows the matching `}`: a `.` or an
@@ -6981,7 +6854,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_columns_qualifier_rejects_invalid_identifier_keywords(self):
             # The qualifier before `.*` inside `COLUMNS(...)` is the grammar's
             # `identifier` (`COLUMNS LPAREN identifier DOT ASTERISK ...`), so only
@@ -7024,7 +6896,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             ):
                 parse_expr(query, backend=backend)
 
-        @no_memory_leak_check
         def test_bare_qualified_star_replace_rejected(self):
             # A bare (unwrapped) `ColumnExprAsterisk` (grammar line 289) admits an
             # optional trailing EXCLUDE but never REPLACE — REPLACE is a columnExpr
@@ -7049,7 +6920,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             ):
                 parse_expr(query, backend=backend)
 
-        @no_memory_leak_check
         def test_columns_qualified_asterisk_continuation_positions(self):
             # When a qualified asterisk (`a.*`) is the LHS of a postfix call or infix
             # op inside `COLUMNS(...)`, the continuation node's span must start at the
@@ -7070,7 +6940,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_within_keyword_rejected_as_identifier(self):
             # WITHIN is a lexer keyword used only in the `within group (...)` clause;
             # the grammar's `keyword` rule omits it, so it is not a valid identifier.
@@ -7090,7 +6959,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             parse_expr("f() within group (order by x)", backend=backend)
             parse_select("select f() within group (order by x) from t", backend=backend)
 
-        @no_memory_leak_check
         def test_positional_and_tuple_index_decimal_literal_parity(self):
             # `#N` (positional ref) and `a.N` / `a?.N` (tuple access) all take a
             # grammar DECIMAL_LITERAL index. rust's lexer folds hex / octal / float
@@ -7144,7 +7012,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_nested_interval_reserves_unit_for_outer(self):
             # `INTERVAL <value> <unit>`: cpp's ALL(*) reserves the trailing unit for
             # the OUTER interval, so a nested INTERVAL in value position never takes
@@ -7178,7 +7045,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(BaseHogQLError):
                 parse_program("interval interval 'jihi' month", backend=backend)
 
-        @no_memory_leak_check
         def test_select_from_keyword_table_vs_invalid_from_column(self):
             # `FROM implicitAlias # ColumnExprInvalidFromImplicitAlias` is a
             # SELECT-COLUMN footgun only: a bare `from <ident>` in TABLE position is
@@ -7227,7 +7093,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_from_trailing_comma_only_after_join_constraint(self):
             # A trailing comma in the FROM clause is valid ONLY as the ON / USING
             # `columnExprList`'s optional `COMMA?` (`a JOIN b ON 1,`); cpp's
@@ -7269,7 +7134,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_interval_without_unit_does_not_over_commit(self):
             # cpp commits to the INTERVAL form only for a STRING_LITERAL (the
             # ColumnExprIntervalString alt). `interval <number|ident|quoted-ident>`
@@ -7298,7 +7162,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_statement_boundary_splits_incomplete_special_infix_and_postfix(self):
             # At a statement boundary, an INCOMPLETE special-infix (LIKE / BETWEEN /
             # IN / IS) or postfix (`[`) is cpp's "end this statement, start the next"
@@ -7333,7 +7196,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_not_and_modulo_accept_hogqlx_tag_operand(self):
             # `<` begins a HogQLX tag as well as the less-than operator. In bounded
             # lookahead rust used to always read `<` as less-than, so `not <a/>`
@@ -7362,7 +7224,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_boolean_literal_numeric_tuple_access_keeps_constant(self):
             # `true.1` / `false.0` are tuple access on the boolean Constant, not a
             # Field chain — cpp keeps Constant(true) as the tuple base. rust used to
@@ -7375,7 +7236,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_select_level_sample_requires_using_except_before_group_by(self):
             # Bare SAMPLE is a SELECT-level clause only in slot 1 (`USING?
             # sampleClause`, before GROUP BY) — and on the FROM table. After
@@ -7402,7 +7262,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_return_keyword_as_identifier_before_infix_postfix(self):
             # `return` is also a keyword-rule identifier. When it is followed by a
             # pure infix / postfix operator, that operator binds `return` as its
@@ -7445,7 +7304,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_not_before_statement_keyword_falls_back_to_field(self):
             # At a statement boundary, `not` followed by a statement keyword that is
             # not a valid expression operand (`let`, `throw`) is `not` as a bare
@@ -7463,7 +7321,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError):
                     parse_program(query, backend=backend)
 
-        @no_memory_leak_check
         def test_block_then_empty_param_lambda_is_two_statements(self):
             # `{…} ()` is a dict / placeholder called with empty args (one
             # exprStmt), but `{…} () -> body` is a Block followed by an empty-param
@@ -7483,7 +7340,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_hogqlx_tag_name_rejects_non_identifier_keywords(self):
             # A HogQLX tag/attr name is a grammar `identifier`, so a keyword head is
             # valid only when the grammar's `keyword` rule admits it. The Hog-statement
@@ -7519,7 +7375,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=kw,
                 )
 
-        @no_memory_leak_check
         def test_not_falls_back_to_field_when_operand_invalid(self):
             # In EXPRESSION context cpp's single-expression parse reads a leading NOT
             # as a Field when its operand can't parse, so a following infix binds to
@@ -7563,7 +7418,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_in_cohort_marker_only_before_a_complete_value(self):
             # `IN COHORT? columnExpr`: cpp takes the COHORT marker only when a complete
             # value follows it. When COHORT is followed by an operator it is the IN rhs
@@ -7605,7 +7459,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_select_distinct_reread_as_column_when_no_value_follows(self):
             # `SELECT DISTINCT? columnExprList`: DISTINCT is the modifier only when a
             # column follows. When the next token ends the column list (comma / EOF)
@@ -7647,7 +7500,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(BaseHogQLError):
                 parse_select("SELECT DISTINCT FROM x", backend=backend)
 
-        @no_memory_leak_check
         def test_hogqlx_attribute_and_text_child_positions_match(self):
             # cpp positions each HogQLXAttribute (name start -> value end, or name end
             # for a bare attribute), the string value Constant over the string token,
@@ -7670,7 +7522,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_lambda_keyword_is_a_plain_alias_after_as(self):
             # The grammar's explicit `AS identifier` admits every keyword, so `AS
             # lambda` is a plain alias `Alias(expr, 'lambda')` in expression context.
@@ -7704,7 +7555,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
 
-        @no_memory_leak_check
         def test_empty_fstring_constant_spans_whole_token(self):
             # An empty f-string `f''` has no interior text, so cpp spans its Constant
             # over the whole `f''` token, not the zero-width gap between the quotes.
@@ -7716,7 +7566,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_interpolate_expr_carries_positions(self):
             # The INTERPOLATE item node (InterpolateExpr) was built without a position
             # wrap, so it came back position-less; cpp spans it from the expr start to
@@ -7733,7 +7582,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_between_span_includes_parenthesized_high_closing_paren(self):
             # A simple BETWEEN spans through the high operand's last consumed token,
             # so a parenthesized `high` (`1 between 2 and (3)`) must include the
@@ -7755,7 +7603,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_leading_comma_from_implicit_alias_dangling_clause(self):
             # Under a leading/trailing comma, cpp's greedy `selectColumnExprListBeforeFrom`
             # consumes `from <implicitAlias>` (+ any following cross-join tables) as
@@ -7790,7 +7637,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_date_literal_tolerated_in_discarded_set_decorators(self):
             # A `selectSetStmt`'s trailing `orderByClause?` is always grammar-parsed
             # but never emitted by cpp's `VISIT(SelectSetStmt)`, and its trailing
@@ -7843,7 +7689,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError, msg=query):
                     fn(query, backend=backend)
 
-        @no_memory_leak_check
         def test_date_literal_tolerated_in_select_level_sample(self):
             # The `selectStmt` grammar allows a `(USING? sampleClause)?` at SELECT
             # level (two slots), but cpp's `VISIT(SelectStmt)` never reads it — only
@@ -7868,7 +7713,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError, msg=query):
                     parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_interval_string_without_unit_tolerated_in_unvisited_clause(self):
             # `INTERVAL <string>` with no `<count> <unit>` content is cpp's
             # `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
@@ -7902,7 +7746,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError, msg=query):
                     fn(query, backend=backend)
 
-        @no_memory_leak_check
         def test_interval_value_pending_flag_does_not_leak(self):
             # `parse_interval_expr` flags the value's leading primary as a nested
             # interval (one-shot, consumed by `parse_primary`). When the value parse
@@ -7924,7 +7767,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_stacked_table_alias_span_ends_at_first_alias(self):
             # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
             # the JoinExpr span at the INNERMOST (first) alias, while each outer
@@ -7945,7 +7787,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_between_split_synthetic_node_positions(self):
             # When the greedy BETWEEN-body parse is split at the rightmost AND, the
             # rebuilt And/Or (and the wrappers it descends through) must carry cpp's
@@ -7973,7 +7814,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_between_parenthesized_group_high(self):
             # `a and (b and c)` flattens to `And([a,b,c])` (cpp does too for a standalone
             # expr), but in a BETWEEN body cpp keeps `(b and c)` as one high operand: the
@@ -7996,7 +7836,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_return_empty_parens_is_a_call(self):
             # `return ()` — empty parens are not a valid return value, so cpp re-reads
             # `return` as a Field and `()` as an empty call: `Call(return, [])`. rust
@@ -8016,7 +7855,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        @no_memory_leak_check
         def test_bare_star_decorator_splits_at_statement_boundary(self):
             # A bare `*` admits only a valid `EXCLUDE (<identifiers>)` (no REPLACE, no
             # string/empty list). At a statement boundary an invalid decorator is cpp's
@@ -8054,7 +7892,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
 
-        @no_memory_leak_check
         def test_invalid_filter_clause_splits_at_statement_boundary(self):
             # The aggregate FILTER clause requires `(WHERE <expr>)`. An invalid FILTER
             # (`filter ()`, no WHERE) is, at a statement boundary, cpp's completed
@@ -8085,7 +7922,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(BaseHogQLError):
                 parse_expr("count() filter ()", backend=backend)
 
-        @no_memory_leak_check
         def test_cast_type_enum_vs_param_fallback(self):
             # A cast type `q(...)` is `ColumnTypeExprEnum` only when every entry is a
             # `string '=' numberLiteral` (the visitor then rejects it as unsupported).
