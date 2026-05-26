@@ -511,6 +511,13 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
+                  # Cyclotron node DB — the plugins container runs the CDP rerun worker
+                  # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
+                  # at a real, migrated database or it throws on startup and the server exits.
+                  CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
+                  sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                  sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
+
                   python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
 
