@@ -1458,9 +1458,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # runs a SELECT + UPDATE + activity-log write each, which does not scale to
             # sources with thousands of schemas (e.g. a Slack workspace with thousands of
             # channels).
-            ExternalDataSchema.objects.filter(id__in=[schema.id for schema in schemas]).update(
-                deleted=True, deleted_at=datetime.now(UTC)
+            deleted_at = datetime.now(UTC)
+            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
+                deleted=True, deleted_at=deleted_at
             )
+            # Mirror the bulk update onto the in-memory objects so the post-atomic
+            # `schema.delete_table()` save() below doesn't overwrite deleted=True with the
+            # stale in-memory value.
+            for schema in schemas:
+                schema.deleted = True
+                schema.deleted_at = deleted_at
 
             # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
             # DataWarehouseTable records linked to the source but not to schema.table.
