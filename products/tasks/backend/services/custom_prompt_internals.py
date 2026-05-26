@@ -270,9 +270,7 @@ async def _drain_final_log(
         return final_message, final_log, final_lines, printed_lines
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    message = (
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     # Surface upstream provider rate limits as a distinct exception so callers can
     # convert them into retryable Temporal errors instead of failing the whole flow.
     if _is_rate_limit_error_message(error_message):

@@ -777,9 +777,7 @@ class TestRunEvaluationWorkflow:
             )
 
             with pytest.raises(ApplicationError, match="rate limited") as exc_info:
-                await execute_llm_judge_activity(
-                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-                )
+                await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert exc_info.value.non_retryable is False
             assert exc_info.value.details[0]["error_type"] == "rate_limit"
