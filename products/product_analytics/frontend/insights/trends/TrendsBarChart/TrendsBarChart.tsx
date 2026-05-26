@@ -134,7 +134,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             // In percent layout the chart computes each segment's share of its band and passes
             // a 0..1 fraction here, so we render it directly as a percentage.
             if (isPercentStackView) {
-                return percentage(value)
+                return percentage(value, 1)
             }
             return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
         },
