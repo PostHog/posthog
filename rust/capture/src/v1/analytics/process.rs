@@ -139,11 +139,15 @@ pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn S
             }
             Outcome::RetriableError | Outcome::Timeout => {
                 event.result = EventResult::Retry;
-                event.details = Some(result.cause().unwrap_or("not_persisted"));
+                event.details = Some("not_persisted");
             }
             Outcome::FatalError => {
                 event.result = EventResult::Drop;
-                event.details = Some(result.cause().unwrap_or("publish_failed"));
+                let cause = result.cause().unwrap_or("rejected");
+                event.details = Some(match cause {
+                    "serialization_failed" | "event_too_big" => cause,
+                    _ => "rejected",
+                });
             }
         }
     }
@@ -1925,58 +1929,47 @@ mod tests {
 
     use crate::v1::test_utils::MockSinkResult;
 
-    #[test]
-    fn merge_all_success_leaves_results_intact() {
-        let mut events = vec![
-            wrapped_event("$pageview", "user-1"),
-            wrapped_event("$identify", "user-2"),
-        ];
-        let results: Vec<Box<dyn SinkResult>> = events
-            .iter()
-            .map(|e| MockSinkResult::success(e.uuid))
-            .collect();
-
-        merge_sink_results(&mut events, &results);
-
-        assert_eq!(events[0].result, EventResult::Ok);
-        assert!(events[0].details.is_none());
-        assert_eq!(events[1].result, EventResult::Ok);
-        assert!(events[1].details.is_none());
+    fn mock_result(uuid: Uuid, outcome: &str, cause: &'static str) -> Box<dyn SinkResult> {
+        match outcome {
+            "success" => MockSinkResult::success(uuid),
+            "retriable" => MockSinkResult::retriable(uuid, cause),
+            "timeout" => MockSinkResult::timeout(uuid),
+            "fatal" => MockSinkResult::fatal(uuid, cause),
+            _ => panic!("unknown outcome: {outcome}"),
+        }
     }
 
-    #[test]
-    fn merge_retriable_error_flips_ok_to_retry() {
+    #[rstest::rstest]
+    #[case::success("success", "", EventResult::Ok, None)]
+    #[case::retriable("retriable", "queue_full", EventResult::Retry, Some("not_persisted"))]
+    #[case::timeout("timeout", "", EventResult::Retry, Some("not_persisted"))]
+    #[case::fatal_serialization(
+        "fatal",
+        "serialization_failed",
+        EventResult::Drop,
+        Some("serialization_failed")
+    )]
+    #[case::fatal_event_too_big("fatal", "event_too_big", EventResult::Drop, Some("event_too_big"))]
+    #[case::fatal_generic("fatal", "rdkafka_other", EventResult::Drop, Some("rejected"))]
+    fn merge_single_outcome(
+        #[case] outcome: &str,
+        #[case] cause: &'static str,
+        #[case] expected_result: EventResult,
+        #[case] expected_details: Option<&'static str>,
+    ) {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let results: Vec<Box<dyn SinkResult>> =
-            vec![MockSinkResult::retriable(events[0].uuid, "queue_full")];
+        let results: Vec<Box<dyn SinkResult>> = vec![mock_result(events[0].uuid, outcome, cause)];
 
         merge_sink_results(&mut events, &results);
 
-        assert_eq!(events[0].result, EventResult::Retry);
-        assert_eq!(events[0].details, Some("queue_full"));
-    }
-
-    #[test]
-    fn merge_timeout_flips_ok_to_retry() {
-        let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::timeout(events[0].uuid)];
-
-        merge_sink_results(&mut events, &results);
-
-        assert_eq!(events[0].result, EventResult::Retry);
-        assert_eq!(events[0].details, Some("timeout"));
-    }
-
-    #[test]
-    fn merge_fatal_error_flips_ok_to_drop() {
-        let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let results: Vec<Box<dyn SinkResult>> =
-            vec![MockSinkResult::fatal(events[0].uuid, "message_too_large")];
-
-        merge_sink_results(&mut events, &results);
-
-        assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].details, Some("message_too_large"));
+        assert_eq!(
+            events[0].result, expected_result,
+            "result for {outcome}:{cause}"
+        );
+        assert_eq!(
+            events[0].details, expected_details,
+            "details for {outcome}:{cause}"
+        );
     }
 
     #[test]
@@ -2034,9 +2027,9 @@ mod tests {
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].details.is_none());
         assert_eq!(events[1].result, EventResult::Retry);
-        assert_eq!(events[1].details, Some("queue_full"));
+        assert_eq!(events[1].details, Some("not_persisted"));
         assert_eq!(events[2].result, EventResult::Drop);
-        assert_eq!(events[2].details, Some("serialization_error"));
+        assert_eq!(events[2].details, Some("rejected"));
     }
 
     #[test]
@@ -2057,7 +2050,7 @@ mod tests {
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].details.is_none());
         assert_eq!(events[1].result, EventResult::Retry);
-        assert_eq!(events[1].details, Some("queue_full"));
+        assert_eq!(events[1].details, Some("not_persisted"));
     }
 
     #[test]
