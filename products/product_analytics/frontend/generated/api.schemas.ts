@@ -3169,6 +3169,7 @@ export interface Response8Api {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
 }
 
 export interface Response9Api {
@@ -5007,6 +5008,7 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
 }
 
 export interface WebVitalsPathBreakdownQueryApi {
@@ -5045,6 +5047,8 @@ export interface WebVitalsPathBreakdownQueryApi {
      */
     thresholds: number[]
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
