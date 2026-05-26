@@ -23,7 +23,6 @@ import uuid
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -31,7 +30,13 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+
+# PostHog's `SessionAuthentication` (not DRF's) calls `enforce_two_factor()`.
+# Authenticators are tried in order and a browser-session request authenticates on
+# the first matching class, so DRF's plain `SessionAuthentication` would let a
+# password-only user in a 2FA-enforced org read scout runs/scratchpad without
+# completing 2FA.
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalScoutRun
@@ -75,6 +80,21 @@ def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
         raise exceptions.NotFound()
 
 
+def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
+    """Canonical (parent/project) team id for scout queries.
+
+    `view.team_id` is the raw URL team and may be a child environment, but scout
+    models are `TeamScopedRootMixin` and persist under the canonical parent team
+    (`RootTeamMixin.save` rewrites child writes). `TeamAndOrgViewSetMixin` already
+    scopes the manager to this canonical id; passing the raw child id to the harness
+    helpers adds a contradictory `team_id` predicate, so list/retrieve return
+    empty/404 for legitimate rows in child-environment requests. `self.team` is a
+    cached_property loaded by the permission checks, so reading `parent_team_id` is
+    free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
+    """
+    return view.team.parent_team_id or view.team_id
+
+
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
@@ -96,7 +116,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # `list` returns a raw newest-first array (capped at limit=100 by the query serializer),
     # not a paginated wrapper. Generated TS clients infer pagination from the global default
     # otherwise, and the runtime shape diverges from the OpenAPI schema. Per-action overrides
-    # on POSTs (findings, delete) already disable pagination at the @action level.
+    # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
 
     @validated_request(
@@ -123,7 +143,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         text = validated.get("text") or None
         limit = validated.get("limit") or 20
         rows = search_recent_runs(
-            team_id=self.team_id,
+            team_id=_canonical_team_id(self),
             date_from=date_from,
             date_to=date_to,
             text=text,
@@ -144,7 +164,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
-        detail = get_run(team_id=self.team_id, run_id=str(run_id))
+        detail = get_run(team_id=_canonical_team_id(self), run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
         return Response(SignalScoutRunDetailSerializer(detail.as_dict()).data)
@@ -180,7 +200,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         run = (
             SignalScoutRun.objects.select_related("scout_config", "task_run")
-            .filter(team_id=self.team_id, id=run_id)
+            .filter(team_id=_canonical_team_id(self), id=run_id)
             .first()
         )
         if run is None:
@@ -245,8 +265,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Durable agent memories (`SignalScratchpad`) — read, write, and delete.
 
     Reads (`list`) use the public `signal_scout:read` scope by inheriting the
-    viewset's `scope_object`. Writes (`create`, `delete`) elevate to the
-    internal-only `signal_scout_internal:write` scope — `delete` carries it
+    viewset's `scope_object`. Writes (`create`, `forget`) elevate to the
+    internal-only `signal_scout_internal:write` scope — `forget` carries it
     on its `@action`, and `create` (a built-in DRF method) gets it via the
     `dangerously_get_required_scopes` hook below.
     """
@@ -284,7 +304,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         validated = getattr(request, "validated_query_data", {}) or {}
         text = validated.get("text") or None
         limit = validated.get("limit") or 20
-        rows = search_scratchpad(team_id=self.team_id, text=text, limit=limit)
+        rows = search_scratchpad(team_id=_canonical_team_id(self), text=text, limit=limit)
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -305,11 +325,14 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # field on the request body and a foreign-team UUID would otherwise create
         # a cross-team `created_by_run_id` reference on this team's memory row.
         # Bad UUIDs are blocked by `UUIDField` in the serializer.
-        if run_id is not None and not SignalScoutRun.objects.filter(id=run_id, team_id=self.team_id).exists():
+        if (
+            run_id is not None
+            and not SignalScoutRun.objects.filter(id=run_id, team_id=_canonical_team_id(self)).exists()
+        ):
             raise exceptions.ValidationError({"run_id": "run_id does not reference a run on this project"})
         try:
             entry = remember(
-                team_id=self.team_id,
+                team_id=_canonical_team_id(self),
                 key=data["key"],
                 content=data["content"],
                 run_id=str(run_id) if run_id is not None else None,
@@ -336,5 +359,5 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def forget(self, request: Request, **kwargs) -> Response:
         data = request.validated_data
-        removed = forget(team_id=self.team_id, key=data["key"])
+        removed = forget(team_id=_canonical_team_id(self), key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
