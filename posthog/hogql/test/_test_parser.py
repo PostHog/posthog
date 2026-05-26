@@ -2657,7 +2657,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             ]
         )
         def test_statement_level_sample_rejected(self, _name: str, query: str):
-            # Statement-level `(USING? sampleClause)?` (g4:75/79) is DuckDB's `USING SAMPLE`, which HogQL has no AST home for; every backend rejects rather than silently dropping it.
+            # `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for; every backend rejects rather than silently dropping it.
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 

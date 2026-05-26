@@ -549,7 +549,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "where", _v);
         }
-        // Statement-level `(USING? sampleClause)?` (g4:75, before GROUP BY): DuckDB's `USING SAMPLE`, rejected not dropped.
+        // `selectStmt`-level `(USING? sampleClause)?` (before GROUP BY): DuckDB's `USING SAMPLE`, rejected not dropped.
         self.reject_select_level_sample()?;
         if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
@@ -669,7 +669,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "qualify", _v);
         }
-        // Second statement-level `(USING sampleClause)?` slot (g4:79, after QUALIFY): same DuckDB `USING SAMPLE`, rejected not dropped.
+        // Second `selectStmt`-level `(USING sampleClause)?` slot (after QUALIFY): same DuckDB `USING SAMPLE`, rejected not dropped.
         self.reject_select_level_sample()?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
@@ -1263,7 +1263,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    /// Reject statement-level `[USING] SAMPLE` (`selectStmt` g4:75/79): DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` lands on `JoinExpr.sample`), so reject rather than silently drop. Matches the python + cpp visitors' `NotImplementedError`.
+    /// Reject `selectStmt`-level `[USING] SAMPLE`: DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` lands on `JoinExpr.sample`), so reject rather than silently drop. Matches the python + cpp visitors' `NotImplementedError`.
     fn reject_select_level_sample(&mut self) -> Result<(), ParseError> {
         let saw_sample = self.peek_kw2(Kw::Using, Kw::Sample)
             || matches!(self.peek(), TokenKind::Keyword(Kw::Sample));
