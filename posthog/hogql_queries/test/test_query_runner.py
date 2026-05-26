@@ -128,28 +128,26 @@ class TestQueryRunner(BaseTest):
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
 
-    def test_calculate_tags_inner_query_when_not_already_tagged(self):
+    @parameterized.expand(
+        [
+            ("no_prior_tag", None),
+            (
+                "overwrites_wrapper_payload",
+                {"kind": "InsightVizNode", "source": {"kind": "TestQuery", "some_attr": "bla"}},
+            ),
+            ("overwrites_prior_runner_payload", {"kind": "TestQuery", "some_attr": "previous"}),
+        ]
+    )
+    def test_calculate_tags_inner_query(self, _name: str, prior_tag: Optional[dict]) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
         query_tags.set(create_base_tags())
+        if prior_tag is not None:
+            tag_queries(query=prior_tag)
 
         runner.calculate()
 
-        tagged_query = get_query_tag_value("query")
-        self.assertIsNotNone(tagged_query)
-        self.assertEqual(tagged_query["kind"], "TestQuery")
-        self.assertEqual(tagged_query["some_attr"], "bla")
-
-    def test_calculate_preserves_existing_query_tag(self):
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
-        query_tags.set(create_base_tags())
-        wrapper_payload = {"kind": "InsightVizNode", "source": {"kind": "TestQuery", "some_attr": "bla"}}
-        tag_queries(query=wrapper_payload)
-
-        runner.calculate()
-
-        self.assertEqual(get_query_tag_value("query"), wrapper_payload)
+        self.assertEqual(get_query_tag_value("query"), runner.query.model_dump(mode="json"))
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
