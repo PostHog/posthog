@@ -7,6 +7,7 @@ import logging
 import threading
 import subprocess
 from collections.abc import Generator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -585,9 +586,9 @@ class SandboxedDemoData:
 # columns the bare ``properties.$exception_types`` lookup goes through
 # ``JSONExtractString`` which returns ``""`` for non-string JSON values, so
 # ``searchQuery`` filtering on these properties silently never matches anything.
-# Materializing once per session — with a generous backfill so master demo
-# events get populated values too — makes the sandbox behave like prod for
-# error-tracking searchQuery.
+# Materializing and backfilling once per session makes the sandbox behave like
+# prod for error-tracking searchQuery, including reused local ClickHouse state
+# where the columns already exist but older demo rows still need values.
 _EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
     "$exception_types",
     "$exception_values",
@@ -595,20 +596,21 @@ _EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
 
 
 def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
-    from ee.clickhouse.materialized_columns.analyze import Suggestion, materialize_properties_task
+    from ee.clickhouse.materialized_columns.columns import (
+        backfill_materialized_columns,
+        get_materialized_columns,
+        materialize,
+    )
 
-    suggestions: list[Suggestion] = [("events", "properties", prop) for prop in _EVAL_MATERIALIZED_EVENT_PROPERTIES]
     with django_db_blocker.unblock():
-        materialize_properties_task(
-            properties_to_materialize=suggestions,
-            maximum=len(suggestions),
-            # Existing master-team events were inserted before the columns
-            # existed, so their materialized values are empty unless we
-            # backfill. 180d covers Hedgebox's seeded error-tracking events
-            # (the oldest sit at days_ago=18) with plenty of headroom for
-            # the wider matrix.
-            backfill_period_days=180,
-        )
+        existing_columns = get_materialized_columns("events")
+        columns = []
+        for property_name in _EVAL_MATERIALIZED_EVENT_PROPERTIES:
+            column = existing_columns.get((property_name, "properties"))
+            if column is None:
+                column = materialize("events", property_name)
+            columns.append(column)
+        backfill_materialized_columns("events", columns, timedelta(days=180))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -620,8 +622,8 @@ def sandboxed_demo_data(
     """Seed the master Hedgebox team (once) and expose a per-case context factory."""
     from posthog.clickhouse.client import sync_execute
 
-    _ensure_event_search_columns_materialized(django_db_blocker)
     master_team_id = ensure_master_demo_team(django_db_blocker)
+    _ensure_event_search_columns_materialized(django_db_blocker)
     with django_db_blocker.unblock():
         rows = sync_execute(
             "SELECT event, count() FROM events WHERE team_id = %(team_id)s GROUP BY event ORDER BY 2 DESC LIMIT 20",
