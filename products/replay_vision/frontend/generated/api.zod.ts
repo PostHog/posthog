@@ -154,3 +154,27 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
             .describe('ID of the session recording to apply the scanner to.'),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
+
+/**
+ * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
+ */
+export const visionScannersEstimateCreateBodySamplingRateDefault = 1
+export const visionScannersEstimateCreateBodySamplingRateMin = 0
+export const visionScannersEstimateCreateBodySamplingRateMax = 1
+
+export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
+    .object({
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Proposed `RecordingsQuery` for the candidate filter. `date_from`\/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings.'
+            ),
+        sampling_rate: zod
+            .number()
+            .min(visionScannersEstimateCreateBodySamplingRateMin)
+            .max(visionScannersEstimateCreateBodySamplingRateMax)
+            .default(visionScannersEstimateCreateBodySamplingRateDefault)
+            .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+    })
+    .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

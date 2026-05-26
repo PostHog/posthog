@@ -105,6 +105,73 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         return [str(row[0]) for row in serialized_actors]
 
+    def test_funnel_correlation_with_events_and_hogql_aggregation(self):
+        # When the funnel aggregates by a custom HogQL expression, the correlation
+        # event join must use that expression — joining on event.person_id would
+        # mismatch types (UUID vs the string actor id) and fail the query.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.session_id"),
+        )
+
+        # Converting sessions (reach "paid") that also fire "positively_related".
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+            _create_event(
+                team=self.team,
+                event="positively_related",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+
+        # Non-converting sessions (never reach "paid"), needed so odds ratios are
+        # computable rather than the totals being skewed to 100% conversion.
+        for i in range(5, 10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+
+        # Before the fix this raised TYPE_MISMATCH (joining event.person_id, a UUID,
+        # against the string actor id). The join must now run and actually match rows.
+        result, _ = self._get_events_for_query(query)
+        events = {item["event"]: item for item in result}
+        self.assertIn("positively_related", events)
+        self.assertEqual(events["positively_related"]["success_count"], 5)
+        self.assertEqual(events["positively_related"]["correlation_type"], "success")
+
+    def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
+        # funnelAggregateByHogQL is user-controlled — a value that isn't a single
+        # bounded expression (e.g. an attempt to inject an extra JOIN) must be
+        # rejected by the parser, not interpolated into the query.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.session_id JOIN persons ON 1=1"),
+        )
+        with self.assertRaises(Exception):
+            self._get_events_for_query(query)
+
     def test_basic_funnel_correlation_with_events(self):
         query = FunnelsQuery(
             series=[EventsNode(event="user signed up"), EventsNode(event="paid")],

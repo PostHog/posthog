@@ -1794,7 +1794,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
 
-        return {
+        payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
             "team_id": self.team.pk,
@@ -1809,6 +1809,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
+
+        # Include property-level access control restrictions in the cache key so that
+        # users with different property restrictions get separate cache entries.
+        restricted = self._get_property_access_restrictions()
+        if restricted:
+            payload["restricted_properties"] = restricted
+
+        return payload
+
+    def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
+        """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.
+
+        The underlying ``get_restricted_properties_for_team`` memoizes per request,
+        so rendering a dashboard with N insights issues one PropertyAccessControl
+        lookup per (team, user) pair instead of N.
+        """
+        from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+
+        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        if not restricted:
+            return None
+        return sorted(restricted)
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")

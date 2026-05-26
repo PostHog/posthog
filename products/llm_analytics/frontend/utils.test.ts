@@ -2,15 +2,20 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
+    asString,
     costContextFromProperties,
     costContextFromTrace,
     formatAiErrorForDisplay,
     formatLLMEventTitle,
     getSessionID,
     getSessionStartTimestamp,
+    getToolNamesCalled,
     hasCostBreakdown,
+    hasStringContentField,
     isEmptyJSONStructure,
     isLangChainMessage,
+    isTextContentItem,
+    isToolStepItem,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
@@ -2162,6 +2167,90 @@ describe('AI observability utils', () => {
         })
     })
 
+    describe('hasStringContentField', () => {
+        it.each<[name: string, input: unknown, expected: boolean]>([
+            ['accepts {content: "hi"}', { content: 'hi' }, true],
+            ['accepts {type: "text", content: "hi"} — extra fields are fine', { type: 'text', content: 'hi' }, true],
+            ['accepts {content: ""} — empty string still passes', { content: '' }, true],
+            ['rejects {content: 42} — non-string content', { content: 42 }, false],
+            ['rejects {content: null}', { content: null }, false],
+            ['rejects missing `content` property', { type: 'text' }, false],
+            ['rejects null', null, false],
+            ['rejects undefined', undefined, false],
+            ['rejects a plain string', 'hi', false],
+            ['rejects an array', [{ content: 'hi' }], false],
+        ])('%s', (_, input, expected) => {
+            expect(hasStringContentField(input)).toBe(expected)
+        })
+    })
+
+    describe('isToolStepItem', () => {
+        it.each<[name: string, input: unknown, expected: boolean]>([
+            ['accepts Anthropic `tool_use`', { type: 'tool_use', id: 'toolu_1', name: 'x', input: {} }, true],
+            ['accepts Vercel SDK `tool-call`', { type: 'tool-call', toolCallId: 'a', toolName: 'x', input: {} }, true],
+            ['accepts unified `{type: "function"}`', { type: 'function', function: { name: 'x' } }, true],
+            [
+                'accepts OpenAI Responses `function_call`',
+                { type: 'function_call', call_id: 'c1', name: 'x', arguments: '{}' },
+                true,
+            ],
+            [
+                'accepts OpenAI Responses built-in tool call (e.g. web_search_call)',
+                { id: 'ws1', type: 'web_search_call', status: 'completed' },
+                true,
+            ],
+            ['accepts Anthropic `tool_result`', { type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }, true],
+            [
+                'accepts Vercel SDK `tool-result`',
+                { type: 'tool-result', toolCallId: 'a', toolName: 'search_docs', result: 'ok' },
+                true,
+            ],
+            ['rejects text content items', { type: 'text', text: 'hi' }, false],
+            ['rejects image items', { type: 'image_url', image_url: { url: 'x' } }, false],
+            ['rejects file items', { type: 'file', file: { filename: 'f', file_data: 'd' } }, false],
+            ['rejects null', null, false],
+            ['rejects a plain string', 'function', false],
+            ['rejects `{type: "function"}` without a `function` payload', { type: 'function' }, false],
+            [
+                'rejects `{type: "function", function: "not-an-object"}`',
+                { type: 'function', function: 'not-an-object' },
+                false,
+            ],
+        ])('%s', (_, input, expected) => {
+            expect(isToolStepItem(input)).toBe(expected)
+        })
+    })
+
+    describe('isTextContentItem', () => {
+        it.each<[name: string, input: unknown, expected: boolean]>([
+            ['accepts {type: "text", text: "hi"}', { type: 'text', text: 'hi' }, true],
+            ['accepts {type: "text", text: ""}', { type: 'text', text: '' }, true],
+            ['rejects missing `text` property', { type: 'text' }, false],
+            ['rejects wrong `type` literal', { type: 'image', text: 'hi' }, false],
+            ['rejects null', null, false],
+            ['rejects undefined', undefined, false],
+            ['rejects a plain string', 'hi', false],
+            ['rejects an array', [{ type: 'text', text: 'hi' }], false],
+        ])('%s', (_, input, expected) => {
+            expect(isTextContentItem(input)).toBe(expected)
+        })
+    })
+
+    describe('asString', () => {
+        it.each<[name: string, input: unknown, expected: string | undefined]>([
+            ['returns a non-empty string unchanged', 'hello', 'hello'],
+            ['returns an empty string as itself (caller decides via `||`)', '', ''],
+            ['returns undefined for undefined', undefined, undefined],
+            ['returns undefined for null', null, undefined],
+            ['returns undefined for a number', 42, undefined],
+            ['returns undefined for a boolean', true, undefined],
+            ['returns undefined for an object', { value: 'oops' }, undefined],
+            ['returns undefined for an array', ['oops'], undefined],
+        ])('%s', (_, input, expected) => {
+            expect(asString(input)).toBe(expected)
+        })
+    })
+
     describe('formatAiErrorForDisplay', () => {
         it.each<[string, unknown, string]>([
             ['string passes through', 'rate limit exceeded', 'rate limit exceeded'],
@@ -2186,6 +2275,191 @@ describe('AI observability utils', () => {
             // JSON.stringify throws on circular refs; helper should fall back to String() and not throw.
             expect(() => formatAiErrorForDisplay(circular)).not.toThrow()
             expect(formatAiErrorForDisplay(circular)).toBe('[object Object]')
+        })
+    })
+
+    describe('getToolNamesCalled', () => {
+        const span = (id: string, createdAt: string, spanName?: string): LLMTraceEvent => ({
+            id,
+            event: '$ai_span',
+            createdAt,
+            properties: spanName ? { $ai_span_name: spanName } : {},
+        })
+        const generation = (id: string, createdAt: string, outputChoices: unknown): LLMTraceEvent => ({
+            id,
+            event: '$ai_generation',
+            createdAt,
+            properties: { $ai_output_choices: outputChoices },
+        })
+
+        it('returns [] for an empty event list', () => {
+            expect(getToolNamesCalled([])).toEqual([])
+        })
+
+        it('returns `$ai_span_name` from instrumented span events', () => {
+            const events = [span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user')]
+            expect(getToolNamesCalled(events)).toEqual(['fetch_user'])
+        })
+
+        it('skips span events without a `$ai_span_name`', () => {
+            const events = [span('s1', '2026-05-11T00:00:00.000Z')]
+            expect(getToolNamesCalled(events)).toEqual([])
+        })
+
+        it('skips event types other than `$ai_span` and `$ai_generation`', () => {
+            const events: LLMTraceEvent[] = [
+                {
+                    id: 'trace',
+                    event: '$ai_trace',
+                    createdAt: '2026-05-11T00:00:00.000Z',
+                    properties: { $ai_span_name: 'irrelevant' },
+                },
+            ]
+            expect(getToolNamesCalled(events)).toEqual([])
+        })
+
+        // Covers every output shape `normalizeMessages` understands — adding a new
+        // SDK shape there should bring it under this case table without further
+        // changes here.
+        it.each<[name: string, outputChoices: unknown, expected: string[]]>([
+            [
+                'OpenAI Chat Completions `tool_calls`',
+                [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            { id: 'a', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+                            { id: 'b', type: 'function', function: { name: 'search_docs', arguments: '{}' } },
+                        ],
+                    },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'Anthropic `tool_use` typed parts',
+                [
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'text', text: 'Looking it up.' },
+                            { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Berlin' } },
+                            { type: 'tool_use', id: 'toolu_2', name: 'search_docs', input: {} },
+                        ],
+                    },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'OpenAI Responses `function_call` items',
+                [
+                    { type: 'function_call', call_id: 'c1', name: 'get_weather', arguments: '{}' },
+                    { type: 'function_call', call_id: 'c2', name: 'search_docs', arguments: '{}' },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'Vercel SDK `tool-call` items',
+                [
+                    { type: 'tool-call', toolCallId: 'a', toolName: 'get_weather', input: { city: 'Berlin' } },
+                    { type: 'tool-call', toolCallId: 'b', toolName: 'search_docs', input: {} },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'OpenAI Responses built-in tool calls',
+                [
+                    { id: 'ws1', type: 'web_search_call', status: 'completed' },
+                    { id: 'mcp1', type: 'mcp_call', name: 'list_dashboards', status: 'completed' },
+                ],
+                ['web_search_call', 'list_dashboards'],
+            ],
+            [
+                'LiteLLM-style {choices:[{message:{tool_calls}}]} wrapper',
+                {
+                    choices: [
+                        {
+                            finish_reason: 'tool_calls',
+                            index: 0,
+                            message: {
+                                role: 'assistant',
+                                content: null,
+                                tool_calls: [
+                                    {
+                                        id: 'a',
+                                        type: 'function',
+                                        function: { name: 'get_weather', arguments: '{"city":"Berlin"}' },
+                                    },
+                                    {
+                                        id: 'b',
+                                        type: 'function',
+                                        function: { name: 'search_docs', arguments: '{}' },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                ['get_weather', 'search_docs'],
+            ],
+        ])('returns tool names from %s in $ai_generation outputs', (_, outputChoices, expected) => {
+            const events = [generation('g1', '2026-05-11T00:00:00.000Z', outputChoices)]
+            expect(getToolNamesCalled(events)).toEqual(expected)
+        })
+
+        it('preserves duplicates in the raw call sequence — caller decides whether to dedupe', () => {
+            // Three identical tool calls across span + generation events should all appear.
+            // Dedup is a session-page concern, not part of "what tools were called".
+            const events = [
+                span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user'),
+                generation('g1', '2026-05-11T00:00:01.000Z', [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [{ id: 'a', type: 'function', function: { name: 'fetch_user', arguments: '{}' } }],
+                    },
+                ]),
+                span('s2', '2026-05-11T00:00:02.000Z', 'fetch_user'),
+            ]
+            expect(getToolNamesCalled(events)).toEqual(['fetch_user', 'fetch_user', 'fetch_user'])
+        })
+
+        it('orders names chronologically regardless of input order', () => {
+            // Events come back from ClickHouse in whatever order the query produced.
+            const events = [
+                span('s3', '2026-05-11T00:00:02.000Z', 'send_email'),
+                span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user'),
+                span('s2', '2026-05-11T00:00:01.000Z', 'subscription_lookup'),
+            ]
+            expect(getToolNamesCalled(events)).toEqual(['fetch_user', 'subscription_lookup', 'send_email'])
+        })
+
+        it('skips tool calls with missing or empty names', () => {
+            const events = [
+                generation('g1', '2026-05-11T00:00:00.000Z', [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            { id: 'a', type: 'function', function: { name: '', arguments: '{}' } },
+                            { id: 'b', type: 'function', function: { name: 'real_tool', arguments: '{}' } },
+                        ],
+                    },
+                ]),
+            ]
+            expect(getToolNamesCalled(events)).toEqual(['real_tool'])
+        })
+
+        it('returns [] when a generation has no $ai_output_choices', () => {
+            const events: LLMTraceEvent[] = [
+                {
+                    id: 'g1',
+                    event: '$ai_generation',
+                    createdAt: '2026-05-11T00:00:00.000Z',
+                    properties: {},
+                },
+            ]
+            expect(getToolNamesCalled(events)).toEqual([])
         })
     })
 })

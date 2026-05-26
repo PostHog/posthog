@@ -99,6 +99,22 @@ class TestOrganization(BaseTest):
             )
             self.assertFalse(explicit_org.default_anonymize_ips)
 
+    @parameterized.expand(
+        [
+            ("eu_defaults_to_opted_out", "EU", None, False),
+            ("us_defaults_to_opted_in", "US", None, True),
+            ("unset_deployment_defaults_to_opted_in", None, None, True),
+            ("explicit_value_overrides_eu_default", "EU", True, True),
+        ]
+    )
+    def test_default_is_ai_training_opted_in_based_on_deployment(
+        self, _name, cloud_deployment, explicit_value, expected
+    ):
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            extra_kwargs = {} if explicit_value is None else {"is_ai_training_opted_in": explicit_value}
+            org, _, _ = Organization.objects.bootstrap(self.user, name=_name, **extra_kwargs)
+            self.assertEqual(org.is_ai_training_opted_in, expected)
+
     def test_update_available_product_features_ignored_if_usage_info_exists(self):
         with self.is_cloud(False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)

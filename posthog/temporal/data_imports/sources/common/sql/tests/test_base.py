@@ -218,3 +218,26 @@ class TestGetSchemas:
         assert schema.source_schema == "public"
         assert schema.source_table_name == "original_t"
         assert schema.supports_cdc is True
+
+
+class TestDefaultNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "key,expected_substring",
+        [
+            ("Source column type changed", "reset and fully re-sync"),
+            ("Cannot build decimal array from values", "decimal storage limits"),
+        ],
+    )
+    def test_includes_expected_entry(self, key: str, expected_substring: str) -> None:
+        # Calling without an instance proves the classmethod shape too — the
+        # eventual subclass call site is `cls.default_non_retryable_errors()`.
+        errors = SQLSource.default_non_retryable_errors()
+        assert key in errors
+        message = errors[key]
+        assert message is not None
+        assert expected_substring in message
+
+    def test_returns_exactly_the_two_shared_entries(self) -> None:
+        errors = SQLSource.default_non_retryable_errors()
+        assert isinstance(errors, dict)
+        assert len(errors) == 2

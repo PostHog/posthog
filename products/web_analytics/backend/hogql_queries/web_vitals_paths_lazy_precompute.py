@@ -1,5 +1,9 @@
 import time
-from datetime import UTC, datetime
+from datetime import (
+    UTC,
+    datetime,
+    time as dt_time,
+)
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -28,12 +32,18 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
+    LazyPrecomputeIneligible,
+    LazyPrecomputeRunner,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     floor_utc_day,
     test_account_filter_expr,
     user_filter_expr,
 )
+
+_FAMILY = "web_vitals_paths"
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
@@ -46,6 +56,40 @@ WEB_VITALS_LAZY_FAILED = Counter(
     "Web vitals paths lazy precompute path failures, by error class",
     ["error_type"],
 )
+
+
+class NonDayAlignedRange(LazyPrecomputeIneligible):
+    pass
+
+
+# `date_to` from the query date range arrives as either midnight (exclusive next
+# day) or end-of-day (inclusive last day) — both are day-aligned and the bucket
+# math still works. Anything else (10:00, 12:00, …) is a sub-day filter we can't
+# serve from day buckets.
+_DAY_ALIGNED_END_TIMES: frozenset[dt_time] = frozenset(
+    [
+        dt_time(0, 0, 0, 0),
+        dt_time(23, 59, 59, 999999),
+    ]
+)
+
+
+def _check_vitals_eligible(runner: LazyPrecomputeRunner) -> None:
+    """Reject sub-day date ranges. The runner buckets into team-tz days via
+    `toStartOfDay(timestamp, team_tz)`, so the read filter
+    (`time_window_start >= cur_start AND ... < cur_end`) compares against
+    bucket keys at team-local midnight. A sub-day range like 10:00–12:00 would
+    miss the surrounding day bucket and silently return empty results, while
+    the raw query computes the same range correctly from event timestamps.
+    """
+    date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
+    date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
+    if date_from is None or date_to is None:
+        return  # Caught by check_common_eligible's MissingDateRange.
+    if date_from.time() != dt_time(0, 0):
+        raise NonDayAlignedRange()
+    if date_to.time() not in _DAY_ALIGNED_END_TIMES:
+        raise NonDayAlignedRange()
 
 
 # 1-based ClickHouse `arrayElement` index into the quantiles tuple stored in
@@ -66,7 +110,8 @@ _METRIC_STATE_COLUMN: dict[WebVitalsMetric, str] = {
 
 def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web vitals
-    path-breakdown query.
+    path-breakdown query — the shared web analytics gate plus a day-alignment
+    check on the requested range.
 
     Bucket key is computed in the team's timezone, so half-hour-offset timezones
     (IST/Newfoundland/Nepal/Iran) are also supported — the integer-timezone gate
@@ -74,7 +119,8 @@ def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool
     """
     return _can_use_lazy_precompute_shared(
         runner,
-        log_prefix="web_vitals_paths",
+        log_prefix=_FAMILY,
+        extra_check=_check_vitals_eligible,
         require_integer_timezone=False,
     )
 
@@ -308,6 +354,7 @@ def execute_lazy_precomputed_read(
         time_range_end = ceil_utc_day(current_end_utc)
 
         if time_range_start >= time_range_end:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             logger.info(
                 "web_vitals_paths_lazy_precompute_empty_range",
                 team_id=team_id,
@@ -333,6 +380,7 @@ def execute_lazy_precomputed_read(
         )
 
         if not result.job_ids:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()
             logger.info(
                 "web_vitals_paths_lazy_precompute_no_job_ids",
                 team_id=team_id,
@@ -341,6 +389,7 @@ def execute_lazy_precomputed_read(
             return None
 
         if not result.ready:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_not_ready").inc()
             logger.info(
                 "web_vitals_paths_lazy_precompute_current_not_ready",
                 team_id=team_id,
@@ -358,6 +407,7 @@ def execute_lazy_precomputed_read(
         )
 
         response = _build_response(runner, rows)
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
         logger.info(
             "web_vitals_paths_lazy_precompute_completed",
             team_id=team_id,

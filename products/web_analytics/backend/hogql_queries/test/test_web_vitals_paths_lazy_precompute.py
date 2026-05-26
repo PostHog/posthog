@@ -192,6 +192,28 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert response.usedLazyPrecompute is not True
         assert self._job_count() == 0
 
+    @parameterized.expand(
+        [
+            ("sub_day", "2024-01-02T10:00:00", "2024-01-02T12:00:00"),
+            ("start_misaligned", "2024-01-02T10:00:00", "2024-01-03T00:00:00"),
+            ("end_misaligned", "2024-01-02T00:00:00", "2024-01-02T12:00:00"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_explicit_sub_day_range_falls_through(self, _name: str, date_from: str, date_to: str):
+        # Only `explicitDate=True` lets the query date range surface non-midnight
+        # times; without it, the parser silently truncates to start/end of day.
+        # The runner buckets per team-tz day, so the read filter would compare
+        # an hour-precise range against day-aligned bucket keys and silently
+        # return empty. Eligibility must reject these ranges.
+        self._seed()
+        query = self._build_query(date_from=date_from, date_to=date_to)
+        query.dateRange = DateRange(date_from=date_from, date_to=date_to, explicitDate=True)
+        with self._enable_lazy():
+            response = self._run(query)
+        assert response.usedLazyPrecompute is not True
+        assert self._job_count() == 0
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_half_hour_offset_timezone_matches_raw(self):
         # Vitals buckets by team-tz day, so half-hour-offset timezones (IST +5:30
