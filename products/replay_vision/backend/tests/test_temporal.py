@@ -45,8 +45,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
+    FailureKind,
     IneligibleSessionError,
     IneligibleSessionKind,
+    ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
@@ -77,7 +79,11 @@ from products.replay_vision.backend.temporal.types import (
     SessionMetadata,
     UploadedVideo,
 )
-from products.replay_vision.backend.temporal.workflow import _extract_ineligible_kind, _format_failure
+from products.replay_vision.backend.temporal.workflow import (
+    _extract_failure_kind,
+    _extract_ineligible_kind,
+    _root_cause_message,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -1470,16 +1476,23 @@ class TestWorkflowErrorHelpers:
         err = ApplicationError("something broke", type="RuntimeError", non_retryable=True)
         assert _extract_ineligible_kind(err) is None
 
-    def test_format_failure_uses_application_error_type_over_runtime_class(self) -> None:
-        # Temporal sets `ApplicationError.type` to the original Python exception class name, so we
-        # surface that instead of always reading "ApplicationError" from the runtime class.
-        err = ApplicationError("Gemini file processed=FAILED", type="RuntimeError")
-        assert _format_failure(err) == "RuntimeError: Gemini file processed=FAILED"
+    def test_extract_failure_kind_returns_kind_for_scanner_failure_error(self) -> None:
+        err = ScannerFailureError("gemini rejected", kind=FailureKind.PROVIDER_REJECTED)
+        assert _extract_failure_kind(err) == "provider_rejected"
 
-    def test_format_failure_unwraps_activity_error_wrapper(self) -> None:
-        leaf = ApplicationError("real reason", type="ValueError")
+    def test_extract_failure_kind_unwraps_activity_error_from_worker(self) -> None:
+        leaf = ScannerFailureError("missing asset", kind=FailureKind.INTERNAL_ERROR)
         wrapped = _wrap_in_activity_error(leaf)
-        assert _format_failure(wrapped) == "ValueError: real reason"
+        assert _extract_failure_kind(wrapped) == "internal_error"
 
-    def test_format_failure_falls_back_to_runtime_class_for_bare_python_exceptions(self) -> None:
-        assert _format_failure(ValueError("bad arg")) == "ValueError: bad arg"
+    def test_extract_failure_kind_returns_none_for_unrelated_application_error(self) -> None:
+        err = ApplicationError("something broke", type="RuntimeError", non_retryable=True)
+        assert _extract_failure_kind(err) is None
+
+    def test_root_cause_message_strips_temporal_wrapper(self) -> None:
+        leaf = ApplicationError("Gemini file files/abc reached state FAILED", type="RuntimeError")
+        wrapped = _wrap_in_activity_error(leaf)
+        assert _root_cause_message(wrapped) == "Gemini file files/abc reached state FAILED"
+
+    def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
+        assert _root_cause_message(ValueError("bad arg")) == "bad arg"

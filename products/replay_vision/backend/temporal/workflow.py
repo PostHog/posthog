@@ -7,12 +7,7 @@ from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.errors import (
-    MAX_ERROR_MESSAGE_CHARS,
-    resolve_exception_class,
-    truncate_for_temporal_payload,
-    unwrap_temporal_cause,
-)
+from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
@@ -35,7 +30,12 @@ from products.replay_vision.backend.temporal.activities import (
     upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_WORKFLOW_NAME
-from products.replay_vision.backend.temporal.errors import INELIGIBLE_SESSION_ERROR_TYPE
+from products.replay_vision.backend.temporal.errors import (
+    INELIGIBLE_SESSION_ERROR_TYPE,
+    SCANNER_FAILURE_ERROR_TYPE,
+    FailureKind,
+    ScannerFailureError,
+)
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.types import (
@@ -111,26 +111,27 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
 
 def _extract_ineligible_kind(e: BaseException) -> str | None:
     """If `e` carries an IneligibleSession ApplicationError, return its kind."""
+    return _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
+
+
+def _extract_failure_kind(e: BaseException) -> str | None:
+    """If `e` carries a ScannerFailure ApplicationError, return its kind."""
+    return _extract_kind_for_type(e, SCANNER_FAILURE_ERROR_TYPE)
+
+
+def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     cause = unwrap_temporal_cause(e) or e
-    if getattr(cause, "type", None) != INELIGIBLE_SESSION_ERROR_TYPE:
+    if getattr(cause, "type", None) != expected_type:
         return None
     details = getattr(cause, "details", None)
     return details[0] if details else None
 
 
 def _root_cause_message(e: BaseException) -> str:
-    """Bare message from the root cause — no `TypeName:` prefix, used for ineligible reasons."""
+    """Bare message from the root cause — no `TypeName:` prefix; the kind label takes that role."""
     cause = unwrap_temporal_cause(e) or e
     msg = getattr(cause, "message", None) or str(cause) or type(cause).__name__
     return truncate_for_temporal_payload(msg, MAX_ERROR_MESSAGE_CHARS)
-
-
-def _format_failure(e: BaseException) -> str:
-    """`TypeName: message` from the root cause — replaces the unhelpful outer `ActivityError: Activity task failed`."""
-    cause = unwrap_temporal_cause(e) or e
-    msg = getattr(cause, "message", None) or str(cause) or ""
-    formatted = f"{resolve_exception_class(e)}: {msg}" if msg else resolve_exception_class(e)
-    return truncate_for_temporal_payload(formatted, MAX_ERROR_MESSAGE_CHARS)
 
 
 @wf.defn(name=APPLY_SCANNER_WORKFLOW_NAME)
@@ -212,7 +213,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             if ineligible_kind is not None:
                 await self._mark_ineligible(observation_id, ineligible_kind, _root_cause_message(e))
             else:
-                await self._mark_failed(observation_id, _format_failure(e))
+                failure_kind = _extract_failure_kind(e) or FailureKind.INTERNAL_ERROR.value
+                await self._mark_failed(observation_id, failure_kind, _root_cause_message(e))
             raise
         finally:
             if uploaded is not None:
@@ -251,26 +253,31 @@ class ApplyScannerWorkflow(PostHogWorkflow):
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:
         # Per-scanner child id so concurrent observations of the same session don't collide on WorkflowAlreadyStartedError.
-        await wf.execute_child_workflow(
-            "rasterize-recording",
-            RasterizeRecordingInputs(exported_asset_id=asset_id),
-            id=f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.scanner_id}",
-            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-            retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            execution_timeout=dt.timedelta(minutes=30),
-            search_attributes=TypedSearchAttributes(
-                search_attributes=[
-                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
-                    SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=inputs.session_id),
-                ]
-            ),
-        )
+        try:
+            await wf.execute_child_workflow(
+                "rasterize-recording",
+                RasterizeRecordingInputs(exported_asset_id=asset_id),
+                id=f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.scanner_id}",
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=dt.timedelta(minutes=30),
+                search_attributes=TypedSearchAttributes(
+                    search_attributes=[
+                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
+                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=inputs.session_id),
+                    ]
+                ),
+            )
+        except Exception as e:
+            # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
+            raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 
-    async def _mark_failed(self, observation_id: UUID, error_reason: str) -> None:
+    async def _mark_failed(self, observation_id: UUID, kind: str, message: str) -> None:
+        # `kind:message` so the frontend can render the kind as a badge and the message as detail.
         await wf.execute_activity(
             mark_observation_failed_activity,
-            MarkObservationFailedInputs(observation_id=observation_id, error_reason=error_reason),
+            MarkObservationFailedInputs(observation_id=observation_id, error_reason=f"{kind}:{message}"),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_ACTIVITY_RETRY,
         )

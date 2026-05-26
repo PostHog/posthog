@@ -8,7 +8,14 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerType, ObservationStatus, ReplayObservation, parseIneligibleReason } from '../types'
+import {
+    ScannerType,
+    ObservationStatus,
+    ReplayObservation,
+    failureKindDescription,
+    parseFailureReason,
+    parseIneligibleReason,
+} from '../types'
 
 function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
     if (status === 'succeeded') {
@@ -48,10 +55,15 @@ function ResultPreview({
         )
     }
     if (observation.status === 'failed') {
+        const parsed = parseFailureReason(observation.error_reason)
+        const label = parsed?.label ?? 'Failed'
+        const description = parsed ? failureKindDescription(parsed.kind) : null
+        const detail = parsed?.message ?? observation.error_reason
+        const tooltip = [description, detail].filter(Boolean).join('\n\n') || 'Unknown error'
         return (
-            <Tooltip title={observation.error_reason || 'Unknown error'}>
+            <Tooltip title={tooltip}>
                 <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {observation.error_reason || 'Failed'}
+                    <IconWarning /> {label}
                 </span>
             </Tooltip>
         )

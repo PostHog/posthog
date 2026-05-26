@@ -18,25 +18,59 @@ const INELIGIBLE_KIND_LABELS: Record<IneligibleKind, string> = {
     no_events: 'No events',
 }
 
-const _INELIGIBLE_KINDS = new Set<string>(Object.keys(INELIGIBLE_KIND_LABELS))
+export type FailureKind =
+    | 'provider_transient'
+    | 'provider_rejected'
+    | 'rasterization_failed'
+    | 'validation_failed'
+    | 'internal_error'
 
-export type ParsedIneligibleReason = { kind: IneligibleKind; label: string; message: string }
+const FAILURE_KIND_LABELS: Record<FailureKind, string> = {
+    provider_transient: 'AI provider unavailable',
+    provider_rejected: 'AI provider rejected video',
+    rasterization_failed: 'Rasterization failed',
+    validation_failed: 'AI output invalid',
+    internal_error: 'Internal error',
+}
 
-export function parseIneligibleReason(error_reason: string): ParsedIneligibleReason | null {
+const FAILURE_KIND_DESCRIPTIONS: Record<FailureKind, string> = {
+    provider_transient: 'The AI provider was temporarily unreachable. PostHog will retry on the next schedule fire.',
+    provider_rejected: "The AI provider couldn't process this recording. Other recordings should work.",
+    rasterization_failed: "PostHog couldn't render this recording into a video. Other recordings should work.",
+    validation_failed:
+        "The AI's response didn't match the scanner schema after several attempts. Try simplifying the scanner prompt.",
+    internal_error: 'An unexpected PostHog error occurred. Please contact support.',
+}
+
+export type ParsedReason<K extends string> = { kind: K; label: string; message: string }
+
+function parseKindReason<K extends string>(error_reason: string, labels: Record<K, string>): ParsedReason<K> | null {
     // The backend formats `error_reason` as `kind:human message`; fall back to a generic label on drift.
     const idx = error_reason.indexOf(':')
     if (idx <= 0) {
         return null
     }
     const kind = error_reason.slice(0, idx)
-    if (!_INELIGIBLE_KINDS.has(kind)) {
+    if (!(kind in labels)) {
         return null
     }
     return {
-        kind: kind as IneligibleKind,
-        label: INELIGIBLE_KIND_LABELS[kind as IneligibleKind],
+        kind: kind as K,
+        label: labels[kind as K],
         message: error_reason.slice(idx + 1).trim(),
     }
+}
+
+export function parseIneligibleReason(error_reason: string): ParsedReason<IneligibleKind> | null {
+    return parseKindReason(error_reason, INELIGIBLE_KIND_LABELS)
+}
+
+export function parseFailureReason(error_reason: string): ParsedReason<FailureKind> | null {
+    return parseKindReason(error_reason, FAILURE_KIND_LABELS)
+}
+
+export function failureKindDescription(kind: FailureKind): string {
+    return FAILURE_KIND_DESCRIPTIONS[kind]
 }
 
 export const DEFAULT_PROVIDER = 'google'
