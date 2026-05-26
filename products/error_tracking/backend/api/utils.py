@@ -76,6 +76,15 @@ def generate_match_all_bytecode():
     return create_bytecode(with_return).bytecode
 
 
+def has_filter_values(json_filters: dict) -> bool:
+    """Check whether a filter dict contains any actual filter values."""
+    values = json_filters.get("values", [])
+    if not values:
+        return False
+    # Check nested groups (the outer group wraps inner groups with actual filters)
+    return any(v.get("values") or "key" in v for v in values)
+
+
 def validate_bytecode(bytecode: list[Any]) -> None:
     for i, op in enumerate(bytecode):
         if not isinstance(op, Operation):
