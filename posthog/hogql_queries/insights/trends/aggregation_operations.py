@@ -74,11 +74,19 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
+            parsed = parse_expr(self.series.math_hogql)
+            # An outer alias on the user expression (`avg(x) as foo`) is shadowed by the
+            # `AS total` wrap added downstream. If we leave it in place, ClickHouse's
+            # new analyzer expands `ORDER BY total` into a copy of the SELECT expression
+            # with the inner alias stripped, producing two AST-different `AS total`
+            # projections and a MULTIPLE_EXPRESSIONS_FOR_ALIAS rejection.
+            if isinstance(parsed, ast.Alias):
+                parsed = parsed.expr
             # Wrap in ifNull to handle empty result sets - formulas can't handle NULL values
             return ast.Call(
                 name="ifNull",
                 args=[
-                    ast.Call(name="toFloat", args=[parse_expr(self.series.math_hogql)]),
+                    ast.Call(name="toFloat", args=[parsed]),
                     ast.Constant(value=0),
                 ],
             )

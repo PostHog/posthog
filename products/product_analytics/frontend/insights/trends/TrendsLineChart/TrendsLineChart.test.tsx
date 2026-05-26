@@ -472,6 +472,32 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('axis labels', () => {
+        it.each([
+            {
+                name: 'renders custom axis titles from the trends filter',
+                trendsFilter: { xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' },
+                expectedX: 'Signup date',
+                expectedY: 'Unique users',
+            },
+            {
+                name: 'renders no axis titles when the trends filter omits them',
+                trendsFilter: undefined,
+                expectedX: null,
+                expectedY: null,
+            },
+        ])('$name', async ({ trendsFilter, expectedX, expectedY }) => {
+            renderInsight({
+                query: buildTrendsQuery({ trendsFilter }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(getHogChart().xAxisLabel()).toBe(expectedX)
+            expect(getHogChart().yAxisLabel()).toBe(expectedY)
+        })
+    })
+
     describe('multi-axis', () => {
         it.each([
             { name: 'renders a right y-axis when showMultipleYAxes is true', enabled: true, expectedRight: true },
