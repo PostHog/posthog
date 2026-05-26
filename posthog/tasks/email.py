@@ -580,7 +580,7 @@ def send_batch_export_run_failure(
     batch_export = batch_export_run.parent
     team: Team = batch_export.team
 
-    pipeline_id = f"batch_export:{batch_export_run.batch_export.id}"
+    pipeline_id = f"batch_export:{batch_export.id}"
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
