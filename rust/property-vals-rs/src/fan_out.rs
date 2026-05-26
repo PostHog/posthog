@@ -1,12 +1,12 @@
 use serde_json::Value;
 
-use crate::config::PropertyKeyList;
+use crate::config::ExcludedPropertyKeys;
 use crate::types::{Event, GroupIdentify, PropertyType, TupleKey};
 
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
-pub fn fan_out(event: &Event, excluded: &PropertyKeyList) -> Vec<TupleKey> {
+pub fn fan_out(event: &Event, excluded: &ExcludedPropertyKeys) -> Vec<TupleKey> {
     let mut out = Vec::new();
 
     if let Some(raw) = &event.properties {
@@ -19,7 +19,7 @@ pub fn fan_out(event: &Event, excluded: &PropertyKeyList) -> Vec<TupleKey> {
     out
 }
 
-pub fn fan_out_group(event: &GroupIdentify, excluded: &PropertyKeyList) -> Vec<TupleKey> {
+pub fn fan_out_group(event: &GroupIdentify, excluded: &ExcludedPropertyKeys) -> Vec<TupleKey> {
     let mut out = Vec::new();
     if let Some(raw) = &event.group_properties {
         emit_from_blob(
@@ -37,7 +37,7 @@ fn emit_from_blob(
     team_id: i64,
     property_type: PropertyType,
     raw: &str,
-    excluded: &PropertyKeyList,
+    excluded: &ExcludedPropertyKeys,
     out: &mut Vec<TupleKey>,
 ) {
     let parsed: Value = match serde_json::from_str(raw) {
@@ -148,11 +148,11 @@ mod tests {
         }
     }
 
-    fn none() -> PropertyKeyList {
-        PropertyKeyList::default()
+    fn none() -> ExcludedPropertyKeys {
+        ExcludedPropertyKeys::default()
     }
 
-    fn excluded(keys: &[&str]) -> PropertyKeyList {
+    fn excluded(keys: &[&str]) -> ExcludedPropertyKeys {
         keys.iter().copied().collect::<Vec<_>>().join(",").parse().unwrap()
     }
 
@@ -329,7 +329,7 @@ mod tests {
     fn empty_exclusion_list_is_a_noop() {
         let blob = r#"{"$browser":"Chrome","email":"a@b.com"}"#;
         let with_default = fan_out(&event(blob), &none());
-        let parsed_empty: PropertyKeyList = "".parse().unwrap();
+        let parsed_empty: ExcludedPropertyKeys = "".parse().unwrap();
         let with_parsed_empty = fan_out(&event(blob), &parsed_empty);
         assert_eq!(with_default.len(), 2);
         assert_eq!(with_default, with_parsed_empty);

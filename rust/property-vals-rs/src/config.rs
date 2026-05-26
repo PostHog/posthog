@@ -48,7 +48,7 @@ pub struct Config {
     pub rollout_percentage: u8,
 
     #[envconfig(default = "")]
-    pub excluded_property_keys: PropertyKeyList,
+    pub excluded_property_keys: ExcludedPropertyKeys,
 
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
@@ -81,17 +81,17 @@ impl FromStr for TeamList {
 /// (identifier-shaped properties like `$insert_id`, `$session_id`, `distinct_id`)
 /// is wasted work that nobody searches against in autocomplete.
 #[derive(Clone, Default)]
-pub struct PropertyKeyList {
+pub struct ExcludedPropertyKeys {
     pub keys: Arc<HashSet<String>>,
 }
 
-impl PropertyKeyList {
+impl ExcludedPropertyKeys {
     pub fn contains(&self, key: &str) -> bool {
         self.keys.contains(key)
     }
 }
 
-impl FromStr for PropertyKeyList {
+impl FromStr for ExcludedPropertyKeys {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -100,7 +100,7 @@ impl FromStr for PropertyKeyList {
             .map(|k| k.trim().to_string())
             .filter(|k| !k.is_empty())
             .collect();
-        Ok(PropertyKeyList {
+        Ok(ExcludedPropertyKeys {
             keys: Arc::new(keys),
         })
     }
