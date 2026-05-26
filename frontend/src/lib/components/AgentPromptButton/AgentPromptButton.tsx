@@ -1,14 +1,16 @@
 import { useState } from 'react'
 
-import { IconCopy, IconLogomark, IconMagicWand, IconStarFilled } from '@posthog/icons'
+import { IconCopy, IconLogomark, IconMagicWand } from '@posthog/icons'
 
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { ButtonGroupPrimitive, ButtonPrimitive, type ButtonSize } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
+    DropdownMenuItemIndicator,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -185,50 +187,48 @@ export function AgentPromptButton({
                 </DropdownMenuTrigger>
             </ButtonGroupPrimitive>
 
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-56">
                 {actions.length > 1 && (
                     <>
-                        <DropdownMenuGroup>
+                        <DropdownMenuRadioGroup value={activeAction.key} onValueChange={selectAction}>
                             {actions.map((action) => (
-                                <DropdownMenuItem key={action.key} asChild onSelect={(e) => e.preventDefault()}>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        active={activeAction.key === action.key}
-                                        onClick={() => selectAction(action.key)}
-                                        className="gap-1.5"
-                                    >
+                                <DropdownMenuRadioItem
+                                    key={action.key}
+                                    value={action.key}
+                                    asChild
+                                    onSelect={(e) => e.preventDefault()}
+                                >
+                                    <ButtonPrimitive menuItem className="gap-1.5">
                                         {action.icon}
-                                        {action.label}
+                                        <span className="truncate flex-1">{action.label}</span>
+                                        <DropdownMenuItemIndicator intent="radio" />
                                     </ButtonPrimitive>
-                                </DropdownMenuItem>
+                                </DropdownMenuRadioItem>
                             ))}
-                        </DropdownMenuGroup>
+                        </DropdownMenuRadioGroup>
                         <DropdownMenuSeparator />
                     </>
                 )}
-                <DropdownMenuGroup>
+                <DropdownMenuLabel>Open in</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={remembered?.agentKey ?? ''} onValueChange={selectAgent}>
                     {AGENTS.map((agent) => (
-                        <DropdownMenuItem key={agent.key} asChild onSelect={() => selectAgent(agent.key)}>
-                            <ButtonPrimitive menuItem active={remembered?.agentKey === agent.key} className="gap-1.5">
+                        <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
+                            <ButtonPrimitive menuItem className="gap-1.5">
                                 <AgentLogo agent={agent} />
                                 <span className="truncate flex-1">{agent.name}</span>
-                                {remembered?.agentKey === agent.key && (
-                                    <IconStarFilled className="shrink-0 text-warning size-3" />
-                                )}
+                                <DropdownMenuItemIndicator intent="radio" />
                             </ButtonPrimitive>
-                        </DropdownMenuItem>
+                        </DropdownMenuRadioItem>
                     ))}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                    <DropdownMenuItem asChild onSelect={() => selectAgent(CLIPBOARD_KEY)}>
-                        <ButtonPrimitive menuItem active={isClipboard} className="gap-1.5">
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioItem value={CLIPBOARD_KEY} asChild>
+                        <ButtonPrimitive menuItem className="gap-1.5">
                             <IconCopy className="shrink-0" />
                             <span className="truncate flex-1">Copy to clipboard</span>
-                            {isClipboard && <IconStarFilled className="shrink-0 text-warning size-3" />}
+                            <DropdownMenuItemIndicator intent="radio" />
                         </ButtonPrimitive>
-                    </DropdownMenuItem>
-                </DropdownMenuGroup>
+                    </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )
