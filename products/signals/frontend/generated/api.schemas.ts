@@ -273,7 +273,7 @@ export interface EmitFindingRequestApi {
      */
     mcp_trace_id?: string | null
     /**
-     * Idempotency key. Re-using the same id within a run short-circuits without re-emitting.
+     * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
      * @nullable
      */
     finding_id?: string | null

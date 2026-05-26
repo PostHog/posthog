@@ -19,7 +19,7 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — a second call with the same `finding_id` short-circuits without re-firing the pipeline.
+ * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */
 export const signalsScoutEmitSignalBodyWeightMin = 0
@@ -94,7 +94,9 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
         finding_id: zod
             .string()
             .nullish()
-            .describe('Idempotency key. Re-using the same id within a run short-circuits without re-emitting.'),
+            .describe(
+                "Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal."
+            ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
