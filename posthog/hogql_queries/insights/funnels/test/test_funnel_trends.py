@@ -3435,10 +3435,12 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
 
-        # Frontend-facing shape: one summarized series per period, tagged with compare_label.
-        # This is the same contract STEPS and TIME_TO_CONVERT slices will reuse.
+        # Frontend-facing shape: one summarized series per period, tagged with compare/compare_label.
+        # This is the same contract STEPS and TIME_TO_CONVERT slices will reuse. The `compare: True`
+        # flag activates the shared LineGraph lighter-color path for the previous-period series.
         labels = [row.get("compare_label") for row in results]
         self.assertEqual(labels, ["current", "previous"])
+        self.assertTrue(all(row.get("compare") is True for row in results))
 
         current_series = next(r for r in results if r["compare_label"] == "current")
         previous_series = next(r for r in results if r["compare_label"] == "previous")
@@ -3480,6 +3482,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=self._build_query(compare_to="-30d"), team=self.team).calculate().results
 
+        self.assertTrue(all(row.get("compare") is True for row in results))
         previous_series = next(r for r in results if r["compare_label"] == "previous")
         # Previous window starts 30 days before the current window's start (2021-06-07 - 30d = 2021-05-08).
         self.assertEqual(previous_series["days"][0], "2021-05-08")
@@ -3505,6 +3508,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
 
         labels = [row["compare_label"] for row in results]
         self.assertEqual(labels, ["current", "previous"])
+        self.assertTrue(all(row.get("compare") is True for row in results))
 
         previous_series = next(r for r in results if r["compare_label"] == "previous")
         # Skeleton intact: 7 days, no conversions.
@@ -3543,9 +3547,11 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
 
-        # Single-period response: one summarized series, no compare_label tagging.
+        # Single-period response: one summarized series, no compare/compare_label tagging.
+        # Mirrors how trends leaves both fields absent when compare is off.
         self.assertEqual(len(results), 1)
         self.assertNotIn("compare_label", results[0])
+        self.assertNotIn("compare", results[0])
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_compare_with_all_time_date_range(self, _feature_enabled):
@@ -3569,3 +3575,4 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         labels = {row.get("compare_label") for row in results}
         # The orchestrator still emits both tags; the data may be empty / overlapping — that's expected.
         self.assertEqual(labels, {"current", "previous"})
+        self.assertTrue(all(row.get("compare") is True for row in results))

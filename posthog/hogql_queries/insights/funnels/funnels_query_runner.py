@@ -207,9 +207,11 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
         merged_results = []
         for row in current_response.results or []:
+            row["compare"] = True
             row["compare_label"] = "current"
             merged_results.append(row)
         for row in previous_response.results or []:
+            row["compare"] = True
             row["compare_label"] = "previous"
             merged_results.append(row)
 
