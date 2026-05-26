@@ -31,6 +31,7 @@ from rest_framework.views import APIView
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
+from posthog.security.url_validation import is_url_allowed
 
 logger = structlog.get_logger(__name__)
 
@@ -137,9 +138,18 @@ def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClien
     Network and parse failures during discovery are normalized to
     `InvalidGrantError` so callers only have to handle one error type.
     """
-    if jwks_url:
-        return jwt.PyJWKClient(jwks_url)
 
+    def _check_url(url: str, label: str) -> None:
+        # SSRF guard
+        allowed, reason = is_url_allowed(url)
+        if not allowed:
+            raise InvalidGrantError(f"IdP {label} URL is not allowed: {reason}")
+
+    if jwks_url:
+        _check_url(jwks_url, "JWKS")
+        return jwt.PyJWKClient(jwks_url, timeout=10)
+
+    _check_url(issuer, "issuer")
     cache_key = f"id_jag:jwks_uri:{issuer}"
     jwks_uri = cache.get(cache_key)
     if not jwks_uri:
@@ -156,7 +166,9 @@ def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClien
         if not jwks_uri:
             raise InvalidGrantError(f"IdP {issuer} discovery metadata missing jwks_uri")
         cache.set(cache_key, jwks_uri, settings.ID_JAG_JWKS_CACHE_TTL_SECONDS)
-    return jwt.PyJWKClient(jwks_uri)
+
+    _check_url(jwks_uri, "discovered JWKS")
+    return jwt.PyJWKClient(jwks_uri, timeout=10)
 
 
 def _get_sub(provider_name: str, id_jag_sub: str) -> str:
@@ -296,6 +308,20 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     if org_domain.id_jag_allowed_clients and client_id not in org_domain.id_jag_allowed_clients:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
+    # prevent replayed tokens from being used again
+    jti = claims.get("jti")
+    if jti:
+        cache_key = f"id_jag:jti:{expected_issuer}:{jti}"
+        exp = int(claims.get("exp") or 0)
+        now = int(datetime.now(tz=UTC).timestamp())
+        ttl = max(1, exp - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
+        # `cache.add` is SETNX semantics: returns True only if the key was
+        # newly created. A False return means we've already seen this jti.
+        if not cache.add(cache_key, "1", ttl):
+            raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
+    else:
+        logger.info("id_jag_assertion_missing_jti", issuer=expected_issuer)
+
     verified_sub = claims.get("sub") or ""
 
     # The sub must be an active member of the *specific* organization whose
@@ -306,7 +332,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     is_member = User.objects.filter(
         is_active=True,
         email__iexact=verified_sub,
-        organization_membership__organization_id=org_domain.organization_id,
+        organization_membership__organization_id=org_domain.organization.pk,
     ).exists()
     if not is_member:
         raise InvalidGrantError(

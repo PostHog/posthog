@@ -217,6 +217,31 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     class Meta:
         verbose_name = "domain"
 
+    def clean(self) -> None:
+        # Validate ID-JAG IdP URLs at write time as a UX guard against the
+        # common admin mistake of pointing them at an internal/loopback/
+        # metadata host. This is best-effort — DNS rebinding and post-write
+        # config changes can still produce an unsafe URL at fetch time, so
+        # `posthog.api.id_jag._get_jwks_client` re-validates before every
+        # network call. Callers must invoke `full_clean()` (or use a
+        # ModelForm / DRF serializer that does) for this to take effect.
+        # Imported lazily to keep this app's import graph free of security/.
+        from django.core.exceptions import ValidationError
+
+        from posthog.security.url_validation import is_url_allowed
+
+        errors: dict[str, str] = {}
+        for field_name in ("id_jag_issuer_url", "id_jag_jwks_url"):
+            url = getattr(self, field_name, None)
+            if not url:
+                continue
+            allowed, reason = is_url_allowed(url)
+            if not allowed:
+                errors[field_name] = f"URL is not allowed: {reason}"
+        if errors:
+            raise ValidationError(errors)
+        super().clean()
+
     @property
     def is_verified(self) -> bool:
         """
