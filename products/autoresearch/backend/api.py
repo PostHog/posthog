@@ -30,9 +30,16 @@ from products.autoresearch.backend.serializers import (
     AutoresearchSuggestionSerializer,
     AutoresearchTrainingRunSerializer,
     CreateSuggestionSerializer,
+    ResolvedTemplateSerializer,
+    ResolveTemplateRequestSerializer,
     StartTrainingRequestSerializer,
+    TemplateInfoSerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
+)
+from products.autoresearch.backend.templates import (
+    TEMPLATES,
+    resolve_template as resolve_template_def,
 )
 from products.autoresearch.backend.training import run_training
 from products.autoresearch.backend.validation import validate_pipeline_definition
@@ -61,7 +68,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     """
 
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve", "validate_definition"]
+    scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -100,6 +107,96 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         output = AutoresearchPipelineSerializer(serializer.instance, context=self.get_serializer_context())
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=201, headers=headers)
+
+    @extend_schema(
+        responses={200: TemplateInfoSerializer(many=True)},
+        summary="List available templates",
+        description=(
+            "Return all built-in autoresearch prediction templates. "
+            "Each entry describes what the template predicts, its default horizon and prediction mode, "
+            "and whether it requires you to supply a target_event. "
+            "After choosing a template, call autoresearch-resolve-template-create to get a fully "
+            "resolved pipeline config ready to pass to autoresearch-create."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="templates")
+    def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = TemplateInfoSerializer(
+            [
+                {
+                    "key": t.key,
+                    "display_name": t.display_name,
+                    "description": t.description,
+                    "prediction_mode": t.prediction_mode,
+                    "default_horizon_days": t.default_horizon_days,
+                    "requires_user_event": t.requires_user_event,
+                    "requires_activity_resolution": t.requires_activity_resolution,
+                    "notes": t.notes,
+                }
+                for t in TEMPLATES.values()
+            ],
+            many=True,
+        )
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=ResolveTemplateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ResolvedTemplateSerializer,
+                description=(
+                    "Resolved pipeline config. Pass target_event, prediction_mode, horizon_days, "
+                    "training_population, inference_population, and output_person_property directly "
+                    "to autoresearch-create. Always run autoresearch-validate-create on the resolved "
+                    "config before creating."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="Unknown template key or missing required target_event override.",
+            ),
+        },
+        summary="Resolve a template",
+        description=(
+            "Resolve a template key and optional overrides into a concrete pipeline config. "
+            "For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', "
+            "'return_after_first_use'), the target event is auto-resolved from your event schema — "
+            "check resolved_activity_event and activity_event_alternatives, then override if needed. "
+            "For 'feature_adoption' and 'repeat_key_behavior', supply target_event. "
+            "After resolving, call autoresearch-validate-create to check volume and warnings, "
+            "then autoresearch-create to create the pipeline."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="resolve-template")
+    def resolve_template(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data  # type: ignore[attr-defined]
+        try:
+            resolved = resolve_template_def(
+                team=self.team,
+                template_key=data["template_key"],
+                target_event_override=data.get("target_event"),
+                horizon_days_override=data.get("horizon_days"),
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        response_serializer = ResolvedTemplateSerializer(
+            {
+                "template_key": resolved.template_key,
+                "display_name": resolved.display_name,
+                "description": resolved.description,
+                "suggested_name": resolved.suggested_name,
+                "target_event": resolved.target_event,
+                "resolved_activity_event": resolved.resolved_activity_event,
+                "activity_event_alternatives": resolved.activity_event_alternatives,
+                "prediction_mode": resolved.prediction_mode,
+                "horizon_days": resolved.horizon_days,
+                "training_population": resolved.training_population,
+                "inference_population": resolved.inference_population,
+                "output_person_property": resolved.output_person_property,
+                "notes": resolved.notes,
+            }
+        )
+        return Response(response_serializer.data)
 
     @validated_request(
         request_serializer=ValidatePipelineRequestSerializer,

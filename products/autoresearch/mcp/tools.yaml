@@ -333,6 +333,62 @@ tools:
     autoresearch-update:
         operation: autoresearch_update
         enabled: false
+    autoresearch-templates-list:
+        operation: autoresearch_templates_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List available templates
+        description: >
+            List all built-in autoresearch prediction templates. Each entry includes the template key,
+            display name, description, default horizon, prediction mode, and whether you need to supply
+            a target_event. Templates: 'likely_active_soon' (best universal starter — predicts next-7d
+            activity), 'at_risk_of_inactivity' (predicts 14d inactivity risk), 'return_after_first_use'
+            (predicts new-user return within 7d), 'feature_adoption' (predicts first use of your chosen
+            event within 14d — requires target_event), 'repeat_key_behavior' (predicts repeat use of your
+            chosen event within 7d — requires target_event). After picking a template, call
+            autoresearch-resolve-template-create to get a resolved pipeline config.
+        response:
+            include:
+                - key
+                - display_name
+                - description
+                - prediction_mode
+                - default_horizon_days
+                - requires_user_event
+                - requires_activity_resolution
+                - notes
+    autoresearch-resolve-template-create:
+        operation: autoresearch_resolve_template_create
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve a template
+        description: >
+            Resolve a template key and optional overrides into a ready-to-use pipeline config. For
+            activity-based templates ('likely_active_soon', 'at_risk_of_inactivity',
+            'return_after_first_use'), the target_event is auto-resolved from your event schema —
+            review resolved_activity_event and activity_event_alternatives, then re-resolve with a
+            target_event override if the chosen event is wrong. For 'feature_adoption' and
+            'repeat_key_behavior', supply target_event (required). After resolving: (1) call
+            autoresearch-validate-create with the resolved target_event, prediction_mode,
+            training_population, and inference_population to check volume and warnings; (2) if
+            can_proceed is true, call autoresearch-create with the resolved fields as-is.
+        exclude_params:
+            - resolved_activity_event
+            - activity_event_alternatives
+            - display_name
+            - description
+            - notes
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true

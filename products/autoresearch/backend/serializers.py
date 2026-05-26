@@ -533,3 +533,132 @@ class CreateSuggestionSerializer(serializers.Serializer):
         default="consider",
         help_text="'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.",
     )
+
+
+# ── Template serializers ───────────────────────────────────────────────────────
+
+
+class TemplateInfoSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text="Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.",
+    )
+    display_name = serializers.CharField(help_text="Human-readable template name.")
+    description = serializers.CharField(help_text="What this template predicts and who it is for.")
+    prediction_mode = serializers.ChoiceField(
+        choices=["adoption", "continuation"],
+        help_text="'adoption': predict first-time occurrence. 'continuation': predict repeat occurrence.",
+    )
+    default_horizon_days = serializers.IntegerField(
+        help_text="Default prediction horizon in days. Can be overridden when resolving.",
+    )
+    requires_user_event = serializers.BooleanField(
+        help_text=(
+            "If true, you must supply a target_event when resolving — the template does not auto-select one. "
+            "Required for 'feature_adoption' and 'repeat_key_behavior'."
+        ),
+    )
+    requires_activity_resolution = serializers.BooleanField(
+        help_text=(
+            "If true, the target event is automatically resolved from your event schema "
+            "($pageview, $screen, or the highest-volume non-noisy event). "
+            "You can override the resolved event when resolving the template."
+        ),
+    )
+    notes = serializers.CharField(help_text="Usage guidance and implementation notes.")
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Semantic population filter compiled to HogQL by the training/inference harness. "
+            "Supported kinds: 'performed_event_within_days' (users who did event in last N days), "
+            "'person_first_seen_within_days' (new users by first-seen date), "
+            "'active_not_performed_target' (active users who have NOT done the target event), "
+            "'ever_performed_event' (users who have done the target event at least once)."
+        ),
+        "example": {"kind": "performed_event_within_days", "event": "$pageview", "days": 30},
+    }
+)
+class PopulationSpecField(serializers.JSONField):
+    pass
+
+
+class ResolveTemplateRequestSerializer(serializers.Serializer):
+    template_key = serializers.ChoiceField(
+        choices=[
+            "likely_active_soon",
+            "at_risk_of_inactivity",
+            "return_after_first_use",
+            "feature_adoption",
+            "repeat_key_behavior",
+        ],
+        help_text=(
+            "Template to resolve. Use autoresearch-templates-list to see all available templates "
+            "with descriptions. Required."
+        ),
+    )
+    target_event = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text=(
+            "Event or action name to use as the prediction target. "
+            "Required for 'feature_adoption' and 'repeat_key_behavior'. "
+            "Optional override for activity-based templates ('likely_active_soon', "
+            "'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event."
+        ),
+    )
+    horizon_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        help_text="Override the template's default prediction horizon in days.",
+    )
+
+
+class ResolvedTemplateSerializer(serializers.Serializer):
+    template_key = serializers.CharField(help_text="The template key that was resolved.")
+    display_name = serializers.CharField(help_text="Human-readable template name.")
+    description = serializers.CharField(help_text="What this template predicts.")
+    suggested_name = serializers.CharField(
+        help_text="Suggested pipeline name. Pass as 'name' to autoresearch-create.",
+    )
+    target_event = serializers.CharField(
+        help_text=(
+            "Resolved target event. Pass as 'target_event' to autoresearch-create. "
+            "For activity-based templates this is the auto-resolved activity event (or your override)."
+        ),
+    )
+    resolved_activity_event = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Activity event found in your event schema, populated only for templates that "
+            "auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', "
+            "'return_after_first_use'). Null for templates where you supply target_event directly."
+        ),
+    )
+    activity_event_alternatives = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Other viable activity events found in your schema. "
+            "If the resolved event is not the right signal, re-resolve with one of these as target_event."
+        ),
+    )
+    prediction_mode = serializers.ChoiceField(
+        choices=["adoption", "continuation"],
+        help_text="'adoption': first-time occurrence. 'continuation': repeat occurrence.",
+    )
+    horizon_days = serializers.IntegerField(help_text="Resolved prediction horizon in days.")
+    training_population = PopulationSpecField(
+        help_text=("Resolved training population filter. Pass as 'training_population' to autoresearch-create."),
+    )
+    inference_population = PopulationSpecField(
+        help_text=(
+            "Resolved inference (daily scoring) population filter. "
+            "Pass as 'inference_population' to autoresearch-create."
+        ),
+    )
+    output_person_property = serializers.CharField(
+        help_text="Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create.",
+    )
+    notes = serializers.CharField(help_text="Usage notes and guidance for interpreting this resolved config.")
