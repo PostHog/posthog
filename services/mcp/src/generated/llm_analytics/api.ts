@@ -1510,7 +1510,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Create serializer — accepts bundled files as write-only input on POST.')
 
-export const llmSkillsNameRetrievePathSkillIdentifierRegExp = new RegExp('^[^/]+$')
+export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')
 
 export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1518,7 +1518,7 @@ export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    skill_identifier: zod.string().regex(llmSkillsNameRetrievePathSkillIdentifierRegExp),
+    skill_name: zod.string().regex(llmSkillsNameRetrievePathSkillNameRegExp),
 })
 
 export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
@@ -1529,7 +1529,7 @@ export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
 })
 
-export const llmSkillsNamePartialUpdatePathSkillIdentifierRegExp = new RegExp('^[^/]+$')
+export const llmSkillsNamePartialUpdatePathSkillNameRegExp = new RegExp('^[^/]+$')
 
 export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1537,7 +1537,7 @@ export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    skill_identifier: zod.string().regex(llmSkillsNamePartialUpdatePathSkillIdentifierRegExp),
+    skill_name: zod.string().regex(llmSkillsNamePartialUpdatePathSkillNameRegExp),
 })
 
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
