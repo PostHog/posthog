@@ -289,17 +289,17 @@ def ensure_active_hours_precomputed(
     )
 
 
-# Read template that returns four aggregation shapes in one HogQL round-trip.
-# Each branch of the UNION ALL emits `(scope, day, hour, value)`:
-#   - `scope='cell'` → one row per (day-of-week, hour-of-day) cell
-#   - `scope='day'`  → one row per day-of-week (hour=0 sentinel)
-#   - `scope='hour'` → one row per hour-of-day (day=0 sentinel)
-#   - `scope='all'`  → exactly one row with the overall aggregate
+# Read template — single outer SELECT returning one row with four columns:
+#   - `cells`: array of (day, hour, value) tuples per (day-of-week, hour-of-day) cell
+#   - `days`:  array of (day, value) tuples per day-of-week (across all hours)
+#   - `hours`: array of (hour, value) tuples per hour-of-day (across all days)
+#   - `total`: scalar overall aggregate
 #
 # uniq cannot be derived from cell sums (HLL state doesn't add up), so each
 # aggregation shape needs its own `GROUP BY` over `web_active_hours_preaggregated`.
-# A UNION ALL keeps it one query / one round-trip; the Python side discriminates
-# by scope and bins into the response shape.
+# Inline subqueries in the projection list keep this as one SELECT and one
+# HogQL round-trip; ClickHouse evaluates each subquery independently with the
+# same per-row filters.
 #
 # `toTimeZone(time_window_start, {team_tz})` shifts the stored UTC hour to the
 # team's local time before binning. Reads stay correct for any whole-hour-offset
@@ -310,49 +310,58 @@ def ensure_active_hours_precomputed(
 # free from `WebActiveHoursPreaggregatedTable.top_level_settings` — registered
 # in `posthog/hogql/database/schema/web_active_hours_preaggregated.py`.
 _READ_TEMPLATE = """
-SELECT 'cell' AS scope, day, hour, value FROM (
-    SELECT
-        toDayOfWeek(toTimeZone(time_window_start, {team_tz})) AS day,
-        toHour(toTimeZone(time_window_start, {team_tz})) AS hour,
-        {metric_expr} AS value
-    FROM web_active_hours_preaggregated
-    WHERE team_id = {team_id}
-      AND job_id IN {job_ids}
-      AND time_window_start >= {cur_start}
-      AND time_window_start < {cur_end}
-    GROUP BY day, hour
-)
-UNION ALL
-SELECT 'day' AS scope, day, 0 AS hour, value FROM (
-    SELECT
-        toDayOfWeek(toTimeZone(time_window_start, {team_tz})) AS day,
-        {metric_expr} AS value
-    FROM web_active_hours_preaggregated
-    WHERE team_id = {team_id}
-      AND job_id IN {job_ids}
-      AND time_window_start >= {cur_start}
-      AND time_window_start < {cur_end}
-    GROUP BY day
-)
-UNION ALL
-SELECT 'hour' AS scope, 0 AS day, hour, value FROM (
-    SELECT
-        toHour(toTimeZone(time_window_start, {team_tz})) AS hour,
-        {metric_expr} AS value
-    FROM web_active_hours_preaggregated
-    WHERE team_id = {team_id}
-      AND job_id IN {job_ids}
-      AND time_window_start >= {cur_start}
-      AND time_window_start < {cur_end}
-    GROUP BY hour
-)
-UNION ALL
-SELECT 'all' AS scope, 0 AS day, 0 AS hour, {metric_expr} AS value
-FROM web_active_hours_preaggregated
-WHERE team_id = {team_id}
-  AND job_id IN {job_ids}
-  AND time_window_start >= {cur_start}
-  AND time_window_start < {cur_end}
+SELECT
+    (
+        SELECT groupArray(tuple(day, hour, value))
+        FROM (
+            SELECT
+                toDayOfWeek(toTimeZone(time_window_start, {team_tz})) AS day,
+                toHour(toTimeZone(time_window_start, {team_tz})) AS hour,
+                {metric_expr} AS value
+            FROM web_active_hours_preaggregated
+            WHERE team_id = {team_id}
+              AND job_id IN {job_ids}
+              AND time_window_start >= {cur_start}
+              AND time_window_start < {cur_end}
+            GROUP BY day, hour
+        )
+    ) AS cells,
+    (
+        SELECT groupArray(tuple(day, value))
+        FROM (
+            SELECT
+                toDayOfWeek(toTimeZone(time_window_start, {team_tz})) AS day,
+                {metric_expr} AS value
+            FROM web_active_hours_preaggregated
+            WHERE team_id = {team_id}
+              AND job_id IN {job_ids}
+              AND time_window_start >= {cur_start}
+              AND time_window_start < {cur_end}
+            GROUP BY day
+        )
+    ) AS days,
+    (
+        SELECT groupArray(tuple(hour, value))
+        FROM (
+            SELECT
+                toHour(toTimeZone(time_window_start, {team_tz})) AS hour,
+                {metric_expr} AS value
+            FROM web_active_hours_preaggregated
+            WHERE team_id = {team_id}
+              AND job_id IN {job_ids}
+              AND time_window_start >= {cur_start}
+              AND time_window_start < {cur_end}
+            GROUP BY hour
+        )
+    ) AS hours,
+    (
+        SELECT {metric_expr}
+        FROM web_active_hours_preaggregated
+        WHERE team_id = {team_id}
+          AND job_id IN {job_ids}
+          AND time_window_start >= {cur_start}
+          AND time_window_start < {cur_end}
+    ) AS total
 """
 
 
@@ -392,19 +401,21 @@ def _execute_read_query(
         query_type=f"web_active_hours_lazy_query_{math}",
     )
 
-    cells: list[EventsHeatMapDataResult] = []
-    day_aggs: list[EventsHeatMapRowAggregationResult] = []
-    hour_aggs: list[EventsHeatMapColumnAggregationResult] = []
-    overall = 0
-    for scope, day, hour, value in response.results or []:
-        if scope == "cell":
-            cells.append(EventsHeatMapDataResult(row=int(day), column=int(hour), value=int(value)))
-        elif scope == "day":
-            day_aggs.append(EventsHeatMapRowAggregationResult(row=int(day), value=int(value)))
-        elif scope == "hour":
-            hour_aggs.append(EventsHeatMapColumnAggregationResult(column=int(hour), value=int(value)))
-        else:  # 'all'
-            overall = int(value)
+    # Single row, four columns: (cells_array, days_array, hours_array, total_scalar).
+    # Each array element is a tuple from the corresponding `groupArray(tuple(...))`.
+    if not response.results:
+        return EventsHeatMapStructuredResult(data=[], rowAggregations=[], columnAggregations=[], allAggregations=0)
+
+    cells_raw, days_raw, hours_raw, total_raw = response.results[0]
+    cells = [
+        EventsHeatMapDataResult(row=int(day), column=int(hour), value=int(value))
+        for day, hour, value in cells_raw or []
+    ]
+    day_aggs = [EventsHeatMapRowAggregationResult(row=int(day), value=int(value)) for day, value in days_raw or []]
+    hour_aggs = [
+        EventsHeatMapColumnAggregationResult(column=int(hour), value=int(value)) for hour, value in hours_raw or []
+    ]
+    overall = int(total_raw or 0)
 
     return EventsHeatMapStructuredResult(
         data=cells, rowAggregations=day_aggs, columnAggregations=hour_aggs, allAggregations=overall
