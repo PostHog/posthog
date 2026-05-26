@@ -16253,6 +16253,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentParameters {
+      /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
+      excluded_variants?: string[] | null;
       /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
       feature_flag_variants?: ExperimentVariant[] | null;
       /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
@@ -16500,7 +16502,7 @@ export namespace Schemas {
       created_by?: UserBasicType | null;
       description?: string | null;
       filters: FeatureFlagGroupType[];
-      id?: number | null;
+      id: number;
       name: string;
       updated_at?: string | null;
     }
