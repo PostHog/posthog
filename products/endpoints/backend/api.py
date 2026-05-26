@@ -456,7 +456,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
         if tags is None:
             return
-        endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)
+        # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / set_tags_on_object;
+        # it's not declared on the Endpoint model.
+        endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
         cleanup_orphan_tags(endpoint.team_id)
 
     @extend_schema(exclude=True)
@@ -878,6 +880,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         Otherwise, the current version is used.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        # Enforce object-level RBAC: a user with global editor scope can still be restricted
+        # from a specific endpoint via per-object access controls.
+        self.check_object_permissions(request, endpoint)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
