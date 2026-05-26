@@ -5003,6 +5003,8 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: bool | None = None
     show_values_on_series: bool | None = None
     smoothing_intervals: float | None = None
+    x_axis_label: str | None = None
+    y_axis_label: str | None = None
     y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
@@ -6456,6 +6458,8 @@ class AssistantTrendsFilter(BaseModel):
     )
     showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
     smoothingIntervals: int | None = Field(default=1, description="Smoothing intervals for the trend line.")
+    xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
+    yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
@@ -9062,6 +9066,8 @@ class TrendsFilter(BaseModel):
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
+    xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
+    yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 

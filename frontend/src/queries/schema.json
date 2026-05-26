@@ -4030,6 +4030,14 @@
                     "default": 1,
                     "description": "Smoothing intervals for the trend line."
                 },
+                "xAxisLabel": {
+                    "description": "Custom label rendered under the X axis.",
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "description": "Custom label rendered alongside the Y axis.",
+                    "type": "string"
+                },
                 "yAxisScaleType": {
                     "default": "linear",
                     "description": "Whether to scale the y-axis.",
@@ -38520,6 +38528,14 @@
                     "$ref": "#/definitions/integer",
                     "default": 1
                 },
+                "xAxisLabel": {
+                    "description": "Custom label rendered under the X axis.",
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "description": "Custom label rendered alongside the Y axis.",
+                    "type": "string"
+                },
                 "yAxisScaleType": {
                     "enum": ["log10", "linear"],
                     "type": "string"
@@ -38594,6 +38610,12 @@
                 },
                 "smoothing_intervals": {
                     "type": "number"
+                },
+                "x_axis_label": {
+                    "type": "string"
+                },
+                "y_axis_label": {
+                    "type": "string"
                 },
                 "y_axis_scale_type": {
                     "enum": ["log10", "linear"],
