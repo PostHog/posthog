@@ -49,20 +49,18 @@ logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
+
 # Replying to bot-authored app_mentions creates loops: a foreign bot that re-edits its
 # message containing <@PostHog> retriggers app_mention on every edit. Drop these at the
 # webhook entry point. link_shared from bots stays allowed — that's normal alert unfurl.
-_APP_MENTION_BOT_AUTHOR_KEYS = ("bot_id", "bot_profile", "app_id")
-
-
 def _is_bot_authored_app_mention(event: dict[str, Any]) -> bool:
-    if any(event.get(key) for key in _APP_MENTION_BOT_AUTHOR_KEYS):
-        return True
-    if event.get("subtype") == "bot_message":
-        return True
-    if event.get("user") == "USLACKBOT":
-        return True
-    return False
+    return bool(
+        event.get("bot_id")
+        or event.get("bot_profile")
+        or event.get("app_id")
+        or event.get("subtype") == "bot_message"
+        or event.get("user") == "USLACKBOT"
+    )
 
 
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
