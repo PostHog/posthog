@@ -77,7 +77,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models import Insight, Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
@@ -197,6 +197,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
@@ -783,6 +784,20 @@ class PostHogTestCase(SimpleTestCase):
                 func(*args, **kwargs)
 
 
+def no_memory_leak_check(method):
+    """Skip the `MemoryLeakTestMixin` re-run-and-measure loop for this test.
+
+    Use on tests whose body is intrinsically noisy from the mixin's
+    point of view — typically tests that assert a parser raises with a
+    verbose error string (the cpp backend's ANTLR error messages
+    accumulate per-call and trip the per-parse byte limit even though
+    nothing leaks). The decorated test method still runs, just once,
+    and skips the priming / measurement loop entirely.
+    """
+    method._no_memory_leak_check = True
+    return method
+
+
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
     """Parsing more than once can never increase memory by this much (on average)"""
@@ -794,6 +809,10 @@ class MemoryLeakTestMixin:
     """How many times to run every test method to check for memory leaks"""
 
     def _callTestMethod(self, method):
+        # Tests marked `@no_memory_leak_check` run once, no priming/measure loop.
+        if getattr(method, "_no_memory_leak_check", False):
+            method()
+            return
         test_case = cast(unittest.TestCase, self)
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
@@ -1894,7 +1913,7 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Add patches for modules that import execute_hogql_query directly
         try:
-            from posthog.hogql_queries.web_analytics import web_overview
+            from products.web_analytics.backend.hogql_queries import web_overview
 
             if hasattr(web_overview, "execute_hogql_query"):
                 patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
@@ -1902,7 +1921,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.web_analytics import stats_table
+            from products.web_analytics.backend.hogql_queries import stats_table
 
             if hasattr(stats_table, "execute_hogql_query"):
                 patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))

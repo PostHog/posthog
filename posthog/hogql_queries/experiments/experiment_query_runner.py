@@ -418,6 +418,7 @@ class ExperimentQueryRunner(QueryRunner):
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,

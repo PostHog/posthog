@@ -42,7 +42,7 @@ interface BuildCandidatesArgs {
     series: ResolvedSeries[]
     labels: string[]
     scales: ChartScales
-    resolveValue: ResolveValueFn
+    resolvePositionValue: ResolveValueFn
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
@@ -147,8 +147,16 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
+
+    // In percent layout each band sums to 1, so we need the band total to convert each segment's
+    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
+    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
+    // since those still contribute to the visual stack height.
+    const visibleForTotal = isPercent
+        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+        : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -161,10 +169,27 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
-            const yValue = resolveValue(s, dIdx)
+            const yValue = resolvePositionValue(s, dIdx)
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
+
+            let displayValue = rawValue
+            // In percent layout, anchor *below* the segment's stacked top so the label hangs
+            // inside its own segment (matches chart.js) instead of floating at the seam above.
+            let above = isPercent ? false : yValue >= 0
+
+            if (isPercent) {
+                const total = bandTotal(visibleForTotal, dIdx)
+                if (total == null || total === 0) {
+                    continue
+                }
+                // Pass the fraction (0..1) so consumers can use the same percentage formatter
+                // (`percentage_scaled`, BarChart's default tick formatter, etc.) they already use
+                // for the value axis.
+                displayValue = rawValue / total
+            }
+
             // Pass `s.key` so grouped bar charts (compare-against-previous) anchor each
             // label on its own bar rather than the band center between bars. Other chart
             // types ignore the second arg and fall back to the band/point center.
@@ -180,10 +205,10 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 `${s.key}-${dIdx}`,
                 sIdx,
                 s.color,
-                valueFormatter(rawValue, sIdx, dIdx),
+                valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
                 valueCoord,
-                yValue >= 0
+                above
             )
         }
     }
@@ -289,7 +314,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -302,7 +327,7 @@ export function ValueLabels({
                     series,
                     labels,
                     scales,
-                    resolveValue,
+                    resolvePositionValue,
                     valueFormatter: formatter,
                     isHorizontal,
                     mode,
@@ -311,7 +336,7 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolveValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
     if (visible.length === 0) {

@@ -1,0 +1,7 @@
+{% extends "base.jinja" %}
+{% from "_macros.jinja" import cite_in %}
+{% block task %}Decide whether the following condition occurred during the session: {{ user_prompt }}
+
+Set `verdict` to true only if there is direct visual or event-level evidence; otherwise false. Use `reasoning` to ground your decision.
+
+{{ cite_in('reasoning') }}{% endblock %}

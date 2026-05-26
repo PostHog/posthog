@@ -6,7 +6,7 @@ from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -165,6 +165,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "connection timeout expired": None,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
+            "Could not establish session to SSH gateway": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
@@ -173,6 +174,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
             # help because the value shape is fixed in the source.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised when an integer column's source type was widened (e.g. `integer` → `bigint`)
+            # after the destination table was created with the narrower type. Delta Lake can't widen
+            # an existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
@@ -475,7 +481,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

@@ -194,6 +194,7 @@ mod test {
 
     use std::sync::Arc;
 
+    use bytes::Bytes;
     use common_types::ClickHouseEvent;
     use httpmock::MockServer;
     use mockall::predicate;
@@ -356,7 +357,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Some(get_sourcemapcache_bytes())))
+            .returning(|_, _| Ok(Some(Bytes::from(get_sourcemapcache_bytes()))))
             .times(gets);
 
         client

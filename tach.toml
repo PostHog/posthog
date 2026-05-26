@@ -35,9 +35,10 @@ utility = true
 path = "ee"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.alerts",
     "products.dashboards",
-    "products.data_warehouse",
+    "products.data_modeling",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -51,6 +52,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -102,6 +104,16 @@ depends_on = [
     "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
+    "products.actions",
+    "products.alerts", "products.warehouse_sources", "products.data_tools",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.actions"
+depends_on = [
+    "posthog",
+    "products.experiments",
 ]
 layer = "modules"
 
@@ -151,6 +163,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.data_warehouse",
+    "products.notebooks",
 ]
 layer = "modules"
 
@@ -159,6 +172,7 @@ path = "products.dashboards"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.llm_analytics",
     "products.mcp_analytics",
 ]
@@ -168,6 +182,24 @@ layer = "modules"
 path = "products.data_modeling"
 depends_on = [
     "posthog",
+    "products.data_tools",
+    "products.data_warehouse",
+    "products.revenue_analytics",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.data_tools"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.warehouse_sources"
+depends_on = [
+    "posthog",
+    "products.data_modeling",
+    "products.data_tools",
     "products.data_warehouse",
 ]
 layer = "modules"
@@ -179,7 +211,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.data_modeling",
-    "products.revenue_analytics",
+    "products.revenue_analytics", "products.warehouse_sources", "products.data_tools",
 ]
 layer = "modules"
 
@@ -216,7 +248,7 @@ depends_on = [
     "posthog",
     "products.data_modeling",
     "products.data_warehouse",
-    "products.signals",
+    "products.signals", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -241,6 +273,7 @@ path = "products.experiments"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.event_definitions",
     "products.notifications",
     "products.product_tours",
@@ -304,7 +337,10 @@ layer = "modules"
 path = "products.marketing_analytics"
 depends_on = [
     "posthog",
-    "products.data_warehouse",
+    "products.access_control",
+    "products.actions",
+    "products.analytics_platform",
+    "products.data_warehouse", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -385,6 +421,7 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.data_warehouse",
     "products.event_definitions",
 ]
@@ -424,7 +461,7 @@ path = "products.revenue_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
+    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -434,7 +471,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks",
+    "products.tasks", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -451,6 +488,7 @@ path = "products.surveys"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.product_tours",
 ]
 layer = "modules"
@@ -504,6 +542,8 @@ path = "products.web_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
+    "products.analytics_platform",
 ]
 layer = "modules"
 
