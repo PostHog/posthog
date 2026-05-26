@@ -50,18 +50,28 @@ MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 
 def is_email_mfa_globally_disabled() -> bool:
-    return bool(get_client().exists(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY))
+    # Fail closed: if Redis is unreachable, keep email MFA enforced (the secure default) rather than
+    # silently dropping the second factor — and never let a Redis hiccup break the login flow.
+    try:
+        return bool(get_client().exists(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY))
+    except Exception:
+        mfa_logger.exception("Failed to read email MFA global disable flag; keeping email MFA enforced")
+        return False
 
 
 def get_email_mfa_global_disable() -> Optional[dict]:
-    client = get_client()
-    raw = client.get(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
-    if not raw:
+    try:
+        client = get_client()
+        raw = client.get(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        if not raw:
+            return None
+        data = json.loads(raw)
+        ttl = client.ttl(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
+        return data
+    except Exception:
+        mfa_logger.exception("Failed to read email MFA global disable state")
         return None
-    data = json.loads(raw)
-    ttl = client.ttl(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
-    data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
-    return data
 
 
 def set_email_mfa_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:

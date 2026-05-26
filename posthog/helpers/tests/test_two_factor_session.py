@@ -269,3 +269,10 @@ class TestEmailMFAGlobalDisable(SimpleTestCase):
         set_email_mfa_global_disable(reason="email pipeline down", ttl_seconds=3600, disabled_by="support@posthog.com")
         result = EmailMFAVerifier().should_send_email_mfa_verification(user)
         self.assertEqual(result, EmailMFACheckResult(should_send=False))
+
+    @patch("posthog.helpers.two_factor_session.get_client")
+    def test_fails_closed_when_redis_unavailable(self, mock_get_client):
+        mock_get_client.side_effect = Exception("redis unreachable")
+        # Reads must not raise, and must default to "not disabled" so email MFA stays enforced.
+        self.assertFalse(is_email_mfa_globally_disabled())
+        self.assertIsNone(get_email_mfa_global_disable())
