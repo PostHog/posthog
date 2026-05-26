@@ -3,7 +3,7 @@
 The summarization fetch helper returns response strings only — sufficient for LLM
 input but not for agents that need to cross-pivot to recordings, events, or persons.
 This module returns rows with `distinct_id`, `session_id`, `submitted_at`, resolved
-per-question answers, and optional person properties.
+per-question answers, and event-level metadata (device, geoip, etc).
 """
 
 from dataclasses import dataclass, field
@@ -39,11 +39,7 @@ class SurveyResponseRow:
 
 
 def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
-    """Return survey questions with stable `(id, index, text, type, choices)` shape.
-
-    Survey questions are stored as a free-form JSON array. This helper hides that
-    detail from callers and guarantees the keys we depend on are present.
-    """
+    """Return survey questions with stable `(id, index, text, type, choices)` shape."""
     questions = survey.questions or []
     resolved: list[dict[str, Any]] = []
     for index, question in enumerate(questions):
@@ -61,31 +57,20 @@ def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
     return resolved
 
 
-def _extract_answer(properties: dict[str, Any], question_id: str, question_index: int) -> Any:
-    """Resolve the answer for a question from a survey-sent event's properties payload.
-
-    Mirrors the canonical lookup priority used elsewhere in the codebase:
-    `$survey_response_<id>` is preferred (stable across question edits);
-    `$survey_response_<index>` is the fallback (legacy events);
-    `$survey_response` is the legacy fallback for index 0.
-    """
-    by_id_key = f"$survey_response_{question_id}" if question_id else None
-    if by_id_key and by_id_key in properties:
-        value = properties[by_id_key]
-        if value not in (None, ""):
-            return value
-
-    if question_index == 0:
-        legacy_value = properties.get("$survey_response")
-        if legacy_value not in (None, ""):
-            return legacy_value
-
-    indexed_key = f"$survey_response_{question_index}"
-    indexed_value = properties.get(indexed_key)
-    if indexed_value not in (None, ""):
-        return indexed_value
-
-    return None
+# Metadata columns appended to every row — known $-prefixed event properties resolved via
+# HogQL property accessors (backticked because the keys are literal property names, not
+# placeholder values).
+_METADATA_COLUMNS: list[tuple[str, str]] = [
+    ("session_id", "properties.`$session_id`"),
+    ("device_type", "properties.`$device_type`"),
+    ("browser", "properties.`$browser`"),
+    ("os", "properties.`$os`"),
+    ("geoip_country_code", "properties.`$geoip_country_code`"),
+    ("geoip_country_name", "properties.`$geoip_country_name`"),
+    ("geoip_city_name", "properties.`$geoip_city_name`"),
+    ("current_url", "properties.`$current_url`"),
+    ("iteration", "properties.`$survey_iteration`"),
+]
 
 
 def fetch_response_rows(
@@ -103,10 +88,8 @@ def fetch_response_rows(
 ) -> tuple[list[SurveyResponseRow], bool]:
     """Fetch survey response rows for the responses API.
 
-    `score_lte` / `score_gte` require `question_id` — the score filter is only
-    meaningful against a specific rating question. Without it the semantics
-    (which rating? across questions OR?) become ambiguous; we deliberately
-    reject that combination at the caller level.
+    `score_lte` / `score_gte` require `question_id` — score filtering only
+    makes sense against a specific rating question.
     """
     if (score_lte is not None or score_gte is not None) and not question_id:
         raise ValueError("score_lte / score_gte require question_id")
@@ -114,24 +97,12 @@ def fetch_response_rows(
     survey_id = str(survey.id)
     questions = resolve_question_metadata(survey)
 
-    if question_id and not any(q["id"] == question_id for q in questions):
+    questions_in_scope = [q for q in questions if (not question_id or q["id"] == question_id)]
+    if question_id and not questions_in_scope:
         return [], False
 
     paginator = HogQLHasMorePaginator(limit=limit, offset=offset)
 
-    select_columns = [
-        "uuid",
-        "distinct_id",
-        "properties.$session_id AS session_id",
-        "timestamp AS submitted_at",
-        "properties AS event_properties",
-    ]
-
-    conditions = [
-        "event = 'survey sent'",
-        "properties.$survey_id = {survey_id}",
-        "uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})",
-    ]
     placeholders: dict[str, ast.Expr] = {
         "survey_id": ast.Constant(value=survey_id),
         # uniqueSurveySubmissionsFilter requires bounded dates — fall back to
@@ -139,6 +110,32 @@ def fetch_response_rows(
         "start_date": ast.Constant(value=since or survey.start_date or survey.created_at),
         "end_date": ast.Constant(value=until or survey.end_date or datetime.now()),
     }
+
+    # Dynamically add one column per question using the HogQL getSurveyResponse helper —
+    # the same helper the summarization fetch uses, so the resolution semantics match.
+    answer_columns: list[str] = []
+    for q in questions_in_scope:
+        idx_name = f"q_idx_{q['index']}"
+        id_name = f"q_id_{q['index']}"
+        answer_columns.append(f"getSurveyResponse({{{idx_name}}}, {{{id_name}}}) AS answer_{q['index']}")
+        placeholders[idx_name] = ast.Constant(value=q["index"])
+        placeholders[id_name] = ast.Constant(value=q["id"])
+
+    select_clause = ", ".join(
+        [
+            "uuid",
+            "distinct_id",
+            "timestamp AS submitted_at",
+            *(f"{expr} AS {alias}" for alias, expr in _METADATA_COLUMNS),
+            *answer_columns,
+        ]
+    )
+
+    conditions = [
+        "event = 'survey sent'",
+        "properties.`$survey_id` = {survey_id}",
+        "uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})",
+    ]
 
     if since is not None:
         conditions.append("timestamp >= {since}")
@@ -148,76 +145,78 @@ def fetch_response_rows(
         placeholders["until"] = ast.Constant(value=until)
 
     if question_id:
-        # Require the targeted question to have a non-empty answer.
-        # We don't filter by index-keyed fallbacks here because callers asking
-        # for a specific question_id explicitly care about ID-keyed responses.
-        conditions.append("trim(properties.{response_key}) != ''")
-        placeholders["response_key"] = ast.Constant(value=f"$survey_response_{question_id}")
+        # Only return rows where this question has a non-empty answer.
+        target_q = next(q for q in questions_in_scope if q["id"] == question_id)
+        conditions.append(
+            "trim(getSurveyResponse({filter_q_idx}, {filter_q_id})) != ''",
+        )
+        placeholders["filter_q_idx"] = ast.Constant(value=target_q["index"])
+        placeholders["filter_q_id"] = ast.Constant(value=target_q["id"])
 
-    if score_lte is not None:
-        conditions.append("toFloat(properties.{response_key}) <= {score_lte}")
-        placeholders["score_lte"] = ast.Constant(value=score_lte)
-    if score_gte is not None:
-        conditions.append("toFloat(properties.{response_key}) >= {score_gte}")
-        placeholders["score_gte"] = ast.Constant(value=score_gte)
+        if score_lte is not None:
+            conditions.append("toFloat(getSurveyResponse({filter_q_idx}, {filter_q_id})) <= {score_lte}")
+            placeholders["score_lte"] = ast.Constant(value=score_lte)
+        if score_gte is not None:
+            conditions.append("toFloat(getSurveyResponse({filter_q_idx}, {filter_q_id})) >= {score_gte}")
+            placeholders["score_gte"] = ast.Constant(value=score_gte)
 
     if exclude_uuids:
         conditions.append("uuid NOT IN {exclude_uuids}")
         placeholders["exclude_uuids"] = ast.Tuple(exprs=[ast.Constant(value=u) for u in exclude_uuids])
 
     query_str = f"""
-        SELECT {", ".join(select_columns)}
+        SELECT {select_clause}
         FROM events
         WHERE {" AND ".join(conditions)}
         ORDER BY timestamp DESC
     """
 
     select_ast = cast(ast.SelectQuery, parse_select(query_str, placeholders))
-    query_response = paginator.execute_hogql_query(
+    paginator.execute_hogql_query(
         team=team,
         query_type="survey_responses_rows_query",
         query=select_ast,
     )
 
-    rows: list[SurveyResponseRow] = []
-    for raw in query_response.results:
-        uuid_val, distinct_id, session_id, submitted_at, event_properties = raw[:5]
+    # Column order matches the SELECT list above. The metadata columns slot in between
+    # the fixed leading 3 (uuid, distinct_id, submitted_at) and the per-question answer columns.
+    metadata_offset = 3  # uuid, distinct_id, submitted_at
+    answer_offset = metadata_offset + len(_METADATA_COLUMNS)
 
-        properties_dict: dict[str, Any] = event_properties if isinstance(event_properties, dict) else {}
+    rows: list[SurveyResponseRow] = []
+    for raw in paginator.results:
+        uuid_val, distinct_id, submitted_at = raw[0], raw[1], raw[2]
+
+        extra: dict[str, Any] = {}
+        session_id: str | None = None
+        for i, (alias, _) in enumerate(_METADATA_COLUMNS):
+            value = raw[metadata_offset + i]
+            if alias == "session_id":
+                session_id = str(value) if value else None
+            else:
+                # Pass empty/null through as None to keep payloads clean for agents.
+                extra[alias] = value if value not in (None, "") else None
 
         answers: list[QuestionAnswer] = []
-        for question in questions:
-            if question_id and question["id"] != question_id:
-                continue
-            value = _extract_answer(properties_dict, question["id"], question["index"])
-            if value is None:
+        for i, q in enumerate(questions_in_scope):
+            value = raw[answer_offset + i]
+            if value in (None, ""):
                 continue
             answers.append(
                 QuestionAnswer(
-                    question_id=question["id"],
-                    question_index=question["index"],
-                    question_text=question["text"],
-                    question_type=question["type"],
+                    question_id=q["id"],
+                    question_index=q["index"],
+                    question_text=q["text"],
+                    question_type=q["type"],
                     answer=value,
                 )
             )
-
-        extra = {
-            "device_type": properties_dict.get("$device_type"),
-            "browser": properties_dict.get("$browser"),
-            "os": properties_dict.get("$os"),
-            "geoip_country_code": properties_dict.get("$geoip_country_code"),
-            "geoip_country_name": properties_dict.get("$geoip_country_name"),
-            "geoip_city_name": properties_dict.get("$geoip_city_name"),
-            "current_url": properties_dict.get("$current_url"),
-            "iteration": properties_dict.get("$survey_iteration"),
-        }
 
         rows.append(
             SurveyResponseRow(
                 uuid=str(uuid_val),
                 distinct_id=str(distinct_id),
-                session_id=str(session_id) if session_id else None,
+                session_id=session_id,
                 submitted_at=submitted_at,
                 answers=answers,
                 extra=extra,

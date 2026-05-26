@@ -317,6 +317,7 @@ tools:
         enabled: true
         scopes:
             - survey:read
+            - query:read
         annotations:
             readOnly: true
             destructive: false

@@ -2817,7 +2817,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         parameters=[SurveyResponsesQuerySerializer],
         responses={200: SurveyResponsesListSerializer},
     )
-    @action(methods=["GET"], detail=True, url_path="responses", required_scopes=["survey:read"])
+    @action(methods=["GET"], detail=True, url_path="responses", required_scopes=["survey:read", "query:read"])
     def survey_responses_list(self, request: request.Request, **kwargs) -> Response:
         survey = self.get_object()
 
@@ -3095,6 +3095,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         has_gemini_api_key = bool(settings.GEMINI_API_KEY)
         if not environment_is_allowed or not has_gemini_api_key:
             raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
+
+        # Same AI-processing gate that summary_headline uses — applies to per-question summaries too.
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate summaries"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0

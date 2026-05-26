@@ -5182,7 +5182,7 @@
         "feature": "surveys",
         "summary": "List individual survey responses with resolved question text.",
         "title": "List individual survey responses with resolved question text.",
-        "required_scopes": ["survey:read"],
+        "required_scopes": ["survey:read", "query:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

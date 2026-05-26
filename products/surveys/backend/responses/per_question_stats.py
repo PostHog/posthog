@@ -21,11 +21,7 @@ class PerQuestionStats:
     question_text: str
     question_type: str
     response_count: int
-    # Distribution: maps answer value (lowercased for choice/rating) to count.
-    # Empty for open questions — distributions across free-text answers aren't meaningful;
-    # use survey-responses-list with question_id + min_length to read the actual answers.
     distribution: dict[str, int] = field(default_factory=dict)
-    # Numeric stats — only present for rating questions.
     average: float | None = None
 
 
@@ -38,9 +34,11 @@ def fetch_per_question_stats(
 ) -> list[PerQuestionStats]:
     """Aggregate response counts and distributions per survey question.
 
-    Runs one HogQL query per question (typically <=10 questions per survey).
+    Runs one HogQL query per question (typically <=10 questions per survey),
+    using the same `getSurveyResponse` helper the summarization fetch uses
+    so question ID / index resolution matches the rest of the surveys API.
     For choice/rating questions distribution is by answer value;
-    for open questions distribution is empty and callers should fall back to
+    for open questions distribution is empty — callers should fall back to
     survey-responses-list to read the actual text.
     """
     questions = resolve_question_metadata(survey)
@@ -56,41 +54,26 @@ def fetch_per_question_stats(
         question_id, question_index = q["id"], q["index"]
         question_type = q["type"]
 
-        # Build the response key — prefer ID-keyed; fall back to index-keyed for legacy events.
-        id_key = f"$survey_response_{question_id}" if question_id else None
-        index_key = "$survey_response" if question_index == 0 else f"$survey_response_{question_index}"
+        placeholders: dict[str, ast.Expr] = {
+            "survey_id": ast.Constant(value=survey_id),
+            "start_date": ast.Constant(value=start_date),
+            "end_date": ast.Constant(value=end_date),
+            "q_idx": ast.Constant(value=question_index),
+            "q_id": ast.Constant(value=question_id),
+        }
 
-        # COALESCE the two property keys so we count both ID- and index-keyed responses.
-        # nullIf reduces empty strings to NULL so they're not counted as "answers".
-        if id_key:
-            response_expr = "coalesce(nullIf(properties.{id_key}, ''), nullIf(properties.{index_key}, ''))"
-            placeholders: dict[str, ast.Expr] = {
-                "survey_id": ast.Constant(value=survey_id),
-                "start_date": ast.Constant(value=start_date),
-                "end_date": ast.Constant(value=end_date),
-                "id_key": ast.Constant(value=id_key),
-                "index_key": ast.Constant(value=index_key),
-            }
-        else:
-            response_expr = "nullIf(properties.{index_key}, '')"
-            placeholders = {
-                "survey_id": ast.Constant(value=survey_id),
-                "start_date": ast.Constant(value=start_date),
-                "end_date": ast.Constant(value=end_date),
-                "index_key": ast.Constant(value=index_key),
-            }
-
-        # For open questions, just count the rows with non-empty answers — distribution is meaningless.
+        # For open questions: just count non-empty responses — distribution across free-text
+        # answers isn't meaningful and reading them is what survey-responses-list is for.
         if question_type == "open":
-            query_str = f"""
+            query_str = """
                 SELECT count() AS n
                 FROM events
                 WHERE event = 'survey sent'
-                    AND properties.$survey_id = {{survey_id}}
-                    AND timestamp >= {{start_date}}
-                    AND timestamp <= {{end_date}}
-                    AND uniqueSurveySubmissionsFilter({{survey_id}}, {{start_date}}, {{end_date}})
-                    AND {response_expr} IS NOT NULL
+                    AND properties.`$survey_id` = {survey_id}
+                    AND timestamp >= {start_date}
+                    AND timestamp <= {end_date}
+                    AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
+                    AND trim(getSurveyResponse({q_idx}, {q_id})) != ''
             """
             select_ast = cast(ast.SelectQuery, parse_select(query_str, placeholders))
             response = execute_hogql_query(
@@ -110,16 +93,16 @@ def fetch_per_question_stats(
             )
             continue
 
-        # For rating/choice: aggregate by answer value.
-        query_str = f"""
-            SELECT {response_expr} AS answer, count() AS n
+        # For rating/choice: aggregate by answer value to get a distribution.
+        query_str = """
+            SELECT getSurveyResponse({q_idx}, {q_id}) AS answer, count() AS n
             FROM events
             WHERE event = 'survey sent'
-                AND properties.$survey_id = {{survey_id}}
-                AND timestamp >= {{start_date}}
-                AND timestamp <= {{end_date}}
-                AND uniqueSurveySubmissionsFilter({{survey_id}}, {{start_date}}, {{end_date}})
-                AND {response_expr} IS NOT NULL
+                AND properties.`$survey_id` = {survey_id}
+                AND timestamp >= {start_date}
+                AND timestamp <= {end_date}
+                AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
+                AND trim(getSurveyResponse({q_idx}, {q_id})) != ''
             GROUP BY answer
             ORDER BY n DESC
             LIMIT 200
