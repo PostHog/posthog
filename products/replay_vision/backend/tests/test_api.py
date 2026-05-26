@@ -649,7 +649,6 @@ class TestObserveActionFeatureFlag(APIBaseTest):
             self.assertEqual(resp.status_code, 404)
 
 
-<<<<<<< HEAD
 class TestSessionReplayObservationViewSet(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
