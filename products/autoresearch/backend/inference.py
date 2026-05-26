@@ -205,8 +205,15 @@ def _fetch_feature_rows(
         logger.warning("autoresearch_empty_feature_sql", pipeline_id=str(pipeline.pk))
         return []
 
-    # Append LIMIT to keep memory bounded on large teams
-    bounded_sql = f"SELECT * FROM ({feature_sql}) LIMIT {FEATURE_QUERY_LIMIT}"
+    # Substitute {lookback_days} with a concrete integer before passing to HogQL.
+    # Agents write this placeholder to parameterize the feature window; we use
+    # 4× the horizon as a reasonable lookback (minimum 30 days).
+    lookback_days = max(30, pipeline.horizon_days * 4)
+    feature_sql = feature_sql.replace("{lookback_days}", str(lookback_days))
+
+    # Append LIMIT directly rather than wrapping in a subquery — HogQL loses
+    # the events table context when it sees SELECT * FROM (inner_hogql).
+    bounded_sql = feature_sql.rstrip().rstrip(";") + f"\nLIMIT {FEATURE_QUERY_LIMIT}"
 
     try:
         runner = HogQLQueryRunner(
