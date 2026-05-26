@@ -1540,18 +1540,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : false
             },
         ],
-        /** Save-as-project-template from dashboard scene: editor on dashboard, payload has tiles; customers also need authoring flag. Staff use the same modal, with an optional JSON editor entry inside. */
+        /** Save-as-project-template from dashboard scene: editor on dashboard and payload has tiles. Staff use the same modal, with an optional JSON editor entry inside. */
         canSaveProjectDashboardTemplate: [
-            (s) => [userLogic.selectors.user, s.featureFlags, s.canEditDashboard, s.asDashboardTemplate],
-            (user, featureFlags, canEditDashboard, asDashboardTemplate): boolean => {
-                if (!canEditDashboard || !(asDashboardTemplate?.tiles?.length ?? 0)) {
-                    return false
-                }
-                if (user?.is_staff) {
-                    return true
-                }
-                return !!featureFlags[FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]
-            },
+            (s) => [s.canEditDashboard, s.asDashboardTemplate],
+            (canEditDashboard, asDashboardTemplate): boolean =>
+                canEditDashboard && !!(asDashboardTemplate?.tiles?.length ?? 0),
         ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict

@@ -127,10 +127,25 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     return
                 }
 
+                // Sanitize scopes against `allowedScopeKeys` so flag-gated scopes
+                // (e.g. `llm_gateway`) can't slip through via presets like
+                // "Read-only access" that expand to every scope in API_SCOPES.
+                // `*` (all access) is preserved as-is.
+                const allowed = values.allowedScopeKeys
+                const sanitizedScopes =
+                    payload.scopes?.filter((scope) => {
+                        if (scope === '*') {
+                            return true
+                        }
+                        const [object] = scope.split(':')
+                        return !!object && allowed.has(object)
+                    }) ?? []
+                const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
+
                 const key =
                     values.editingKeyId === 'new'
-                        ? await api.personalApiKeys.create(payload)
-                        : await api.personalApiKeys.update(values.editingKeyId, payload)
+                        ? await api.personalApiKeys.create(sanitizedPayload)
+                        : await api.personalApiKeys.update(values.editingKeyId, sanitizedPayload)
 
                 breakpoint()
 
@@ -144,9 +159,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
     })),
     selectors(() => ({
-        filteredScopes: [
-            (s) => [s.searchTerm, s.featureFlags, s.hasAvailableFeature],
-            (searchTerm, featureFlags, hasAvailableFeature): APIScope[] => {
+        allowedScopes: [
+            (s) => [s.featureFlags, s.hasAvailableFeature],
+            (featureFlags, hasAvailableFeature): APIScope[] => {
                 let scopes = API_SCOPES
 
                 // Filter out llm_gateway scope if feature flag is disabled
@@ -158,6 +173,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
                     scopes = scopes.filter((scope) => scope.key !== 'approvals')
                 }
+
+                return scopes
+            },
+        ],
+        allowedScopeKeys: [
+            (s) => [s.allowedScopes],
+            (allowedScopes): Set<string> => new Set(allowedScopes.map((scope) => scope.key)),
+        ],
+        filteredScopes: [
+            (s) => [s.searchTerm, s.allowedScopes],
+            (searchTerm, allowedScopes): APIScope[] => {
+                const scopes = allowedScopes
 
                 if (!searchTerm.trim()) {
                     return scopes

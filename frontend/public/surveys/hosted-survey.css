@@ -58,7 +58,7 @@ body.PostHogHostedSurvey {
 }
 
 .PostHogHostedSurvey.HostedSurveyPreviewFrame--mobile {
-    max-width: 360px;
+    max-width: 390px;
     min-height: 560px;
     padding: 1.25rem;
     margin: 0 auto;

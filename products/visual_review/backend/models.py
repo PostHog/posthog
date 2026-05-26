@@ -375,6 +375,18 @@ class QuarantinedIdentifier(ProductTeamModel):
 
     expires_at = models.DateTimeField(null=True, blank=True)
     created_by_id = models.BigIntegerField(null=True, blank=True)
+    # The run whose failing snapshot prompted the quarantine. Nullable because
+    # quarantines can also be created from the snapshot history page where no
+    # specific failing run is in context, and entries pre-dating this column
+    # have no source. SET_NULL so a deleted/archived Run doesn't cascade-drop
+    # the quarantine — the audit trail (reason, who, when) still matters.
+    source_run = models.ForeignKey(
+        Run,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="originated_quarantines",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

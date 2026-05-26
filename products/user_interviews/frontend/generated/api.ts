@@ -9,14 +9,23 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkIntervieweeContextRequestApi,
+    BulkIntervieweeContextResponseApi,
     IntervieweeContextApi,
+    IntervieweeIdentifierRequestApi,
+    PaginatedInterviewInviteResultListApi,
+    PaginatedInterviewLinkListApi,
     PaginatedIntervieweeContextListApi,
     PaginatedUserInterviewListApi,
     PaginatedUserInterviewTopicListApi,
     PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
+    SendInvitesRequestApi,
+    TestInterviewLinkApi,
     UserInterviewApi,
+    UserInterviewSearchRequestApi,
+    UserInterviewSearchResultApi,
     UserInterviewTopicApi,
     UserInterviewTopicsIntervieweesListParams,
     UserInterviewTopicsListParams,
@@ -57,7 +66,7 @@ export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserIn
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsList = async (
     projectId: string,
@@ -75,7 +84,7 @@ export const getUserInterviewTopicsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsCreate = async (
     projectId: string,
@@ -95,7 +104,7 @@ export const getUserInterviewTopicsRetrieveUrl = (projectId: string, id: string)
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsRetrieve = async (
     projectId: string,
@@ -113,7 +122,7 @@ export const getUserInterviewTopicsUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsUpdate = async (
     projectId: string,
@@ -134,7 +143,7 @@ export const getUserInterviewTopicsPartialUpdateUrl = (projectId: string, id: st
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsPartialUpdate = async (
     projectId: string,
@@ -155,7 +164,7 @@ export const getUserInterviewTopicsDestroyUrl = (projectId: string, id: string) 
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsDestroy = async (
     projectId: string,
@@ -165,6 +174,126 @@ export const userInterviewTopicsDestroy = async (
     return apiMutator<void>(getUserInterviewTopicsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUserInterviewTopicsAddIntervieweeCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/add_interviewee/`
+}
+
+/**
+ * Add a single interviewee to this topic. Email-shaped identifiers (including the `Display Name <email@host>` form) are appended to `interviewee_emails`; everything else is appended to `interviewee_distinct_ids`. Idempotent — adding an identifier that's already present leaves the topic unchanged. Returns the updated topic.
+ */
+export const userInterviewTopicsAddIntervieweeCreate = async (
+    projectId: string,
+    id: string,
+    intervieweeIdentifierRequestApi: IntervieweeIdentifierRequestApi,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsAddIntervieweeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeIdentifierRequestApi),
+    })
+}
+
+export const getUserInterviewTopicsGenerateLinksCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/generate_links/`
+}
+
+/**
+ * Generate one public interview link per targeted interviewee. Materializes an IntervieweeContext row for every identifier on the topic (without overwriting existing per-person context), and an enabled SharingConfiguration with a unique access token. The URL resolves to the public interview viewer with no PostHog auth required.
+ */
+export const userInterviewTopicsGenerateLinksCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedInterviewLinkListApi> => {
+    return apiMutator<PaginatedInterviewLinkListApi>(getUserInterviewTopicsGenerateLinksCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsLinksCsvCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/links_csv/`
+}
+
+/**
+ * Same materialization as generate_links, returned as a downloadable CSV. Intended for users who want to mail-merge the per-person interview links into their own email tooling.
+ */
+export const userInterviewTopicsLinksCsvCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getUserInterviewTopicsLinksCsvCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsRemoveIntervieweeCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/remove_interviewee/`
+}
+
+/**
+ * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
+ */
+export const userInterviewTopicsRemoveIntervieweeCreate = async (
+    projectId: string,
+    id: string,
+    intervieweeIdentifierRequestApi: IntervieweeIdentifierRequestApi,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsRemoveIntervieweeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeIdentifierRequestApi),
+    })
+}
+
+export const getUserInterviewTopicsSendInvitesCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/send_invites/`
+}
+
+/**
+ * Generate (if needed) and email a personalized public interview link to every targeted interviewee on this topic whose identifier is an email address. Distinct-ID-only interviewees are skipped and surfaced in the response. Each invite is keyed on the underlying SharingConfiguration so re-runs after token rotation produce a fresh send.
+ */
+export const userInterviewTopicsSendInvitesCreate = async (
+    projectId: string,
+    id: string,
+    sendInvitesRequestApi?: SendInvitesRequestApi,
+    options?: RequestInit
+): Promise<PaginatedInterviewInviteResultListApi> => {
+    return apiMutator<PaginatedInterviewInviteResultListApi>(
+        getUserInterviewTopicsSendInvitesCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(sendInvitesRequestApi),
+        }
+    )
+}
+
+export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/test_link/`
+}
+
+/**
+ * Return the calling user's personal dogfood interview link for this topic, plus the latest test interview they have recorded against it. Lazily get-or-creates a per-caller IntervieweeContext + enabled SharingConfiguration the first time it's called, then returns the same stable URL on subsequent calls. The caller's identifier is intentionally not added to the topic's targeting arrays — each user dogfoods under their own row, so test calls never mint a public share token on someone else's behalf.
+ */
+export const userInterviewTopicsTestLinkRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TestInterviewLinkApi> => {
+    return apiMutator<TestInterviewLinkApi>(getUserInterviewTopicsTestLinkRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -312,6 +441,30 @@ export const userInterviewTopicsIntervieweesDestroy = async (
     })
 }
 
+export const getUserInterviewTopicsIntervieweesBulkCreateUrl = (projectId: string, topicId: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/bulk/`
+}
+
+/**
+ * Create up to 500 interviewee context rows for a topic in a single request. Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces an `inserted_count`, a `skipped_count`, and the `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch.
+ */
+export const userInterviewTopicsIntervieweesBulkCreate = async (
+    projectId: string,
+    topicId: string,
+    bulkIntervieweeContextRequestApi: BulkIntervieweeContextRequestApi,
+    options?: RequestInit
+): Promise<BulkIntervieweeContextResponseApi> => {
+    return apiMutator<BulkIntervieweeContextResponseApi>(
+        getUserInterviewTopicsIntervieweesBulkCreateUrl(projectId, topicId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(bulkIntervieweeContextRequestApi),
+        }
+    )
+}
+
 export const getUserInterviewsListUrl = (projectId: string, params?: UserInterviewsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -441,5 +594,26 @@ export const userInterviewsDestroy = async (projectId: string, id: string, optio
     return apiMutator<void>(getUserInterviewsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUserInterviewsSearchCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/user_interviews/search/`
+}
+
+/**
+ * Embed `query` with the same model used to index interview transcripts and summaries, then return the top matches by cosine distance. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Useful for surfacing relevant interview snippets in natural language, without exact keyword matches.
+ * @summary Search interview responses by semantic similarity
+ */
+export const userInterviewsSearchCreate = async (
+    projectId: string,
+    userInterviewSearchRequestApi: UserInterviewSearchRequestApi,
+    options?: RequestInit
+): Promise<UserInterviewSearchResultApi[]> => {
+    return apiMutator<UserInterviewSearchResultApi[]>(getUserInterviewsSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userInterviewSearchRequestApi),
     })
 }

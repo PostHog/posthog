@@ -231,7 +231,7 @@ describe('clustersLogic', () => {
                     {
                         key: 'LLMAnalyticsClusters',
                         name: 'Clusters',
-                        path: '/llm-analytics/clusters',
+                        path: '/ai-observability/clusters',
                         iconType: 'llm_clusters',
                     },
                 ])

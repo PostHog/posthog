@@ -60,14 +60,51 @@ const makePreview = (value: unknown, maxChars = 80): string => {
     return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text
 }
 
-const heavyPriority = (key: string): number => {
-    if (key === '$mcp_parameters') {
-        return 0
-    }
-    if (key === '$mcp_response') {
-        return 1
-    }
-    return 2
+// Display order for known MCP properties — groups semantically related rows.
+// Unknown keys fall to the end, sorted alphabetically.
+const MCP_PROPERTY_ORDER: readonly string[] = [
+    // Payload
+    '$mcp_parameters',
+    '$mcp_response',
+    // Outcome
+    '$mcp_is_error',
+    '$mcp_duration_ms',
+    '$mcp_intent',
+    '$mcp_intent_source',
+    // What was called
+    '$mcp_tool_name',
+    '$mcp_tool_description',
+    '$mcp_exec_inner_tool_name',
+    '$mcp_exec_inner_tool_description',
+    '$mcp_resource_name',
+    // Session context
+    '$mcp_session_id',
+    '$mcp_conversation_id',
+    '$mcp_mode',
+    '$mcp_source',
+    '$mcp_transport',
+    // Client
+    '$mcp_client_name',
+    '$mcp_client_version',
+    '$mcp_client_user_agent',
+    // Server
+    '$mcp_server_name',
+    '$mcp_server_version',
+    '$mcp_protocol_version',
+    '$mcp_version',
+    // PostHog target
+    '$mcp_organization_id',
+    '$mcp_project_id',
+    '$mcp_project_name',
+    '$mcp_project_uuid',
+    '$mcp_region',
+]
+
+const orderIndex = (key: string): number => {
+    // Accept both `$mcp_*` and the older un-prefixed `mcp_*` form.
+    const normalized = key.startsWith('$') ? key : `$${key}`
+    const idx = MCP_PROPERTY_ORDER.indexOf(normalized)
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx
 }
 
 function ValueCell({ value, bytes }: { value: unknown; bytes: number }): JSX.Element {
@@ -190,9 +227,15 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
     const durationMs = mcpProps['$mcp_duration_ms']
     const clientName = mcpProps['$mcp_client_name']
     const serverName = mcpProps['$mcp_server_name']
-    const transport = mcpProps['$mcp_transport']
     const intent = mcpProps['$mcp_intent']
     const intentSource = mcpProps['$mcp_intent_source']
+    const hasSummaryStat =
+        hasErrorStatus ||
+        Boolean(displayName && displayKind) ||
+        (durationMs !== undefined && durationMs !== null) ||
+        Boolean(clientName) ||
+        Boolean(serverName) ||
+        Boolean(intent)
 
     const entries: MCPEntry[] = useMemo(() => {
         const arr = Object.entries(mcpProps).map(([key, value]) => ({
@@ -200,7 +243,7 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
             value,
             bytes: measureBytes(value),
         }))
-        arr.sort((a, b) => heavyPriority(a.key) - heavyPriority(b.key) || a.key.localeCompare(b.key))
+        arr.sort((a, b) => orderIndex(a.key) - orderIndex(b.key) || a.key.localeCompare(b.key))
         return arr
     }, [mcpProps])
 
@@ -238,31 +281,36 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
 
     return (
         <div className="mx-3 flex flex-col gap-3">
-            <div className="border-border bg-surface-secondary flex flex-wrap items-start gap-x-6 gap-y-3 rounded border p-3">
-                {hasErrorStatus ? (
-                    <Stat label="Status">
-                        <LemonTag type={isError ? 'danger' : 'success'}>{isError ? 'Error' : 'Success'}</LemonTag>
-                    </Stat>
-                ) : null}
-                {displayName && displayKind ? (
-                    <Stat label={displayKind}>
-                        <span className="font-semibold">{displayName}</span>
-                    </Stat>
-                ) : null}
-                {durationMs !== undefined && durationMs !== null ? (
-                    <Stat label="Duration">{String(durationMs)} ms</Stat>
-                ) : null}
-                {transport ? <Stat label="Transport">{String(transport)}</Stat> : null}
-                {clientName ? <Stat label="Client">{String(clientName)}</Stat> : null}
-                {serverName ? <Stat label="Server">{String(serverName)}</Stat> : null}
-                {intent ? (
-                    <Stat label={intentSource ? `Intent (${String(intentSource).replace(/_/g, ' ')})` : 'Intent'}>
-                        <Tooltip title={String(intent)}>
-                            <span className="line-clamp-1 max-w-[40ch]">{String(intent)}</span>
-                        </Tooltip>
-                    </Stat>
-                ) : null}
-            </div>
+            {hasSummaryStat ? (
+                <div className="border-border bg-surface-secondary flex flex-wrap items-start gap-x-6 gap-y-3 rounded border p-3">
+                    {hasErrorStatus ? (
+                        <Stat label="Status">
+                            <LemonTag type={isError ? 'danger' : 'success'}>{isError ? 'Error' : 'Success'}</LemonTag>
+                        </Stat>
+                    ) : null}
+                    {displayName && displayKind ? (
+                        <Stat label={displayKind}>
+                            <span className="font-semibold">{displayName}</span>
+                        </Stat>
+                    ) : null}
+                    {durationMs !== undefined && durationMs !== null ? (
+                        <Stat label="Duration">{String(durationMs)} ms</Stat>
+                    ) : null}
+                    {clientName ? <Stat label="Client">{String(clientName)}</Stat> : null}
+                    {serverName ? <Stat label="Server">{String(serverName)}</Stat> : null}
+                    {intent ? (
+                        <div className="basis-full">
+                            <Stat
+                                label={intentSource ? `Intent (${String(intentSource).replace(/_/g, ' ')})` : 'Intent'}
+                            >
+                                <Tooltip title={String(intent)}>
+                                    <span className="block whitespace-pre-wrap break-words">{String(intent)}</span>
+                                </Tooltip>
+                            </Stat>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
             {entries.length > 6 ? (
                 <LemonInput
                     type="search"

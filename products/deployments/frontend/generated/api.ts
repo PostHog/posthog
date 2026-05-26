@@ -12,6 +12,7 @@ import type {
     DeploymentActionResponseApi,
     DeploymentApi,
     DeploymentCreateInputApi,
+    DeploymentLogsResponseApi,
     DeploymentProjectApi,
     DeploymentProjectCreateApi,
     DeploymentProjectRefreshResponseApi,
@@ -19,6 +20,8 @@ import type {
     DeploymentProjectsDeploymentsEventsListParams,
     DeploymentProjectsDeploymentsListParams,
     DeploymentProjectsListParams,
+    DetectConfigRequestApi,
+    DetectConfigResponseApi,
     PaginatedDeploymentEventListApi,
     PaginatedDeploymentListApi,
     PaginatedDeploymentProjectListApi,
@@ -279,8 +282,8 @@ export const deploymentProjectsDeploymentsLogsRetrieve = async (
     deploymentProjectId: string,
     id: string,
     options?: RequestInit
-): Promise<DeploymentActionResponseApi> => {
-    return apiMutator<DeploymentActionResponseApi>(
+): Promise<DeploymentLogsResponseApi> => {
+    return apiMutator<DeploymentLogsResponseApi>(
         getDeploymentProjectsDeploymentsLogsRetrieveUrl(projectId, deploymentProjectId, id),
         {
             ...options,
@@ -501,5 +504,26 @@ export const deploymentProjectsRefreshCreate = async (
     return apiMutator<DeploymentProjectRefreshResponseApi>(getDeploymentProjectsRefreshCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDeploymentProjectsDetectCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/deployment_projects/detect/`
+}
+
+/**
+ * Pure inspection — no git access, no DB writes. The connect-repo UI calls this after fetching `package.json` (via the team's GitHub integration) and uses the response to prefill the form.
+ * @summary Suggest project config from a repo's package.json and lockfiles
+ */
+export const deploymentProjectsDetectCreate = async (
+    projectId: string,
+    detectConfigRequestApi?: DetectConfigRequestApi,
+    options?: RequestInit
+): Promise<DetectConfigResponseApi> => {
+    return apiMutator<DetectConfigResponseApi>(getDeploymentProjectsDetectCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(detectConfigRequestApi),
     })
 }

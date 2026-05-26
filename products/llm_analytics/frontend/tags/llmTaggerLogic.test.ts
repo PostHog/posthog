@@ -359,9 +359,29 @@ describe('llmTaggerLogic', () => {
                 expect(errors.tagger_config.prompt).toBe('Prompt is required')
             })
 
-            it('reports error when tag name is empty', async () => {
+            it('does not block save when a blank tag row coexists with a named tag', async () => {
+                // "Add tag" appends a blank row and submit strips blank rows, so a blank row must
+                // not invalidate the whole form — otherwise unrelated edits (conditions, enabled,
+                // sampling) silently fail to save until the row is removed.
+                logic.actions.setTaggerFormValues({
+                    name: 'Valid Tagger',
+                    tagger_config: {
+                        prompt: 'Tag this',
+                        tags: [
+                            { name: 'billing', description: '' },
+                            { name: '', description: '' },
+                        ],
+                        min_tags: 0,
+                        max_tags: null,
+                    },
+                })
                 const errors = await submitAndGetErrors()
-                expect(errors.tagger_config.tags).toEqual([{ name: 'All tags must have a name' }])
+                expect(errors.tagger_config.tags).toBeUndefined()
+            })
+
+            it('reports error when every tag row is blank', async () => {
+                const errors = await submitAndGetErrors()
+                expect(errors.tagger_config.tags).toEqual([{ name: 'At least one tag is required' }])
             })
 
             it('reports error when no tags exist', async () => {

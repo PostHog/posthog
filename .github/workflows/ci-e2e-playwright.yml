@@ -86,7 +86,7 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
             # cost of fetching blobs.
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
@@ -196,7 +196,7 @@ jobs:
         permissions:
             pull-requests: write
         steps:
-            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   SHOULD_RUN: ${{ needs.changes.outputs.shouldRun }}
                   SHOULD_SUGGEST: ${{ needs.changes.outputs.shouldSuggest }}
@@ -261,7 +261,7 @@ jobs:
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
@@ -431,9 +431,10 @@ jobs:
 
             - name: Collect static files
               run: |
-                  # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-                  # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
-                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+                  # KLUDGE: posthog-js now bundles rrweb and ships image-bitmap-data-url-worker-*.js.map
+                  # KLUDGE: under its own dist; the worker references the map alongside, so copy it into
+                  # KLUDGE: dist/ or django's collectstatic fails on the missing source map
+                  cp frontend/node_modules/posthog-js/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |
@@ -476,7 +477,7 @@ jobs:
               # Cache key is the merge-base SHA — produced by ci-backend on master push.
               # Cache miss falls through to a full migrate below.
               if: github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != ''
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz
@@ -509,6 +510,13 @@ jobs:
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+
+                  # Cyclotron node DB — the plugins container runs the CDP rerun worker
+                  # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
+                  # at a real, migrated database or it throws on startup and the server exits.
+                  CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
+                  sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                  sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
@@ -606,6 +614,8 @@ jobs:
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
                   VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
+                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   RUN_ID=$(vr run create \
                     --type playwright \
@@ -702,7 +712,7 @@ jobs:
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               with:
@@ -847,7 +857,7 @@ jobs:
         needs: [playwright]
         if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}

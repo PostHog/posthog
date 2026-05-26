@@ -29,7 +29,6 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -67,6 +66,7 @@ import {
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -74,7 +74,6 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { COMMON_LANGUAGES } from './SurveyTranslations'
 import { canUseSurveyWizard } from './utils'
 
 function SurveyCompletionConditions(): JSX.Element {
@@ -297,6 +296,30 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
+    const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
+    const canConvertToHosted = hostedEditorEnabled && survey.type !== SurveyType.ExternalSurvey
+
+    const convertToHostedSurvey = (): void => {
+        LemonDialog.open({
+            title: 'Convert to hosted survey?',
+            description: (
+                <p className="py-2">
+                    This keeps the questions and style, then switches the editor to the hosted-survey setup. Display
+                    conditions and in-app placement settings won't apply.
+                </p>
+            ),
+            primaryButton: {
+                children: 'Convert',
+                onClick: () => {
+                    setSurveyValue('type', SurveyType.ExternalSurvey)
+                    setSelectedPageIndex(0)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
     const activeEditingLanguage = surveyTranslationsEnabled ? editingLanguage : null
     const surveyTranslations = survey.translations ?? {}
     const hasActualTranslations = !!(
@@ -436,10 +459,20 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     data-attr="switch-to-wizard"
                                     type="tertiary"
                                     size="small"
-                                    to={`${urls.surveyWizard(id)}#preserveLocalChanges=true`}
+                                    to={urls.surveyWizard(id)}
                                     onClick={() => setPreferredEditor('guided')}
                                 >
                                     Guided editor
+                                </LemonButton>
+                            )}
+                            {canConvertToHosted && (
+                                <LemonButton
+                                    data-attr="convert-to-hosted-survey"
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={convertToHostedSurvey}
+                                >
+                                    Convert to hosted
                                 </LemonButton>
                             )}
                             <LemonButton
@@ -523,7 +556,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                         className="font-semibold hover:underline cursor-pointer"
                                                                     >
                                                                         {lang === 'default'
-                                                                            ? 'Default language'
+                                                                            ? `Original (${getSurveyLanguageName(
+                                                                                  getBaseLanguage(survey)
+                                                                              )})`
                                                                             : COMMON_LANGUAGES.find(
                                                                                   (l) => l.value === lang
                                                                               )?.label || lang}
@@ -554,6 +589,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 />
                             )
                         } else if (activeEditingLanguage) {
+                            const baseLanguageName = getSurveyLanguageName(getBaseLanguage(survey))
                             return (
                                 <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                                     <span className="text-sm">
@@ -562,15 +598,15 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             {COMMON_LANGUAGES.find((l) => l.value === activeEditingLanguage)?.label ||
                                                 activeEditingLanguage}
                                         </strong>
-                                        . Only user-facing text can be translated - all other fields are editable in the{' '}
+                                        . Only user-facing text can be translated — structural fields stay in the{' '}
                                         <button
                                             type="button"
                                             onClick={() => setEditingLanguage(null)}
                                             className="font-semibold hover:underline cursor-pointer"
                                         >
-                                            default language
-                                        </button>{' '}
-                                        only.
+                                            original ({baseLanguageName})
+                                        </button>
+                                        .
                                     </span>
                                 </div>
                             )
@@ -1161,7 +1197,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       <Tooltip
                                                                                           title={
                                                                                               activeEditingLanguage
-                                                                                                  ? 'Auto disappear can only be changed in the default language'
+                                                                                                  ? 'Auto disappear can only be changed in the original language'
                                                                                                   : undefined
                                                                                           }
                                                                                       >
@@ -1333,48 +1369,46 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                               dataAttr: 'survey-display-conditions',
                                               content: (
                                                   <LemonField.Pure>
-                                                      <LemonSelect
+                                                      <LemonRadio
+                                                          value={hasTargetingSet ? 'matching' : 'all'}
                                                           onChange={(value) => {
-                                                              if (value) {
+                                                              if (value === 'all') {
                                                                   resetTargeting()
                                                               } else {
-                                                                  // TRICKY: When attempting to set user match conditions
-                                                                  // we want a proxy value to be set so that the user
-                                                                  // can then edit these, or decide to go back to all user targeting
+                                                                  // Proxy value so the conditions block renders and the
+                                                                  // user can start editing or return to "all users".
                                                                   setSurveyValue('conditions', { url: '' })
                                                               }
                                                           }}
-                                                          value={!hasTargetingSet}
                                                           options={[
-                                                              { label: 'All users', value: true },
                                                               {
-                                                                  label: 'Users who match all of the following...',
-                                                                  value: false,
+                                                                  value: 'all',
+                                                                  label: 'All users',
+                                                                  description: 'Show this survey to everyone',
+                                                              },
+                                                              {
+                                                                  value: 'matching',
+                                                                  label: 'Only users who match conditions',
+                                                                  description:
+                                                                      'Show this survey only when every condition below is met',
                                                                   'data-attr': 'survey-display-conditions-select-users',
                                                               },
                                                           ]}
                                                           data-attr="survey-display-conditions-select"
                                                       />
-                                                      {!hasTargetingSet ? (
-                                                          <span className="text-secondary">
-                                                              Survey <b>will be released to everyone</b>
-                                                          </span>
-                                                      ) : (
+                                                      {hasTargetingSet && (
                                                           <>
+                                                              <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider mt-3 mb-0">
+                                                                  Targeting
+                                                              </h3>
                                                               <LemonField
                                                                   name="linked_flag_id"
-                                                                  label="Link feature flag (optional)"
-                                                                  info={
-                                                                      <>
-                                                                          Connecting to a feature flag will
-                                                                          automatically enable this survey for everyone
-                                                                          in the feature flag.
-                                                                      </>
-                                                                  }
+                                                                  label="Feature flag targeting"
+                                                                  help="Linking a flag also enables the survey for everyone the flag is on for."
                                                               >
                                                                   {({ value, onChange }) => (
                                                                       <div
-                                                                          className="flex"
+                                                                          className="flex items-center gap-2"
                                                                           data-attr="survey-display-conditions-linked-flag"
                                                                       >
                                                                           <FlagSelector
@@ -1431,9 +1465,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           />
                                                                           {value && (
                                                                               <LemonButton
-                                                                                  className="ml-2"
-                                                                                  icon={<IconCancel />}
+                                                                                  type="tertiary"
                                                                                   size="small"
+                                                                                  icon={<IconTrash />}
                                                                                   onClick={() => {
                                                                                       onChange(null)
                                                                                       setSurveyValue(
@@ -1448,8 +1482,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           ...conditions,
                                                                                       })
                                                                                   }}
-                                                                                  aria-label="close"
-                                                                              />
+                                                                              >
+                                                                                  Clear
+                                                                              </LemonButton>
                                                                           )}
                                                                       </div>
                                                                   )}
@@ -1499,11 +1534,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           <LemonField.Pure
                                                                               label="URL targeting"
                                                                               error={urlMatchTypeValidationError}
-                                                                              info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
+                                                                              help="Regex and exact match need posthog-js 1.82+."
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
-                                                                                  URL
                                                                                   <LemonSelect
+                                                                                      className="w-40 shrink-0"
                                                                                       value={
                                                                                           value?.urlMatchType ||
                                                                                           SurveyMatchType.Contains
@@ -1545,27 +1580,22 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               </div>
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
-                                                                              label="Device Types"
+                                                                              label="Device types"
                                                                               error={
                                                                                   deviceTypesMatchTypeValidationError
                                                                               }
-                                                                              info={
+                                                                              help={
                                                                                   <>
-                                                                                      Add the device types to show the
-                                                                                      survey on. Possible values:
-                                                                                      'Desktop', 'Mobile', 'Tablet'. For
-                                                                                      the full list and caveats,{' '}
                                                                                       <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
-                                                                                          check the documentation here
+                                                                                          See accepted values
                                                                                       </Link>
-                                                                                      . Requires at least version 1.214
-                                                                                      of posthog-js
+                                                                                      . Needs posthog-js 1.214+.
                                                                                   </>
                                                                               }
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
-                                                                                  Device Types
                                                                                   <LemonSelect
+                                                                                      className="w-40 shrink-0"
                                                                                       value={
                                                                                           value?.deviceTypesMatchType ||
                                                                                           SurveyMatchType.Contains
@@ -1617,41 +1647,43 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           placeholder="ex: Desktop|Mobile"
                                                                                       />
                                                                                   ) : (
-                                                                                      <PropertyValue
-                                                                                          propertyKey={getPropertyKey(
-                                                                                              'Device Type',
-                                                                                              TaxonomicFilterGroupType.EventProperties
-                                                                                          )}
-                                                                                          type={
-                                                                                              PropertyFilterType.Event
-                                                                                          }
-                                                                                          onSet={(
-                                                                                              deviceTypes:
-                                                                                                  | string
-                                                                                                  | string[]
-                                                                                          ) => {
-                                                                                              onChange({
-                                                                                                  ...value,
+                                                                                      <div className="flex-1 min-w-0">
+                                                                                          <PropertyValue
+                                                                                              propertyKey={getPropertyKey(
+                                                                                                  'Device Type',
+                                                                                                  TaxonomicFilterGroupType.EventProperties
+                                                                                              )}
+                                                                                              type={
+                                                                                                  PropertyFilterType.Event
+                                                                                              }
+                                                                                              onSet={(
                                                                                                   deviceTypes:
-                                                                                                      Array.isArray(
-                                                                                                          deviceTypes
-                                                                                                      )
-                                                                                                          ? deviceTypes
-                                                                                                          : [
-                                                                                                                deviceTypes,
-                                                                                                            ],
-                                                                                              })
-                                                                                          }}
-                                                                                          operator={
-                                                                                              PropertyOperator.Exact
-                                                                                          }
-                                                                                          value={value?.deviceTypes}
-                                                                                          inputClassName="flex-1"
-                                                                                      />
+                                                                                                      | string
+                                                                                                      | string[]
+                                                                                              ) => {
+                                                                                                  onChange({
+                                                                                                      ...value,
+                                                                                                      deviceTypes:
+                                                                                                          Array.isArray(
+                                                                                                              deviceTypes
+                                                                                                          )
+                                                                                                              ? deviceTypes
+                                                                                                              : [
+                                                                                                                    deviceTypes,
+                                                                                                                ],
+                                                                                                  })
+                                                                                              }}
+                                                                                              operator={
+                                                                                                  PropertyOperator.Exact
+                                                                                              }
+                                                                                              value={value?.deviceTypes}
+                                                                                              inputClassName="w-full"
+                                                                                          />
+                                                                                      </div>
                                                                                   )}
                                                                               </div>
                                                                           </LemonField.Pure>
-                                                                          <LemonField.Pure label="CSS selector matches:">
+                                                                          <LemonField.Pure label="CSS selector matches">
                                                                               <LemonInput
                                                                                   value={value?.selector}
                                                                                   onChange={(selectorVal) =>
@@ -1665,73 +1697,56 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
                                                                               label="Survey wait period"
-                                                                              info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
+                                                                              help="Reliable only for identified users in the same browser session — incognito, browser switches, and logout/login may still see the survey again."
                                                                           >
-                                                                              <div className="flex flex-row gap-2 items-center">
+                                                                              <div className="flex flex-wrap gap-2 items-center text-sm">
                                                                                   <LemonCheckbox
                                                                                       checked={
                                                                                           !!value?.seenSurveyWaitPeriodInDays
                                                                                       }
                                                                                       onChange={(checked) => {
-                                                                                          if (checked) {
-                                                                                              onChange({
-                                                                                                  ...value,
-                                                                                                  seenSurveyWaitPeriodInDays:
-                                                                                                      value?.seenSurveyWaitPeriodInDays ||
-                                                                                                      30,
-                                                                                              })
-                                                                                          } else {
-                                                                                              const {
-                                                                                                  seenSurveyWaitPeriodInDays,
-                                                                                                  ...rest
-                                                                                              } = value || {}
-                                                                                              onChange(rest)
-                                                                                          }
+                                                                                          onChange({
+                                                                                              ...value,
+                                                                                              seenSurveyWaitPeriodInDays:
+                                                                                                  checked
+                                                                                                      ? value?.seenSurveyWaitPeriodInDays ||
+                                                                                                        30
+                                                                                                      : null,
+                                                                                          })
                                                                                       }}
+                                                                                      label="Don't show this survey if another one was shown to the user in the last"
                                                                                   />
-                                                                                  Don't show to users who saw any survey
-                                                                                  in the last
-                                                                                  <LemonInput
-                                                                                      type="number"
-                                                                                      size="xsmall"
-                                                                                      min={0}
-                                                                                      value={
-                                                                                          value?.seenSurveyWaitPeriodInDays ||
-                                                                                          NaN
-                                                                                      }
-                                                                                      onChange={(val) => {
-                                                                                          if (
-                                                                                              val !== undefined &&
-                                                                                              val > 0
-                                                                                          ) {
+                                                                                  <div className="flex items-center gap-2">
+                                                                                      <LemonInput
+                                                                                          type="number"
+                                                                                          size="xsmall"
+                                                                                          min={1}
+                                                                                          value={
+                                                                                              value?.seenSurveyWaitPeriodInDays ??
+                                                                                              undefined
+                                                                                          }
+                                                                                          onChange={(val) =>
                                                                                               onChange({
                                                                                                   ...value,
                                                                                                   seenSurveyWaitPeriodInDays:
-                                                                                                      val,
-                                                                                              })
-                                                                                          } else {
-                                                                                              onChange({
-                                                                                                  ...value,
-                                                                                                  seenSurveyWaitPeriodInDays:
-                                                                                                      null,
+                                                                                                      val && val > 0
+                                                                                                          ? val
+                                                                                                          : null,
                                                                                               })
                                                                                           }
-                                                                                      }}
-                                                                                      className="w-12"
-                                                                                      id="survey-wait-period-input"
-                                                                                  />{' '}
-                                                                                  {value?.seenSurveyWaitPeriodInDays ===
-                                                                                  1 ? (
-                                                                                      <span>day.</span>
-                                                                                  ) : (
-                                                                                      <span>days.</span>
-                                                                                  )}
+                                                                                          className="w-16 tabular-nums"
+                                                                                          id="survey-wait-period-input"
+                                                                                      />
+                                                                                      <span className="text-secondary">
+                                                                                          days.
+                                                                                      </span>
+                                                                                  </div>
                                                                               </div>
                                                                           </LemonField.Pure>
                                                                       </>
                                                                   )}
                                                               </LemonField>
-                                                              <LemonField.Pure label="Properties">
+                                                              <LemonField.Pure label="Audience filters">
                                                                   <BindLogic
                                                                       logic={featureFlagLogic}
                                                                       props={{
@@ -1802,12 +1817,12 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       )}
                                                                   </BindLogic>
                                                               </LemonField.Pure>
+                                                              <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider mt-4 mb-0">
+                                                                  Triggers
+                                                              </h3>
                                                               {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] ? (
-                                                                  <LemonField.Pure
-                                                                      label="Activation triggers"
-                                                                      info="Survey will activate when any of these conditions are met"
-                                                                  >
-                                                                      <div className="border rounded p-3 space-y-3">
+                                                                  <LemonField.Pure label="Activation triggers">
+                                                                      <div className="space-y-4">
                                                                           <SurveyEventTrigger />
                                                                           <div className="flex items-center gap-2">
                                                                               <div className="flex-1 border-t border-dashed" />

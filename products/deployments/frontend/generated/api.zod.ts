@@ -246,3 +246,28 @@ export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them.'
         ),
 })
+
+/**
+ * Pure inspection — no git access, no DB writes. The connect-repo UI calls this after fetching `package.json` (via the team's GitHub integration) and uses the response to prefill the form.
+ * @summary Suggest project config from a repo's package.json and lockfiles
+ */
+export const deploymentProjectsDetectCreateBodyLockfilesItemMax = 64
+
+export const DeploymentProjectsDetectCreateBody = /* @__PURE__ */ zod
+    .object({
+        package_json: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback."
+            ),
+        lockfiles: zod
+            .array(zod.string().max(deploymentProjectsDetectCreateBodyLockfilesItemMax))
+            .optional()
+            .describe(
+                'Filenames of package-manager lockfiles found in the repo root (e.g. [\"pnpm-lock.yaml\"]). Used to pick the package manager.'
+            ),
+    })
+    .describe(
+        "Inputs the `\/detect\/` endpoint needs to suggest a project config.\n\nDecouples detection from any one git provider — callers fetch\n`package.json` and the list of lockfiles however they like (GitHub\nraw content via the team's existing integration, a temporary clone,\nuser-pasted JSON during early development) and pass them here."
+    )

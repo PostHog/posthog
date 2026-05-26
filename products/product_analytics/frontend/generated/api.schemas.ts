@@ -220,6 +220,11 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CalendarHeatmapFilterApi {
+    /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
+    bucketBySessionStart?: boolean | null
+}
+
 export interface CompareFilterApi {
     /** Whether to compare the current date range to a previous date range. */
     compare?: boolean | null
@@ -351,6 +356,17 @@ export const MaterializedColumnsOptimizationModeApi = {
     Optimized: 'optimized',
 } as const
 
+export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
+
+export const ParserModeApi = {
+    CppOnly: 'cpp_only',
+    CppWithRustShadow: 'cpp_with_rust_shadow',
+    RustWithCppShadow: 'rust_with_cpp_shadow',
+    RustOnly: 'rust_only',
+    RustPyOnly: 'rust_py_only',
+    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
+} as const
+
 export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
 
 export const PersonsArgMaxVersionApi = {
@@ -415,6 +431,8 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
+    /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?: ParserModeApi | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -1483,11 +1501,23 @@ export type TrendsFilterApiResultCustomizations =
     | null
 
 export interface TrendsFilterApi {
+    /** Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+
+  - `numeric` (default): raw numbers, e.g. `1,234`.
+  - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+  - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+  - `percentage`: values are already in the 0-100 range; appends `%`.
+  - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+  - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+  - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
     aggregationAxisFormat?: AggregationAxisFormatApi | null
+    /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: string | null
+    /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
     breakdown_histogram_bin_count?: number | null
     confidenceLevel?: number | null
+    /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: number | null
     /** detailed results table */
     detailedResultsAggregationType?: DetailedResultsAggregationTypeApi | null
@@ -1517,6 +1547,10 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: string | null
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: string | null
     yAxisScaleType?: YAxisScaleTypeApi | null
 }
 
@@ -1525,6 +1559,8 @@ export interface TrendsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
+    calendarHeatmapFilter?: CalendarHeatmapFilterApi | null
     /** Compare to date range */
     compareFilter?: CompareFilterApi | null
     /** Whether we should be comparing against a specific conversion goal */
@@ -2017,9 +2053,9 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
 
-export const AggregationPropertyType1Api = {
+export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
     DataWarehouse: 'data_warehouse',
@@ -2143,9 +2179,11 @@ export interface RetentionFilterApi {
     /** The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string | null
     /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyType1Api | null
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
+    /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
+    cohortLabelStartIndex?: number | null
     cumulative?: boolean | null
     /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean | null
@@ -2719,6 +2757,7 @@ export interface WebStatsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -2763,6 +2802,8 @@ export interface WebStatsTableQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -2803,6 +2844,7 @@ export interface WebOverviewQueryResponseApi {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -2835,6 +2877,8 @@ export interface WebOverviewQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -3046,6 +3090,7 @@ export interface Response4Api {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -3069,6 +3114,7 @@ export interface Response5Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -6537,10 +6583,17 @@ export interface ChartAxisApi {
     settings?: SettingsApi | null
 }
 
+/**
+ * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+ */
+export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
+
 export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null

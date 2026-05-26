@@ -5,6 +5,23 @@ from typing import Literal, TypedDict
 from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from ee.models.session_summaries import FailedSessionCategory, FailedSessionInfo
+
+# Re-exported so consumers don't reach into ee.models directly for these.
+__all__ = [
+    "ExtraSummaryContext",
+    "FailedSessionCategory",
+    "FailedSessionInfo",
+    "SessionBatchFetchOutput",
+    "SessionGroupSummaryInputs",
+    "SessionGroupSummaryOfSummariesInputs",
+    "SessionGroupSummaryPatternsExtractionChunksInputs",
+    "SessionProgressStreamData",
+    "SessionStatusChange",
+    "SessionSummaryStreamUpdate",
+    "SingleSessionSummaryInputs",
+    "WorkflowProgress",
+]
 
 
 class SessionSummaryStreamUpdate(Enum):
@@ -57,6 +74,8 @@ class SessionGroupSummaryOfSummariesInputs:
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     trigger_session_id: str | None = None
+    # Forwarded so the assign activity can persist them into run_metadata.
+    failed_sessions: list[FailedSessionInfo] = dataclasses.field(default_factory=list)
 
 
 class SessionStatusChange(TypedDict):

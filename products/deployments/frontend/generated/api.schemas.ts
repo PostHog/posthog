@@ -360,6 +360,46 @@ export interface PaginatedDeploymentEventListApi {
     results: DeploymentEventApi[]
 }
 
+/**
+ * One line of build output emitted by the build worker as a `$log` event.
+ */
+export interface DeploymentLogEntryApi {
+    /** When the line was emitted by the build worker. */
+    timestamp: string
+    /**
+     * Log level: "info" | "warn" | "error". Null if the event did not carry one.
+     * @nullable
+     */
+    level: string | null
+    /**
+     * Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.
+     * @nullable
+     */
+    step: string | null
+    /**
+     * The log line itself (a single line of stdout or stderr).
+     * @nullable
+     */
+    line: string | null
+    /**
+     * Set on the last line of a step; null on all other lines.
+     * @nullable
+     */
+    exit_code: number | null
+}
+
+/**
+ * Response shape for GET /deployments/{id}/logs/.
+ */
+export interface DeploymentLogsResponseApi {
+    /** Log lines for the deployment, oldest first. */
+    results: DeploymentLogEntryApi[]
+    /** True if the row limit was hit and older lines may exist beyond this page. */
+    has_more: boolean
+    /** The hard cap applied by the server. */
+    row_limit: number
+}
+
 export interface DeploymentProjectWriteApi {
     /**
      * Human-readable project name shown in the UI.
@@ -466,6 +506,68 @@ export interface DeploymentProjectRefreshResponseApi {
     default_branch: string
     /** Current GitHub HEAD SHA for default_branch. */
     commit_sha: string
+}
+
+/**
+ * Inputs the `/detect/` endpoint needs to suggest a project config.
+
+Decouples detection from any one git provider — callers fetch
+`package.json` and the list of lockfiles however they like (GitHub
+raw content via the team's existing integration, a temporary clone,
+user-pasted JSON during early development) and pass them here.
+ */
+export interface DetectConfigRequestApi {
+    /** Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback. */
+    package_json?: unknown
+    /** Filenames of package-manager lockfiles found in the repo root (e.g. ["pnpm-lock.yaml"]). Used to pick the package manager. */
+    lockfiles?: string[]
+}
+
+/**
+ * * `npm` - npm
+ * `pnpm` - pnpm
+ * `yarn` - yarn
+ * `bun` - bun
+ */
+export type PackageManagerEnumApi = (typeof PackageManagerEnumApi)[keyof typeof PackageManagerEnumApi]
+
+export const PackageManagerEnumApi = {
+    Npm: 'npm',
+    Pnpm: 'pnpm',
+    Yarn: 'yarn',
+    Bun: 'bun',
+} as const
+
+/**
+ * Suggested project config. Every field is overridable in the connect-repo UI.
+
+`build_command`, `output_dir`, and `framework` map directly to the
+`DeploymentProject` model fields. `package_manager`, `install_command`,
+and `node_version` are informational hints — the model doesn't store
+them today, but the UI can display them so the user knows what the
+build worker will end up running.
+ */
+export interface DetectConfigResponseApi {
+    /** Detected package manager from lockfile presence.
+
+  * `npm` - npm
+  * `pnpm` - pnpm
+  * `yarn` - yarn
+  * `bun` - bun */
+    package_manager: PackageManagerEnumApi
+    /** Suggested install command, or empty when no install is needed. */
+    install_command: string
+    /** Suggested build command, or empty when no known framework matched. */
+    build_command: string
+    /** Suggested output directory relative to repo root. */
+    output_dir: string
+    /** Suggested Node major version, parsed from `engines.node` or defaulted to 20. */
+    node_version: string
+    /**
+     * Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into `DeploymentProject.framework`. Null when no framework matched — leaving the field null lets the build worker fall back to its own auto-detection.
+     * @nullable
+     */
+    framework: string | null
 }
 
 export type DeploymentProjectsListParams = {

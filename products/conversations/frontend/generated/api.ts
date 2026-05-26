@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    ComposeTicketApi,
+    ComposeTicketResponseApi,
     ConversationApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
@@ -106,6 +108,24 @@ export const conversationsRetrieve = async (
     return apiMutator<ConversationApi>(getConversationsRetrieveUrl(projectId, conversation), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsDestroyUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/`
+}
+
+/**
+ * Delete a conversation.
+ */
+export const conversationsDestroy = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsDestroyUrl(projectId, conversation), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -451,6 +471,14 @@ export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string
 /**
  * Bulk update tags on multiple objects.
 
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
+
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
 
@@ -469,6 +497,26 @@ export const conversationsTicketsBulkUpdateTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+export const getConversationsTicketsComposeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/compose/`
+}
+
+/**
+ * Create a new outbound ticket and send the first message to the customer.
+ */
+export const conversationsTicketsComposeCreate = async (
+    projectId: string,
+    composeTicketApi: ComposeTicketApi,
+    options?: RequestInit
+): Promise<ComposeTicketResponseApi> => {
+    return apiMutator<ComposeTicketResponseApi>(getConversationsTicketsComposeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(composeTicketApi),
     })
 }
 

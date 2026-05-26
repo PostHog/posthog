@@ -10,6 +10,7 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

@@ -1,67 +1,105 @@
-import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
 
-import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { deploymentsLogicType } from './deploymentsLogicType'
-import type { DeploymentApi } from './generated/api.schemas'
-
-export interface DeploymentsFilters {
-    status: string | null
-    author: string | null
-    search: string
-}
-
-export const DEFAULT_DEPLOYMENT_FILTERS: DeploymentsFilters = {
-    status: null,
-    author: null,
-    search: '',
-}
-
-export interface DeploymentsLogicProps {
-    tabId: string
-}
+import { Deployment, DeploymentProject, DeploymentsFilters, DeploymentStatus } from './fixtures'
+import {
+    deploymentProjectsDeploymentsList,
+    deploymentProjectsDeploymentsRetrieve,
+    deploymentProjectsList,
+} from './generated/api'
+import type { DeploymentApi, DeploymentProjectApi } from './generated/api.schemas'
 
 export const deploymentsLogic = kea<deploymentsLogicType>([
     path(['products', 'deployments', 'frontend', 'deploymentsLogic']),
-    props({} as DeploymentsLogicProps),
-    key((props) => props.tabId),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
     actions({
-        // TODO(deployments-v1): wire setFilters once <DeploymentsFilters/> exists.
-        setFilters: (filters: Partial<DeploymentsFilters>) => ({ filters }),
+        openAddProjectModal: true,
+        closeAddProjectModal: true,
     }),
-    loaders(() => ({
-        deployments: [
-            [] as DeploymentApi[],
+    reducers({
+        addProjectModalOpen: [
+            false,
             {
-                loadDeployments: async () => {
-                    // Deployments are now nested under DeploymentProject; the list scene
-                    // owned by the Frontend stream will pick a project and call
-                    // `deploymentProjectsDeploymentsList(projectId, deploymentProjectId)`.
-                    return []
+                openAddProjectModal: () => true,
+                closeAddProjectModal: () => false,
+            },
+        ],
+    }),
+    loaders(({ values }) => ({
+        deploymentProjects: [
+            [] as DeploymentProjectApi[],
+            {
+                loadDeploymentProjects: async (): Promise<DeploymentProjectApi[]> => {
+                    const teamId = values.currentTeamId
+                    if (!teamId) {
+                        return []
+                    }
+                    const response = await deploymentProjectsList(String(teamId), { limit: 100 })
+                    return response.results ?? []
+                },
+            },
+        ],
+        // Map of projectId → the deployment currently serving traffic, used
+        // by the grid view. Fetched by id (when the project has a
+        // `current_deployment`) so the card reflects what's live — list[0]
+        // would return the most recent build, which is wrong after a rollback.
+        // Falls back to the newest deployment for never-deployed projects.
+        currentDeploymentsByProject: [
+            {} as Record<string, DeploymentApi | null>,
+            {
+                loadCurrentDeploymentsByProject: async (): Promise<Record<string, DeploymentApi | null>> => {
+                    const teamId = values.currentTeamId
+                    if (!teamId) {
+                        return {}
+                    }
+                    const projects = values.deploymentProjects
+                    const entries = await Promise.all(
+                        projects.map(async (p): Promise<[string, DeploymentApi | null]> => {
+                            try {
+                                if (p.current_deployment) {
+                                    return [
+                                        p.id,
+                                        await deploymentProjectsDeploymentsRetrieve(
+                                            String(teamId),
+                                            p.id,
+                                            p.current_deployment
+                                        ),
+                                    ]
+                                }
+                                const list = await deploymentProjectsDeploymentsList(String(teamId), p.id, {
+                                    limit: 1,
+                                } as any)
+                                return [p.id, list.results?.[0] ?? null]
+                            } catch {
+                                return [p.id, null]
+                            }
+                        })
+                    )
+                    return Object.fromEntries(entries)
                 },
             },
         ],
     })),
-    reducers({
-        filters: [
-            DEFAULT_DEPLOYMENT_FILTERS,
-            {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
+    listeners(({ actions }) => ({
+        loadDeploymentProjectsSuccess: () => {
+            actions.loadCurrentDeploymentsByProject()
+        },
+    })),
+    selectors({
+        hasNoProjects: [
+            (s) => [s.deploymentProjects, s.deploymentProjectsLoading],
+            (projects: DeploymentProjectApi[], loading: boolean): boolean => !loading && projects.length === 0,
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadDeployments()
+        actions.loadDeploymentProjects()
     }),
-    // TODO(deployments-v1): switch to tabAwareUrlToAction once filters live in the URL.
-    urlToAction(() => ({
-        [urls.deployments()]: () => {
-            // placeholder — nothing to read from the URL yet.
-        },
-    })),
-    actionToUrl(() => ({
-        // TODO(deployments-v1): push filter state into the URL.
-    })),
 ])
+
+// Re-export for callers that still import from this module.
+export type { Deployment, DeploymentProject, DeploymentsFilters, DeploymentStatus }

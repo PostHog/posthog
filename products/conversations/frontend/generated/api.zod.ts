@@ -41,10 +41,11 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
                 'flags',
                 'llm_analytics',
                 'sandbox',
+                'user_interview',
             ])
             .optional()
             .describe(
-                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox'
+                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview'
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
         resume_payload: zod.unknown().optional(),
@@ -189,6 +190,14 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Bulk update tags on multiple objects.
 
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
+
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
 
@@ -211,4 +220,30 @@ export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+})
+
+/**
+ * Create a new outbound ticket and send the first message to the customer.
+ */
+export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
+
+export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
+
+export const conversationsTicketsComposeCreateBodyMessageMax = 5000
+
+export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
+    recipient_email: zod.email().describe('Recipient email address.'),
+    recipient_distinct_id: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyRecipientDistinctIdMax)
+        .optional()
+        .describe('PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.'),
+    email_subject: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyEmailSubjectMax)
+        .optional()
+        .describe('Email subject line.'),
+    email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
+    message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
+    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
 })

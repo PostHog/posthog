@@ -1,10 +1,12 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { CyclotronJobFiltersType, HogFunctionType, Survey, SurveyEventName, SurveyEventProperties } from '~/types'
 
@@ -38,10 +40,18 @@ export function getSurveyIdsFromNotificationFilters(filters?: CyclotronJobFilter
     return Array.from(surveyIds)
 }
 
+export type KnownSurvey = Pick<Survey, 'id' | 'name' | 'archived' | 'created_at'>
+
 export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType>([
     path(['scenes', 'surveys', 'surveyNotificationsListLogic']),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     actions({
         toggleNotificationEnabled: (notificationId: string, enabled: boolean) => ({ notificationId, enabled }),
+        deleteNotification: (notification: HogFunctionType) => ({ notification }),
+        setSurveyPickerSearch: (search: string) => ({ search }),
+        setSurveyPickerVisible: (visible: boolean) => ({ visible }),
     }),
     loaders(() => ({
         allNotifications: [
@@ -64,14 +74,15 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
             },
         ],
         knownSurveys: [
-            [] as Pick<Survey, 'id' | 'name' | 'archived'>[],
+            [] as KnownSurvey[],
             {
-                loadKnownSurveys: async (): Promise<Pick<Survey, 'id' | 'name' | 'archived'>[]> => {
+                loadKnownSurveys: async (): Promise<KnownSurvey[]> => {
                     const response = await api.surveys.list({ limit: SURVEY_INDEX_LIMIT })
                     return response.results.map((survey) => ({
                         id: survey.id,
                         name: survey.name,
                         archived: survey.archived,
+                        created_at: survey.created_at,
                     }))
                 },
             },
@@ -94,38 +105,73 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
                 loadKnownSurveysFailure: () => true,
             },
         ],
+        surveyPickerSearch: [
+            '',
+            {
+                setSurveyPickerSearch: (_, { search }) => search,
+                setSurveyPickerVisible: (state, { visible }) => (visible ? state : ''),
+            },
+        ],
+        surveyPickerVisible: [
+            false,
+            {
+                setSurveyPickerVisible: (_, { visible }) => visible,
+            },
+        ],
     }),
     selectors({
+        surveyCreatedAtById: [
+            (s) => [s.knownSurveys],
+            (knownSurveys: KnownSurvey[]) => new Map(knownSurveys.map((survey) => [survey.id, survey.created_at])),
+        ],
         knownSurveyIds: [
             (s) => [s.knownSurveys],
-            (knownSurveys: Pick<Survey, 'id' | 'name' | 'archived'>[]) =>
-                new Set(knownSurveys.map((survey) => survey.id)),
+            (knownSurveys: KnownSurvey[]) => new Set(knownSurveys.map((survey) => survey.id)),
         ],
         selectableSurveys: [
             (s) => [s.knownSurveys],
-            (knownSurveys: Pick<Survey, 'id' | 'name' | 'archived'>[]) =>
-                knownSurveys.filter((survey) => !survey.archived),
+            (knownSurveys: KnownSurvey[]) =>
+                knownSurveys
+                    .filter((survey) => !survey.archived)
+                    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')),
+        ],
+        filteredSelectableSurveys: [
+            (s) => [s.selectableSurveys, s.surveyPickerSearch],
+            (selectableSurveys: KnownSurvey[], surveyPickerSearch: string) => {
+                const term = surveyPickerSearch.trim().toLowerCase()
+                if (!term) {
+                    return selectableSurveys
+                }
+                return selectableSurveys.filter((survey) => survey.name.toLowerCase().includes(term))
+            },
         ],
         notifications: [
-            (s) => [s.allNotifications, s.knownSurveyIds, s.knownSurveysFailed],
+            (s) => [s.allNotifications, s.knownSurveyIds, s.surveyCreatedAtById, s.knownSurveysFailed],
             (
                 allNotifications: HogFunctionType[],
                 knownSurveyIds: Set<string>,
+                surveyCreatedAtById: Map<string, string>,
                 knownSurveysFailed: boolean
             ): HogFunctionType[] => {
                 // If we couldn't load the survey index, skip the existence filter and show every
                 // notification we did load. The filter is just orphan cleanup — a transient
                 // surveys-API failure shouldn't hide live notifications from the user.
-                if (knownSurveysFailed) {
-                    return allNotifications
+                const filtered = knownSurveysFailed
+                    ? allNotifications
+                    : allNotifications.filter((notification) => {
+                          const linkedIds = getSurveyIdsFromNotificationFilters(notification.filters)
+                          if (linkedIds.length === 0) {
+                              return false
+                          }
+                          return linkedIds.some((surveyId) => knownSurveyIds.has(surveyId))
+                      })
+
+                const linkedSurveyCreatedAt = (notification: HogFunctionType): string => {
+                    const surveyId = getSurveyIdsFromNotificationFilters(notification.filters)[0]
+                    return (surveyId && surveyCreatedAtById.get(surveyId)) || ''
                 }
-                return allNotifications.filter((notification) => {
-                    const linkedIds = getSurveyIdsFromNotificationFilters(notification.filters)
-                    if (linkedIds.length === 0) {
-                        return false
-                    }
-                    return linkedIds.some((surveyId) => knownSurveyIds.has(surveyId))
-                })
+
+                return filtered.slice().sort((a, b) => linkedSurveyCreatedAt(b).localeCompare(linkedSurveyCreatedAt(a)))
             },
         ],
         notificationsLoading: [
@@ -161,6 +207,28 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
                     action: 'toggle-survey-notification-from-list',
                     notification: notificationId,
                 })
+            }
+        },
+        deleteNotification: async ({ notification }) => {
+            const previous = values.allNotifications
+            // Optimistically remove the row; restore on undo or on a swallowed API error.
+            actions.loadNotificationsSuccess(previous.filter((n) => n.id !== notification.id))
+
+            let callbackFired = false
+            await deleteWithUndo({
+                endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                object: { id: notification.id, name: notification.name },
+                callback: (undo) => {
+                    callbackFired = true
+                    if (undo) {
+                        actions.loadNotifications()
+                    }
+                },
+            })
+
+            if (!callbackFired) {
+                // deleteWithUndo swallows API errors and only fires the callback on success.
+                actions.loadNotificationsSuccess(previous)
             }
         },
     })),

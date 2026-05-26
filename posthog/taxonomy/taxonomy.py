@@ -1,6 +1,8 @@
 import re
 from typing import Literal, NotRequired, TypedDict
 
+STALE_EVENT_DAYS = 30
+
 
 class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
@@ -2534,7 +2536,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL.",
+                "Fetch the trace referenced by an AI observability URL.",
             ],
         },
         "$mcp_resource_name": {
@@ -2569,6 +2571,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP client version",
             "description": "The version of the MCP client that initiated the connection.",
         },
+        "$mcp_client_user_agent": {
+            "label": "MCP client user agent",
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -2589,6 +2596,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_response": {
             "label": "MCP response",
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
+        },
+        "$mcp_session_id": {
+            "label": "MCP session ID",
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary — use $mcp_conversation_id when you need a stable identifier across reconnects.",
+        },
+        "$mcp_conversation_id": {
+            "label": "MCP conversation ID",
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
         },
         # PostHog-specific MCP properties added by the PostHog MCP server on top of the SDK's core
         # set. They identify which deployment, transport, and consumer produced the event. The
@@ -2611,38 +2626,60 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array — filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
             "examples": ["execute-sql", "feature-flag-get-all"],
         },
-        "mcp_protocol_version": {
+        "$mcp_protocol_version": {
             "label": "MCP protocol version",
-            "description": "The MCP protocol version negotiated during initialize.",
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": ["2025-11-25", "2025-06-18"],
         },
-        "mcp_transport": {
+        "$mcp_transport": {
             "label": "MCP transport",
             "description": "The transport the MCP client used to connect to the server.",
-            "examples": ["stdio", "sse", "streamable_http"],
+            "examples": ["stdio", "sse", "streamable-http"],
         },
-        "mcp_consumer": {
+        "$mcp_consumer": {
             "label": "MCP consumer",
-            "description": "The upstream surface that initiated the MCP request. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
             "examples": ["posthog-code", "slack"],
         },
-        "mcp_mode": {
+        "$mcp_mode": {
             "label": "MCP mode",
-            "description": "Which tool-registration mode the MCP server ran in for this request. 'single-exec' means the v2 wrapper that exposes one tool; the alternative exposes every tool individually.",
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": ["cli", "tools"],
         },
-        "mcp_region": {
+        "$mcp_region": {
             "label": "MCP region",
-            "description": "The region the MCP server routed the request to.",
+            "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
         },
-        "mcp_oauth_client_name": {
+        "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
-            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth.",
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
         },
-        "mcp_version": {
+        "$mcp_version": {
             "label": "MCP server version (internal)",
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
             "type": "Numeric",
             "examples": [1, 2],
+        },
+        "$mcp_organization_id": {
+            "label": "MCP organization ID",
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+        },
+        "$mcp_project_id": {
+            "label": "MCP project ID",
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+        },
+        "$mcp_project_name": {
+            "label": "MCP project name",
+            "description": "Display name of the active PostHog project on the MCP session.",
+        },
+        "$mcp_project_uuid": {
+            "label": "MCP project UUID",
+            "description": "PostHog project UUID for the active project on the MCP session.",
+        },
+        "$mcp_read_only": {
+            "label": "MCP read-only",
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
         },
         # Unprefixed MCP properties from the older code paths (the mcpcat library and PostHog's
         # in-tree trackEvent path). They overlap with the $mcp_*-prefixed core properties above
@@ -2656,6 +2693,39 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "mcp_client_version": {
             "label": "MCP client version (unprefixed)",
             "description": "Older unprefixed variant of $mcp_client_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_version for new dashboards.",
+        },
+        "mcp_oauth_client_name": {
+            "label": "MCP OAuth client name (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
+        },
+        "mcp_protocol_version": {
+            "label": "MCP protocol version (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
+        },
+        "mcp_consumer": {
+            "label": "MCP consumer (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_consumer. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_consumer for new dashboards.",
+        },
+        "mcp_transport": {
+            "label": "MCP transport (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
+        },
+        "mcp_session_id": {
+            "label": "MCP session ID (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
+        },
+        "mcp_conversation_id": {
+            "label": "MCP conversation ID (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
+        },
+        "mcp_mode": {
+            "label": "MCP mode (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
+        },
+        "mcp_version": {
+            "label": "MCP server version (unprefixed, internal)",
+            "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
+            "type": "Numeric",
         },
         "tool_name": {
             "label": "Tool name (unprefixed)",

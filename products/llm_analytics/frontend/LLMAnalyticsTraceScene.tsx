@@ -62,6 +62,7 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
@@ -505,6 +506,7 @@ function TraceSceneWrapper(): JSX.Element {
                             actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
+                        <AIObservabilityRenameBanner />
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}

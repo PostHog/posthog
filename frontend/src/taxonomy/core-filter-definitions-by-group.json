@@ -1827,9 +1827,29 @@
             ],
             "label": "MCP client name"
         },
+        "$mcp_client_user_agent": {
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode \u2014 useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": [
+                "claude-code/2.1.141 (cli)",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client user agent"
+        },
         "$mcp_client_version": {
             "description": "The version of the MCP client that initiated the connection.",
             "label": "MCP client version"
+        },
+        "$mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
         },
         "$mcp_duration_ms": {
             "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
@@ -1884,9 +1904,57 @@
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
         },
+        "$mcp_mode": {
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": [
+                "cli",
+                "tools"
+            ],
+            "label": "MCP mode"
+        },
+        "$mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
+            "label": "MCP OAuth client name"
+        },
+        "$mcp_organization_id": {
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+            "label": "MCP organization ID"
+        },
         "$mcp_parameters": {
             "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
             "label": "MCP parameters"
+        },
+        "$mcp_project_id": {
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+            "label": "MCP project ID"
+        },
+        "$mcp_project_name": {
+            "description": "Display name of the active PostHog project on the MCP session.",
+            "label": "MCP project name"
+        },
+        "$mcp_project_uuid": {
+            "description": "PostHog project UUID for the active project on the MCP session.",
+            "label": "MCP project UUID"
+        },
+        "$mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP protocol version"
+        },
+        "$mcp_read_only": {
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
+            "label": "MCP read-only"
+        },
+        "$mcp_region": {
+            "description": "The PostHog cloud region the MCP server routed the request to.",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
         },
         "$mcp_resource_name": {
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",
@@ -1907,6 +1975,10 @@
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
         },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
+        },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
             "examples": [
@@ -1918,7 +1990,7 @@
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL."
+                "Fetch the trace referenced by an AI observability URL."
             ],
             "label": "MCP tool description"
         },
@@ -1929,6 +2001,24 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP tool name"
+        },
+        "$mcp_transport": {
+            "description": "The transport the MCP client used to connect to the server.",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable-http"
+            ],
+            "label": "MCP transport"
+        },
+        "$mcp_version": {
+            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
         },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
@@ -3005,49 +3095,36 @@
             "label": "MCP client version (unprefixed)"
         },
         "mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
-            "examples": [
-                "posthog-code",
-                "slack"
-            ],
-            "label": "MCP consumer"
+            "description": "Older unprefixed variant of $mcp_consumer. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_consumer for new dashboards.",
+            "label": "MCP consumer (unprefixed)"
+        },
+        "mcp_conversation_id": {
+            "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
+            "label": "MCP conversation ID (unprefixed)"
         },
         "mcp_mode": {
-            "description": "Which tool-registration mode the MCP server ran in for this request. 'single-exec' means the v2 wrapper that exposes one tool; the alternative exposes every tool individually.",
-            "label": "MCP mode"
+            "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
+            "label": "MCP mode (unprefixed)"
         },
         "mcp_oauth_client_name": {
-            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth.",
-            "label": "MCP OAuth client name"
+            "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
+            "label": "MCP OAuth client name (unprefixed)"
         },
         "mcp_protocol_version": {
-            "description": "The MCP protocol version negotiated during initialize.",
-            "label": "MCP protocol version"
+            "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
+            "label": "MCP protocol version (unprefixed)"
         },
-        "mcp_region": {
-            "description": "The region the MCP server routed the request to.",
-            "examples": [
-                "us",
-                "eu"
-            ],
-            "label": "MCP region"
+        "mcp_session_id": {
+            "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
+            "label": "MCP session ID (unprefixed)"
         },
         "mcp_transport": {
-            "description": "The transport the MCP client used to connect to the server.",
-            "examples": [
-                "stdio",
-                "sse",
-                "streamable_http"
-            ],
-            "label": "MCP transport"
+            "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
+            "label": "MCP transport (unprefixed)"
         },
         "mcp_version": {
-            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
-            "examples": [
-                1,
-                2
-            ],
-            "label": "MCP server version (internal)",
+            "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
+            "label": "MCP server version (unprefixed, internal)",
             "type": "Numeric"
         },
         "msclkid": {
@@ -5659,9 +5736,29 @@
             ],
             "label": "MCP client name"
         },
+        "$mcp_client_user_agent": {
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode \u2014 useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": [
+                "claude-code/2.1.141 (cli)",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client user agent"
+        },
         "$mcp_client_version": {
             "description": "The version of the MCP client that initiated the connection.",
             "label": "MCP client version"
+        },
+        "$mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
         },
         "$mcp_duration_ms": {
             "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
@@ -5716,9 +5813,57 @@
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
         },
+        "$mcp_mode": {
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": [
+                "cli",
+                "tools"
+            ],
+            "label": "MCP mode"
+        },
+        "$mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
+            "label": "MCP OAuth client name"
+        },
+        "$mcp_organization_id": {
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+            "label": "MCP organization ID"
+        },
         "$mcp_parameters": {
             "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
             "label": "MCP parameters"
+        },
+        "$mcp_project_id": {
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+            "label": "MCP project ID"
+        },
+        "$mcp_project_name": {
+            "description": "Display name of the active PostHog project on the MCP session.",
+            "label": "MCP project name"
+        },
+        "$mcp_project_uuid": {
+            "description": "PostHog project UUID for the active project on the MCP session.",
+            "label": "MCP project UUID"
+        },
+        "$mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP protocol version"
+        },
+        "$mcp_read_only": {
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
+            "label": "MCP read-only"
+        },
+        "$mcp_region": {
+            "description": "The PostHog cloud region the MCP server routed the request to.",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
         },
         "$mcp_resource_name": {
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",
@@ -5739,6 +5884,10 @@
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
         },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
+        },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
             "examples": [
@@ -5750,7 +5899,7 @@
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL."
+                "Fetch the trace referenced by an AI observability URL."
             ],
             "label": "MCP tool description"
         },
@@ -5761,6 +5910,24 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP tool name"
+        },
+        "$mcp_transport": {
+            "description": "The transport the MCP client used to connect to the server.",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable-http"
+            ],
+            "label": "MCP transport"
+        },
+        "$mcp_version": {
+            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
         },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
@@ -6817,49 +6984,36 @@
             "label": "MCP client version (unprefixed)"
         },
         "mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
-            "examples": [
-                "posthog-code",
-                "slack"
-            ],
-            "label": "MCP consumer"
+            "description": "Older unprefixed variant of $mcp_consumer. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_consumer for new dashboards.",
+            "label": "MCP consumer (unprefixed)"
+        },
+        "mcp_conversation_id": {
+            "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
+            "label": "MCP conversation ID (unprefixed)"
         },
         "mcp_mode": {
-            "description": "Which tool-registration mode the MCP server ran in for this request. 'single-exec' means the v2 wrapper that exposes one tool; the alternative exposes every tool individually.",
-            "label": "MCP mode"
+            "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
+            "label": "MCP mode (unprefixed)"
         },
         "mcp_oauth_client_name": {
-            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth.",
-            "label": "MCP OAuth client name"
+            "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
+            "label": "MCP OAuth client name (unprefixed)"
         },
         "mcp_protocol_version": {
-            "description": "The MCP protocol version negotiated during initialize.",
-            "label": "MCP protocol version"
+            "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
+            "label": "MCP protocol version (unprefixed)"
         },
-        "mcp_region": {
-            "description": "The region the MCP server routed the request to.",
-            "examples": [
-                "us",
-                "eu"
-            ],
-            "label": "MCP region"
+        "mcp_session_id": {
+            "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
+            "label": "MCP session ID (unprefixed)"
         },
         "mcp_transport": {
-            "description": "The transport the MCP client used to connect to the server.",
-            "examples": [
-                "stdio",
-                "sse",
-                "streamable_http"
-            ],
-            "label": "MCP transport"
+            "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
+            "label": "MCP transport (unprefixed)"
         },
         "mcp_version": {
-            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
-            "examples": [
-                1,
-                2
-            ],
-            "label": "MCP server version (internal)",
+            "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
+            "label": "MCP server version (unprefixed, internal)",
             "type": "Numeric"
         },
         "msclkid": {

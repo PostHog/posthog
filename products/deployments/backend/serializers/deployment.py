@@ -218,3 +218,35 @@ class DeploymentConflictResponseSerializer(serializers.Serializer):
     active_deployment_id = serializers.UUIDField(
         help_text="The deployment currently in-flight for the project. Frontend can poll this id.",
     )
+
+
+class DeploymentLogEntrySerializer(serializers.Serializer):
+    """One line of build output emitted by the build worker as a `$log` event."""
+
+    timestamp = serializers.DateTimeField(help_text="When the line was emitted by the build worker.")
+    level = serializers.CharField(
+        allow_null=True,
+        help_text='Log level: "info" | "warn" | "error". Null if the event did not carry one.',
+    )
+    step = serializers.CharField(
+        allow_null=True,
+        help_text='Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.',
+    )
+    line = serializers.CharField(
+        allow_null=True,
+        help_text="The log line itself (a single line of stdout or stderr).",
+    )
+    exit_code = serializers.IntegerField(
+        allow_null=True,
+        help_text="Set on the last line of a step; null on all other lines.",
+    )
+
+
+class DeploymentLogsResponseSerializer(serializers.Serializer):
+    """Response shape for GET /deployments/{id}/logs/."""
+
+    results = DeploymentLogEntrySerializer(many=True, help_text="Log lines for the deployment, oldest first.")
+    has_more = serializers.BooleanField(
+        help_text="True if the row limit was hit and older lines may exist beyond this page.",
+    )
+    row_limit = serializers.IntegerField(help_text="The hard cap applied by the server.")

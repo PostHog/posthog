@@ -21,6 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.integration import Integration
@@ -38,6 +39,7 @@ from ..serializers import (
     DeploymentProjectWriteSerializer,
 )
 from ..services import provision_project
+from ..services.detection import PackageManager, detect_config
 
 
 class DeploymentsAccessPermission(BasePermission):
@@ -118,6 +120,70 @@ def _resolve_repository_config(
         default_branch=branch.name,
         github_integration_id=integration.id,
         github_repo_id=repository.id,
+    )
+
+
+class DetectConfigRequestSerializer(serializers.Serializer):
+    """Inputs the `/detect/` endpoint needs to suggest a project config.
+
+    Decouples detection from any one git provider — callers fetch
+    `package.json` and the list of lockfiles however they like (GitHub
+    raw content via the team's existing integration, a temporary clone,
+    user-pasted JSON during early development) and pass them here.
+    """
+
+    package_json = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Parsed contents of the repo's `package.json`. Pass null or omit if the "
+            "repo doesn't have one — the response is then the plain-HTML fallback."
+        ),
+    )
+    lockfiles = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        help_text=(
+            "Filenames of package-manager lockfiles found in the repo root "
+            '(e.g. ["pnpm-lock.yaml"]). Used to pick the package manager.'
+        ),
+    )
+
+
+class DetectConfigResponseSerializer(serializers.Serializer):
+    """Suggested project config. Every field is overridable in the connect-repo UI.
+
+    `build_command`, `output_dir`, and `framework` map directly to the
+    `DeploymentProject` model fields. `package_manager`, `install_command`,
+    and `node_version` are informational hints — the model doesn't store
+    them today, but the UI can display them so the user knows what the
+    build worker will end up running.
+    """
+
+    package_manager = serializers.ChoiceField(
+        choices=[(m.value, m.value) for m in PackageManager],
+        help_text="Detected package manager from lockfile presence.",
+    )
+    install_command = serializers.CharField(
+        allow_blank=True,
+        help_text="Suggested install command, or empty when no install is needed.",
+    )
+    build_command = serializers.CharField(
+        allow_blank=True,
+        help_text="Suggested build command, or empty when no known framework matched.",
+    )
+    output_dir = serializers.CharField(help_text="Suggested output directory relative to repo root.")
+    node_version = serializers.CharField(
+        help_text="Suggested Node major version, parsed from `engines.node` or defaulted to 20.",
+    )
+    framework = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into "
+            "`DeploymentProject.framework`. Null when no framework matched — leaving the "
+            "field null lets the build worker fall back to its own auto-detection."
+        ),
     )
 
 
@@ -328,6 +394,34 @@ class DeploymentProjectViewSet(
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted", "deleted_at", "updated_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        request_serializer=DetectConfigRequestSerializer,
+        responses={status.HTTP_200_OK: OpenApiResponse(response=DetectConfigResponseSerializer)},
+        summary="Suggest project config from a repo's package.json and lockfiles",
+        description=(
+            "Pure inspection — no git access, no DB writes. The connect-repo "
+            "UI calls this after fetching `package.json` (via the team's "
+            "GitHub integration) and uses the response to prefill the form."
+        ),
+    )
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def detect(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        package_json = request.validated_data.get("package_json")
+        lockfiles = request.validated_data.get("lockfiles", [])
+        detected = detect_config(package_json, lockfiles)
+        return Response(
+            DetectConfigResponseSerializer(
+                {
+                    "package_manager": detected.package_manager.value,
+                    "install_command": detected.install_command,
+                    "build_command": detected.build_command,
+                    "output_dir": detected.output_dir,
+                    "node_version": detected.node_version,
+                    "framework": detected.framework,
+                }
+            ).data,
+        )
 
 
 class DeploymentProjectActionResponseSerializer(serializers.Serializer):

@@ -33,16 +33,19 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
+    CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
-    MCP = "mcp"
+    MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
+    MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
@@ -54,6 +57,7 @@ class Product(StrEnum):
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
+    USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -79,6 +83,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
+    EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
     # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
     # usage analysis can attribute load to the originating product surface.
@@ -101,6 +106,7 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+    SEMANTIC_SEARCH = "semantic_search"
 
 
 class FallbackTags(TypedDict):

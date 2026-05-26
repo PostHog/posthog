@@ -62,6 +62,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint_config in INTERCOM_ENDPOINTS.values():

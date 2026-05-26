@@ -35,8 +35,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
-from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
+
+from products.actions.backend.models.action import Action
 
 
 class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
@@ -168,6 +169,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             query_type="LifecycleQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

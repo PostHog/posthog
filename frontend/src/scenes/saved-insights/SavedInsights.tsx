@@ -43,7 +43,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -53,7 +52,6 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
@@ -65,7 +63,6 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { projectLogic } from 'scenes/projectLogic'
-import { HomeTab } from 'scenes/saved-insights/HomeTab'
 import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -513,17 +510,17 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Analytics Traces',
+        name: 'AI observability traces',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceNeighborsQuery]: {
-        name: 'LLM Analytics Trace Neighbors',
+        name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceQuery]: {
-        name: 'LLM Analytics Trace',
+        name: 'AI observability trace',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
@@ -769,7 +766,6 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
-    const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
 
     const { tab } = filters
 
@@ -983,21 +979,6 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    ...(showHomeTab
-                        ? [
-                              {
-                                  key: SavedInsightsTabs.Home,
-                                  label: (
-                                      <div className="flex items-center gap-2">
-                                          Home
-                                          <LemonTag type="warning" size="small">
-                                              BETA
-                                          </LemonTag>
-                                      </div>
-                                  ),
-                              },
-                          ]
-                        : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     {
@@ -1009,9 +990,7 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.Home ? (
-                <HomeTab />
-            ) : tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />

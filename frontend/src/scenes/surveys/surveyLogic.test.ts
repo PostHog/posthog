@@ -148,7 +148,7 @@ describe('editor sync', () => {
             surveyChanged: true,
         })
 
-        router.actions.push('/surveys/test-survey?edit=true#preserveLocalChanges=true')
+        router.actions.push('/surveys/test-survey?edit=true')
 
         await expectLogic(logic).toFinishAllListeners()
 

@@ -451,6 +451,14 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?:
+        | 'cpp_only'
+        | 'cpp_with_rust_shadow'
+        | 'rust_with_cpp_shadow'
+        | 'rust_only'
+        | 'rust_py_only'
+        | 'rust_py_with_cpp_shadow'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1159,6 +1167,8 @@ export interface ChartSettings {
     showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 
 export interface ConditionalFormattingRule {
@@ -1379,12 +1389,35 @@ export type TrendsFilter = {
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
-    /** @default numeric */
+    // The aggregation-axis description below is duplicated, intentionally and divergently, on
+    // `AssistantTrendsFilter` in schema-assistant-queries.ts. The assistant copy is deliberately
+    // more cautious ("do not use unless absolutely sure") because Max picks formats without explicit
+    // query context; this copy is more prescriptive because MCP callers know the units up front.
+    // Keep both in sync when the format set changes, but treat their wording as audience-specific.
+    /**
+     * Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+     *
+     * - `numeric` (default): raw numbers, e.g. `1,234`.
+     * - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+     * - `percentage`: values are already in the 0-100 range; appends `%`.
+     * - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+     * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+     * - `short`: compact notation for large counts (`1.2K`, `3.4M`).
+     * @default numeric
+     */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1419,8 +1452,14 @@ export type TrendsFilter = {
 }
 
 export type CalendarHeatmapFilter = {
-    // Reserved for future filter properties
-    dummy?: string
+    /**
+     * When true and the series math is `dau`/`unique_users`, each user contributes to the
+     * (day-of-week, hour) bucket of their session's first event only — matching the web overview
+     * session-start attribution. When false (default), the user contributes to every bucket
+     * they have any event in. No effect on `total` math (event counts are unchanged either way).
+     * @default false
+     */
+    bucketBySessionStart?: boolean
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1492,6 +1531,11 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
+    /**
+     * Properties specific to the calendar heatmap display variant. Only consulted when
+     * `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise.
+     */
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
@@ -1670,6 +1714,9 @@ export type RetentionFilter = {
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
+    /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
+     * @default 0 */
+    cohortLabelStartIndex?: integer
 }
 
 export interface RetentionValue {
@@ -1876,6 +1923,8 @@ export interface EndpointRequest {
     bucket_overrides?: Record<string, string>
     /** Set to true to soft-delete this endpoint */
     deleted?: boolean
+    /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
+    tags?: string[]
 }
 
 /**
@@ -2266,6 +2315,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
@@ -2292,6 +2343,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -2332,6 +2384,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeHost?: boolean
     limit?: integer
     offset?: integer
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown[]
@@ -2343,6 +2397,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2898,6 +2953,17 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/**
+ * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
+ * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
+ * `filterGroup` must be set on a live (enabled=true) alert.
+ */
+export interface LogsAlertFilters {
+    severityLevels?: LogSeverityLevel[]
+    serviceNames?: string[]
+    filterGroup?: PropertyGroupFilter
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -3109,6 +3175,12 @@ export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryRespons
      * matched traces — at high name cardinality the query becomes unsafe to run.
      */
     spanName: string
+    /**
+     * Service name that scopes the returned tree. Applied to the spans CTE so the
+     * call-tree only contains spans from this service, even when matched traces
+     * span multiple services.
+     */
+    serviceName: string
     /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
@@ -3172,6 +3244,7 @@ export type FileSystemIconType =
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
+    | 'replay_vision'
     | 'session_profile'
     | 'survey'
     | 'product_tour'
@@ -3544,9 +3617,23 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
-export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+// Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
+// type — callers continue to use `ExperimentMetricSource`.
+/**
+ * @discriminator kind
+ */
+export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSource = ExperimentMetricSourceUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -4283,6 +4370,7 @@ export enum AlertState {
 }
 
 export enum AlertCalculationInterval {
+    EVERY_15_MINUTES = 'every_15_minutes',
     HOURLY = 'hourly',
     DAILY = 'daily',
     WEEKLY = 'weekly',
@@ -5833,6 +5921,7 @@ export const externalDataSources = [
     'ClickHouse',
     'Plain',
     'Resend',
+    'PgAnalyze',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5872,6 +5961,13 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'waze',
         ] as const,
         primarySource: 'google',
+        // Optional ad-group / ad warehouse schemas — present when the platform's API
+        // exposes per-level entity + stats tables. A source that omits them stays
+        // CAMPAIGN-only; the factory then reports `supports_level` False at AD_GROUP/AD.
+        adsetTableName: 'ad_group' as const,
+        adsetStatsTableName: 'ad_group_stats' as const,
+        adTableName: 'ad' as const,
+        adStatsTableName: 'ad_stats' as const,
     },
     LinkedinAds: {
         sourceType: 'LinkedinAds' as const,
@@ -5883,6 +5979,14 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
+        // LinkedIn API hierarchy: Account → CampaignGroup → Campaign → Creative.
+        // We map CampaignGroups to "campaign" (matching the marketer's mental model),
+        // so LinkedIn's `campaigns` resource is what the rest of the platform calls
+        // "ad group", and `creatives` is what they call "ad".
+        adsetTableName: 'campaigns' as const,
+        adsetStatsTableName: 'campaign_stats' as const,
+        adTableName: 'creatives' as const,
+        adStatsTableName: 'creative_stats' as const,
     },
     MetaAds: {
         sourceType: 'MetaAds' as const,
@@ -5904,6 +6008,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'threads',
         ] as const,
         primarySource: 'meta',
+        adsetTableName: 'adsets' as const,
+        adsetStatsTableName: 'adset_stats' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_stats' as const,
         conversionActionTypes: {
             omni: [
                 'omni_purchase',
@@ -5936,6 +6044,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['report'] as const,
         defaultSources: ['tiktok'] as const,
         primarySource: 'tiktok',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_report' as const,
     },
     RedditAds: {
         sourceType: 'RedditAds' as const,
@@ -5947,6 +6059,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['report'] as const,
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_report' as const,
     },
     BingAds: {
         sourceType: 'BingAds' as const,
@@ -5958,6 +6074,16 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft'] as const,
         primarySource: 'bing',
+        // At ad-group / ad level Bing's data import only ships performance *reports* —
+        // no separate entity tables. The report embeds the entity columns, so it
+        // doubles as both entity and stats: `adset*`/`ad*` `Table` and `StatsTable`
+        // point at the same name, and the factory detects the duplication to wire the
+        // matched DataWarehouseTable into both adapter slots. (Campaign level still has
+        // a distinct `campaigns` entity table separate from `campaign_performance_report`.)
+        adsetTableName: 'ad_group_performance_report' as const,
+        adsetStatsTableName: 'ad_group_performance_report' as const,
+        adTableName: 'ad_performance_report' as const,
+        adStatsTableName: 'ad_performance_report' as const,
     },
     SnapchatAds: {
         sourceType: 'SnapchatAds' as const,
@@ -5969,6 +6095,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['stats_daily'] as const,
         defaultSources: ['snapchat'] as const,
         primarySource: 'snapchat',
+        adsetTableName: 'ad_squads' as const,
+        adsetStatsTableName: 'ad_squad_stats_daily' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_stats_daily' as const,
         conversionFields: ['conversion_purchases', 'conversion_sign_ups', 'conversion_subscribe'] as const,
         conversionValueFields: [
             'conversion_purchases_value',
@@ -5986,6 +6116,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['analytics'] as const,
         defaultSources: ['pinterest'] as const,
         primarySource: 'pinterest',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_analytics' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_analytics' as const,
     },
 } as const
 
@@ -6217,6 +6351,7 @@ export interface CustomerAnalyticsConfig {
     signup_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
+    account_group_type_index?: integer | null
 }
 
 /**
@@ -6319,6 +6454,7 @@ export enum ProductKey {
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
+    REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',

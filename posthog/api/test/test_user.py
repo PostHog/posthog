@@ -221,6 +221,79 @@ class TestUserAPI(APIBaseTest):
         assert "active_realtime_notification_types" in body
         assert "comment_mention" in body["active_realtime_notification_types"]
 
+    @parameterized.expand(
+        [
+            ("unreviewed_no_keys", False, False, False),
+            ("unreviewed_with_keys", False, True, True),
+            ("reviewed_with_keys", True, True, False),
+            ("reviewed_no_keys", True, False, False),
+        ]
+    )
+    def test_requires_credential_review(self, _name: str, reviewed: bool, with_key: bool, expected: bool):
+        self.user.credentials_reviewed_at = timezone.now() if reviewed else None
+        self.user.save(update_fields=["credentials_reviewed_at"])
+        if with_key:
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Test key",
+                secure_value=hash_key_value("phx_test_value_1234567890"),
+                scopes=["*"],
+            )
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is expected
+
+    def test_credentials_review_complete_endpoint(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_1234567890"),
+            scopes=["*"],
+        )
+
+        response = self.client.get("/api/users/@me/")
+        assert response.json()["requires_credential_review"] is True
+
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+        assert response.status_code == 204
+
+        refreshed = User.objects.get(pk=self.user.pk)
+        assert refreshed.credentials_reviewed_at is not None
+
+        response = self.client.get("/api/users/@me/")
+        assert response.json()["requires_credential_review"] is False
+
+        first_ts = refreshed.credentials_reviewed_at
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+        assert response.status_code == 204
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at == first_ts
+
+    def test_credentials_review_complete_requires_auth(self):
+        self.client.logout()
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_credentials_review_complete_rejects_personal_api_key_auth(self):
+        # The partner-issued wildcard PAK is the thing this feature surfaces;
+        # accepting it as auth here would let the attacker silently dismiss
+        # their own review before the legit owner ever logs in.
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Partner-minted key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at is None
+
     def test_can_only_list_yourself(self):
         """
         At this moment only the current user can be retrieved from this endpoint.
@@ -1495,6 +1568,23 @@ class TestUserAPI(APIBaseTest):
         self.assertIn("test-flag-1", cached_data["feature_flags"])
         self.assertIn("test-flag-2", cached_data["feature_flags"])
 
+    @patch("posthog.api.user.get_flags_from_service")
+    def test_prepare_toolbar_preloaded_flags_passes_internal_request_token(self, mock_get_flags):
+        """The toolbar prep handler is internal PostHog traffic, not customer SDK
+        traffic — it must forward INTERNAL_REQUEST_TOKEN so the Rust service skips
+        the per-team billing limiter."""
+        mock_get_flags.return_value = {"flags": {}}
+
+        with self.settings(INTERNAL_REQUEST_TOKEN="test-internal-token"):
+            response = self.client.post(
+                "/api/user/prepare_toolbar_preloaded_flags/",
+                {"distinct_id": "user123"},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
+
     def test_get_toolbar_preloaded_flags_retrieves_from_cache(self):
         """Test that get_toolbar_preloaded_flags retrieves flags from cache"""
         from django.core.cache import cache
@@ -1607,6 +1697,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1626,6 +1717,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1802,6 +1894,45 @@ class TestUserAPI(APIBaseTest):
                 f"Patching {patched_key!r} clobbered {unrelated_key!r}"
             )
 
+    def test_pipeline_notifications_rejects_malformed_pipeline_ids(self):
+        for bad_key in [
+            "<script>alert(1)</script>",
+            "random_garbage_key",
+            "hog_function:",
+            "hog_function:not a uuid",
+            "unknown_type:abc",
+            "",
+        ]:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {"notification_settings": {"pipeline_notifications_disabled": {bad_key: True}}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, f"key {bad_key!r} was accepted")
+            self.assertEqual(response.json()["code"], "invalid_input")
+
+    def test_pipeline_notifications_accepts_valid_pipeline_ids(self):
+        for good_key in [
+            "hog_function:019dcf05-db1d-0000-682a-935c8e1ad2c9",
+            "batch_export:019dcf05-dac4-0000-07d4-cf53026deba6",
+            "plugin_config:42",
+        ]:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {"notification_settings": {"pipeline_notifications_disabled": {good_key: True}}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, f"key {good_key!r} was rejected")
+
+    def test_pipeline_notifications_caps_total_entries(self):
+        from posthog.api.user import MAX_PIPELINE_NOTIFICATIONS
+
+        too_many = {f"hog_function:fake-{i}": True for i in range(MAX_PIPELINE_NOTIFICATIONS + 1)}
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"pipeline_notifications_disabled": too_many}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("more than", response.json()["detail"])
+
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1854,6 +1985,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
+                "pipeline_notifications_disabled": {},  # Default value
             },
         )
 
