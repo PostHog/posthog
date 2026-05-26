@@ -13,7 +13,7 @@ import boto3
 import structlog
 from botocore.client import Config
 from botocore.exceptions import ClientError
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
@@ -47,6 +47,35 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
         min_value=0,
         help_text="Split download into multiple files of at most this size in MB",
     )
+
+
+class FileDownloadEventsRequestSerializer(serializers.Serializer):
+    """Typed configuration for the events model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["events"])
+    include = serializers.ListField(child=serializers.CharField(), required=False)
+    exclude = serializers.ListField(child=serializers.CharField(), required=False)
+    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
+    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
+
+
+class FileDownloadPersonsRequestSerializer(serializers.Serializer):
+    """Typed configuration for the persons model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["persons"])
+    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
+    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
+
+
+class FileDownloadSessionsRequestSerializer(serializers.Serializer):
+    """Typed configuration for the sessions model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["sessions"])
+    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
+    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
 
 
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
@@ -166,7 +195,15 @@ class FileDownloadBatchExportOnDemandViewSet(
     filter_rewrite_rules = {"team_id": "batch_export_on_demand__team_id"}
 
     @extend_schema(
-        request=FileDownloadBatchExportOnDemandSerializer,
+        request=PolymorphicProxySerializer(
+            component_name="CreateFileDownloadRequest",
+            serializers={
+                "events": FileDownloadEventsRequestSerializer,
+                "persons": FileDownloadPersonsRequestSerializer,
+                "sessions": FileDownloadSessionsRequestSerializer,
+            },
+            resource_type_field_name="model",
+        ),
         responses={202: CreateOutputSerializer},
     )
     def create(self, request, *args, **kwargs):
