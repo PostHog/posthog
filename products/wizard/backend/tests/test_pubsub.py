@@ -19,6 +19,7 @@ def _dto(team_id: int = 1) -> WizardSessionDTO:
         skill_id="nextjs",
         started_at=now,
         run_phase=RunPhase.RUNNING,
+        is_stale=False,
         tasks=(WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.IN_PROGRESS),),
         event_plan=None,
         error=None,
