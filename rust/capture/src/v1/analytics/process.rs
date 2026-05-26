@@ -1943,7 +1943,12 @@ mod tests {
     #[case::success("success", "", EventResult::Ok, None)]
     #[case::retriable("retriable", "queue_full", EventResult::Retry, Some("not_persisted"))]
     #[case::timeout("timeout", "", EventResult::Retry, Some("not_persisted"))]
-    #[case::fatal_serialization("fatal", "serialization_failed", EventResult::Drop, Some("serialization_failed"))]
+    #[case::fatal_serialization(
+        "fatal",
+        "serialization_failed",
+        EventResult::Drop,
+        Some("serialization_failed")
+    )]
     #[case::fatal_event_too_big("fatal", "event_too_big", EventResult::Drop, Some("event_too_big"))]
     #[case::fatal_generic("fatal", "rdkafka_other", EventResult::Drop, Some("rejected"))]
     fn merge_single_outcome(
@@ -1957,8 +1962,14 @@ mod tests {
 
         merge_sink_results(&mut events, &results);
 
-        assert_eq!(events[0].result, expected_result, "result for {outcome}:{cause}");
-        assert_eq!(events[0].details, expected_details, "details for {outcome}:{cause}");
+        assert_eq!(
+            events[0].result, expected_result,
+            "result for {outcome}:{cause}"
+        );
+        assert_eq!(
+            events[0].details, expected_details,
+            "details for {outcome}:{cause}"
+        );
     }
 
     #[test]
