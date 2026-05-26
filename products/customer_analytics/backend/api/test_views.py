@@ -1213,6 +1213,37 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(first_node["type"], "paragraph")
         self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
 
+    def test_notebook_detail_includes_parent_resource_for_linked_account(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        notebook = Notebook.objects.create(
+            team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+
+        # The frontend NotebookScene fetches via /api/projects/{team}/notebooks/{short_id}/
+        # (not the customer-analytics nested endpoint), so the parent_resource field must be
+        # present on NotebookSerializer responses.
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(
+            response.json()["parent_resource"],
+            {"type": "account", "id": str(self.account.id)},
+        )
+
+    def test_notebook_detail_parent_resource_is_null_for_standalone(self):
+        from products.notebooks.backend.models import Notebook
+
+        notebook = Notebook.objects.create(
+            team=self.team, title="Standalone", content={}, visibility=Notebook.Visibility.DEFAULT
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertIsNone(response.json()["parent_resource"])
+
 
 @pytest.mark.ee
 class TestCustomerAnalyticsAccessControl(APIBaseTest):
