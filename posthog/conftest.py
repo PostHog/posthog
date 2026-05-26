@@ -46,6 +46,99 @@ def _timed(label: str):
 
 
 _FIXTURE_TIMINGS: dict[str, float] = {}
+_PROBE_MAX: dict[str, float] = {}
+_PROBE_CNT: dict[str, int] = {}
+
+
+def _probe_record(label: str, elapsed: float) -> None:
+    _PROBE_CNT[label] = _PROBE_CNT.get(label, 0) + 1
+    if elapsed > _PROBE_MAX.get(label, 0.0):
+        _PROBE_MAX[label] = elapsed
+
+
+def _install_db_setup_probes() -> None:
+    # TEMP: monkeypatch Django's test-DB internals to decompose the first-test setup gap with
+    # hard per-component numbers (setup_databases / per-DB create_test_db / migrate plan length /
+    # serialize / transactional fixture setup). Installed at conftest import, before fixtures run.
+    import django.test.utils as _dtu
+    import django.test.testcases as _testcases
+    import django.db.backends.base.creation as _creation
+    from django.db.migrations.executor import MigrationExecutor
+
+    _orig_setup = _dtu.setup_databases
+
+    def _setup_databases(*a, **k):
+        s = time.perf_counter()
+        try:
+            return _orig_setup(*a, **k)
+        finally:
+            _probe_record(f"setup_databases keepdb={k.get('keepdb')}", time.perf_counter() - s)
+
+    _dtu.setup_databases = _setup_databases  # ty: ignore[invalid-assignment]
+
+    _Cr = _creation.BaseDatabaseCreation
+    _orig_create = _Cr.create_test_db
+
+    def _create_test_db(self, *a, **k):
+        keepdb = k.get("keepdb", a[2] if len(a) > 2 else None)
+        s = time.perf_counter()
+        try:
+            return _orig_create(self, *a, **k)
+        finally:
+            _probe_record(f"create_test_db[{self.connection.alias}] keepdb={keepdb}", time.perf_counter() - s)
+
+    _Cr.create_test_db = _create_test_db  # ty: ignore[invalid-assignment]
+
+    _orig_serialize = _Cr.serialize_db_to_string
+
+    def _serialize_db_to_string(self, *a, **k):
+        s = time.perf_counter()
+        try:
+            return _orig_serialize(self, *a, **k)
+        finally:
+            _probe_record(f"serialize_db_to_string[{self.connection.alias}]", time.perf_counter() - s)
+
+    _Cr.serialize_db_to_string = _serialize_db_to_string  # ty: ignore[invalid-assignment]
+
+    _orig_migrate = MigrationExecutor.migrate
+
+    def _migrate(self, targets, plan=None, *a, **k):
+        try:
+            n = len(plan) if plan is not None else -1
+        except TypeError:
+            n = -2
+        s = time.perf_counter()
+        try:
+            return _orig_migrate(self, targets, plan, *a, **k)
+        finally:
+            _probe_record(f"migrate.apply[{self.connection.alias}] plan_len={n}", time.perf_counter() - s)
+
+    MigrationExecutor.migrate = _migrate  # ty: ignore[invalid-assignment]
+
+    for _cls_name in ("TransactionTestCase", "TestCase"):
+        _cls = getattr(_testcases, _cls_name)
+        _orig_fs = _cls._fixture_setup
+        _orig_ft = _cls._fixture_teardown
+
+        def _make(orig, name, phase):
+            def _wrapped(self, *a, **k):
+                s = time.perf_counter()
+                try:
+                    return orig(self, *a, **k)
+                finally:
+                    _probe_record(f"{name}.{phase}", time.perf_counter() - s)
+
+            return _wrapped
+
+        _cls._fixture_setup = _make(_orig_fs, _cls_name, "_fixture_setup")
+        _cls._fixture_teardown = _make(_orig_ft, _cls_name, "_fixture_teardown")
+
+
+if _TIME_DB_SETUP:
+    try:
+        _install_db_setup_probes()
+    except Exception as _exc:  # never let instrumentation break the suite
+        _DBSETUP_TIMINGS.append(f"probe install failed: {_exc}")
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -73,6 +166,11 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.write_line("=== slowest fixture setups >=1s (temp instrumentation) ===")
         for elapsed, key in slow[:25]:
             terminalreporter.write_line(f"[FIXTURE] {key} {elapsed:.2f}s")
+    if _PROBE_MAX:
+        terminalreporter.write_line("")
+        terminalreporter.write_line("=== Django DB-setup probes (max time, call count) ===")
+        for elapsed, key in sorted(((v, k) for k, v in _PROBE_MAX.items()), reverse=True):
+            terminalreporter.write_line(f"[PROBE] {key} max={elapsed:.2f}s calls={_PROBE_CNT.get(key, 0)}")
 
 
 def create_clickhouse_tables():
