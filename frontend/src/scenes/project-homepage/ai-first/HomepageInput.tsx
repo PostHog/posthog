@@ -3,17 +3,18 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconLock, IconPin, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
-import { HandsFreeButton } from 'scenes/max/components/HandsFreeButton'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
+import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -28,9 +29,14 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode, startNewConversation } = useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
+    const { canUseHandsFree } = useValues(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
+    const { enterHandsFree } = useActions(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
+
+    const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
 
     useEffect(() => {
         const timer = setTimeout(() => inputRef.current?.focus(), 100)
@@ -124,10 +130,23 @@ function IdleInput(): JSX.Element {
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
-                            {/* Mirror HomepageAiInput's consent gate — without it, clicking the mic
-                                would mint an ElevenLabs token and open the Scribe WebSocket before
-                                the AI-mode transition can render the data-processing approval prompt. */}
-                            {dataProcessingAccepted && <HandsFreeButton tabId={HOMEPAGE_TAB_ID} />}
+                            {handsFreeAvailable && (
+                                <Tooltip title="Start a new chat in hands-free">
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        data-attr="homepage-hands-free"
+                                        className="shrink-0"
+                                        onClick={() => {
+                                            posthog.capture('homepage hands-free started')
+                                            startNewConversation()
+                                            submitQuery('ai')
+                                            enterHandsFree()
+                                        }}
+                                    >
+                                        <IconMicrophone className="size-4" />
+                                    </ButtonPrimitive>
+                                </Tooltip>
+                            )}
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
                                     onClick={() => {

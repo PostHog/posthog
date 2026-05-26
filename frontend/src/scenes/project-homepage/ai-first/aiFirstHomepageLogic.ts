@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -97,8 +96,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['setHomepage'],
             tabUiStateLogic,
             ['setChatDraftForTab'],
-            handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }),
-            ['enterHandsFree'],
         ],
     })),
 
@@ -216,14 +213,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         setQuery: ({ query }) => {
             if (values.mode === 'idle') {
                 actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
-            }
-        },
-        // Entering hands-free from the idle homepage needs a mounted maxThreadLogic
-        // before the first transcript commits, or commitTranscript bails with `no_thread`.
-        // submitQuery('ai') flips into AI mode and starts a conversation if needed.
-        enterHandsFree: () => {
-            if (values.mode === 'idle') {
-                actions.submitQuery('ai')
             }
         },
         returnToIdle: () => {
