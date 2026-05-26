@@ -1,10 +1,7 @@
-"""ClickHouse insert helpers for surfacing_scoring_sweep integration tests.
+"""CH insert helpers for surfacing_scoring_sweep integration tests.
 
-Partial-column inserts into ``writable_session_replay_events`` fail because
-ClickHouse synthesises defaults for missing ``AggregateFunction(argMin, …)``
-columns with incompatible types (LowCardinality vs plain String). Insert into
-``sharded_session_replay_events`` with explicit ``argMinState(cast(...))`` —
-same pattern as ``session_replay_sql.produce_replay_summary``.
+Partial inserts into writable_session_replay_events fail on argMin LC/String
+type mismatches — use sharded_session_replay_events with argMinState instead.
 """
 
 from __future__ import annotations

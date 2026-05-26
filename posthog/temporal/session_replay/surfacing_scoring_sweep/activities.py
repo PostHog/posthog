@@ -247,8 +247,7 @@ def _publish_scores(df: pd.DataFrame, scores: np.ndarray) -> int:
         )
         rows_published += 1
 
-    # Flush so we don't ack the activity to the workflow before librdkafka has
-    # actually delivered every message.
+    # Don't ack until librdkafka has flushed.
     remaining = producer.flush(timeout=KAFKA_PRODUCE_FLUSH_TIMEOUT_S)
     if remaining > 0:
         raise RuntimeError(
@@ -268,10 +267,6 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     if df.empty:
         return ChunkResult(chunk_id=spec.chunk_id, scored=0)
 
-    # Pull the feature schema from the booster (single source of truth). This
-    # also triggers `_load_booster` on first call, so the model file is read
-    # before we attempt to validate or predict, and `MissingFeatureRangeError`
-    # surfaces here rather than mid-validate.
     feature_names = await sync_to_async(get_feature_names, thread_sensitive=False)()
 
     activity.logger.info(

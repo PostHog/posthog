@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Write checked-in example sessions + golden scores for bundled model tests.
-
-Regenerate after changing FEATURE_RANGES, fetch_features_sql(), or model.ubj:
-
-    flox activate -- bash -c "uv run python bin/generate_surfacing_example_fixtures.py"
-"""
+"""Regenerate fixtures/example_sessions.json after SQL, FEATURE_RANGES, or model.ubj changes."""
 
 from __future__ import annotations
 
@@ -42,8 +37,6 @@ def _zero_features(feature_names: tuple[str, ...]) -> dict[str, float]:
 
 
 def _example_sessions(feature_names: tuple[str, ...]) -> list[dict[str, Any]]:
-    """Deterministic, realistic-ish profiles — not random, stable across regenerations."""
-
     checkout = _zero_features(feature_names)
     checkout.update(
         {

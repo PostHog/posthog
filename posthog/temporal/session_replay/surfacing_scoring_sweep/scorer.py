@@ -9,10 +9,9 @@ single chunk at a time, not split it across many concurrent activities (see
 Loading from disk is paid on first use; pin the model file in the worker
 container image so the load is local + fast.
 
-The booster is the **single source of truth for the feature schema** —
-`get_feature_names()` returns the booster's embedded `feature_names`, and
-`feature_schema.assert_serving_schema_parity` runs at load time to fail loud if
-SQL, ``FEATURE_RANGES``, or the booster drift apart.
+`get_feature_names()` reads booster.feature_names; load runs
+`feature_schema.assert_serving_schema_parity` so SQL, FEATURE_RANGES, and the
+booster cannot drift.
 """
 
 from __future__ import annotations
@@ -60,10 +59,7 @@ def _load_booster() -> xgb.Booster:
     Held under a lock only on first load. Subsequent calls hit the fast path
     (one global-not-None check), so the lock isn't on the per-predict path.
 
-    On first load: validates `booster.feature_names` against `FEATURE_RANGES`
-    via `assert_ranges_cover` and caches the names tuple. A model whose
-    feature set isn't covered by `FEATURE_RANGES` fails loud here, before
-    any chunk is dispatched.
+    On first load: runs assert_serving_schema_parity and caches feature_names.
     """
     global _BOOSTER, _FEATURE_NAMES
     cached_booster = _BOOSTER
@@ -79,11 +75,6 @@ def _load_booster() -> xgb.Booster:
         loaded_booster = xgb.Booster()
         loaded_booster.load_model(path)
 
-        # `booster.feature_names` is set when training passed `feature_names=`
-        # to DMatrix. None / empty here means the model was trained without
-        # explicit names, which serving cannot work with — the SELECT aliases
-        # have nothing to match against. assert_serving_schema_parity surfaces
-        # SQL / FEATURE_RANGES / booster drift at boot.
         names: tuple[str, ...] = tuple(loaded_booster.feature_names or ())
         assert_serving_schema_parity(names)
 

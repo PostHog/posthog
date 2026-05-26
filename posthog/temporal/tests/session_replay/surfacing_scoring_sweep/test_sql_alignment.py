@@ -1,12 +1,4 @@
-"""SQL ↔ booster ↔ FEATURE_RANGES parity gate.
-
-The XGBoost booster file (``model.ubj``) embeds the exact ``feature_names``
-the model was trained on. The serving SQL (``fetch_features_sql``) and
-``FEATURE_RANGES`` must match that list exactly — same set, same order.
-
-Drift is caught by ``feature_schema.assert_serving_schema_parity`` at worker
-boot and by the tests here at CI time.
-"""
+"""CI guard: fetch_features_sql(), FEATURE_RANGES, and model.ubj stay aligned."""
 
 from __future__ import annotations
 

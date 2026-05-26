@@ -1,22 +1,4 @@
-"""Keep ClickHouse SQL, FEATURE_RANGES, and the XGBoost booster in sync.
-
-Three artifacts define the serving feature schema:
-
-    1. ``fetch_features_sql()`` — final SELECT aliases (what ClickHouse returns)
-    2. ``FEATURE_RANGES`` — per-feature dtype/range contracts for ``validate_features``
-    3. ``booster.feature_names`` — model input column order from the trained ``.ubj``
-
-Drift between any pair silently mis-scores sessions or crashes chunks at runtime.
-This module centralises the parity checks so drift is caught at worker boot and
-in CI instead of on the first production tick.
-
-Check layers (weakest → strongest):
-
-    * SQL ↔ FEATURE_RANGES — pure Python, no model file; runs on every worker boot
-    * booster ↔ FEATURE_RANGES — ``assert_ranges_cover`` inside ``_load_booster``
-    * booster ↔ SQL — runs when the booster loads; requires a model whose
-      ``feature_names`` match the SELECT alias list
-"""
+"""Parity checks for fetch_features_sql(), FEATURE_RANGES, and booster.feature_names."""
 
 from __future__ import annotations
 
@@ -29,7 +11,7 @@ class FeatureSchemaDriftError(Exception):
 
 
 def get_sql_feature_names() -> tuple[str, ...]:
-    """Return feature column aliases from ``fetch_features_sql()`` in SELECT order."""
+    """Feature column aliases from fetch_features_sql() in SELECT order."""
     names = feature_columns_in_select(fetch_features_sql())
     if not names:
         raise FeatureSchemaDriftError(
@@ -40,7 +22,7 @@ def get_sql_feature_names() -> tuple[str, ...]:
 
 
 def assert_sql_matches_feature_ranges() -> None:
-    """Hard-fail if SQL SELECT aliases diverge from ``FEATURE_RANGES`` keys."""
+    """Hard-fail if SQL aliases diverge from FEATURE_RANGES keys."""
     sql_names = get_sql_feature_names()
     range_names = tuple(FEATURE_RANGES.keys())
     if sql_names != range_names:
@@ -55,7 +37,7 @@ def assert_sql_matches_feature_ranges() -> None:
 
 
 def assert_booster_matches_sql(booster_names: tuple[str, ...]) -> None:
-    """Hard-fail if the booster's ``feature_names`` diverge from the SQL SELECT."""
+    """Hard-fail if booster.feature_names diverge from the SQL SELECT."""
     if not booster_names:
         raise FeatureSchemaDriftError(
             "Booster has no feature_names. Train with explicit feature_names= on xgb.DMatrix."
@@ -73,7 +55,7 @@ def assert_booster_matches_sql(booster_names: tuple[str, ...]) -> None:
 
 
 def assert_serving_schema_parity(booster_names: tuple[str, ...]) -> None:
-    """Run all serving-schema parity checks (SQL ↔ ranges ↔ booster)."""
+    """Run SQL ↔ FEATURE_RANGES ↔ booster parity checks."""
     assert_sql_matches_feature_ranges()
     assert_ranges_cover(booster_names)
     assert_booster_matches_sql(booster_names)
