@@ -387,3 +387,36 @@ async def test_file_download_end_to_end(
 
     assert len(table) == len(events)
     assert "event" in table.column_names
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_cancel(
+    async_client: AsyncClient,
+    temporal_client,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+):
+    destination = await BatchExportDestination.objects.acreate(
+        type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+    )
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.RUNNING,
+    )
+
+    await async_client.aforce_login(user)
+
+    status_response = await async_client.post(
+        f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
+    )
+    data = status_response.json()
+    assert data["status"] == "Cancelled", status_response.json()
+
+    await run.arefresh_from_db()
+    assert run.status == BatchExportRun.Status.CANCELLED
