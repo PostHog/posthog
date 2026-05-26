@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -116,7 +117,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return []
                     }
-                    const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    // session_id comes from untrusted event properties — encode it so path/query
+                    // delimiters can't redirect this request to another same-origin endpoint.
+                    const response = await mcpAnalyticsSessionsToolCalls(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId)
+                    )
                     breakpoint()
                     return [...(response.results ?? [])]
                 },
@@ -129,7 +135,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return null
                     }
-                    return await mcpAnalyticsSessionsGenerateIntent(String(values.currentProjectId), sessionId)
+                    // session_id comes from untrusted event properties — encode it so path/query
+                    // delimiters can't redirect this POST to another same-origin endpoint.
+                    return await mcpAnalyticsSessionsGenerateIntent(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId)
+                    )
                 },
             },
         ],
@@ -219,6 +230,11 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             if (sessionId) {
                 actions.loadToolCalls(sessionId)
             }
+        },
+        // The button just resets to its idle state on failure; surface a toast so the user
+        // knows the request failed (e.g. a 503 when intent generation is unavailable).
+        generateIntentFailure: () => {
+            lemonToast.error('Could not generate the session intent. Please try again.')
         },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.

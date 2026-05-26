@@ -5,8 +5,6 @@ and condense them into a short natural-language summary via an LLM. Pure
 generation only — caching and persistence live in ``logic.generate_session_intent``.
 """
 
-import os
-
 from django.conf import settings
 
 import openai
@@ -82,7 +80,7 @@ def summarize_intents(intents: list[str], team: Team) -> str:
     Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured or the request fails,
     so the endpoint can answer with a clean 503 rather than a 500.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not settings.OPENAI_API_KEY:
         raise IntentGenerationUnavailable("OPENAI_API_KEY is not configured")
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)

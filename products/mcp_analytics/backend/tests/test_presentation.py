@@ -303,3 +303,19 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "Generated summary."}
         assert MCPSession.objects.get(team=self.team, session_id=session_id).intent == "Generated summary."
+
+    def test_returns_503_when_generation_unavailable(self) -> None:
+        session_id = "session-unavailable"
+        with (
+            patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
+            patch.object(
+                intent_generation,
+                "summarize_intents",
+                side_effect=intent_generation.IntentGenerationUnavailable("LLM down"),
+            ),
+        ):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        # Nothing persisted when generation fails.
+        assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
