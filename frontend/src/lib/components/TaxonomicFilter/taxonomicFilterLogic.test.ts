@@ -21,6 +21,7 @@ import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/moc
 import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 
 window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
@@ -378,7 +379,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
             })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
                 .delay(1)
 
             expect(quickLogic.values.topMatchItems).toHaveLength(1)
@@ -430,17 +431,24 @@ describe('taxonomicFilterLogic', () => {
                 quickLogic.actions.setSearchQuery(query)
             }).toDispatchActions(['setSearchQuery'])
 
+            // While the reveal barrier is closed, every non-meta group renders as a skeleton —
+            // even ones that don't have a remote loader — so partial results never reveal until
+            // the whole batch is ready (or the 5s timer fires). The non-meta groups here are
+            // Events and Actions; SuggestedFilters is the (meta) aggregator tab.
             const duringLoading = quickLogic.values.topMatchItemsWithSkeletons
             const skeletons = duringLoading.filter(isSkeletonItem)
-            expect(skeletons).toHaveLength(SKELETON_ROWS_PER_GROUP)
-            expect(skeletons.every((s) => s.group === TaxonomicFilterGroupType.Events)).toBe(true)
-            expect(skeletons[0].groupName).toBe('Events')
+            expect(skeletons).toHaveLength(SKELETON_ROWS_PER_GROUP * 2)
+            const groupsWithSkeletons = new Set(skeletons.map((s) => s.group))
+            expect(groupsWithSkeletons).toEqual(
+                new Set([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions])
+            )
 
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(quickLogic).delay(1)
 
             const afterLoading = quickLogic.values.topMatchItemsWithSkeletons
             expect(afterLoading.filter(isSkeletonItem)).toHaveLength(0)
+            expect(quickLogic.values.revealBarrierOpen).toBe(true)
         })
 
         it('does not insert skeletons when search query is empty', async () => {
@@ -453,6 +461,190 @@ describe('taxonomicFilterLogic', () => {
 
             expect(quickLogic.values.searchQuery).toBe('')
             expect(quickLogic.values.topMatchItemsWithSkeletons).toEqual([])
+            expect(quickLogic.values.revealBarrierOpen).toBe(true)
+        })
+    })
+
+    describe('reveal barrier', () => {
+        let barrierLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testRevealBarrier',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            }
+            barrierLogic = taxonomicFilterLogic(logicProps)
+            barrierLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            barrierLogic.unmount()
+        })
+
+        it.each([
+            { searchQuery: 'email', expectedOpen: false },
+            { searchQuery: '   ', expectedOpen: true },
+            { searchQuery: '', expectedOpen: true },
+        ])(
+            'setSearchQuery sets revealBarrierOpen=$expectedOpen for query "$searchQuery"',
+            async ({ searchQuery, expectedOpen }) => {
+                await expectLogic(barrierLogic, () => {
+                    barrierLogic.actions.setSearchQuery(searchQuery)
+                }).toMatchValues({ revealBarrierOpen: expectedOpen })
+            }
+        )
+
+        it('openRevealBarrier action sets revealBarrierOpen=true', async () => {
+            barrierLogic.actions.setSearchQuery('email')
+            expect(barrierLogic.values.revealBarrierOpen).toBe(false)
+
+            await expectLogic(barrierLogic, () => {
+                barrierLogic.actions.openRevealBarrier()
+            }).toMatchValues({ revealBarrierOpen: true })
+        })
+
+        it('opens the barrier once every non-meta group finishes loading', async () => {
+            const eventsListLogic = infiniteListLogic({
+                ...barrierLogic.props,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(barrierLogic).delay(1)
+
+            await expectLogic(barrierLogic, () => {
+                barrierLogic.actions.setSearchQuery('whatever')
+            }).toMatchValues({ revealBarrierOpen: false })
+
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
+            expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+        })
+    })
+
+    describe('Recent matches surface in SuggestedFilters search', () => {
+        // Search hits recents locally so they reveal immediately, bypassing the reveal barrier
+        // that gates the remote groups. Per product reality, recents drive ~16% of selections
+        // — they should be visible while remote groups are still settling.
+        let recentLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'recent_login_event',
+                item: { id: 'recent-1', name: 'recent_login_event' },
+                teamId: MOCK_TEAM_ID,
+            })
+
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testRecentMatches',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            }
+            recentLogic = taxonomicFilterLogic(logicProps)
+            recentLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            recentLogic.unmount()
+        })
+
+        it.each<{ query: string; expectedCount: number; expectedItemName?: string }>([
+            { query: 'login', expectedCount: 1, expectedItemName: 'recent_login_event' },
+            { query: 'nothing_matches_this', expectedCount: 0 },
+        ])(
+            'suggestedRecentMatches has $expectedCount match(es) for query "$query"',
+            async ({ query, expectedCount, expectedItemName }) => {
+                await expectLogic(recentLogic, () => {
+                    recentLogic.actions.setSearchQuery(query)
+                }).toMatchValues({ revealBarrierOpen: false })
+
+                const suggestedListLogic = infiniteListLogic({
+                    ...recentLogic.props,
+                    listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                })
+
+                const recentMatches = suggestedListLogic.values.suggestedRecentMatches
+                expect(recentMatches).toHaveLength(expectedCount)
+
+                if (expectedItemName) {
+                    expect(recentMatches[0]).toEqual(expect.objectContaining({ name: expectedItemName }))
+                    const results = suggestedListLogic.values.items.results
+                    const realRecent = results.find((item: any) => item && item.name === expectedItemName)
+                    expect(realRecent).not.toBeUndefined()
+                }
+            }
+        )
+    })
+
+    describe('SuggestedFilters dedupe between recents and per-group top matches', () => {
+        // When the same underlying item appears as a Recent (because the user picked it before)
+        // and as a per-group top match (because the search hit the Events group), the recents
+        // row wins — otherwise the user sees "$pageview" stacked twice in the suggested list.
+        let dedupeLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'event1',
+                item: { id: 'uuid-0-foobar', name: 'event1' },
+                teamId: MOCK_TEAM_ID,
+            })
+
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testSuggestedDedupe',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            }
+            dedupeLogic = taxonomicFilterLogic(logicProps)
+            dedupeLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            dedupeLogic.unmount()
+        })
+
+        it('drops the events top match when a recent already surfaces the same value', async () => {
+            await expectLogic(dedupeLogic, () => {
+                dedupeLogic.actions.setSearchQuery('event1')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches', 'openRevealBarrier'])
+                .delay(1)
+
+            const suggestedListLogic = infiniteListLogic({
+                ...dedupeLogic.props,
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+            })
+
+            const results = suggestedListLogic.values.items.results
+            const event1Rows = results.filter((item: any) => item && item.name === 'event1')
+            expect(event1Rows).toHaveLength(1)
+            expect(event1Rows[0]).toEqual(
+                expect.objectContaining({
+                    _recentContext: expect.objectContaining({
+                        sourceGroupType: TaxonomicFilterGroupType.Events,
+                        sourceValue: 'event1',
+                    }),
+                })
+            )
         })
     })
 
@@ -844,6 +1036,47 @@ describe('taxonomicFilterLogic', () => {
             const shortcuts = eventsGroup?.keywordShortcuts?.('click') ?? []
             const values = shortcuts.map((s) => eventsGroup?.getValue?.(s))
             expect(new Set(values).size).toBe(values.length)
+        })
+    })
+
+    describe('Persons group getValue tolerates pinned items missing distinct_ids', () => {
+        let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'personsGetValueTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons],
+            })
+            testLogic.mount()
+        })
+
+        afterEach(() => {
+            testLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'fresh person with distinct_ids returns the first id',
+                person: { name: 'Alice', distinct_ids: ['distinct-abc', 'distinct-old'] },
+                expected: 'distinct-abc',
+            },
+            {
+                description: 'pre-existing pinned entry shrunk to { name } returns undefined without throwing',
+                person: { name: 'distinct-abc' },
+                expected: undefined,
+            },
+            {
+                description: 'empty distinct_ids array returns undefined without throwing',
+                person: { name: 'Alice', distinct_ids: [] },
+                expected: undefined,
+            },
+        ])('$description', ({ person, expected }) => {
+            const personsGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.Persons
+            )
+            expect(personsGroup?.getValue).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(() => personsGroup?.getValue?.(person as any)).not.toThrow()
+            expect(personsGroup?.getValue?.(person as any)).toBe(expected)
         })
     })
 })
