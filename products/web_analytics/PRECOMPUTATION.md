@@ -96,26 +96,32 @@ The `PreaggregationJob` row is the source-of-truth for "is this window cached?" 
 
 ```mermaid
 flowchart TD
-    S([can_use_lazy_precompute]) --> A{web-analytics-precompute-toggle<br/>flag enabled?}
-    A -- no --> X[OrgFeatureFlagDisabled]
-    A -- yes --> B{query.useWebAnalyticsPrecompute<br/>=== true?}
-    B -- no --> Y[PerQueryOptInNotSet]
-    B -- yes --> C{whole-hour tz<br/>or family opt-out?}
-    C -- no --> Z[NonIntegerTimezone]
-    C -- yes --> D{conversionGoal /<br/>sampling /<br/>sessionsV2 uuid?}
-    D -- yes --> W[ConversionGoalUnsupported /<br/>SamplingEnabled /<br/>SessionsV2UuidMode]
-    D -- no --> E{properties = ∅<br/>or one $host EXACT filter?}
-    E -- no --> V[TooManyFilters /<br/>UnsupportedFilterKey /<br/>UnsupportedFilterOperator /<br/>NonStringOrEmptyFilterValue /<br/>NonEventPropertyFilter]
-    E -- yes --> F{date_from + date_to set<br/>and range ≤ 90 days?}
-    F -- no --> U[MissingDateRange /<br/>DateRangeOverMax]
-    F -- yes --> G[extra_check<br/>family-specific]
-    G -- raises --> T[family-specific reason<br/>e.g. WrongBreakdown, MissingBounceRate, …]
-    G -- passes --> OK([accept → run lazy path])
+    S([can_use_lazy_precompute]) --> Flag{org rollout flag<br/>+ per-query opt-in?}
+    Flag -- no --> X([reject])
+    Flag -- yes --> Env{whole-hour tz?<br/>family may opt out}
+    Env -- no --> X
+    Env -- yes --> Shape{query shape<br/>OK?}
+    Shape -- no --> X
+    Shape -- yes --> Filt{filter shape<br/>OK?}
+    Filt -- no --> X
+    Filt -- yes --> Range{date range<br/>OK?}
+    Range -- no --> X
+    Range -- yes --> Extra[family extra_check]
+    Extra -- raises --> X
+    Extra -- passes --> OK([accept → run lazy path])
 ```
 
-The shared rollout gate is conservative on purpose — it refuses anything that would either materialize incorrect rows (timezone, conversion goals, sampling) or blow up the precompute footprint (date range, fan-out filters). When the gate refuses, the runner silently falls through to v2/raw — there is no user-visible degradation, only a missed cache opportunity. Rejection reasons are emitted as `web_analytics_lazy_precompute_rejected_total{family, reason}` Prometheus counter increments and a structured `INFO` log line, both keyed on the `LazyPrecomputeIneligible` subclass name.
+Each rejection raises a typed `LazyPrecomputeIneligible` subclass — see [`web_analytics_lazy_precompute.py`](backend/hogql_queries/web_analytics_lazy_precompute.py) for the full list (`OrgFeatureFlagDisabled`, `PerQueryOptInNotSet`, `NonIntegerTimezone`, `ConversionGoalUnsupported`, `SamplingEnabled`, `SessionsV2UuidMode`, `TooManyFilters`, `UnsupportedFilterKey`, `UnsupportedFilterOperator`, `NonStringOrEmptyFilterValue`, `NonEventPropertyFilter`, `MissingDateRange`, `DateRangeOverMax`). The class name is the canonical identifier — kept stable across releases so log/metric aggregations don't break.
 
-The shape of the gate (sub-hour timezone, no v2 UUID sessions, ≤1 filter, ≤90 days) was driven by a survey of historical query traffic — see [`evaluating-web-analytics-performance`](skills/evaluating-web-analytics-performance/SKILL.md) for the methodology.
+When the gate refuses, the runner silently falls through to v2/raw — there is no user-visible degradation, only a missed cache opportunity. Rejection reasons are emitted as `web_analytics_lazy_precompute_rejected_total{family, reason}` Prometheus counter increments and a structured `INFO` log line, both keyed on the subclass name.
+
+What each gate node actually checks:
+
+- **Query shape** — `query.conversionGoal` unset, `query.sampling.enabled` falsy, `query.modifiers.sessionsV2JoinMode != "uuid"`. The first two would either need extra schema (conversion-goal joins) or change the math (sampling) in ways the precomputed columns don't capture. The UUID check is defensive against a specific column-type mismatch in the overview table — see the limitations list under the per-family sections.
+- **Filter shape** — `query.properties` is empty, or contains exactly one `EventPropertyFilter` with `key="$host"`, `operator=EXACT`, and a non-empty string `value`. This is **not** a fundamental limitation; it's a rollout-simplification choice. Each distinct filter shape becomes a distinct precompute `query_hash` (and therefore a distinct materialised row set), so the per-team precompute footprint is `filter_shape_count × bucket_count`. Capping the gate at `≤1 $host filter` keeps that product tractable while we widen the org-flag rollout, and a `system.query_log` survey showed `$host` is the dominant filter key in real traffic — so the cap covers the bulk of usage with minimal cardinality blowup. Widening to additional keys/operators is a follow-up once the shape of cache hit rates settles.
+- **Date range** — `date_from` and `date_to` both resolve to non-`None`, and `(date_to - date_from).days ≤ 90`. The cap stops a single first-read from creating ~90+ daily precompute jobs in one go.
+
+The rollout-driven shape of the gate was informed by a survey of historical query traffic — see [`evaluating-web-analytics-performance`](skills/evaluating-web-analytics-performance/SKILL.md) for the methodology.
 
 ### Family quick reference
 
@@ -196,18 +202,12 @@ Stored via the `LAZY_TTL_SECONDS` dict; consumed by `lazy_computation_executor.p
 
 ### Read path
 
-The read is a single `sync_execute` call (not HogQL — see "Why bypass HogQL" below). It computes the 5 metric pairs (current + previous period) via `*MergeIf` aggregates filtered by the team-tz date range converted to UTC. Settings:
+The read is a single `sync_execute` call. It computes the 5 metric pairs (current + previous period) via `*MergeIf` aggregates filtered by the team-tz date range converted to UTC. Settings:
 
 - `load_balancing="in_order"` — paired with the INSERT side's same setting for read-your-writes via Approach E in [CONSISTENCY.md](../../products/analytics_platform/backend/lazy_computation/CONSISTENCY.md).
 - `optimize_skip_unused_shards=1` — `job_id IN (...)` + sharding-by-`sipHash64(job_id)` lets ClickHouse prune to the right shards.
 
 Result is built into the standard `WebOverviewQueryResponse` via `_build_response_from_row`, with `usedPreAggregatedTables=True`.
-
-#### Why bypass HogQL
-
-HogQL `HogQLGlobalSettings` is `extra="forbid"`, so we couldn't get arbitrary CH settings (originally `select_sequential_consistency=1`, since dropped) through `execute_hogql_query`. The read query shape is stable enough that `sync_execute` with parameterized values is appropriate. The team_id WHERE clause is enforced manually (the HogQL printer's auto-injected `team_id_guard_for_table` is not applied for sync_execute).
-
-If we later move back to HogQL (after the consistency story is settled), the HogQL table registration at `posthog/hogql/database/schema/web_overview_preaggregated.py` is still present and ready.
 
 ### Observability
 
@@ -220,9 +220,8 @@ If we later move back to HogQL (after the consistency story is settled), the Hog
 ### Known limitations / open issues
 
 1. **`error_type` Prometheus label is too coarse** — `ServerException` from CH could mean quorum / memory / schema. Should bucket by CH error code.
-2. **UUID session mode rejected**, not handled. Re-typing `uniq_sessions_state` to `(uniq, UUID)` would lift this; tracked as a follow-up.
+2. **Explicit UUID session mode is rejected.** The gate refuses when `query.modifiers.sessionsV2JoinMode == "uuid"` to avoid feeding `uniqState(UUID)` into the `uniqState(String)` overview column. In production today this refusal is rare: a `system.query_log` survey shows that web analytics queries arrive with `query.modifiers.sessionsV2JoinMode` unset (the UUID default from `posthog/hogql/modifiers.py` is applied during compilation, but the gate only sees the un-resolved value on the incoming query). Re-typing `uniq_sessions_state` to `AggregateFunction(uniq, UUID)` would lift this entirely and remove the gate.
 3. **Empty `*MergeIf` rows are treated as legitimate empty windows.** Empty `sync_execute` result on this query shape is almost always a driver/transport error rather than "no data"; should be treated as failure + fall through.
-4. **HogQL `top_level_settings`** on `WebOverviewPreaggregatedTable` is currently unused (read bypasses HogQL); kept as a hook if we re-route through HogQL later.
 
 ## Lazy computation for the stats table
 
