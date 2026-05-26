@@ -47,11 +47,16 @@ where
     F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
 {
     let emitter = emit_py::PyEmitter::new(py)?;
-    // Convert any panic from the emitter drive (e.g. `class(**kwargs)` tripping dataclass `__post_init__`) into a `NotImplementedError` envelope. PyO3 would surface it as `PanicException`, which production callers catching the `ExposedHogQLError` family won't intercept.
+    // Drive the emitter under `catch_unwind`: a dataclass constructor / `__post_init__` raising mid-build unwinds via panic (the `Emitter` trait is infallible, so there's no Result channel out of the deep parse).
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| f(emitter)));
     let result = match outcome {
         Ok(r) => r,
         Err(panic) => {
+            // `PyEmitter::build` restores the original Python exception before unwinding, so re-raise it verbatim — rust-py then surfaces the same exception the json backends do (they hit it in `deserialize_ast`), rather than a wrapped envelope.
+            if let Some(err) = PyErr::take(py) {
+                return Err(err);
+            }
+            // Genuine (non-PyErr) panic: wrap as a `NotImplementedError` envelope so production callers catching the `ExposedHogQLError` family intercept it, instead of PyO3 surfacing a raw `PanicException`.
             let msg = panic
                 .downcast_ref::<&'static str>()
                 .copied()
