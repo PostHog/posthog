@@ -2,7 +2,7 @@ from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, _create_person, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -295,6 +295,103 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("properties.unknown_prop = 'true'"),
         )
+
+    @parameterized.expand(
+        [
+            # Boolean values reach property_to_expr in many shapes. The UI sends "true"/"false";
+            # internal callers pass Python True/False; the cohort code in
+            # hogql_cohort_query.convert_property stringifies list values via str(x), which
+            # turns [True] into ["True"] (capital T). Every shape that is unambiguously a
+            # boolean must coerce to a bool AST constant — otherwise downstream toBool(...)
+            # wrapping by the property-type swapper produces CANNOT_PARSE_BOOL at query time,
+            # or (worse) silently matches nobody, which is how the internal/test users cohort
+            # broke in PR #58703.
+            ("python_true", True, "true"),
+            ("python_false", False, "false"),
+            ("string_lower_true", "true", "true"),
+            ("string_lower_false", "false", "false"),
+            ("string_capital_true", "True", "true"),
+            ("string_capital_false", "False", "false"),
+            ("list_python_true", [True], "true"),
+            ("list_python_false", [False], "false"),
+            ("list_string_lower_true", ["true"], "true"),
+            ("list_string_lower_false", ["false"], "false"),
+            ("list_string_capital_true", ["True"], "true"),
+            ("list_string_capital_false", ["False"], "false"),
+        ]
+    )
+    def test_property_to_expr_boolean_person_property_exact(self, _name: str, value: Any, expected_rhs: str) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="bool_prop",
+            type=PropertyDefinition.Type.PERSON,
+            property_type=PropertyType.Boolean,
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "bool_prop", "value": value, "operator": "exact"},
+                team=self.team,
+            ),
+            self._parse_expr(f"person.properties.bool_prop = {expected_rhs}"),
+        )
+
+    @parameterized.expand(
+        [
+            ("python_true", True, "true"),
+            ("python_false", False, "false"),
+            ("string_lower_true", "true", "true"),
+            ("string_capital_true", "True", "true"),
+            ("list_python_true", [True], "true"),
+            ("list_string_lower_true", ["true"], "true"),
+            ("list_string_capital_true", ["True"], "true"),
+        ]
+    )
+    def test_property_to_expr_boolean_person_property_is_not(self, _name: str, value: Any, expected_rhs: str) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="bool_prop",
+            type=PropertyDefinition.Type.PERSON,
+            property_type=PropertyType.Boolean,
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "bool_prop", "value": value, "operator": "is_not"},
+                team=self.team,
+            ),
+            self._parse_expr(f"person.properties.bool_prop != {expected_rhs}"),
+        )
+
+    def test_property_to_expr_boolean_person_property_non_boolean_value(self) -> None:
+        # Non-boolean filter values against a Boolean property must not crash ClickHouse
+        # with CANNOT_PARSE_BOOL. EXACT should match no rows; IS_NOT should match all rows
+        # (every row "is not" the unparseable value). This is the original PR #58703 fix —
+        # documented here so any re-land or refactor must keep both semantics.
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="bool_prop",
+            type=PropertyDefinition.Type.PERSON,
+            property_type=PropertyType.Boolean,
+        )
+        exact_expr = self._property_to_expr(
+            {"type": "person", "key": "bool_prop", "value": "garbage", "operator": "exact"},
+            team=self.team,
+        )
+        # EXACT against an unparseable value must not emit `expr = 'garbage'` (would crash
+        # under toBool wrapping). Acceptable shapes: `expr = NULL` or constant-false.
+        if isinstance(exact_expr, ast.CompareOperation):
+            assert isinstance(exact_expr.right, ast.Constant), exact_expr
+            assert exact_expr.right.value is None, exact_expr
+        else:
+            assert exact_expr == ast.Constant(value=False), exact_expr
+
+        is_not_expr = self._property_to_expr(
+            {"type": "person", "key": "bool_prop", "value": "garbage", "operator": "is_not"},
+            team=self.team,
+        )
+        # IS_NOT against an unparseable value must match all rows, not zero rows.
+        # `expr != NULL` is NULL in CH 3-valued logic → WHERE-treated-as-false → matches
+        # nothing, which silently breaks "exclude this cohort" filters. Must be constant-true.
+        assert is_not_expr == ast.Constant(value=True), is_not_expr
 
     @parameterized.expand(
         [
@@ -1983,3 +2080,94 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+
+class TestBooleanPersonPropertyComparisonWithData(APIBaseTest):
+    """End-to-end SQL execution tests for Boolean person properties.
+
+    AST-only tests cannot catch failures where the property-type swapper wraps the column
+    with toBool(...) and ClickHouse then rejects the right-hand side at runtime (the original
+    CANNOT_PARSE_BOOL bug). Nor do they catch the inverse failure that broke PR #58703 —
+    where a value resolves to NULL and `expr = NULL` silently matches zero rows. Both bugs
+    are only visible against real data, so this suite runs the generated SQL.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team,
+            name="bool_prop",
+            type=PropertyDefinition.Type.PERSON,
+            property_type=PropertyType.Boolean,
+        )
+        _create_person(team_id=cls.team.pk, distinct_ids=["p_true"], properties={"bool_prop": True})
+        _create_person(team_id=cls.team.pk, distinct_ids=["p_false"], properties={"bool_prop": False})
+
+    def _count(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="person")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=expr,
+        )
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        return result.results[0][0]
+
+    @parameterized.expand(
+        [
+            # Every legitimate representation of `true` must match the p_true row only.
+            # The capital-T variants are the regression case — hogql_cohort_query.convert_property
+            # turns [True] into ["True"] before reaching property_to_expr, which is exactly the
+            # value the internal/test users cohort backfill produces.
+            ("python_true", True, 1),
+            ("string_lower_true", "true", 1),
+            ("string_capital_true", "True", 1),
+            ("list_python_true", [True], 1),
+            ("list_string_lower_true", ["true"], 1),
+            ("list_string_capital_true", ["True"], 1),
+            # Every legitimate representation of `false` must match the p_false row only.
+            ("python_false", False, 1),
+            ("string_lower_false", "false", 1),
+            ("string_capital_false", "False", 1),
+            ("list_python_false", [False], 1),
+            ("list_string_lower_false", ["false"], 1),
+            ("list_string_capital_false", ["False"], 1),
+        ]
+    )
+    def test_boolean_exact_matches_expected_persons(self, _name: str, value: Any, expected_count: int) -> None:
+        count = self._count({"type": "person", "key": "bool_prop", "value": value, "operator": "exact"})
+        assert count == expected_count, f"value={value!r}"
+
+    @parameterized.expand(
+        [
+            # IS_NOT true → only the false row.
+            ("python_true", True, 1),
+            ("string_lower_true", "true", 1),
+            ("string_capital_true", "True", 1),
+            ("list_python_true", [True], 1),
+            ("list_string_lower_true", ["true"], 1),
+            ("list_string_capital_true", ["True"], 1),
+            # IS_NOT false → only the true row.
+            ("python_false", False, 1),
+            ("list_python_false", [False], 1),
+            ("list_string_capital_false", ["False"], 1),
+        ]
+    )
+    def test_boolean_is_not_matches_expected_persons(self, _name: str, value: Any, expected_count: int) -> None:
+        count = self._count({"type": "person", "key": "bool_prop", "value": value, "operator": "is_not"})
+        assert count == expected_count, f"value={value!r}"
+
+    def test_boolean_exact_with_non_boolean_value_does_not_crash(self) -> None:
+        # A non-boolean filter value against a Boolean property must not raise CANNOT_PARSE_BOOL.
+        # EXACT can only match no rows, since nothing is equal to an unparseable value.
+        count = self._count({"type": "person", "key": "bool_prop", "value": "garbage", "operator": "exact"})
+        assert count == 0
+
+    def test_boolean_is_not_with_non_boolean_value_matches_all_rows(self) -> None:
+        # IS_NOT against an unparseable value must match all rows (every row "is not" garbage).
+        # The naive `expr != NULL` is NULL in CH 3-valued logic → WHERE-treated-as-false →
+        # matches nothing, which is what silently broke the internal/test users cohort exclude
+        # filter in PR #58703.
+        count = self._count({"type": "person", "key": "bool_prop", "value": "garbage", "operator": "is_not"})
+        assert count == 2
