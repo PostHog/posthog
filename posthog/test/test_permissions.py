@@ -633,7 +633,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.scope = "*"
         self.access_token.save()
         response = self._do_request(
-            f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/",
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
             method="POST",
             data={"key": "noop"},
         )
@@ -646,7 +646,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.scope = "signal_scout_internal:write"
         self.access_token.save()
         response = self._do_request(
-            f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/",
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
             method="POST",
             data={"key": "noop"},
         )
@@ -661,7 +661,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         the successful authenticator and must hit the internal-scope guard."""
         self.client.force_login(self.user)
         response = self.client.post(
-            f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/",
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
             data={"key": "noop"},
             format="json",
         )
