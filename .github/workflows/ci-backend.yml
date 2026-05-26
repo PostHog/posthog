@@ -586,13 +586,18 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Default GITHUB_TOKEN can't list /repos/{repo}/teams (needs org-level
-            # scope). Reuse the assign-reviewers app — same secret, same use case.
+            # `members: read`). Reuse the assign-reviewers app — same secret, same
+            # use case. `owner: PostHog` scopes the issued token at the org so
+            # org-level permissions actually flow through; otherwise the token is
+            # repo-scoped and the org scope gets dropped.
             - name: Get app token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
