@@ -7,49 +7,37 @@ import {
     IngestionBatchingPipeline,
     IngestionPipelineLifecycle,
 } from './common-ingestion-consumer'
-import { Lifecycle, ServiceMap, StartedLifecycle } from './service-registry'
 
-export interface PipelineFactoryContext<S extends ServiceMap, O extends string> {
-    services: S
+export interface PipelineFactoryContext<O extends string> {
     outputs: IngestionOutputs<O>
     promiseScheduler: PromiseScheduler
 }
 
-export type PipelineFactory<S extends ServiceMap, O extends string> = (
-    ctx: PipelineFactoryContext<S, O>
-) => IngestionBatchingPipeline
+export type PipelineFactory<O extends string> = (ctx: PipelineFactoryContext<O>) => IngestionBatchingPipeline
 
-export interface CreateCommonIngestionConsumerArgs<S extends ServiceMap, O extends string> {
+export interface CreateCommonIngestionConsumerArgs<O extends string> {
     config: CommonIngestionConsumerConfig
-    /**
-     * Pre-built service lifecycle. The consumer drives its `start()` / `stop()`
-     * during the consumer's own start/stop, and its services are passed to
-     * the pipeline factory (stripped of `start`/`stop`, so the pipeline can't
-     * accidentally tear an individual service down).
-     */
-    lifecycle: Lifecycle<S>
     outputs: IngestionOutputs<O>
-    pipeline: PipelineFactory<S, O>
+    pipeline: PipelineFactory<O>
     healthcheck?: () => Promise<HealthCheckResult>
 }
 
 /**
- * Wire a `Lifecycle` + outputs + pipeline factory into a runnable
- * `CommonIngestionConsumer`. On start: brings up services via the lifecycle,
- * then verifies output topics (rolling the lifecycle back if verification
- * fails). On stop: tears the lifecycle down in reverse and drains the
- * background promise scheduler.
+ * Wire outputs + a pipeline factory into a runnable `CommonIngestionConsumer`.
+ * Service lifecycles (shared or per-consumer) live outside this factory —
+ * the caller starts services before constructing the consumer and stops them
+ * after. On start: verifies output topics. On stop: drains the background
+ * promise scheduler.
  */
-export function createCommonIngestionConsumer<S extends ServiceMap, O extends string>(
-    args: CreateCommonIngestionConsumerArgs<S, O>
+export function createCommonIngestionConsumer<O extends string>(
+    args: CreateCommonIngestionConsumerArgs<O>
 ): CommonIngestionConsumer {
-    const { config, lifecycle, outputs, pipeline: pipelineFactory, healthcheck } = args
+    const { config, outputs, pipeline: pipelineFactory, healthcheck } = args
 
     const promiseScheduler = new PromiseScheduler()
-    const pipeline = pipelineFactory({ services: lifecycle.services, outputs, promiseScheduler })
+    const pipeline = pipelineFactory({ outputs, promiseScheduler })
 
     const consumerLifecycle = composeConsumerLifecycle({
-        lifecycle,
         outputs,
         promiseScheduler,
         healthcheckFn: healthcheck,
@@ -58,46 +46,25 @@ export function createCommonIngestionConsumer<S extends ServiceMap, O extends st
     return new CommonIngestionConsumer(config, pipeline, consumerLifecycle)
 }
 
-interface ComposeConsumerLifecycleArgs<S extends ServiceMap, O extends string> {
-    lifecycle: Lifecycle<S>
+interface ComposeConsumerLifecycleArgs<O extends string> {
     outputs: IngestionOutputs<O>
     promiseScheduler: PromiseScheduler
     healthcheckFn: (() => Promise<HealthCheckResult>) | undefined
 }
 
-export function composeConsumerLifecycle<S extends ServiceMap, O extends string>({
-    lifecycle,
+export function composeConsumerLifecycle<O extends string>({
     outputs,
     promiseScheduler,
     healthcheckFn,
-}: ComposeConsumerLifecycleArgs<S, O>): IngestionPipelineLifecycle {
-    let started: StartedLifecycle<S> | undefined
-
+}: ComposeConsumerLifecycleArgs<O>): IngestionPipelineLifecycle {
     return {
         onStart: async () => {
-            started = await lifecycle.start()
-            try {
-                const failures = await outputs.checkTopics()
-                if (failures.length > 0) {
-                    throw new Error(`Output topic verification failed for: ${failures.join(', ')}`)
-                }
-            } catch (err) {
-                // Topic verification failed after services started — roll the
-                // lifecycle back so we don't leak resources, then propagate.
-                try {
-                    await started.stop()
-                } catch {
-                    // best-effort cleanup; propagate the original error
-                }
-                started = undefined
-                throw err
+            const failures = await outputs.checkTopics()
+            if (failures.length > 0) {
+                throw new Error(`Output topic verification failed for: ${failures.join(', ')}`)
             }
         },
         onStop: async () => {
-            if (started) {
-                await started.stop()
-                started = undefined
-            }
             await promiseScheduler.waitForAll()
         },
         healthcheck: healthcheckFn,
