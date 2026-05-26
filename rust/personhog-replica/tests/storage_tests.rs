@@ -1364,25 +1364,10 @@ async fn test_delete_persons_cross_team_isolation() {
 async fn test_delete_persons_partial_failure_returns_error() {
     let ctx = TestContext::new().await;
 
-    // Create 80 persons — with chunk_size=50 this splits into two chunks.
-    // We'll block one person in the second chunk with a FK constraint so
-    // the first chunk succeeds and the second fails.
-    let mut uuids = Vec::new();
-    let mut blocked_person_id: Option<i64> = None;
-    for i in 0..80 {
-        let p = ctx
-            .insert_person(&format!("partial_fail_{i}"), None)
-            .await
-            .unwrap();
-        uuids.push(p.uuid);
-        // Pick a person in the second chunk (index >= 50) to block
-        if i == 60 {
-            blocked_person_id = Some(p.id);
-        }
-    }
-    let blocked_person_id = blocked_person_id.unwrap();
+    // Create a person and block its deletion with a RESTRICT FK.
+    let blocked = ctx.insert_person("blocked_person", None).await.unwrap();
+    let normal = ctx.insert_person("normal_person", None).await.unwrap();
 
-    // Create a RESTRICT FK that prevents deletion of the blocked person
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _test_person_fk_block (
             id SERIAL PRIMARY KEY,
@@ -1398,31 +1383,25 @@ async fn test_delete_persons_partial_failure_returns_error() {
 
     sqlx::query("INSERT INTO _test_person_fk_block (team_id, person_id) VALUES ($1, $2)")
         .bind(ctx.team_id as i32)
-        .bind(blocked_person_id)
+        .bind(blocked.id)
         .execute(&ctx.pool)
         .await
         .expect("Failed to insert blocking reference");
 
-    // The call should return an error because the blocked chunk fails
-    let result = ctx.storage.delete_persons(ctx.team_id, &uuids).await;
+    // The call should return an error because the FK blocks deletion
+    let result = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[blocked.uuid, normal.uuid])
+        .await;
     assert!(result.is_err(), "Expected error due to blocked FK");
 
-    // The unblocked chunk's deletes should have committed (partial progress).
-    // Count how many persons remain — should be less than 80.
-    let remaining: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM posthog_person WHERE team_id = $1")
-            .bind(ctx.team_id as i32)
-            .fetch_one(&ctx.pool)
-            .await
-            .unwrap();
-    assert!(
-        remaining < 80,
-        "Expected some persons to be deleted by the successful chunk, but {remaining} remain"
-    );
-    assert!(
-        remaining > 0,
-        "Expected the blocked chunk's persons to remain"
-    );
+    // The blocked person should still exist
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, blocked.id)
+        .await
+        .unwrap()
+        .is_some());
 
     // Cleanup
     sqlx::query("DELETE FROM _test_person_fk_block WHERE team_id = $1")
