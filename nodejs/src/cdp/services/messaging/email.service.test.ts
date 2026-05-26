@@ -537,6 +537,10 @@ describe('EmailService', () => {
         })
 
         it('should capture a $messaging_email_sent PostHog event on success', async () => {
+            // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -553,7 +557,18 @@ describe('EmailService', () => {
             })
         })
 
+        it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
+            // Default config has capture_engagement_events=false, so even on success no event is queued.
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(0)
+        })
+
         it('should capture a $messaging_email_failed PostHog event on failure', async () => {
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
             sendEmailSpy.mockRejectedValue(new Error('SES error'))
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeDefined()

@@ -48,6 +48,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 metricName: 'email_opened',
                 properties: { $email_to: 'to@example.com' },
+                timestamp: '2025-10-03T12:01:00Z',
             },
         ])
     })
@@ -73,6 +74,7 @@ describe('SesWebhookHandler', () => {
             $email_to: 'to@example.com',
             $link_url: 'https://example.com',
         })
+        expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
     })
 
     it('parses tracking code without distinct_id for backwards compatibility', async () => {
@@ -132,6 +134,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 metricName: 'email_delivered',
                 properties: { $email_to: 'to@example.com' },
+                timestamp: '2025-10-03T12:03:00Z',
             },
         ])
     })
@@ -304,6 +307,7 @@ describe('SesWebhookHandler', () => {
                 parentRunId: 'batch-run-id',
                 metricName: 'email_opened',
                 properties: { $email_to: 'to@example.com' },
+                timestamp: '2025-10-03T12:01:00Z',
             },
         ])
     })

@@ -317,6 +317,7 @@ export class SesWebhookHandler {
             distinctId?: string
             metricName: MinimalAppMetric['metric_name']
             properties?: Record<string, any>
+            timestamp?: string
         }[]
         optOutRecipients?: {
             teamId?: string
@@ -373,6 +374,7 @@ export class SesWebhookHandler {
             distinctId?: string
             metricName: MinimalAppMetric['metric_name']
             properties?: Record<string, any>
+            timestamp?: string
         }[] = []
         const optOutRecipients: {
             teamId?: string
@@ -396,11 +398,34 @@ export class SesWebhookHandler {
                     $email_to: rec.mail.destination?.[0],
                 }
 
-                if ('click' in rec && rec.click) {
+                // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
+                // — prefer those over the webhook receipt time so the event reflects when the action
+                // actually happened, not when AWS got around to delivering the notification.
+                let timestamp: string | undefined
+                if ('open' in rec && rec.open) {
+                    timestamp = rec.open.timestamp
+                } else if ('click' in rec && rec.click) {
+                    timestamp = rec.click.timestamp
                     properties.$link_url = rec.click.link
+                } else if ('delivery' in rec && rec.delivery) {
+                    timestamp = rec.delivery.timestamp
+                } else if ('bounce' in rec && rec.bounce) {
+                    timestamp = rec.bounce.timestamp
+                } else if ('complaint' in rec && rec.complaint) {
+                    timestamp = rec.complaint.timestamp
                 }
+                timestamp = timestamp ?? rec.mail.timestamp
 
-                metrics.push({ functionId, invocationId, actionId, parentRunId, distinctId, metricName, properties })
+                metrics.push({
+                    functionId,
+                    invocationId,
+                    actionId,
+                    parentRunId,
+                    distinctId,
+                    metricName,
+                    properties,
+                    timestamp,
+                })
             }
 
             // Opt out recipients on permanent bounces

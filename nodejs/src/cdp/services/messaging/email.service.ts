@@ -9,7 +9,7 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { addTrackingToEmail } from './email-tracking.service'
+import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
@@ -128,7 +128,7 @@ export class EmailService {
             count: 1,
         })
 
-        const distinctId = invocation.state?.globals?.event?.distinct_id
+        const distinctId = resolveEmailEngagementDistinctId(invocation)
         if (distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
@@ -204,7 +204,7 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const distinctId = result.invocation.state?.globals?.event?.distinct_id
+        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
         const trackingCode = generateEmailTrackingCode({ ...result.invocation, distinctId })
 
         const htmlBody = params.html

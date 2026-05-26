@@ -37,18 +37,30 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
-const METRIC_NAME_TO_EVENT_NAME: Partial<Record<MinimalAppMetric['metric_name'], string>> = {
+// Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
+// Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
+// internal metric can't silently leak into customers' event streams.
+export const METRIC_NAME_TO_EVENT_NAME: Partial<Record<MinimalAppMetric['metric_name'], string>> = {
     email_sent: '$messaging_email_sent',
     email_failed: '$messaging_email_failed',
+    email_delivered: '$messaging_email_delivered',
     email_opened: '$messaging_email_opened',
     email_link_clicked: '$messaging_email_link_clicked',
     email_bounced: '$messaging_email_bounced',
     email_blocked: '$messaging_email_blocked',
-    email_spam: '$messaging_email_spam',
-    email_unsubscribed: '$messaging_email_unsubscribed',
 }
 
-export { METRIC_NAME_TO_EVENT_NAME }
+/**
+ * Resolve the identifier to attribute engagement events to. Event-triggered workflows carry
+ * `event.distinct_id`; batch/scheduled workflows synthesize an event with an empty `distinct_id`
+ * and put the recipient on `globals.person`. Returns undefined if neither is present, in which
+ * case we skip capture rather than emit an unattributable event.
+ */
+export const resolveEmailEngagementDistinctId = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state'>
+): string | undefined => {
+    return invocation.state?.globals?.event?.distinct_id || invocation.state?.globals?.person?.id || undefined
+}
 
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
@@ -62,7 +74,7 @@ export const generateTrackingRedirectUrl = (
 }
 
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
-    const distinctId = invocation.state?.globals?.event?.distinct_id
+    const distinctId = resolveEmailEngagementDistinctId(invocation)
     const trackingInvocation = { ...invocation, distinctId }
     const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation)
 
@@ -102,6 +114,7 @@ export class EmailTrackingService {
         metricName,
         source,
         properties,
+        timestamp,
     }: {
         functionId?: string
         invocationId?: string
@@ -110,7 +123,8 @@ export class EmailTrackingService {
         distinctId?: string
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
-        properties?: Record<string, any>
+        properties?: Record<string, unknown>
+        timestamp?: string
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -155,11 +169,13 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
-        if (distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
+        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
+        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
             await this.capturedEventsService.queueEvent({
                 team_id: teamId,
-                event: METRIC_NAME_TO_EVENT_NAME[metricName] ?? `$messaging_${metricName}`,
+                event: eventName,
                 distinct_id: distinctId,
+                timestamp,
                 properties: {
                     $workflow_id: appSourceId,
                     $messaging_source: source,
@@ -201,6 +217,7 @@ export class EmailTrackingService {
                     metricName: metric.metricName,
                     source: 'ses',
                     properties: metric.properties,
+                    timestamp: metric.timestamp,
                 })
             }
 
