@@ -147,14 +147,18 @@ def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str
     return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
 
 
-def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
+def _format_slack_user_info_payload(
+    *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
+) -> dict[str, Any]:
     return {
         "user": {
+            "is_admin": is_admin,
+            "is_owner": is_owner,
             "profile": {
                 "email": email,
                 "display_name": display_name,
                 "real_name": real_name,
-            }
+            },
         }
     }
 
@@ -187,13 +191,16 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
         email=profile.email,
         display_name=profile.display_name,
         real_name=profile.real_name,
+        is_admin=profile.is_admin,
+        is_owner=profile.is_owner,
     )
 
 
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
     from products.slack_app.backend.models import SlackUserProfileCache
 
-    profile = user_info.get("user", {}).get("profile", {})
+    user = user_info.get("user", {})
+    profile = user.get("profile", {})
     try:
         SlackUserProfileCache.objects.update_or_create(
             integration_id=integration.id,
@@ -202,6 +209,8 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
                 "email": profile.get("email") or None,
                 "display_name": profile.get("display_name") or "",
                 "real_name": profile.get("real_name") or "",
+                "is_admin": bool(user.get("is_admin")),
+                "is_owner": bool(user.get("is_owner")),
             },
         )
     except DatabaseError:
