@@ -9250,6 +9250,14 @@ class WebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class WebNotableChangesQueryResponse(BaseModel):
@@ -12644,6 +12652,14 @@ class CachedWebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class CachedWebNotableChangesQueryResponse(BaseModel):
@@ -13408,6 +13424,46 @@ class Response6(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+
+
+class Response7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class Response8(BaseModel):
@@ -16301,6 +16357,46 @@ class QueryResponseAlternative25(BaseModel):
     types: list | None = None
 
 
+class QueryResponseAlternative26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16834,6 +16930,46 @@ class QueryResponseAlternative45(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+
+
+class QueryResponseAlternative46(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class QueryResponseAlternative47(BaseModel):
@@ -18657,6 +18793,14 @@ class WebGoalsQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_goals_query precompute path. Requires"
+            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
+            " the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -22286,6 +22430,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative23
         | QueryResponseAlternative24
         | QueryResponseAlternative25
+        | QueryResponseAlternative26
         | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
@@ -22306,6 +22451,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative43
         | QueryResponseAlternative44
         | QueryResponseAlternative45
+        | QueryResponseAlternative46
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -22376,6 +22522,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative23
         | QueryResponseAlternative24
         | QueryResponseAlternative25
+        | QueryResponseAlternative26
         | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
@@ -22396,6 +22543,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative43
         | QueryResponseAlternative44
         | QueryResponseAlternative45
+        | QueryResponseAlternative46
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -23215,6 +23363,7 @@ class DataTableNode(BaseModel):
         | Response4
         | Response5
         | Response6
+        | Response7
         | Response8
         | Response9
         | Response10
