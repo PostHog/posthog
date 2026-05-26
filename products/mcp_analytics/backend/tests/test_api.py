@@ -120,11 +120,13 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         )
 
         sessions = [
-            s for s in api.list_mcp_sessions(self.team, limit=50, offset=0) if s.session_id in {session_a, session_b}
+            s
+            for s in api.list_mcp_sessions(self.team, limit=50, offset=0).results
+            if s.session_id in {session_a, session_b}
         ]
 
         assert len(sessions) == 2
-        # Newest session_end first
+        # Newest session_start first
         assert sessions[0].session_id == session_b
         assert sessions[0].mcp_client_name == "Cursor"
         assert sorted(sessions[0].tools_used) == ["dashboard_get", "query_run"]
@@ -137,18 +139,18 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         assert sessions[1].tool_calls == 2
 
     def test_returns_empty_list_when_no_sessions(self) -> None:
-        assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
+        assert api.list_mcp_sessions(self.team, limit=50, offset=0).results == []
 
     def test_does_not_cache_empty_responses(self) -> None:
         # An empty result must not be cached, so a session created moments later
         # shows up immediately instead of being hidden by a cached empty list.
-        assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
+        assert api.list_mcp_sessions(self.team, limit=50, offset=0).results == []
         session_id = str(uuid7())
         self._seed_session(session_id, ["query_run"])
 
-        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0)
 
-        assert [s.session_id for s in sessions] == [session_id]
+        assert [s.session_id for s in page.results] == [session_id]
 
     def test_excludes_events_without_mcp_session_id(self) -> None:
         # Events with no $mcp_session_id (e.g. the bare-schema producers) must not
@@ -163,9 +165,9 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
             properties={"$mcp_tool_name": "query_run"},
         )
 
-        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0)
 
-        assert [s.session_id for s in sessions] == [kept]
+        assert [s.session_id for s in page.results] == [kept]
 
     def test_search_filters_across_multiple_columns(self) -> None:
         alice_id = str(uuid7())
@@ -182,7 +184,7 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         self._seed_session(misc_id, ["feature_flag_get"], client_name="Windsurf", distinct_id="anon_dead")
 
         def search(term: str) -> set[str]:
-            return {s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, search=term)}
+            return {s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, search=term).results}
 
         # distinct_id substring
         assert search("hedgehog") == {alice_id}
@@ -217,11 +219,14 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
             session_start=now - timedelta(minutes=20),
             session_end=now - timedelta(minutes=10),
         )
+        # big_id starts in the middle but ends most recently (a long-running session), so
+        # session_start order differs from session_end order — that's what proves the
+        # default sorts by session_start, not session_end.
         self._seed_session(
             big_id,
             ["insight_get"] * 5,
             session_start=now - timedelta(minutes=60),
-            session_end=now - timedelta(minutes=50),
+            session_end=now - timedelta(minutes=10),
         )
 
         # Restrict to the three we just created so other rows don't interfere.
@@ -230,16 +235,38 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         def order(value: str) -> list[str]:
             return [
                 s.session_id
-                for s in api.list_mcp_sessions(self.team, limit=50, offset=0, order_by=value)
+                for s in api.list_mcp_sessions(self.team, limit=50, offset=0, order_by=value).results
                 if s.session_id in target
             ]
 
-        # Default sort: most-recent session_end first
+        # Default sort: newest session_start first (session_end DESC would give [big, new, old]).
         assert order("") == [new_id, big_id, old_id]
         # Ascending session_end
-        assert order("session_end") == [old_id, big_id, new_id]
+        assert order("session_end") == [old_id, new_id, big_id]
         # By tool_call_count desc
         assert order("-tool_call_count") == [big_id, old_id, new_id]
         # Unknown / unsafe column falls back to default
         assert order("password") == [new_id, big_id, old_id]
         assert order("-DROP TABLE") == [new_id, big_id, old_id]
+
+    def test_has_next_signals_more_pages(self) -> None:
+        # Identical session_end across all three so only the session_id tiebreaker
+        # gives a stable order — the assertion below would flake without it.
+        ts = datetime.now(tz=UTC) - timedelta(minutes=5)
+        ids = [str(uuid7()) for _ in range(3)]
+        for session_id in ids:
+            self._seed_session(session_id, ["query_run"], session_start=ts, session_end=ts)
+
+        # Over-fetch (limit+1) lets the first page know more exists without a count query.
+        first = api.list_mcp_sessions(self.team, limit=2, offset=0)
+        assert len(first.results) == 2
+        assert first.has_next is True
+
+        # Last page returns the remainder and reports no further pages.
+        second = api.list_mcp_sessions(self.team, limit=2, offset=2)
+        assert len(second.results) == 1
+        assert second.has_next is False
+
+        # Total order → the two pages cover every session exactly once (no skips/dupes).
+        paged = [s.session_id for s in first.results] + [s.session_id for s in second.results]
+        assert sorted(paged) == sorted(ids)
