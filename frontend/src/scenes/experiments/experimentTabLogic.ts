@@ -6,15 +6,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment } from '~/types'
 
-import type { featureFlagRelatedExperimentsLogicType } from './featureFlagRelatedExperimentsLogicType'
+import type { experimentTabLogicType } from './experimentTabLogicType'
 
-export interface FeatureFlagRelatedExperimentsLogicProps {
+export interface ExperimentTabLogicProps {
     featureFlagId: number
 }
 
-export const featureFlagRelatedExperimentsLogic = kea<featureFlagRelatedExperimentsLogicType>([
-    path(['scenes', 'experiments', 'featureFlagRelatedExperimentsLogic']),
-    props({} as FeatureFlagRelatedExperimentsLogicProps),
+export const experimentTabLogic = kea<experimentTabLogicType>([
+    path(['scenes', 'experiments', 'experimentTabLogic']),
+    props({} as ExperimentTabLogicProps),
     key((props) => props.featureFlagId),
     connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
     loaders(({ props, values }) => ({
