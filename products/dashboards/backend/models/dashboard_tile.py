@@ -136,7 +136,11 @@ class DashboardTile(models.Model):
             update_fields = list(update_fields)
             kwargs["update_fields"] = update_fields
 
-        if self.team_id is None and self.dashboard_id is not None:
+        # The field is non-nullable in the DB, but unsaved instances start out with
+        # team_id unset — pull it off the dashboard so callers can construct a tile
+        # with just a dashboard reference. `getattr` keeps mypy from flagging the
+        # None branch as unreachable under the non-Optional FK type.
+        if getattr(self, "team_id", None) is None and self.dashboard_id is not None:
             self.team_id = self.dashboard.team_id
             if update_fields is not None:
                 update_fields.append("team_id")
