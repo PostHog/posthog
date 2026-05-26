@@ -94,6 +94,24 @@ describe('customSourceManifestBuilderLogic', () => {
             expect(logic.values.hasContent).toBe(true)
             expect(Object.keys(pushedFields(setValue))).toContain('payload.manifest_json')
         })
+
+        it('does not clobber in-progress user edits when initialManifestJson arrives late', () => {
+            // User types something before the job_inputs poll lands.
+            logic.actions.updateState({ base_url: 'https://user-typed.example.com' })
+            expect(logic.values.userHasEdited).toBe(true)
+
+            // Poll lands — the props update should be ignored because the user has edits.
+            customSourceManifestBuilderLogic({ setValue, initialManifestJson: savedManifest })
+
+            expect(logic.values.manifestState.base_url).toBe('https://user-typed.example.com')
+        })
+
+        it('hydrates from a late-arriving initialManifestJson when the user has not edited yet', () => {
+            expect(logic.values.userHasEdited).toBe(false)
+            customSourceManifestBuilderLogic({ setValue, initialManifestJson: savedManifest })
+
+            expect(logic.values.manifestState.base_url).toBe('https://saved.example.com')
+        })
     })
 
     describe('stream and header mutations', () => {

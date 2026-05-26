@@ -59,6 +59,9 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         addHeader: true,
         removeHeader: (index: number) => ({ index }),
         updateHeader: (index: number, patch: Partial<HeaderEntry>) => ({ index, patch }),
+        // Fires the push listener without changing state — used on mount to mirror the
+        // already-parsed initial manifest into the outer form without re-parsing.
+        syncToOuterForm: true,
     }),
     reducers(({ props }) => ({
         manifestState: [
@@ -108,6 +111,23 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 updateHeader: () => true,
             },
         ],
+        // Flips true the moment the user touches any field. Distinct from `hasContent`
+        // because we need `propsChanged` to know "was this state edited by the user, or
+        // just hydrated from props?" — without it, a late-arriving `job_inputs` poll
+        // would silently overwrite in-progress edits.
+        userHasEdited: [
+            false,
+            {
+                updateState: () => true,
+                updateStream: () => true,
+                updatePaginator: () => true,
+                addStream: () => true,
+                removeStream: () => true,
+                addHeader: () => true,
+                removeHeader: () => true,
+                updateHeader: () => true,
+            },
+        ],
     })),
     selectors({
         manifestJson: [(s) => [s.manifestState], (state): string => JSON.stringify(buildManifest(state), null, 2)],
@@ -138,22 +158,27 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         addHeader: sharedListeners.pushManifestToOuterForm,
         removeHeader: sharedListeners.pushManifestToOuterForm,
         updateHeader: sharedListeners.pushManifestToOuterForm,
+        syncToOuterForm: sharedListeners.pushManifestToOuterForm,
     })),
     afterMount(({ actions, props }) => {
-        // The configuration page can mount with the saved manifest already in
-        // props (no prop change to fire `propsChanged`). Re-apply it so the
-        // serialized manifest + secret fields reach the outer form even when the
-        // user never edits. The wizard mounts with no manifest — a no-op there.
+        // The reducer already parsed `initialManifestJson` at mount, but the listeners
+        // that push to the outer form only fire on actions. Dispatch a no-op sync so
+        // the configuration page reflects the saved manifest even before the user edits.
+        // The wizard mounts with no manifest — a no-op there.
         if (props.initialManifestJson) {
-            actions.setManifestState(parseManifestIntoState(props.initialManifestJson))
+            actions.syncToOuterForm()
         }
     }),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, values, props }, oldProps) => {
         // The configuration page loads `source.job_inputs` via a poll, so the
         // manifest typically arrives a beat after mount. Re-parse on a real value
-        // change; the comparison ignores identity-only re-renders so the user's
-        // in-progress edits are not wiped.
-        if (props.initialManifestJson !== oldProps.initialManifestJson && props.initialManifestJson) {
+        // change — but only when the user hasn't started editing yet, so a
+        // late-arriving poll doesn't wipe in-progress edits.
+        if (
+            !values.userHasEdited &&
+            props.initialManifestJson !== oldProps.initialManifestJson &&
+            props.initialManifestJson
+        ) {
             actions.setManifestState(parseManifestIntoState(props.initialManifestJson))
         }
     }),
