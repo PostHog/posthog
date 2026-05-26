@@ -4,6 +4,7 @@ import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posth
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
@@ -73,24 +74,29 @@ export function MCPSessionDetail(): JSX.Element {
                     ) : null}
                     <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
                     <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
-                    <span
-                        className="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
-                        title={selectedSession.session_id}
+                    <Tooltip
+                        title={
+                            <div className="max-w-xs break-all">
+                                Session ID: <span className="font-mono">{selectedSession.session_id}</span>
+                            </div>
+                        }
                     >
-                        <CopyToClipboardInline
-                            explicitValue={selectedSession.session_id}
-                            description="session id"
-                            iconSize="xsmall"
-                            className="font-mono"
-                        >
-                            {shortenSessionId(selectedSession.session_id)}
-                        </CopyToClipboardInline>
-                    </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono">
+                            <CopyToClipboardInline
+                                explicitValue={selectedSession.session_id}
+                                description="session id"
+                                iconSize="xsmall"
+                                className="font-mono"
+                            >
+                                {shortenSessionId(selectedSession.session_id)}
+                            </CopyToClipboardInline>
+                        </span>
+                    </Tooltip>
                 </div>
             </header>
 
             <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
-                {toolCallsLoading && toolCalls.length === 0 ? (
+                {toolCallsLoading ? (
                     <div className="flex flex-col gap-2">
                         {[0, 1, 2].map((i) => (
                             <LemonSkeleton key={i} className="h-16 w-full" />

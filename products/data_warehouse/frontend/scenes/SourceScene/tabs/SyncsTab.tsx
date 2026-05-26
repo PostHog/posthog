@@ -84,12 +84,26 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
                         title: 'Schema',
                         render: (_, job) => {
                             const name = job.schema.label ?? job.schema.name
+                            // CDC `cdc_table_mode='both'` produces two ExternalDataJob rows per sync —
+                            // one for the consolidated table, one for the cdc-only history table.
+                            // Show a badge so they're distinguishable in the UI.
+                            const cdcWriteModeLabel =
+                                job.cdc_write_mode === 'scd2_append'
+                                    ? 'CDC history'
+                                    : job.cdc_write_mode === 'incremental_merge'
+                                      ? 'consolidated'
+                                      : null
                             return (
                                 <span className="flex items-center gap-1">
                                     {name}
                                     {job.schema.sync_type === 'cdc' && (
                                         <LemonTag type="highlight" size="small">
                                             CDC
+                                        </LemonTag>
+                                    )}
+                                    {cdcWriteModeLabel && (
+                                        <LemonTag type="muted" size="small">
+                                            {cdcWriteModeLabel}
                                         </LemonTag>
                                     )}
                                 </span>

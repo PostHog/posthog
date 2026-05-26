@@ -17,6 +17,9 @@ const DEFAULT_FILTERS: MCPSessionsFilters = {
 
 const SEARCH_DEBOUNCE_MS = 300
 
+// How many sessions to fetch per request. Each "Load more" appends the next page
+export const SESSIONS_PAGE_SIZE = 50
+
 // Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
 export type MCPSessionSortColumn =
     | 'session_id'
@@ -32,7 +35,11 @@ export interface MCPSessionSorting {
     order: 1 | -1
 }
 
-const DEFAULT_SORTING: MCPSessionSorting = { column: 'session_end', order: -1 }
+const DEFAULT_SORTING: MCPSessionSorting = { column: 'session_start', order: -1 }
+
+function orderByParam(sorting: MCPSessionSorting | null): string | undefined {
+    return sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
+}
 
 export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'sessions', 'mcpSessionsLogic']),
@@ -41,45 +48,72 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     })),
     actions({
         // Declared explicitly so kea-typegen emits a no-arg signature for the loader
-        // action below — without this, the `(_, breakpoint)` loader signature forces
+        // actions below — without this, the `(_, breakpoint)` loader signature forces
         // every call site to pass a placeholder argument.
         loadSessions: true,
+        loadMoreSessions: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
+        setHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         sessions: [
             [] as MCPSessionApi[],
             {
+                // First page / reset (search or sort change). Replaces the list.
                 loadSessions: async (_, breakpoint) => {
-                    // Debounce keystroke-driven loads. afterMount fires loadSessions with no
-                    // payload, in which case we still want the initial fetch to be fast — so
-                    // only honour the debounce when there is a search term.
                     if (values.filters.search) {
                         await breakpoint(SEARCH_DEBOUNCE_MS)
                     }
                     if (!values.currentProjectId) {
                         return []
                     }
-                    const sorting = values.sorting
-                    const orderBy = sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
                         search: values.filters.search || undefined,
-                        order_by: orderBy,
+                        order_by: orderByParam(values.sorting),
+                        limit: SESSIONS_PAGE_SIZE,
+                        offset: 0,
                     })
+                    actions.setHasNext(response.has_next ?? false)
                     return [...(response.results ?? [])]
+                },
+                // Load more: append the next page at offset = current length.
+                loadMoreSessions: async () => {
+                    if (!values.currentProjectId) {
+                        return values.sessions
+                    }
+                    // Snapshot the list and the query (search + sort) before the await. If a
+                    // concurrent loadSessions reset (sort/search change) lands while this page
+                    // is in flight, merging against the post-await values.sessions would corrupt
+                    // the list — so we both offset and merge from the snapshot, and drop this
+                    // page entirely if the query changed underneath us.
+                    const baseSessions = values.sessions
+                    const search = values.filters.search
+                    const orderBy = orderByParam(values.sorting)
+                    const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
+                        search: search || undefined,
+                        order_by: orderBy,
+                        limit: SESSIONS_PAGE_SIZE,
+                        offset: baseSessions.length,
+                    })
+                    if (search !== values.filters.search || orderBy !== orderByParam(values.sorting)) {
+                        return values.sessions
+                    }
+                    actions.setHasNext(response.has_next ?? false)
+                    return [...baseSessions, ...(response.results ?? [])]
                 },
             },
         ],
         toolCalls: [
             [] as MCPToolCallApi[],
             {
-                loadToolCalls: async (sessionId: string) => {
+                loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
                         return []
                     }
                     const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    breakpoint()
                     return [...(response.results ?? [])]
                 },
             },
@@ -104,6 +138,15 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 setSorting: (_, { sorting }) => sorting,
             },
         ],
+        hasNext: [
+            false,
+            {
+                setHasNext: (_, { hasNext }) => hasNext,
+                // Hide "Load more" the moment a reset starts so it isn't shown (disabled,
+                // spinning) during the reset; setHasNext restores it when the page resolves.
+                loadSessions: () => false,
+            },
+        ],
     }),
     selectors({
         selectedSession: [
@@ -117,6 +160,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        // A new filter or sort changes the result set — reload from the first page.
         setFilters: () => {
             actions.loadSessions()
         },
@@ -128,9 +172,9 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 actions.loadToolCalls(sessionId)
             }
         },
+        // Only fires on a reset load (not on loadMore), so appending more pages doesn't
+        // steal the user's selection. Auto-selects the first row when the set changes.
         loadSessionsSuccess: ({ sessions }) => {
-            // Auto-select the first session whenever results come back. If the user
-            // had a session pinned that is no longer in the filtered set, clear it.
             if (sessions.length === 0) {
                 if (values.selectedSessionId) {
                     actions.selectSession(null)

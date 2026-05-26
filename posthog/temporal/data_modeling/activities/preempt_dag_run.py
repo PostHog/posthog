@@ -8,8 +8,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.data_warehouse.backend.models import DataModelingJob
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 
 LOGGER = get_logger(__name__)
 

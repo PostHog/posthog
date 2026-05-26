@@ -38,6 +38,15 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  property-vals-rs)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export BIND_PORT=3303 # avoid local-dev clashes on 3302 (cymbal) and the property-defs-rs default
+    export KAFKA_CONSUMER_OFFSET_RESET=earliest
+    export DEBUG=1
+    ;;
+
   capture)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
@@ -154,6 +163,7 @@ case "$RS_SVC" in
     export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
     ;;
 
   hypercache-server)

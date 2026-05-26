@@ -10,18 +10,22 @@ from django.core.files import File
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
+from django.utils.text import slugify
 
 import structlog
 import posthoganalytics
 import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import EmbeddingModelName, ProductKey
 
@@ -35,8 +39,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.tasks.exports.csv_exporter import _sanitize_formula_injection
 from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
@@ -46,6 +52,12 @@ from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInte
 logger = structlog.get_logger(__name__)
 
 elevenlabs_client = ElevenLabs()
+
+
+class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
+    """Lock the CSV column order for interview-links exports."""
+
+    header = ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"]
 
 
 class UserInterviewSerializer(serializers.ModelSerializer):
@@ -548,6 +560,33 @@ def _merge_agent_context(topic_context: str, personal_context: str) -> str:
     return "\n\n".join(parts)
 
 
+class LatestTestInterviewSerializer(serializers.Serializer):
+    completed_at = serializers.DateTimeField(
+        help_text="When the test interview was completed.",
+    )
+    transcript = serializers.CharField(
+        allow_blank=True,
+        help_text="Full transcript of the test call, if Vapi delivered one. May be empty.",
+    )
+    summary = serializers.CharField(
+        allow_blank=True,
+        help_text="AI-generated summary of the test call, if Vapi delivered one. May be empty.",
+    )
+
+
+class TestInterviewLinkSerializer(serializers.Serializer):
+    interview_url = serializers.URLField(
+        help_text=(
+            "Public, unauthenticated URL the topic author opens to dogfood the voice "
+            "interview themselves — does not count against the targeted interviewees."
+        ),
+    )
+    latest_test_interview = LatestTestInterviewSerializer(
+        allow_null=True,
+        help_text="Most recent test interview completed by the topic author, or null if none yet.",
+    )
+
+
 class InterviewLinkSerializer(serializers.Serializer):
     interviewee_identifier = serializers.CharField(
         max_length=400,
@@ -562,6 +601,54 @@ class InterviewLinkSerializer(serializers.Serializer):
     agent_context = serializers.CharField(
         help_text="The merged topic + per-interviewee context the voice agent will see during the call.",
     )
+
+
+def _dogfood_identifier(caller: User) -> str:
+    """Identifier for the calling user's personal dogfood interviewee context.
+
+    Prefers the user's email so the existing identifier-parsing surfaces a friendly
+    display name in the assistant greeting; falls back to their distinct_id so a
+    user without a real email still gets a working test link.
+    """
+    return caller.email or str(caller.distinct_id)
+
+
+def _ensure_dogfood_context(
+    *, topic: UserInterviewTopic, team: Team, caller: User
+) -> tuple[IntervieweeContext, SharingConfiguration]:
+    """Idempotently get-or-create the calling user's `IntervieweeContext` +
+    enabled `SharingConfiguration` for a topic. The IC is keyed on the caller's
+    own identifier so each team member gets their own dogfood link — we never
+    mint a public share token in someone else's name.
+
+    Wrapped in `transaction.atomic` + `select_for_update` on the IC row so two
+    concurrent calls don't race into duplicate enabled SharingConfigurations
+    for the same (caller, topic).
+    """
+    identifier = _dogfood_identifier(caller)
+    with transaction.atomic():
+        ic, _ = IntervieweeContext.objects.select_for_update().get_or_create(
+            team=team,
+            topic=topic,
+            interviewee_identifier=identifier,
+            defaults={
+                "agent_context": "",
+                "created_by": caller,
+            },
+        )
+        sharing_config = (
+            SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
+            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+            .order_by("-created_at")
+            .first()
+        )
+        if sharing_config is None:
+            sharing_config = SharingConfiguration.objects.create(
+                team=team,
+                interviewee_context=ic,
+                enabled=True,
+            )
+    return ic, sharing_config
 
 
 def _materialize_links_for_topic(*, topic: UserInterviewTopic, team: Any, created_by: Any) -> list[dict[str, Any]]:
@@ -725,9 +812,11 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch",
         "destroy",
         "generate_links",
+        "links_csv",
         "send_invites",
         "add_interviewee",
         "remove_interviewee",
+        "test_link",
     ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
@@ -773,6 +862,58 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for r in results
         ]
         return response.Response(InterviewLinkSerializer(payload, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            (200, "text/csv"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "CSV with columns: interviewee_identifier, interviewee_email, user_name, interview_url. "
+                    "One row per targeted interviewee."
+                ),
+            )
+        },
+        description=(
+            "Same materialization as generate_links, returned as a downloadable CSV. "
+            "Intended for users who want to mail-merge the per-person interview links "
+            "into their own email tooling."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="links_csv",
+        renderer_classes=[_InterviewLinksCSVRenderer],
+    )
+    def links_csv(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        results = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
+
+        if not results:
+            raise ValidationError(
+                {
+                    "error": (
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before generating links."
+                    )
+                }
+            )
+
+        rows = [
+            {
+                "interviewee_identifier": _sanitize_formula_injection(r["identifier"]),
+                "interviewee_email": _sanitize_formula_injection(r["email"] or ""),
+                "user_name": _sanitize_formula_injection(r["user_name"]),
+                "interview_url": _sanitize_formula_injection(r["interview_url"]),
+            }
+            for r in results
+        ]
+        filename = f"{slugify(topic.topic or 'user-interview')}-links.csv"
+        return response.Response(
+            rows,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @extend_schema(
         request=SendInvitesRequestSerializer,
@@ -849,6 +990,52 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append({**base, "sent": False, "reason": f"error:{type(e).__name__}"})
 
         return response.Response(InterviewInviteResultSerializer(results, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=TestInterviewLinkSerializer)},
+        description=(
+            "Return the calling user's personal dogfood interview link for this topic, "
+            "plus the latest test interview they have recorded against it. Lazily "
+            "get-or-creates a per-caller IntervieweeContext + enabled SharingConfiguration "
+            "the first time it's called, then returns the same stable URL on subsequent "
+            "calls. The caller's identifier is intentionally not added to the topic's "
+            "targeting arrays — each user dogfoods under their own row, so test calls "
+            "never mint a public share token on someone else's behalf."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="test_link")
+    def test_link(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        ic, sharing_config = _ensure_dogfood_context(
+            topic=topic,
+            team=self.team,
+            caller=cast(User, request.user),
+        )
+
+        latest = (
+            UserInterview.objects.filter(
+                team_id=self.team_id,
+                topic_id=topic.id,
+                interviewee_identifier=ic.interviewee_identifier,
+            )
+            .order_by("-created_at")
+            .only("created_at", "transcript", "summary")
+            .first()
+        )
+        latest_payload: dict[str, Any] | None = None
+        if latest is not None:
+            latest_payload = {
+                "completed_at": latest.created_at,
+                "transcript": latest.transcript or "",
+                "summary": latest.summary or "",
+            }
+
+        payload = {
+            "interview_url": absolute_uri(f"/interview/{sharing_config.access_token}"),
+            "latest_test_interview": latest_payload,
+        }
+        return response.Response(TestInterviewLinkSerializer(payload).data)
 
     @extend_schema(
         request=IntervieweeIdentifierRequestSerializer,
