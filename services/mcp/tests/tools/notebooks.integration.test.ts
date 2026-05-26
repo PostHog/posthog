@@ -91,19 +91,6 @@ describe('Notebooks', { concurrent: false }, () => {
         })
     })
 
-    describe('notebooks-list tool', () => {
-        const listTool = getToolByName('notebooks-list')
-
-        it('should return notebooks with proper structure', async () => {
-            const result = await listTool.handler(context, {})
-            const response = parseToolResponse(result)
-
-            expect(response.results).toBeTruthy()
-            expect(Array.isArray(response.results)).toBe(true)
-            expect(response._posthogUrl).toContain('/notebooks')
-        })
-    })
-
     describe('notebooks-retrieve tool', () => {
         const createTool = getToolByName('notebooks-create')
         const retrieveTool = getToolByName('notebooks-retrieve')
@@ -169,6 +156,48 @@ describe('Notebooks', { concurrent: false }, () => {
             const updated = parseToolResponse(updateResult)
 
             expect(updated.version).toBe(1)
+        })
+    })
+
+    describe('notebooks-edit tool', () => {
+        const createTool = getToolByName('notebooks-create')
+        const editTool = getToolByName('notebooks-edit')
+
+        it('should insert content between anchors through the collaboration save path', async () => {
+            const createResult = await createTool.handler(context, {
+                title: generateUniqueKey('Collab Edit Test Notebook'),
+                content: {
+                    type: 'doc',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Before anchor' }] },
+                        { type: 'paragraph', content: [{ type: 'text', text: 'After anchor' }] },
+                    ],
+                },
+            })
+            const created = parseToolResponse(createResult)
+            createdNotebookShortIds.push(created.short_id)
+
+            const editResult = await editTool.handler(context, {
+                short_id: created.short_id,
+                max_retries: 3,
+                edits: [
+                    {
+                        type: 'insert_between',
+                        after: 'Before anchor',
+                        before: 'After anchor',
+                        after_occurrence: 1,
+                        before_occurrence: 1,
+                        content: 'Added by MCP',
+                        content_format: 'plain_text',
+                    },
+                ],
+            })
+            const updated = parseToolResponse(editResult)
+
+            expect(updated.version).toBe(created.version + 1)
+            expect(updated.content.content).toHaveLength(3)
+            expect(updated.content.content[1].content[0].text).toBe('Added by MCP')
+            expect(updated._posthogUrl).toContain('/notebooks/')
         })
     })
 

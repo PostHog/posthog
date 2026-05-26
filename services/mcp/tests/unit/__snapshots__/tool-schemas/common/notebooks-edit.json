@@ -1,0 +1,306 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "edits": {
+            "description": "Ordered notebook edits to apply. Edits are recomputed against the latest notebook on conflicts.",
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "Append content to the end of the notebook.",
+                        "properties": {
+                            "content": {
+                                "description": "Preferred input for agents: the text or simple Markdown to insert. Provide either content or nodes, not both.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content_format": {
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "enum": ["markdown", "plain_text"],
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+                                "items": {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "type": {
+                                            "description": "The ProseMirror node type, for example paragraph, heading, or ph-query.",
+                                            "minLength": 1,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "type": {
+                                "const": "append",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Insert content after a top-level heading with exact matching text.",
+                        "properties": {
+                            "content": {
+                                "description": "Preferred input for agents: the text or simple Markdown to insert. Provide either content or nodes, not both.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content_format": {
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "enum": ["markdown", "plain_text"],
+                                "type": "string"
+                            },
+                            "heading": {
+                                "description": "Exact plain-text heading to insert after.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+                                "items": {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "type": {
+                                            "description": "The ProseMirror node type, for example paragraph, heading, or ph-query.",
+                                            "minLength": 1,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "occurrence": {
+                                "default": 1,
+                                "description": "Which matching heading to use when the same heading appears more than once.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
+                            },
+                            "type": {
+                                "const": "insert_after_heading",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "heading"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Insert content after a top-level notebook block identified by exact text.",
+                        "properties": {
+                            "anchor": {
+                                "description": "Exact plain-text anchor. The new content is inserted after the top-level block containing it.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content": {
+                                "description": "Preferred input for agents: the text or simple Markdown to insert. Provide either content or nodes, not both.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content_format": {
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "enum": ["markdown", "plain_text"],
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+                                "items": {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "type": {
+                                            "description": "The ProseMirror node type, for example paragraph, heading, or ph-query.",
+                                            "minLength": 1,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "occurrence": {
+                                "default": 1,
+                                "description": "Which matching anchor to use when the same text appears more than once.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
+                            },
+                            "type": {
+                                "const": "insert_after",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "anchor"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Insert content before a top-level notebook block identified by exact text.",
+                        "properties": {
+                            "anchor": {
+                                "description": "Exact plain-text anchor. The new content is inserted before the top-level block containing it.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content": {
+                                "description": "Preferred input for agents: the text or simple Markdown to insert. Provide either content or nodes, not both.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content_format": {
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "enum": ["markdown", "plain_text"],
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+                                "items": {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "type": {
+                                            "description": "The ProseMirror node type, for example paragraph, heading, or ph-query.",
+                                            "minLength": 1,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "occurrence": {
+                                "default": 1,
+                                "description": "Which matching anchor to use when the same text appears more than once.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
+                            },
+                            "type": {
+                                "const": "insert_before",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "anchor"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Insert content between two top-level notebook blocks identified by exact text anchors.",
+                        "properties": {
+                            "after": {
+                                "description": "Exact plain-text anchor. The new nodes are inserted after the top-level block containing it.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "after_occurrence": {
+                                "default": 1,
+                                "description": "Which matching after anchor to use when the same text appears more than once.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
+                            },
+                            "before": {
+                                "description": "Exact plain-text anchor that must appear in a later top-level block.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "before_occurrence": {
+                                "default": 1,
+                                "description": "Which matching before anchor to use after the selected after anchor.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
+                            },
+                            "content": {
+                                "description": "Preferred input for agents: the text or simple Markdown to insert. Provide either content or nodes, not both.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content_format": {
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "enum": ["markdown", "plain_text"],
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+                                "items": {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "type": {
+                                            "description": "The ProseMirror node type, for example paragraph, heading, or ph-query.",
+                                            "minLength": 1,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "type": {
+                                "const": "insert_between",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "after", "before"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Replace exact plain text in notebook text nodes.",
+                        "properties": {
+                            "all_occurrences": {
+                                "default": false,
+                                "description": "Replace every exact match instead of only the first.",
+                                "type": "boolean"
+                            },
+                            "find": {
+                                "description": "Exact text to find inside a single text node.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "replace": {
+                                "description": "Replacement text. Use an empty string to delete the matching text.",
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "replace_text",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "find", "replace"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "max_retries": {
+            "default": 3,
+            "description": "How many times to reload and retry if another collaborator edits first.",
+            "maximum": 5,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "short_id": {
+            "description": "Short ID of the notebook to edit.",
+            "type": "string"
+        },
+        "title": {
+            "description": "Optional title update to save with the notebook edit.",
+            "type": "string"
+        }
+    },
+    "required": ["short_id", "edits"],
+    "type": "object"
+}

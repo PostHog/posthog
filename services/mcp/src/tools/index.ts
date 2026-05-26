@@ -13,6 +13,8 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // AI observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
+// Notebooks
+import editNotebook from './notebooks/edit'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
@@ -89,6 +91,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Notebooks
+    'notebooks-edit': editNotebook,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,

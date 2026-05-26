@@ -464,6 +464,21 @@
             "readOnlyHint": true
         }
     },
+    "notebooks-edit": {
+        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this instead of notebooks-partial-update when changing notebook content. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors, then call notebooks-edit. For normal text, pass content and content_format instead of raw nodes, for example: {\"type\":\"insert_between\",\"after\":\"Current paragraph\",\"before\":\"Next paragraph\",\"content\":\"New paragraph\",\"content_format\":\"plain_text\"}. Use raw nodes only for advanced ProseMirror widgets. Supports append, insert_after, insert_before, insert_after_heading, insert_between, and replace_text. The tool retrieves the latest notebook, turns the edit operations into ProseMirror replace steps, submits them through the same collab/version endpoint used by the frontend, and retries by recomputing the edits if another person or agent edits first.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Edit notebook content through the collaboration save path.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, choose exact text anchors, then call notebooks-edit with append/insert_after/insert_before/insert_between/replace_text.",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "debug-mcp-ui-apps": {
         "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
         "category": "Debug",

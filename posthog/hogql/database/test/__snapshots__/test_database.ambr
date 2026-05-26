@@ -6043,6 +6043,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "last_modified_at": {
                   "chain": null,
                   "fields": null,
@@ -6052,6 +6062,46 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "kernel_cpu_cores": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kernel_cpu_cores",
+                  "id": null,
+                  "name": "kernel_cpu_cores",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "kernel_memory_gb": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kernel_memory_gb",
+                  "id": null,
+                  "name": "kernel_memory_gb",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "kernel_idle_timeout_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kernel_idle_timeout_seconds",
+                  "id": null,
+                  "name": "kernel_idle_timeout_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "system.notebooks",
@@ -13434,6 +13484,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "last_modified_at": {
                   "chain": null,
                   "fields": null,
@@ -13443,6 +13503,46 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "kernel_cpu_cores": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kernel_cpu_cores",
+                  "id": null,
+                  "name": "kernel_cpu_cores",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "kernel_memory_gb": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kernel_memory_gb",
+                  "id": null,
+                  "name": "kernel_memory_gb",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "kernel_idle_timeout_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kernel_idle_timeout_seconds",
+                  "id": null,
+                  "name": "kernel_idle_timeout_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "system.notebooks",

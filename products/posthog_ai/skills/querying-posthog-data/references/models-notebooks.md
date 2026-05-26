@@ -13,7 +13,7 @@ Column | Type | Nullable | Description
 `content` | jsonb | NULL | Notebook content blocks
 `text_content` | text | NULL | Plain text extraction for search
 `deleted` | boolean | NOT NULL | Soft delete flag
-`visibility` | varchar(20) | NOT NULL | `private`, `shared`, or `public`
+`visibility` | varchar(20) | NOT NULL | `default` or `internal`
 `version` | integer | NOT NULL | Content version number
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `last_modified_at` | timestamp with tz | NOT NULL | Last modification timestamp

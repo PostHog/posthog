@@ -4193,23 +4193,23 @@
             "readOnlyHint": false
         }
     },
-    "notebooks-list": {
-        "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
+    "notebooks-edit": {
+        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this instead of notebooks-partial-update when changing notebook content. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors, then call notebooks-edit. For normal text, pass content and content_format instead of raw nodes, for example: {\"type\":\"insert_between\",\"after\":\"Current paragraph\",\"before\":\"Next paragraph\",\"content\":\"New paragraph\",\"content_format\":\"plain_text\"}. Use raw nodes only for advanced ProseMirror widgets. Supports append, insert_after, insert_before, insert_after_heading, insert_between, and replace_text. The tool retrieves the latest notebook, turns the edit operations into ProseMirror replace steps, submits them through the same collab/version endpoint used by the frontend, and retries by recomputing the edits if another person or agent edits first.",
         "category": "Notebooks",
         "feature": "notebooks",
-        "summary": "List notebooks",
-        "title": "List notebooks",
-        "required_scopes": ["notebook:read"],
-        "new_mcp": true,
+        "summary": "Edit notebook content through the collaboration save path.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, choose exact text anchors, then call notebooks-edit with append/insert_after/insert_before/insert_between/replace_text.",
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "notebooks-partial-update": {
-        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "description": "Update notebook metadata by short_id, such as title or deleted status. Do not use this tool for notebook content placement or text edits; use notebooks-edit so changes go through the collaboration save path and preserve concurrent edits from people and agents. If you must update the full content field directly, you must provide the current version number for optimistic concurrency control after retrieving the latest notebook.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update notebook",
@@ -4224,7 +4224,7 @@
         }
     },
     "notebooks-retrieve": {
-        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
+        "description": "Get a specific notebook by its short_id. Use this before content edits to inspect the current notebook and choose exact text anchors for notebooks-edit. Returns the full notebook including title, content, version, text_content, and creation/modification metadata.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",

@@ -693,7 +693,12 @@ notebooks: PostgresTable = PostgresTable(
         "visibility": StringDatabaseField(name="visibility"),
         "version": IntegerDatabaseField(name="version"),
         "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
         "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id", nullable=True),
+        "kernel_cpu_cores": FloatDatabaseField(name="kernel_cpu_cores", nullable=True),
+        "kernel_memory_gb": FloatDatabaseField(name="kernel_memory_gb", nullable=True),
+        "kernel_idle_timeout_seconds": IntegerDatabaseField(name="kernel_idle_timeout_seconds", nullable=True),
     },
 )
 

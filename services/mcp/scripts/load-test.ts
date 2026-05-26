@@ -37,7 +37,6 @@ const TOOLS: ToolCall[] = [
     { name: 'batch-exports-list', arguments: { limit: 3 } },
     { name: 'integrations-list', arguments: { limit: 3 } },
     { name: 'alerts-list', arguments: { limit: 3 } },
-    { name: 'notebooks-list', arguments: { limit: 3 } },
     { name: 'session-recording-playlists-list', arguments: { limit: 3 } },
     { name: 'cdp-functions-list', arguments: { limit: 3 } },
     { name: 'docs-search', arguments: { query: 'feature flags' } },

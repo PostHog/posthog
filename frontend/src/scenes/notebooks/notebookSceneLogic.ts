@@ -1,5 +1,6 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 
+import { createMaxContextHelpers, type MaxContextInput } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -54,6 +55,22 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         projectTreeRef: [
             () => [(_, props: NotebookSceneLogicProps) => props.shortId],
             (shortId): ProjectTreeRef | null => (shortId === 'new' ? null : { type: 'notebook', ref: String(shortId) }),
+        ],
+
+        maxContext: [
+            (s) => [s.notebook, s.notebookLoading, s.isLocalOnly, (_, props: NotebookSceneLogicProps) => props.shortId],
+            (notebook, notebookLoading, isLocalOnly, shortId): MaxContextInput[] => {
+                if (!shortId || shortId === 'new' || isLocalOnly || (!notebook && !notebookLoading)) {
+                    return []
+                }
+
+                return [
+                    createMaxContextHelpers.notebook({
+                        short_id: notebook?.short_id ?? shortId,
+                        title: notebook?.title ?? null,
+                    }),
+                ]
+            },
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

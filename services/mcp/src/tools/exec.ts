@@ -79,11 +79,9 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
-// surface a targeted redirect to the v2 replacement instead of dumping the full
-// tool catalog. Sourced from tools marked `new_mcp: false` in
-// schema/tool-definitions.json. Keep the redirect text editorial — schemas
-// don't carry "use X instead" guidance.
+// Tools removed from v2 (single-exec) MCP or intentionally hidden in favor of
+// system-table queries. When the model attempts to call one, surface a targeted
+// redirect instead of dumping the full tool catalog.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     'entity-search': () =>
         'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
@@ -95,6 +93,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
         'Tool "property-definitions" was removed in MCP v2. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
         'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+    'notebooks-list': () =>
+        'Tool "notebooks-list" was removed. Use "execute-sql" to query system.notebooks, then use "notebooks-retrieve" with the matching short_id if you need the full notebook.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))

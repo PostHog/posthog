@@ -5,7 +5,6 @@ import type { Schemas } from '@/api/generated'
 import {
     NotebooksCreateBody,
     NotebooksDestroyParams,
-    NotebooksListQueryParams,
     NotebooksPartialUpdateBody,
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
@@ -61,33 +60,6 @@ const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Not
     },
 })
 
-const NotebooksListSchema = NotebooksListQueryParams
-
-const notebooksList = (): ToolBase<
-    typeof NotebooksListSchema,
-    WithPostHogUrl<Schemas.PaginatedNotebookMinimalList>
-> => ({
-    name: 'notebooks-list',
-    schema: NotebooksListSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedNotebookMinimalList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
-            query: {
-                contains: params.contains,
-                created_by: params.created_by,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                limit: params.limit,
-                offset: params.offset,
-                user: params.user,
-            },
-        })
-        return await withPostHogUrl(context, result, '/notebooks')
-    },
-})
-
 const NotebooksPartialUpdateSchema = NotebooksPartialUpdateParams.omit({ project_id: true }).extend(
     NotebooksPartialUpdateBody.shape
 )
@@ -140,7 +112,6 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostH
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
-    'notebooks-list': notebooksList,
     'notebooks-partial-update': notebooksPartialUpdate,
     'notebooks-retrieve': notebooksRetrieve,
 }
