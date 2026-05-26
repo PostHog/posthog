@@ -12,11 +12,7 @@ import { ACCOUNTS_PAGE_SIZE, AccountRoleKey, accountsLogic } from './accountsLog
 
 type AccountAssignment = { id: number; email: string } | null
 
-const ROLE_DEFAULT_LABEL: Record<AccountRoleKey, string> = {
-    csm: 'Unassigned',
-    account_executive: 'Unassigned',
-    account_owner: 'Unassigned',
-}
+const ROLE_DEFAULT_LABEL = 'Unassigned'
 
 export function AccountsTable(): JSX.Element {
     const { results, totalCount, accountsLoading, currentPage } = useValues(accountsLogic)
@@ -108,7 +104,7 @@ function RoleAssignmentCell({ account, role }: { account: AccountApi; role: Acco
         <div data-attr={`accounts-${role}-cell`}>
             <MemberSelect
                 value={assignment?.id ?? null}
-                defaultLabel={ROLE_DEFAULT_LABEL[role]}
+                defaultLabel={ROLE_DEFAULT_LABEL}
                 onChange={(user) => updateAccountRole(account.id, role, user)}
             >
                 {(selectedUser) => (
