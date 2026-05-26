@@ -1,10 +1,5 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type {
-    Series,
-    TimeSeriesLineChartConfig,
-    TooltipConfig,
-    YAxisConfig,
-} from 'lib/hog-charts'
+import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from 'lib/hog-charts'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
@@ -19,8 +14,10 @@ export interface StickinessResultLike {
     filter?: unknown
 }
 
-/** Stickiness y-axis scale options. Mirrors `TrendsFilterLegacy['y_axis_scale_type']`. */
-export type StickinessYAxisScaleType = 'log10' | 'linear' | null | undefined
+/** Stickiness y-axis scale options. Upstream (`trendsDataLogic`) exposes this as a
+ *  loose `string | undefined`, so we keep that shape at the API boundary; only the
+ *  literal `'log10'` is branched on inside `buildStickinessYAxisConfig`. */
+export type StickinessYAxisScaleType = string | null | undefined
 
 export interface BuildStickinessSeriesOpts<R extends StickinessResultLike, M = unknown> {
     showMultipleYAxes?: boolean
