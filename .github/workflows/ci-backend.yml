@@ -570,14 +570,29 @@ jobs:
     # Gated on the product_yamls paths filter so we only spend a GitHub API call
     # when ownership actually changes. The scoped form (positional product names)
     # means a PR can't trip on pre-existing stale ownership in unrelated yamls.
+    # Skipped for fork PRs — app-token secrets aren't available there, and forks
+    # can't introduce new product.yaml entries that ship to master without a
+    # same-repo PR going through this check anyway.
     validate-product-yamls:
         needs: [changes]
-        if: needs.changes.outputs.product_yamls == 'true'
+        if: >
+            needs.changes.outputs.product_yamls == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
         name: Validate product.yaml owners (ubuntu-latest)
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Default GITHUB_TOKEN can't list /repos/{repo}/teams (needs org-level
+            # scope). Reuse the assign-reviewers app — same secret, same use case.
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -594,7 +609,7 @@ jobs:
 
             - name: Validate changed product.yaml owners
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
               run: |
                   # CHANGED_FILES is space-separated (dorny list-files: escape).
