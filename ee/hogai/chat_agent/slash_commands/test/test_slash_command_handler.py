@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from langgraph.types import Send
 
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantMessageMetadata, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.chat_agent.slash_commands.commands.feedback import FeedbackCommand
@@ -166,3 +166,50 @@ class TestSlashCommandHandlerNode(BaseTest):
         state = AssistantState(messages=[HumanMessage(content="/ticket")])
         result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
+
+    def test_stamp_message_source_sets_source_when_meta_missing(self):
+        from ee.hogai.utils.types import PartialAssistantState
+
+        result = PartialAssistantState(messages=[AssistantMessage(content="hi", id="1")])
+        stamped = SlashCommandHandlerNode._stamp_message_source(result, SlashCommandName.FIELD_USAGE)
+        msg = stamped.messages[0]
+        assert isinstance(msg, AssistantMessage)
+        assert msg.meta is not None
+        self.assertEqual(msg.meta.source, "slash_command:usage")
+
+    def test_stamp_message_source_preserves_existing_meta_fields(self):
+        from ee.hogai.utils.types import PartialAssistantState
+
+        result = PartialAssistantState(
+            messages=[
+                AssistantMessage(
+                    content="hi",
+                    id="1",
+                    meta=AssistantMessageMetadata(thinking=[{"type": "thinking", "content": "x"}]),
+                )
+            ]
+        )
+        stamped = SlashCommandHandlerNode._stamp_message_source(result, SlashCommandName.FIELD_REMEMBER)
+        msg = stamped.messages[0]
+        assert isinstance(msg, AssistantMessage)
+        assert msg.meta is not None
+        self.assertEqual(msg.meta.source, "slash_command:remember")
+        self.assertEqual(msg.meta.thinking, [{"type": "thinking", "content": "x"}])
+
+    def test_stamp_message_source_does_not_overwrite_existing_source(self):
+        from ee.hogai.utils.types import PartialAssistantState
+
+        result = PartialAssistantState(
+            messages=[
+                AssistantMessage(
+                    content="hi",
+                    id="1",
+                    meta=AssistantMessageMetadata(source="slash_command:other"),
+                )
+            ]
+        )
+        stamped = SlashCommandHandlerNode._stamp_message_source(result, SlashCommandName.FIELD_USAGE)
+        msg = stamped.messages[0]
+        assert isinstance(msg, AssistantMessage)
+        assert msg.meta is not None
+        self.assertEqual(msg.meta.source, "slash_command:other")

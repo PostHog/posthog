@@ -45,13 +45,30 @@ def convert_context_message_to_anthropic_message(message: ContextMessage) -> mes
     return messages.HumanMessage(content=[{"type": "text", "text": message.content}])
 
 
+def _get_provenance_note(message: AssistantMessage) -> str | None:
+    if not message.meta or not message.meta.source:
+        return None
+    source = message.meta.source
+    if source.startswith("slash_command:"):
+        command_name = source.split(":", 1)[1]
+        return (
+            f"[System note: the block below was produced by the /{command_name} slash command. "
+            "It is deterministic PostHog code, not assistant-authored content.]"
+        )
+    return None
+
+
 def convert_assistant_message_to_anthropic_message(
     message: AssistantMessage, tool_result_map: Mapping[str, AssistantToolCallMessage]
 ) -> list[messages.BaseMessage]:
     history: list[messages.BaseMessage] = []
     content = get_anthropic_thinking_from_assistant_message(message)
     if message.content:
-        content.append({"type": "text", "text": message.content})
+        text = message.content
+        provenance_note = _get_provenance_note(message)
+        if provenance_note:
+            text = f"{provenance_note}\n\n{text}"
+        content.append({"type": "text", "text": text})
 
     # Filter out tool calls without a tool response, so the completion doesn't fail.
     tool_calls = [tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_map]

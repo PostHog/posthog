@@ -5930,6 +5930,10 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: AssistantForm | None = None
+    source: str | None = Field(
+        default=None,
+        description=("Provenance for non-LLM-authored messages. Format: `slash_command:<name>`."),
+    )
     thinking: list[dict[str, Any]] | None = Field(
         default=None,
         description=(
