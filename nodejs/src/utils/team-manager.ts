@@ -9,6 +9,15 @@ type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
 }
 
+/**
+ * The `TeamManager` surface visible to callers that should not have access to
+ * its lifecycle methods (e.g. ingestion pipeline steps that receive the
+ * service from a `Lifecycle`'s stripped service map). Same shape as
+ * `TeamManager` minus `start`/`stop`. A full `TeamManager` instance is
+ * structurally assignable to this type.
+ */
+export type TeamManagerHandle = Omit<TeamManager, 'start' | 'stop'>
+
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 

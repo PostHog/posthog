@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
-import { TeamManager } from '~/utils/team-manager'
+import { TeamManagerHandle } from '~/utils/team-manager'
 
 import { eventDroppedCounter } from '../../common/metrics'
 import { EventHeaders, IncomingEvent, Team } from '../../types'
@@ -20,7 +20,7 @@ type ResolveTeamSuccess = { error: false; team: Team }
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
 async function resolveTeam(
-    teamManager: TeamManager,
+    teamManager: TeamManagerHandle,
     token: string | undefined,
     teamId: number | null | undefined
 ): Promise<ResolveTeamResult> {
@@ -57,7 +57,7 @@ async function resolveTeam(
 }
 
 export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
-    teamManager: TeamManager
+    teamManager: TeamManagerHandle
 ): ProcessingStep<TInput, Omit<TInput, 'event'> & { event: PluginEvent; team: Team }> {
     return async function resolveTeamStep(input) {
         const { event: incomingEvent, ...restInput } = input
