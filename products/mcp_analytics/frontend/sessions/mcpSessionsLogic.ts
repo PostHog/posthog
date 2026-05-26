@@ -3,8 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
-import type { MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
+import {
+    mcpAnalyticsSessionsGenerateIntent,
+    mcpAnalyticsSessionsList,
+    mcpAnalyticsSessionsToolCalls,
+} from '../generated/api'
+import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
 import type { mcpSessionsLogicType } from './mcpSessionsLogicType'
 
 export interface MCPSessionsFilters {
@@ -118,6 +122,17 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 },
             },
         ],
+        generatedIntent: [
+            null as MCPSessionIntentApi | null,
+            {
+                generateIntent: async (sessionId: string) => {
+                    if (!values.currentProjectId || !sessionId) {
+                        return null
+                    }
+                    return await mcpAnalyticsSessionsGenerateIntent(String(values.currentProjectId), sessionId)
+                },
+            },
+        ],
     })),
     reducers({
         filters: [
@@ -147,6 +162,23 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 loadSessions: () => false,
             },
         ],
+        intentOverrides: [
+            {} as Record<string, string>,
+            {
+                generateIntentSuccess: (state, { generatedIntent }) =>
+                    generatedIntent?.intent
+                        ? { ...state, [generatedIntent.session_id]: generatedIntent.intent }
+                        : state,
+            },
+        ],
+        generatingSessionId: [
+            null as string | null,
+            {
+                generateIntent: (_, sessionId) => sessionId,
+                generateIntentSuccess: () => null,
+                generateIntentFailure: () => null,
+            },
+        ],
     }),
     selectors({
         selectedSession: [
@@ -157,6 +189,22 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 }
                 return sessions.find((session) => session.session_id === selectedSessionId) ?? null
             },
+        ],
+        selectedSessionIntent: [
+            (s) => [s.selectedSession, s.intentOverrides, s.selectedSessionId],
+            (selectedSession, intentOverrides, selectedSessionId): string => {
+                if (selectedSessionId && intentOverrides[selectedSessionId]) {
+                    return intentOverrides[selectedSessionId]
+                }
+                return selectedSession?.intent ?? ''
+            },
+        ],
+        // True only while a generation for the *currently selected* session is running, so a
+        // generation kicked off for another session never shows a spinner on this one.
+        isSelectedSessionGenerating: [
+            (s) => [s.generatedIntentLoading, s.generatingSessionId, s.selectedSessionId],
+            (generatedIntentLoading, generatingSessionId, selectedSessionId): boolean =>
+                generatedIntentLoading && generatingSessionId === selectedSessionId,
         ],
     }),
     listeners(({ actions, values }) => ({
