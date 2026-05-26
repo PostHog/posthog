@@ -391,18 +391,7 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [
-            series,
-            labels,
-            scales,
-            resolvePositionValue,
-            formatter,
-            minGap,
-            isHorizontal,
-            mode,
-            isPercent,
-            dimensions,
-        ]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
     )
 
     if (visible.length === 0) {

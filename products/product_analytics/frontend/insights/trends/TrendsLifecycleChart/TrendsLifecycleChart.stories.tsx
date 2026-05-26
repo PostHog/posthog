@@ -166,17 +166,13 @@ function lifecycleInsight({ stacked, id, shortId, name, showValuesOnSeries }: Li
 
 export const Stacked: Story = {
     render: () => (
-        <LifecycleStory
-            insightFixture={lifecycleInsight({ stacked: true, id: 300, shortId: 'lifecycleStacked' })}
-        />
+        <LifecycleStory insightFixture={lifecycleInsight({ stacked: true, id: 300, shortId: 'lifecycleStacked' })} />
     ),
 }
 
 export const Unstacked: Story = {
     render: () => (
-        <LifecycleStory
-            insightFixture={lifecycleInsight({ stacked: false, id: 301, shortId: 'lifecycleUnstacked' })}
-        />
+        <LifecycleStory insightFixture={lifecycleInsight({ stacked: false, id: 301, shortId: 'lifecycleUnstacked' })} />
     ),
 }
 
