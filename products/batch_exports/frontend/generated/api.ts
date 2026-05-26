@@ -20,6 +20,7 @@ import type {
     BatchExportsRunsLogsRetrieveParams,
     CreateFileDownloadRequestApi,
     CreateOutputApi,
+    FileDownloadBatchExportOnDemandApi,
     FileDownloadBatchExportsLogsRetrieveParams,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
@@ -543,6 +544,27 @@ export const fileDownloadBatchExportsRetrieve = async (
     return apiMutator<RetrieveFileDownloadResponseApi>(getFileDownloadBatchExportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFileDownloadBatchExportsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/file_download_batch_exports/${id}/cancel/`
+}
+
+/**
+ * Cancel an ongoing file-download batch export.
+ */
+export const fileDownloadBatchExportsCancelCreate = async (
+    projectId: string,
+    id: string,
+    fileDownloadBatchExportOnDemandApi: FileDownloadBatchExportOnDemandApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFileDownloadBatchExportsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileDownloadBatchExportOnDemandApi),
     })
 }
 

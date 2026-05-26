@@ -204,7 +204,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=2,
+                maximum_attempts=3,
             ),
         )
         try:
@@ -227,7 +227,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=2,
+                maximum_attempts=3,
             ),
         )
         executable_nodes = dag_structure.executable_nodes
