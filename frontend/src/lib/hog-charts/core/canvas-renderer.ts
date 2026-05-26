@@ -295,6 +295,9 @@ export interface DrawGridOptions {
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
+    /** Close the plot area at the far edge — right side in vertical mode, bottom in horizontal.
+     *  Together with the existing near-edge baseline this draws a full rectangle around the plot. */
+    closePlotArea?: boolean
 }
 
 /** Draws the grid lines and the categorical-axis baseline.
@@ -347,6 +350,13 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         ctx.moveTo(dimensions.plotLeft, axisY)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
         ctx.stroke()
+        if (options.closePlotArea) {
+            const closingY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+            ctx.beginPath()
+            ctx.moveTo(dimensions.plotLeft, closingY)
+            ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, closingY)
+            ctx.stroke()
+        }
         return
     }
 
@@ -374,6 +384,14 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.moveTo(axisX, dimensions.plotTop)
     ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
     ctx.stroke()
+
+    if (options.closePlotArea) {
+        const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) - 0.5
+        ctx.beginPath()
+        ctx.moveTo(closingX, dimensions.plotTop)
+        ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
+        ctx.stroke()
+    }
 }
 
 export function drawCrosshair(

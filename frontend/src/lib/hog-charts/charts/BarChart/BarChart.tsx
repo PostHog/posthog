@@ -99,6 +99,7 @@ function BarChartInner<Meta = unknown>({
         axisOrientation = 'vertical',
         xTickFormatter,
         divergingStack = false,
+        closePlotArea = false,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
@@ -238,6 +239,7 @@ function BarChartInner<Meta = unknown>({
                     gridColor: theme.gridColor,
                     orientation: isHorizontal ? 'horizontal' : 'vertical',
                     categoryTicks,
+                    closePlotArea,
                 })
             }
 
@@ -273,7 +275,17 @@ function BarChartInner<Meta = unknown>({
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
         },
-        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, barTrack, xTickFormatter]
+        [
+            showGrid,
+            stackedData,
+            barLayout,
+            isHorizontal,
+            topStackedKeyByAxis,
+            barCornerRadius,
+            barTrack,
+            xTickFormatter,
+            closePlotArea,
+        ]
     )
 
     const drawHover = useCallback(

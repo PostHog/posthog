@@ -59,7 +59,6 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         hasValidBreakdown,
         retentionFilter,
         filteredTrendSeries,
-        incompletenessOffsetFromEnd,
         labelGroupType,
         shouldShowMeanPerBreakdown,
         xAxisLabels,
@@ -74,13 +73,14 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
     const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
 
+    // Bar chart skips the in-progress hatch — matches the legacy chart.js retention bar visual,
+    // where the partial-period indicator is reserved for the line view.
     const series = useMemo(
         () =>
             buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
-                incompletenessOffsetFromEnd,
                 isIntervalView,
             }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView]
+        [filteredTrendSeries, isIntervalView]
     )
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)

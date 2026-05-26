@@ -41,6 +41,9 @@ export interface TimeSeriesBarChartConfig {
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
     divergingStack?: boolean
+    /** Close the plot area at the far edge — right side in vertical mode, bottom in horizontal —
+     *  matching the legacy chart.js box-style grid. Only takes effect when `yAxis.showGrid` is true. */
+    closePlotArea?: boolean
 }
 
 export interface TimeSeriesBarChartProps<Meta = unknown> {
@@ -79,6 +82,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         divergingStack,
+        closePlotArea,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -116,6 +120,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         divergingStack,
+        closePlotArea,
     }
 
     return (
