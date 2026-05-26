@@ -171,12 +171,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         {
             name: 'builds the xAxis from interval/timezone/allDays',
             input: { interval: 'day' as const, timezone: 'UTC', allDays: ['2024-06-10', '2024-06-11'] },
-            expected: { timezone: 'UTC', interval: 'day', allDays: ['2024-06-10', '2024-06-11'] },
+            expected: {
+                label: undefined,
+                timezone: 'UTC',
+                interval: 'day',
+                allDays: ['2024-06-10', '2024-06-11'],
+            },
         },
         {
             name: 'defaults interval to "day" and allDays to empty when omitted',
             input: {},
-            expected: { timezone: undefined, interval: 'day', allDays: [] },
+            expected: { label: undefined, timezone: undefined, interval: 'day', allDays: [] },
         },
     ])('$name', ({ input, expected }) => {
         const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
@@ -220,6 +225,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             goalLines,
         })
         expect(cfg.goalLines).toEqual([expect.objectContaining({ value: 50, label: 'Target' })])
+    })
+
+    it('passes custom axis labels into the chart config', () => {
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+        })
+        expect(cfg.xAxis?.label).toBe('Signup date')
+        expect(cfg.yAxis?.label).toBe('Total events')
     })
 
     it('passes valueLabels and tooltip through unchanged', () => {

@@ -1,12 +1,10 @@
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
-import type { PatchedReplayScannerApi, ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
+import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
 
 export type EnabledFilter = 'enabled' | 'disabled'
-
-export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL = 'gemini-3-flash'
@@ -162,27 +160,4 @@ export function scannerToPatchedApiBody(
     scanner: Partial<ReplayScanner> | Record<string, unknown>
 ): PatchedReplayScannerApi {
     return scanner as unknown as PatchedReplayScannerApi
-}
-
-export function observationsFromApi(apis: readonly ReplayObservationApi[]): ReplayObservation[] {
-    return apis.map((api) => api as unknown as ReplayObservation)
-}
-
-export interface ReplayObservation {
-    id: string
-    scanner_id: string
-    session_id: string
-    status: ObservationStatus
-    error_reason: string
-    workflow_id: string
-    scanner_version: number
-    scanner_config_snapshot: Record<string, unknown>
-    model_used: string
-    provider_used: string
-    triggered_by: 'schedule' | 'on_demand'
-    triggered_by_user: { id: number; first_name: string } | null
-    result: Record<string, unknown> | null
-    created_at: string
-    started_at: string | null
-    completed_at: string | null
 }
