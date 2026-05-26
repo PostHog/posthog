@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("dashboards", "0003_backfill_dashboardtile_team_id"),
-        ("posthog", "1177_migrate_product_analytics_models"),
+        ("posthog", "1179_migrate_product_analytics_models"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

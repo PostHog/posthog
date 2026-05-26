@@ -28,7 +28,7 @@ from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
 from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
-from posthog.models import FeatureFlag, GroupTypeMapping, Insight, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -47,6 +47,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
