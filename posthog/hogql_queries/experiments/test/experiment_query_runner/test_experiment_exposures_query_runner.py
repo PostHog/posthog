@@ -19,6 +19,7 @@ from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -1322,7 +1323,6 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertIsNone(response.sample_ratio_mismatch)
 
     def test_srm_calculation_adjusts_for_holdout(self):
-        """SRM calculation should adjust expected percentages when holdout is present"""
         holdout_dict = {
             "id": 123,
             "name": "Test Holdout",
@@ -1342,22 +1342,25 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        # Note: holdout.id is a float in schema, so key becomes "holdout-123.0"
-        assert query.holdout is not None
-        holdout_key = f"holdout-{query.holdout.id}"
-
-        # Directly test _calculate_srm with holdout-adjusted data
-        # 20% holdout means control/test share remaining 80% → 40% each
-        total_exposures = {holdout_key: 20, "control": 40, "test": 40}
+        # With 20% holdout, control/test share remaining 80% → 40% each.
+        # The holdout itself is no longer in total_exposures (WHERE IN drops it).
+        # 100 total exposed users at 50:50 = perfectly balanced for the adjusted rollouts.
+        total_exposures = {"control": 50, "test": 50}
 
         result = runner._calculate_srm(total_exposures)
 
         assert result is not None
-        # With 20% holdout, expected is: holdout=20, control=40, test=40 of 100
-        self.assertEqual(result.expected[holdout_key], 20.0)
-        self.assertEqual(result.expected["control"], 40.0)
-        self.assertEqual(result.expected["test"], 40.0)
-        # Perfectly balanced should have p-value = 1.0
+        # Holdout is dropped from rollout_percentages → not in result.expected
+        assert "control" in result.expected
+        assert "test" in result.expected
+        assert query.holdout is not None
+        assert f"holdout-{query.holdout.id}" not in result.expected
+        # After dropping holdout, control and test each have 40% raw rollout (50% × 80%).
+        # The chi-square normalises those equal shares against total_observed=100, so
+        # expected["control"] = expected["test"] = (40/80) * 100 = 50.0.
+        self.assertAlmostEqual(result.expected["control"], 50.0)
+        self.assertAlmostEqual(result.expected["test"], 50.0)
+        # 50:50 of 100 total = 50:50, matches adjusted rollouts exactly → p_value=1.0
         self.assertEqual(result.p_value, 1.0)
 
     def test_srm_excludes_variant_with_zero_rollout_percentage(self):
@@ -1629,3 +1632,141 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         risk = running_runner._evaluate_bias_risk(total_exposures)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestExposureRunnerVariantFiltering(ExperimentQueryRunnerBaseTest):
+    @staticmethod
+    def _holdout_to_dict(holdout):
+        # model_to_dict includes team/created_at as Python objects, which fail pydantic
+        # validation. Build a minimal dict that matches ExperimentHoldoutType instead.
+        return {
+            "id": holdout.id,
+            "name": holdout.name,
+            "filters": holdout.filters,
+        }
+
+    def _make_query(self, experiment):
+        return ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(experiment.feature_flag),
+            holdout=self._holdout_to_dict(experiment.holdout) if experiment.holdout else None,
+            start_date=experiment.start_date.isoformat() if experiment.start_date else None,
+            end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_no_holdout_no_exclusions_keeps_feature_flag_variants(self):
+        feature_flag = self.create_feature_flag(key="neither-exclusion-test")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert set(runner.variants) == {"control", "test"}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_holdout_attached_does_not_appear_in_runner_variants(self):
+        feature_flag = self.create_feature_flag(key="holdout-only-exclusion-test")
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Holdout A",
+            filters=[{"properties": [], "rollout_percentage": 20}],
+        )
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.holdout = holdout
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert f"holdout-{holdout.id}" not in runner.variants
+        assert set(runner.variants) == {"control", "test"}
+        assert runner.query.holdout is not None  # still available for SRM
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_excluded_variants_dropped_from_runner_variants(self):
+        feature_flag = self.create_feature_flag(key="excluded-only-exclusion-test")
+        feature_flag.filters["multivariate"]["variants"].append(
+            {"key": "test-2", "name": "Test 2", "rollout_percentage": 33}
+        )
+        feature_flag.save()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.parameters = {"excluded_variants": ["test-2"]}
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert "test-2" not in runner.variants
+        assert set(runner.variants) == {"control", "test"}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_holdout_and_excluded_variants_both_filtered(self):
+        feature_flag = self.create_feature_flag(key="both-exclusion-test")
+        feature_flag.filters["multivariate"]["variants"].append(
+            {"key": "test-2", "name": "Test 2", "rollout_percentage": 33}
+        )
+        feature_flag.save()
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Holdout B",
+            filters=[{"properties": [], "rollout_percentage": 10}],
+        )
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.holdout = holdout
+        experiment.parameters = {"excluded_variants": ["test-2"]}
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert set(runner.variants) == {"control", "test"}
+        assert f"holdout-{holdout.id}" not in runner.variants
+        assert "test-2" not in runner.variants
+        assert runner.query.holdout is not None
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_null_parameters_does_not_raise(self):
+        feature_flag = self.create_feature_flag(key="null-params-exclusion-test")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.parameters = None
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert set(runner.variants) == {"control", "test"}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_empty_excluded_variants_list_is_noop(self):
+        feature_flag = self.create_feature_flag(key="empty-exclusion-list-test")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.parameters = {"excluded_variants": []}
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert set(runner.variants) == {"control", "test"}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_excluded_variants_containing_holdout_key_is_idempotent(self):
+        feature_flag = self.create_feature_flag(key="exclude-names-holdout-test")
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Holdout C",
+            filters=[{"properties": [], "rollout_percentage": 15}],
+        )
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.holdout = holdout
+        experiment.parameters = {"excluded_variants": [f"holdout-{holdout.id}"]}
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+        assert set(runner.variants) == {"control", "test"}
+
+    def test_srm_no_false_alarm_when_holdout_present_but_balanced(self):
+        feature_flag = self.create_feature_flag(key="srm-balanced-with-holdout-test")
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Holdout SRM",
+            filters=[{"properties": [], "rollout_percentage": 20}],
+        )
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.holdout = holdout
+        experiment.save()
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
+
+        # 100 exposed users at 50/50 split. Holdout key absent (matches new reality).
+        # total_observed = 50+50 = 100, meeting SRM_MINIMUM_SAMPLE_SIZE.
+        total_exposures = {"control": 50, "test": 50}
+        result = runner._calculate_srm(total_exposures)
+        assert result is not None
+        # Expected percentages should be the holdout-adjusted 40/40 = 50/50 of exposed
+        # (we drop holdout from rollout_percentages). p_value should be 1.0 for perfect balance.
+        assert result.p_value == 1.0
