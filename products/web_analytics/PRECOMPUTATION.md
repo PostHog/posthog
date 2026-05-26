@@ -80,10 +80,15 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.conversionGoal` is set
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
-- `query.properties` contains more than one filter
-- The single filter is not `EventPropertyFilter(key="$host", operator="exact", value=<non-empty string>)`
+- Any filter in `query.properties` is a `CohortPropertyFilter` (cohort membership changes silently invalidate the cache)
+- Any filter is not one of `EventPropertyFilter` / `SessionPropertyFilter` / `PersonPropertyFilter`
+- Any filter's `value` is a list with more than `MAX_FILTER_VALUE_LIST_LEN` (100) entries (oversized IN-clauses bloat every daily INSERT)
 - Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
 - Either date_from or date_to is None
+
+Number of filters, operator (`exact`, `is_not`, `icontains`, `regex`, `is_set`, …), and key are unrestricted. Each unique filter combination hashes to its own cache key — combinations not previously seen will miss the cache on first read and fall back to the raw path while the precompute lands; the `WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK{reason="current_not_ready"}` counter surfaces churn-y filter patterns.
+
+The AST that lands in the INSERT's WHERE comes from `property_to_expr(properties, team=...)` — the same helper used for test-account filters. The INSERT source is a HogQL `events` query that auto-joins `session` and `person`, so session/person filters land in the same WHERE clause without template changes.
 
 When the gate returns False the runner silently falls through to v2 / raw. **Today there is no telemetry on gate rejections** — operators tuning the rollout have to read the source to know why a team isn't seeing the lazy path. A `web_overview_lazy_gate_rejected_total{reason}` counter would close that gap (open issue).
 
@@ -166,7 +171,7 @@ The state is `Nullable(Float64)` so the `if(..., NULL)` expression in the INSERT
 
 ### Eligibility gate
 
-`can_use_lazy_precompute(runner)` in `web_stats_paths_lazy_precompute.py`. Shares the common gate (`web_lazy_precompute_common.py`) with web overview — same org flag, same timezone / sampling / UUID-mode / filter rules. Adds PATHS-specific refusals:
+`can_use_lazy_precompute(runner)` in `web_stats_paths_lazy_precompute.py`. Shares the common gate (`web_lazy_precompute_common.py`) with web overview — same org flag, same timezone / sampling / UUID-mode / filter rules (any combination of event/session/person filters with any operator; cohorts and oversized value lists refused). Adds PATHS-specific refusals:
 
 - `query.breakdownBy != WebStatsBreakdown.PAGE`
 - `query.includeBounceRate` is False (the lazy table is purpose-built for bounce-augmented paths)

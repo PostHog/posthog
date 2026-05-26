@@ -185,34 +185,28 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"different $host values must produce distinct cache keys, got overlap: {example_jobs & other_jobs}"
         )
 
+    @parameterized.expand(
+        [
+            ("event_pathname", EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT)),
+            (
+                "event_icontains",
+                EventPropertyFilter(key="$host", value="example", operator=PropertyOperator.ICONTAINS),
+            ),
+            (
+                "session_channel_type",
+                SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT),
+            ),
+        ]
+    )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_disqualifying_filter_falls_through(self):
+    def test_relaxed_filter_admitted(self, _name: str, prop) -> None:
+        # Post-relaxation: any event/session/person filter and any operator
+        # flows through `property_to_expr`. Just confirm the gate creates a job.
         self._seed_two_sessions()
-        # $pathname is not in the MVP allowlist → gate returns False → no job created.
         with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
+            self._run(self._build_query(properties=[prop]))
 
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_session_property_falls_through(self):
-        # Session-level filters never qualify for MVP — only EventPropertyFilter on $host.
-        with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_sampling_falls_through(self):
@@ -395,14 +389,53 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     # --- Group B: gate strictness -------------------------------------------
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_multiple_host_filters_fall_through(self):
-        # Gate accepts at most one user-supplied property — multi-host inputs
-        # collide on a single-filter cache key and must be rejected.
+    def test_multiple_filters_admitted_and_distinct_cache_entry(self):
+        # Post-relaxation: any number of filters is admitted. A multi-filter
+        # combo hashes to a cache key distinct from each subset.
         self._seed_two_sessions()
-        host_a = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
-        host_b = EventPropertyFilter(key="$host", value="other.com", operator=PropertyOperator.EXACT)
+        host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
+        device_filter = EventPropertyFilter(key="$device_type", value="Desktop", operator=PropertyOperator.EXACT)
+
         with self._enable_lazy():
-            self._run(self._build_query(properties=[host_a, host_b]))
+            self._run(self._build_query(properties=[host_filter]))
+            host_only = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(properties=[host_filter, device_filter]))
+            combo = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert host_only and combo
+        assert host_only.isdisjoint(combo), "multi-filter combos must hash to distinct cache keys"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_cohort_filter_falls_through(self):
+        from posthog.schema import CohortPropertyFilter
+
+        from posthog.models.cohort import Cohort
+
+        self._seed_two_sessions()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="lazy gate cohort",
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+        )
+        with self._enable_lazy():
+            self._run(self._build_query(properties=[CohortPropertyFilter(value=cohort.pk)]))
+
+        # Cohort membership changes silently invalidate the cache — gate refuses.
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_oversized_value_list_falls_through(self):
+        # IN-clause with >MAX_FILTER_VALUE_LIST_LEN items bloats every daily INSERT.
+        from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import MAX_FILTER_VALUE_LIST_LEN
+
+        self._seed_two_sessions()
+        oversized = [f"host{i}.com" for i in range(MAX_FILTER_VALUE_LIST_LEN + 1)]
+        prop = EventPropertyFilter(key="$host", value=oversized, operator=PropertyOperator.EXACT)
+
+        with self._enable_lazy():
+            self._run(self._build_query(properties=[prop]))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
@@ -415,22 +448,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
         with self._enable_lazy():
             self._run(query)
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @parameterized.expand(
-        [
-            ("none_value", None),
-            ("list_value", ["example.com", "other.com"]),
-            ("empty_string", ""),
-        ]
-    )
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
-        self._seed_two_sessions()
-        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[prop]))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 

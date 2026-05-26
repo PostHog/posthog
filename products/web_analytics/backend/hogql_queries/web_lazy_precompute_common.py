@@ -15,7 +15,13 @@ from typing import Any, Optional
 import structlog
 import posthoganalytics
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, SessionsV2JoinMode
+from posthog.schema import (
+    CohortPropertyFilter,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SessionPropertyFilter,
+    SessionsV2JoinMode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -34,10 +40,23 @@ LAZY_TTL_SECONDS: dict[str, int] = {
     "default": 7 * 24 * 60 * 60,
 }
 
-# MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
-# operator `exact` is admitted. Test-account filters are always allowed
+# The gate accepts any combination of `EventPropertyFilter`,
+# `SessionPropertyFilter`, and `PersonPropertyFilter` regardless of operator —
+# we delegate AST construction to `property_to_expr`, which already handles
+# every operator HogQL supports and produces the right join shape per filter
+# type. `CohortPropertyFilter` is rejected because cohort membership changes
+# silently invalidate the cache. Test-account filters are always allowed
 # (their content is hashed into the cache key).
-SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
+SUPPORTED_USER_FILTER_TYPES: tuple[type, ...] = (
+    EventPropertyFilter,
+    SessionPropertyFilter,
+    PersonPropertyFilter,
+)
+
+# Multi-value operators (`exact` with a list, `in`, …) embed the value list
+# inside the INSERT. Past this cap the IN-clause bloats the per-day INSERT
+# without a corresponding cardinality win.
+MAX_FILTER_VALUE_LIST_LEN = 100
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
@@ -85,28 +104,20 @@ class SessionsV2UuidMode(LazyPrecomputeIneligible):
     pass
 
 
-class TooManyFilters(LazyPrecomputeIneligible):
+class CohortFilterUnsupported(LazyPrecomputeIneligible):
     pass
 
 
-class NonEventPropertyFilter(LazyPrecomputeIneligible):
-    pass
+class UnsupportedFilterType(LazyPrecomputeIneligible):
+    def __init__(self, filter_type: str):
+        self.filter_type = filter_type
+        super().__init__(f"filter_type={filter_type!r}")
 
 
-class UnsupportedFilterKey(LazyPrecomputeIneligible):
-    def __init__(self, key: str):
-        self.key = key
-        super().__init__(f"key={key!r}")
-
-
-class UnsupportedFilterOperator(LazyPrecomputeIneligible):
-    def __init__(self, operator: object):
-        self.operator = operator
-        super().__init__(f"operator={operator!r}")
-
-
-class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
-    pass
+class FilterValueListTooLong(LazyPrecomputeIneligible):
+    def __init__(self, length: int):
+        self.length = length
+        super().__init__(f"length={length} max={MAX_FILTER_VALUE_LIST_LEN}")
 
 
 class MissingDateRange(LazyPrecomputeIneligible):
@@ -177,17 +188,17 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    if len(properties) > 1:
-        raise TooManyFilters()
+    # Filter combinations: any number, any operator, any key. Cardinality is
+    # bounded by reality (97% of WA queries in prod-us use ≤2 filters), the
+    # daily-fan-out keeps each precompute INSERT bounded, and any churn-y
+    # combos surface in the fallback metric rather than producing wrong results.
     for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
+        if isinstance(prop, CohortPropertyFilter):
+            raise CohortFilterUnsupported()
+        if not isinstance(prop, SUPPORTED_USER_FILTER_TYPES):
+            raise UnsupportedFilterType(type(prop).__name__)
+        if isinstance(prop.value, list) and len(prop.value) > MAX_FILTER_VALUE_LIST_LEN:
+            raise FilterValueListTooLong(len(prop.value))
 
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
@@ -212,23 +223,22 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
 
 
-def host_filter_expr(properties: list) -> ast.Expr:
-    """Translate the (gated-down-to-≤1) user filter list to an AST expression.
+def user_filter_expr(properties: list, *, team: Team) -> ast.Expr:
+    """Translate the gated user filter list to an AST expression.
 
     The returned AST is what `ensure_precomputed` hashes into the cache key —
-    different filter values therefore become different precomputed jobs.
+    different filter combinations therefore become different precomputed jobs.
+
+    `property_to_expr` handles every event/session/person filter type and
+    every operator HogQL knows about (exact, is_not, icontains, regex, is_set,
+    …) and produces the right join shape per filter type. The INSERT source is
+    an `events` query that HogQL already auto-joins to `session` and `person`,
+    so session/person filters land in the same WHERE clause without template
+    changes.
     """
     if not properties:
         return ast.Constant(value=True)
-    host_filter = properties[0]
-    assert isinstance(host_filter, EventPropertyFilter)
-    return ast.Call(
-        name="equals",
-        args=[
-            ast.Field(chain=["events", "properties", host_filter.key]),
-            ast.Constant(value=host_filter.value),
-        ],
-    )
+    return property_to_expr(properties, team=team)
 
 
 def test_account_filter_expr(*, test_account_filters: list, team: Team) -> ast.Expr:

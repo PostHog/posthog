@@ -238,29 +238,44 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"includeHost on/off must produce distinct cache keys, got overlap: {no_host_hashes & with_host_hashes}"
         )
 
+    @parameterized.expand(
+        [
+            ("event_pathname", EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT)),
+            (
+                "event_icontains",
+                EventPropertyFilter(key="$host", value="example", operator=PropertyOperator.ICONTAINS),
+            ),
+            (
+                "session_channel_type",
+                SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT),
+            ),
+        ]
+    )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_session_property_filter_falls_through(self):
+    def test_relaxed_filter_admitted(self, _name: str, prop) -> None:
+        # Post-relaxation: any event/session/person filter and any operator
+        # flows through `property_to_expr`. Just confirm the gate creates a job.
+        self._seed_two_sessions()
         with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+            self._run(self._build_query(properties=[prop]))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_disqualifying_filter_falls_through(self):
-        # $pathname filter is outside the MVP allowlist.
+    def test_cohort_filter_falls_through(self):
+        from posthog.schema import CohortPropertyFilter
+
+        from posthog.models.cohort import Cohort
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="lazy gate cohort",
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+        )
         with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
+            self._run(self._build_query(properties=[CohortPropertyFilter(value=cohort.pk)]))
+
+        # Cohort membership changes silently invalidate the cache — gate refuses.
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -359,18 +374,17 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @parameterized.expand(
-        [
-            ("none_value", None),
-            ("list_value", ["example.com", "other.com"]),
-            ("empty_string", ""),
-        ]
-    )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
-        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
+    def test_oversized_value_list_falls_through(self):
+        # IN-clause with >MAX_FILTER_VALUE_LIST_LEN items bloats every daily INSERT.
+        from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import MAX_FILTER_VALUE_LIST_LEN
+
+        oversized = [f"host{i}.com" for i in range(MAX_FILTER_VALUE_LIST_LEN + 1)]
+        prop = EventPropertyFilter(key="$host", value=oversized, operator=PropertyOperator.EXACT)
+
         with self._enable_lazy():
             self._run(self._build_query(properties=[prop]))
+
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @parameterized.expand(
