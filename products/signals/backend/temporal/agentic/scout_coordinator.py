@@ -201,6 +201,14 @@ class SignalsScoutCoordinatorWorkflow:
         if not planned_runs:
             return CoordinatorWorkflowOutput(0, 0, 0)
 
+        # `workflow_id` (not `run_id`) is the correct per-tick key. Temporal appends the
+        # scheduled time to a schedule-started workflow's id, so each hourly tick gets a
+        # distinct `workflow_id` (`signals-scout-coordinator-schedule-<scheduled-time>`) —
+        # unique across ticks, which is what lets a later tick relaunch the same (team, skill).
+        # It's also stable across a coordinator retry/replay within the same tick (only
+        # `run_id` changes on retry), so the deterministic child ids below + REJECT_DUPLICATE
+        # dedupe a retry without re-launching. `run_id` would break that: a retry would mint
+        # new child ids and double-launch.
         tick_id = workflow.info().workflow_id
         started = 0
         skipped = 0
