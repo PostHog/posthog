@@ -112,11 +112,92 @@ export namespace Schemas {
       properties?: AccountProperties;
       /** Tag names attached to the account. Pass a list to replace existing tags. */
       tags?: string[];
+      /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+      readonly notebooks: readonly string[];
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `engineering` - Engineering
+    * `data` - Data
+    * `product` - Product Management
+    * `founder` - Founder
+    * `leadership` - Leadership
+    * `marketing` - Marketing
+    * `sales` - Sales / Success
+    * `other` - Other
+     */
+    export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
+
+
+    export const RoleAtOrganizationEnum = {
+      Engineering: 'engineering',
+      Data: 'data',
+      Product: 'product',
+      Founder: 'founder',
+      Leadership: 'leadership',
+      Marketing: 'marketing',
+      Sales: 'sales',
+      Other: 'other',
+    } as const;
+
+    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
+
+
+    export const BlankEnum = {
+      '': '',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
+
+    export interface UserBasic {
+      readonly id: number;
+      readonly uuid: string;
+      /**
+         * @maxLength 200
+         * @nullable
+         */
+      distinct_id?: string | null;
+      /** @maxLength 150 */
+      first_name?: string;
+      /** @maxLength 150 */
+      last_name?: string;
+      /** @maxLength 254 */
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      readonly hedgehog_config: UserBasicHedgehogConfig;
+      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
+    }
+
+    export interface AccountNotebook {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable title of the account notebook.
+         * @maxLength 256
+         * @nullable
+         */
+      title?: string | null;
+      /** Notebook content as a ProseMirror JSON document structure. */
+      content?: unknown;
+      /**
+         * Plain text representation of the notebook content for search.
+         * @nullable
+         */
+      text_content?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_at: string;
+      readonly last_modified_by: UserBasic;
     }
 
     /**
@@ -569,63 +650,6 @@ export namespace Schemas {
       * `regex` - regex
       * `exact` - exact */
       url_matching?: ActionStepMatchingEnum | null;
-    }
-
-    /**
-     * * `engineering` - Engineering
-    * `data` - Data
-    * `product` - Product Management
-    * `founder` - Founder
-    * `leadership` - Leadership
-    * `marketing` - Marketing
-    * `sales` - Sales / Success
-    * `other` - Other
-     */
-    export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
-
-
-    export const RoleAtOrganizationEnum = {
-      Engineering: 'engineering',
-      Data: 'data',
-      Product: 'product',
-      Founder: 'founder',
-      Leadership: 'leadership',
-      Marketing: 'marketing',
-      Sales: 'sales',
-      Other: 'other',
-    } as const;
-
-    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
-
-
-    export const BlankEnum = {
-      '': '',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
-
-    export interface UserBasic {
-      readonly id: number;
-      readonly uuid: string;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      distinct_id?: string | null;
-      /** @maxLength 150 */
-      first_name?: string;
-      /** @maxLength 150 */
-      last_name?: string;
-      /** @maxLength 254 */
-      email: string;
-      /** @nullable */
-      is_email_verified?: boolean | null;
-      /** @nullable */
-      readonly hedgehog_config: UserBasicHedgehogConfig;
-      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
     }
 
     /**
@@ -2911,6 +2935,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -2950,6 +2975,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -9252,6 +9279,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -20209,6 +20237,15 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LatestTestInterview {
+      /** When the test interview was completed. */
+      completed_at: string;
+      /** Full transcript of the test call, if Vapi delivered one. May be empty. */
+      transcript: string;
+      /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
+      summary: string;
+    }
+
     export interface LegalDocumentCreator {
       first_name: string;
       email: string;
@@ -22045,6 +22082,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Account[];
+    }
+
+    export interface PaginatedAccountNotebookList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountNotebook[];
     }
 
     export interface PaginatedActionList {
@@ -25975,6 +26021,8 @@ export namespace Schemas {
       properties?: PatchedAccountProperties;
       /** Tag names attached to the account. Pass a list to replace existing tags. */
       tags?: string[];
+      /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+      readonly notebooks?: readonly string[];
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -33536,6 +33584,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33911,6 +33960,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -36836,6 +36886,13 @@ export namespace Schemas {
       results: TestHogTaggerResultItem[];
       /** Optional message, for example when no recent AI events were found. */
       message?: string;
+    }
+
+    export interface TestInterviewLink {
+      /** Public, unauthenticated URL the topic author opens to dogfood the voice interview themselves — does not count against the targeted interviewees. */
+      interview_url: string;
+      /** Most recent test interview completed by the topic author, or null if none yet. */
+      latest_test_interview: LatestTestInterview | null;
     }
 
     export interface TextReprMetadata {
@@ -40389,9 +40446,20 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string;
+    };
+
+    export type AccountsNotebooksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ApprovalPoliciesListParams = {
