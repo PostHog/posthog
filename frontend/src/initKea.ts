@@ -9,7 +9,6 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { ReadOnlyModeError } from 'lib/readOnlyGuard'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
@@ -101,13 +100,12 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
-                // Read-only mode blocks every write by design — the central
-                // `before_send` filter in `selfReadOnlyModeLogic` drops the
-                // error-tracking event, and the central unhandled-rejection
-                // listener fires the toast. No per-loader handling needed.
-                if (error instanceof ReadOnlyModeError || (error as Error)?.cause instanceof ReadOnlyModeError) {
-                    return
-                }
+                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
+                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
+                // condition already suppresses the toast for load actions, and write actions
+                // get a toast with the read-only `detail` as the message. The
+                // `posthog.captureException` event is dropped by the central
+                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
