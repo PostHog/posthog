@@ -176,10 +176,6 @@ export interface ChartConfig {
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
      *  on layout context so overlays can default to a percent formatter. */
     isPercent?: boolean
-    /** Extra spacing added on top of the auto-computed margins. Wrappers use this to reserve
-     *  plot-area headroom for overlays like value labels that would otherwise be clipped by
-     *  the chart's `overflow: hidden` container. */
-    extraMargins?: Partial<ChartMargins>
 }
 
 export interface TooltipConfig {

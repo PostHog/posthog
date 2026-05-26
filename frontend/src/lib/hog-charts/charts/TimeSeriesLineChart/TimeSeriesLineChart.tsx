@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react'
 
 import type {
-    ChartMargins,
     ChartTheme,
     LineChartConfig,
     PointClickData,
@@ -10,7 +9,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
-import { ValueLabels, VALUE_LABEL_HEIGHT } from '../../overlays/ValueLabels'
+import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
 import {
     useXTickFormatter,
@@ -106,13 +105,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, finalSeries), [goalLines, finalSeries])
 
-    // Reserve plot-area headroom when value labels are enabled so labels on points at the axis
-    // top aren't clipped by the chart's `overflow: hidden` wrapper. See TimeSeriesBarChart for
-    // the matching pattern.
-    const valueLabelMargins: Partial<ChartMargins> | undefined = valueLabelsConfig
-        ? { top: VALUE_LABEL_HEIGHT + 6 }
-        : undefined
-
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
@@ -125,7 +117,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
-        extraMargins: valueLabelMargins,
     }
 
     return (

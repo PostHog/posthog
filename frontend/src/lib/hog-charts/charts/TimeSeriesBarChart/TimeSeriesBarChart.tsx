@@ -2,7 +2,6 @@ import React, { useMemo } from 'react'
 
 import type {
     BarChartConfig,
-    ChartMargins,
     ChartTheme,
     PointClickData,
     Series,
@@ -10,7 +9,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
-import { ValueLabels, VALUE_LABEL_HEIGHT } from '../../overlays/ValueLabels'
+import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
 import {
     useXTickFormatter,
@@ -89,18 +88,6 @@ export function TimeSeriesBarChart<Meta = unknown>({
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
-    // Reserve plot-area headroom when value labels are enabled so labels on bars that reach the
-    // axis top aren't clipped by the chart's `overflow: hidden` wrapper. `VALUE_LABEL_HEIGHT`
-    // is the full label box height; a small gap keeps the label visually separated from the
-    // chart edge. d3.nice() typically extends the negative-side domain past the most-negative
-    // value, so labels on negative segments stay clear without extra bottom margin.
-    const VALUE_LABEL_HEADROOM = VALUE_LABEL_HEIGHT + 6
-    const valueLabelMargins: Partial<ChartMargins> | undefined = valueLabelsConfig
-        ? axisOrientation === 'horizontal'
-            ? { right: VALUE_LABEL_HEADROOM }
-            : { top: VALUE_LABEL_HEADROOM }
-        : undefined
-
     const referenceLines = useMemo(
         () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
         [goalLines, seriesAfterValueLabels]
@@ -129,7 +116,6 @@ export function TimeSeriesBarChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         divergingStack,
-        extraMargins: valueLabelMargins,
     }
 
     return (
