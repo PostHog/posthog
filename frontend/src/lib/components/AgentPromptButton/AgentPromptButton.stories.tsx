@@ -52,6 +52,11 @@ export const OpenDropdown: Story = {
         storageKey: 'story-agent-open-dropdown',
         defaultOpen: true,
     },
+    parameters: {
+        // Radix portals the dropdown content into document.body, outside #storybook-root,
+        // so snapshot the whole body to include it.
+        testOptions: { snapshotTargetSelector: 'body' },
+    },
 }
 
 export const SingleAction: Story = {
