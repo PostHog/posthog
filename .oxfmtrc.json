@@ -69,7 +69,8 @@
             "files": [
                 "products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx",
                 "frontend/src/lib/components/CyclotronJob/integrations/IntegrationChoice.tsx",
-                "services/mcp/src/resources/ui-apps.ts"
+                "services/mcp/src/resources/ui-apps.ts",
+                "frontend/src/styles/index.tsx"
             ],
             "options": {
                 "experimentalSortImports": {

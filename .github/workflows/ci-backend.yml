@@ -207,8 +207,13 @@ jobs:
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
                         - 'services/mcp/scripts/**/*'
+                        # MCP tool config sources - feed generate-tools.ts
                         - 'services/mcp/definitions/**/*.yaml'
+                        - 'services/mcp/definitions/prompts/**/*.md'
                         - 'products/*/mcp/**/*.yaml'
+                        - 'products/*/mcp/prompts/**/*.md'
+                        - 'services/mcp/schema/tool-definitions.json'
+                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'

@@ -11,10 +11,10 @@ from posthog.schema import EventsNode, TrendsQuery
 
 from posthog.models.insight_variable import InsightVariable
 
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):

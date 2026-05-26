@@ -14,6 +14,11 @@ describe('isChunkLoadError', () => {
             { name: 'TypeError', message: 'NetworkError when attempting to fetch resource.' },
             true,
         ],
+        [
+            'Firefox dynamic-import failure',
+            { name: 'TypeError', message: 'error loading dynamically imported module: /static/chunk.js' },
+            true,
+        ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],

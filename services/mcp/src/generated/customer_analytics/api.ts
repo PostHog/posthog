@@ -17,8 +17,29 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
+    account_executive: zod
+        .string()
+        .optional()
+        .describe("Filter by account executive. Use 'unassigned' or an integer user id."),
+    account_owner: zod.string().optional().describe("Filter by account owner. Use 'unassigned' or an integer user id."),
+    all_roles_unassigned: zod
+        .boolean()
+        .optional()
+        .describe('When true, returns only accounts where CSM, account executive, and account owner are all unset.'),
+    csm: zod
+        .string()
+        .optional()
+        .describe("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
+    search: zod.string().optional().describe('Case-insensitive substring search across account name and external ID.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.'
+        ),
 })
 
 export const AccountsCreateParams = /* @__PURE__ */ zod.object({
@@ -33,44 +54,50 @@ export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
 
-export const AccountsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(accountsCreateBodyNameMax).describe('Human-readable name of the account.'),
-    external_id: zod
-        .string()
-        .max(accountsCreateBodyExternalIdMax)
-        .nullish()
-        .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
-    properties: zod
-        .object({
-            csm: zod
-                .object({
-                    id: zod.number(),
-                    email: zod.string(),
-                })
-                .nullish(),
-            account_executive: zod
-                .object({
-                    id: zod.number(),
-                    email: zod.string(),
-                })
-                .nullish(),
-            account_owner: zod
-                .object({
-                    id: zod.number(),
-                    email: zod.string(),
-                })
-                .nullish(),
-            stripe_customer_id: zod.string().nullish(),
-            hubspot_deal_id: zod.string().nullish(),
-            billing_id: zod.string().nullish(),
-            sfdc_id: zod.string().nullish(),
-            zendesk_id: zod.string().nullish(),
-        })
-        .nullish()
-        .describe(
-            'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
-        ),
-})
+export const AccountsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(accountsCreateBodyNameMax).describe('Human-readable name of the account.'),
+        external_id: zod
+            .string()
+            .max(accountsCreateBodyExternalIdMax)
+            .nullish()
+            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+        properties: zod
+            .object({
+                csm: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_executive: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_owner: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
+            })
+            .nullish()
+            .describe(
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+    })
+    .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
 export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
@@ -94,44 +121,54 @@ export const accountsPartialUpdateBodyNameMax = 400
 
 export const accountsPartialUpdateBodyExternalIdMax = 400
 
-export const AccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(accountsPartialUpdateBodyNameMax).optional().describe('Human-readable name of the account.'),
-    external_id: zod
-        .string()
-        .max(accountsPartialUpdateBodyExternalIdMax)
-        .nullish()
-        .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
-    properties: zod
-        .object({
-            csm: zod
-                .object({
-                    id: zod.number(),
-                    email: zod.string(),
-                })
-                .nullish(),
-            account_executive: zod
-                .object({
-                    id: zod.number(),
-                    email: zod.string(),
-                })
-                .nullish(),
-            account_owner: zod
-                .object({
-                    id: zod.number(),
-                    email: zod.string(),
-                })
-                .nullish(),
-            stripe_customer_id: zod.string().nullish(),
-            hubspot_deal_id: zod.string().nullish(),
-            billing_id: zod.string().nullish(),
-            sfdc_id: zod.string().nullish(),
-            zendesk_id: zod.string().nullish(),
-        })
-        .nullish()
-        .describe(
-            'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
-        ),
-})
+export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the account.'),
+        external_id: zod
+            .string()
+            .max(accountsPartialUpdateBodyExternalIdMax)
+            .nullish()
+            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+        properties: zod
+            .object({
+                csm: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_executive: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_owner: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
+            })
+            .nullish()
+            .describe(
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+    })
+    .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),

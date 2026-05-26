@@ -5,12 +5,14 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
+import { LemonMenuItem } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +28,7 @@ import {
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,6 +48,8 @@ import {
     EventsNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -1155,6 +1160,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                useWebAnalyticsPrecompute,
                                 ...source,
                             },
                             embedded: false,
@@ -1255,6 +1261,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
+                const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
+
+                const includeHostMenuItem: LemonMenuItem | null =
+                    useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
+                        ? {
+                              label: 'Include host',
+                              tooltip: 'Show the full host + path (e.g. example.com/about) instead of just the path',
+                              active: includeHostPath,
+                              onClick: () => actions.setIncludeHostPath(!includeHostPath),
+                          }
+                        : null
+
+                const pathTabExtras = useTileHeaderV2
+                    ? { extraMenuItems: includeHostMenuItem ? [includeHostMenuItem] : undefined }
+                    : { control: <IncludeHostToggle /> }
+
                 const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
@@ -1283,7 +1305,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1 2xl:col-span-2' : 'md:col-span-2',
                             orderWhenLargeClassName: '2xl:order-1',
                         },
                         activeTabId: graphsTab,
@@ -1357,8 +1379,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: '2xl:order-4',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1' : 'md:col-span-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-2' : '2xl:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1391,7 +1413,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Paths',
@@ -1438,7 +1460,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Entry Path',
@@ -1473,7 +1495,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'End Path',
@@ -1530,7 +1552,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.SOURCES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: '2xl:order-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-3' : '2xl:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1546,20 +1568,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.InitialChannelType,
                                 {},
                                 {
-                                    control: (
-                                        <div className="flex flex-row deprecated-space-x-2 font-medium">
-                                            <span>Customize channel types</span>
-                                            <LemonButton
-                                                icon={<IconGear />}
-                                                type="tertiary"
-                                                status="alt"
-                                                size="small"
-                                                noPadding={true}
-                                                tooltip="Customize channel types"
-                                                to={urls.settings('environment-web-analytics', 'channel-type')}
-                                            />
-                                        </div>
-                                    ),
+                                    ...(useTileHeaderV2
+                                        ? {
+                                              extraMenuItems: [
+                                                  {
+                                                      label: 'Customize channel types',
+                                                      icon: <IconGear />,
+                                                      to: urls.settings('environment-web-analytics', 'channel-type'),
+                                                  },
+                                              ],
+                                          }
+                                        : {
+                                              control: (
+                                                  <div className="flex flex-row deprecated-space-x-2 font-medium">
+                                                      <span>Customize channel types</span>
+                                                      <LemonButton
+                                                          icon={<IconGear />}
+                                                          type="tertiary"
+                                                          status="alt"
+                                                          size="small"
+                                                          noPadding={true}
+                                                          tooltip="Customize channel types"
+                                                          to={urls.settings(
+                                                              'environment-web-analytics',
+                                                              'channel-type'
+                                                          )}
+                                                      />
+                                                  </div>
+                                              ),
+                                          }),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
                                         title: 'Channels',
@@ -1752,7 +1789,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.DEVICES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: '2xl:order-3',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-4' : '2xl:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -2140,6 +2177,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
+                              extraMenuItems: useTileHeaderV2
+                                  ? [
+                                        {
+                                            label: 'Manage actions',
+                                            icon: <IconOpenInNew />,
+                                            to: urls.actions(),
+                                            onClick: () => {
+                                                void addProductIntentForCrossSell({
+                                                    from: ProductKey.WEB_ANALYTICS,
+                                                    to: ProductKey.ACTIONS,
+                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                                })
+                                            },
+                                        },
+                                    ]
+                                  : undefined,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
                                   title: 'Goals',
