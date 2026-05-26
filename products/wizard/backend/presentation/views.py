@@ -229,7 +229,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         parameters=[
             OpenApiParameter(name="workflow_id", required=True, type=str),
-            OpenApiParameter(name="skill_id", required=True, type=str),
+            OpenApiParameter(name="skill_id", required=False, type=str),
         ],
         responses={
             (200, "text/event-stream"): {
