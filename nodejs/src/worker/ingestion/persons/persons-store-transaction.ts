@@ -28,7 +28,8 @@ export class PersonsStoreTransaction {
         isIdentified: boolean,
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
-        extraDistinctIds?: { distinctId: string; version?: number }[]
+        extraDistinctIds?: { distinctId: string; version?: number }[],
+        batchId?: number
     ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
@@ -41,7 +42,8 @@ export class PersonsStoreTransaction {
             uuid,
             primaryDistinctId,
             extraDistinctIds,
-            this.tx
+            this.tx,
+            batchId
         )
     }
 
@@ -76,17 +78,23 @@ export class PersonsStoreTransaction {
         return await this.store.deletePerson(person, distinctId, this.tx)
     }
 
-    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
-        return await this.store.addDistinctId(person, distinctId, version, this.tx)
+    async addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        batchId?: number
+    ): Promise<PersonMessage[]> {
+        return await this.store.addDistinctId(person, distinctId, version, this.tx, batchId)
     }
 
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        limit?: number
+        limit?: number,
+        batchId?: number
     ): Promise<MoveDistinctIdsResult> {
-        return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx)
+        return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx, batchId)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

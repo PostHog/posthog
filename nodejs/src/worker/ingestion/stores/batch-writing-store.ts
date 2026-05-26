@@ -6,4 +6,11 @@ export interface BatchWritingStore {
      * Returns Kafka messages that need to be sent
      */
     flush(): Promise<FlushResult[]>
+
+    /*
+     * Releases cache entries associated with the given batch ID.
+     * Uses reference counting so entries shared across concurrent batches
+     * are only evicted when all referencing batches have completed.
+     */
+    releaseBatch(batchId: number): void
 }

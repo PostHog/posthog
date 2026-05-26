@@ -503,7 +503,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
             elements: [],
-            batchContext: { eventFiltersBatchAppMetrics: metrics },
+            batchContext: { eventFiltersBatchAppMetrics: metrics, batchId: 0 },
         }
 
         const result = await step(input)
@@ -524,7 +524,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
             elements: [],
-            batchContext: { eventFiltersBatchAppMetrics: metrics },
+            batchContext: { eventFiltersBatchAppMetrics: metrics, batchId: 0 },
         }
 
         const result = await step(input)
@@ -545,7 +545,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
             elements: [{ some: 'data' }],
-            batchContext: { eventFiltersBatchAppMetrics: metrics },
+            batchContext: { eventFiltersBatchAppMetrics: metrics, batchId: 0 },
         }
 
         const result = await step(input)

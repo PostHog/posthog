@@ -80,7 +80,14 @@ describe('createProcessPersonlessStep', () => {
         team = (await getTeam(hub.postgres, teamId))!
 
         const personRepository = new PostgresPersonRepository(hub.postgres)
-        const ingestionWarningsOutputs = new IngestionOutputs({
+        const storeOutputs = new IngestionOutputs({
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                mockProducer,
+                'test'
+            ),
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 'ingestion_warnings_test',
@@ -88,7 +95,7 @@ describe('createProcessPersonlessStep', () => {
                 'test'
             ),
         })
-        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
+        personsStore = new BatchWritingPersonsStore(personRepository, storeOutputs)
 
         pluginEvent = {
             distinct_id: 'test-user-123',

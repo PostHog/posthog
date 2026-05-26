@@ -52,7 +52,9 @@ export class PersonCreateService {
                 isIdentified,
                 uuid,
                 primaryDistinctId,
-                extraDistinctIds
+                extraDistinctIds,
+                undefined,
+                this.context.batchId
             )
 
             if (result.success) {
@@ -67,7 +69,8 @@ export class PersonCreateService {
                 for (const distinctIdInfo of allDistinctIds) {
                     const existingPerson = await this.context.personStore.fetchForUpdate(
                         teamId,
-                        distinctIdInfo.distinctId
+                        distinctIdInfo.distinctId,
+                        this.context.batchId
                     )
                     if (existingPerson) {
                         return [existingPerson, false]

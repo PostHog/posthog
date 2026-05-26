@@ -2964,4 +2964,122 @@ describe('BatchWritingPersonStore', () => {
             cache.delete(`${teamId}:${person.id}`)
         })
     })
+
+    describe('releaseBatch', () => {
+        it('is a no-op for an unknown batchId', () => {
+            expect(() => personStore.releaseBatch(999)).not.toThrow()
+        })
+
+        it('evicts check cache and distinctId mapping after single batch is released', () => {
+            personStore.setCheckCachedPerson(teamId, 'user-a', person, 0)
+            personStore.setCachedPersonForUpdate(teamId, 'user-a', fromInternalPerson(person, 'user-a'), 0)
+
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(true)
+
+            personStore.releaseBatch(0)
+
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(false)
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'user-a')).toBeUndefined()
+        })
+
+        it('only evicts when the last referencing batch is released', () => {
+            personStore.setCheckCachedPerson(teamId, 'user-a', person, 0)
+            personStore.setCheckCachedPerson(teamId, 'user-a', person, 1)
+
+            personStore.releaseBatch(0)
+            // Still held by batch 1
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(true)
+
+            personStore.releaseBatch(1)
+            // Now unreferenced
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(false)
+        })
+
+        it('preserves dirty person update entries in personUpdateCache on eviction', () => {
+            const personUpdate = { ...fromInternalPerson(person, 'user-a'), needs_write: true }
+            personStore.setCachedPersonForUpdate(teamId, 'user-a', personUpdate, 0)
+
+            personStore.releaseBatch(0)
+
+            // distinctId lookup is cleared so the person can't be found by distinct ID
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'user-a')).toBeUndefined()
+            // But the personUpdateCache entry survives because it has a pending write
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeDefined()
+        })
+
+        it('evicts clean person update entries from personUpdateCache', () => {
+            const personUpdate = { ...fromInternalPerson(person, 'user-a'), needs_write: false }
+            personStore.setCachedPersonForUpdate(teamId, 'user-a', personUpdate, 0)
+
+            personStore.releaseBatch(0)
+
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
+        })
+
+        it('clears personlessBatchResults for evicted distinct IDs', () => {
+            personStore.setCheckCachedPerson(teamId, 'user-a', null, 0)
+            ;(personStore as any)['personlessBatchResults'].set(`${teamId}|user-a`, true)
+
+            personStore.releaseBatch(0)
+
+            expect(personStore.getPersonlessBatchResult(teamId, 'user-a')).toBeUndefined()
+        })
+
+        it('only evicts entries for the released batch, leaving other batch entries intact', () => {
+            personStore.setCheckCachedPerson(teamId, 'user-a', person, 0)
+            personStore.setCheckCachedPerson(teamId, 'user-b', person, 1)
+
+            personStore.releaseBatch(0)
+
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(false)
+            expect(personStore.getCheckCache().has(`${teamId}:user-b`)).toBe(true)
+        })
+
+        it('cleans up batch tracking data after release', () => {
+            personStore.setCheckCachedPerson(teamId, 'user-a', person, 0)
+
+            personStore.releaseBatch(0)
+
+            const batchDistinctKeys = (personStore as any)['batchDistinctKeys'] as Map<number, Set<string>>
+            expect(batchDistinctKeys.has(0)).toBe(false)
+            const distinctKeyRefCount = (personStore as any)['distinctKeyRefCount'] as Map<string, number>
+            expect(distinctKeyRefCount.has(`${teamId}:user-a`)).toBe(false)
+        })
+
+        it('overlapping prefetches keep entry alive through first flush, evict on second', async () => {
+            // Simulate batch 0 and batch 1 both prefetching the same distinct ID
+            // before either has flushed (the concurrent-batches scenario).
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([{ ...person, distinct_id: 'user-a' }])
+            await personStore.prefetchPersons([{ teamId, distinctId: 'user-a' }], 0)
+            // Batch 1 prefetches same user — already in cache, just bumps refcount
+            await personStore.prefetchPersons([{ teamId, distinctId: 'user-a' }], 1)
+
+            const distinctKeyRefCount = (personStore as any)['distinctKeyRefCount'] as Map<string, number>
+            expect(distinctKeyRefCount.get(`${teamId}:user-a`)).toBe(2)
+
+            // Batch 0 per-event work: update user-a
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { prop0: 'batch0' }, [], {}, 'user-a')
+
+            // Batch 0 flushes — writes the dirty entry, clears needs_write
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+
+            // Release batch 0 — refcount drops to 1, entry survives for batch 1
+            personStore.releaseBatch(0)
+            expect(distinctKeyRefCount.get(`${teamId}:user-a`)).toBe(1)
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(true)
+
+            // Batch 1 per-event work: update user-a (reuses the cached entry, no DB re-fetch)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { prop1: 'batch1' }, [], {}, 'user-a')
+
+            // Batch 1 flushes — writes batch 1's dirty entry
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+
+            // Release batch 1 — refcount drops to 0, entry evicted
+            personStore.releaseBatch(1)
+            expect(distinctKeyRefCount.has(`${teamId}:user-a`)).toBe(false)
+            expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(false)
+        })
+    })
 })

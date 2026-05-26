@@ -104,6 +104,19 @@ class GroupCache {
         }
     }
 
+    /**
+     * Remove all clean (non-dirty) entries. Called after a successful flush so
+     * the cache is bounded to the entries that arrived during the flush window.
+     * Dirty entries (re-marked by a concurrent batch during the flush) are kept.
+     */
+    evictClean(): void {
+        for (const [key, update] of this.cache.entries()) {
+            if (!update || !update.needsWrite) {
+                this.cache.delete(key)
+            }
+        }
+    }
+
     private getCacheKey(teamId: TeamId, groupKey: string): string {
         return `${teamId}:${groupKey}`
     }
@@ -134,12 +147,13 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 }
 
 /**
- * This class is used to write groups to the database in batches.
- * It uses a cache to avoid reading the same group from the database multiple
- * times and accumulates all changes for the same group across events. Writes
- * to the DB are issued on `flush()` calls; the cache itself persists across
- * batches under concurrentBatches > 1. Call `shutdown()` on graceful exit to
- * stop the metric-emission timer.
+ * Writes groups to the database in batches, accumulating all changes for the
+ * same group across events and flushing them on `flush()` calls. The cache
+ * persists across batches under concurrentBatches > 1.
+ *
+ * **Lifecycle:** construction starts a metric-emission timer. Callers MUST
+ * invoke `shutdown()` on graceful exit to stop the timer and flush any
+ * remaining dirty entries.
  */
 export class BatchWritingGroupStore implements GroupStore {
     private groupCache: GroupCache
@@ -199,6 +213,7 @@ export class BatchWritingGroupStore implements GroupStore {
         // END synchronous linearization point.
 
         if (pendingUpdates.length === 0) {
+            this.groupCache.evictClean()
             return []
         }
 
@@ -208,6 +223,7 @@ export class BatchWritingGroupStore implements GroupStore {
             await Promise.all(
                 pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
             )
+            this.groupCache.evictClean()
             return []
         } catch (error) {
             logger.error('Failed to flush group updates', {
@@ -604,6 +620,11 @@ export class BatchWritingGroupStore implements GroupStore {
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error
+    }
+
+    releaseBatch(_batchId: number): void {
+        // Group store does not maintain per-distinct-id caches requiring reference-counted
+        // eviction. This satisfies the BatchWritingStore interface.
     }
 
     getCacheMetrics(): CacheMetrics {

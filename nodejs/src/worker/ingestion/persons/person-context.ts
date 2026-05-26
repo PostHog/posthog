@@ -31,7 +31,8 @@ export class PersonContext {
         public readonly measurePersonJsonbSize: number = 0,
         public readonly mergeMode: MergeMode,
         public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
-        public readonly shouldUpdateLastSeenAt: boolean = false
+        public readonly shouldUpdateLastSeenAt: boolean = false,
+        public readonly batchId?: number
     ) {
         this.eventProperties = event.properties!
     }

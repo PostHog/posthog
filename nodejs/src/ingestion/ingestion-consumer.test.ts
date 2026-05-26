@@ -10,7 +10,7 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -22,6 +22,7 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -1563,6 +1564,51 @@ describe('IngestionConsumer', () => {
 
             flushSpy.mockRestore()
             groupFlushSpy.mockRestore()
+        })
+    })
+
+    describe('multi-batch cache eviction and ordering', () => {
+        it('person properties from batch 1 are visible in batch 2', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([createEvent({ properties: { $set: { name: 'Alice' } } })])
+            )
+
+            const personsAfterBatch1 = await fetchPostgresPersons(hub.postgres, team.id)
+            expect(personsAfterBatch1).toHaveLength(1)
+            expect(personsAfterBatch1[0].properties).toMatchObject({ name: 'Alice' })
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([createEvent({ properties: { $set: { email: 'alice@example.com' } } })])
+            )
+
+            const personsAfterBatch2 = await fetchPostgresPersons(hub.postgres, team.id)
+            expect(personsAfterBatch2).toHaveLength(1)
+            expect(personsAfterBatch2[0].properties).toMatchObject({
+                name: 'Alice',
+                email: 'alice@example.com',
+            })
+        })
+
+        it('cache entries are evicted after each batch completes', async () => {
+            const personsStore = ingester['personsStore'] as BatchWritingPersonsStore
+
+            await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
+
+            const batchDistinctKeys = (personsStore as any)['batchDistinctKeys'] as Map<number, Set<string>>
+            expect(batchDistinctKeys.size).toBe(0)
+            expect(personsStore.getCheckCache().size).toBe(0)
+        })
+
+        it('cache does not grow unboundedly across many sequential batches', async () => {
+            const personsStore = ingester['personsStore'] as BatchWritingPersonsStore
+
+            for (let i = 0; i < 5; i++) {
+                await ingester.handleKafkaBatch(createKafkaMessages([createEvent({ distinct_id: `user-${i}` })]))
+            }
+
+            const batchDistinctKeys = (personsStore as any)['batchDistinctKeys'] as Map<number, Set<string>>
+            expect(batchDistinctKeys.size).toBe(0)
+            expect(personsStore.getCheckCache().size).toBe(0)
         })
     })
 

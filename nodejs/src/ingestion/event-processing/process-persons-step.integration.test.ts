@@ -71,15 +71,7 @@ describe('createProcessPersonsStep', () => {
                 'test'
             ),
         })
-        const ingestionWarningsOutputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
-                INGESTION_WARNINGS_OUTPUT,
-                KAFKA_INGESTION_WARNINGS,
-                mockProducer,
-                'test'
-            ),
-        })
-        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
+        personsStore = new BatchWritingPersonsStore(personRepository, personOutputs)
 
         pluginEvent = {
             distinct_id: 'my_id',

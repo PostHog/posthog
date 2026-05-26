@@ -76,17 +76,6 @@ function createPersonOutputs(kafkaProducer: KafkaProducerWrapper): PersonOutputs
     })
 }
 
-function createIngestionWarningsOutputs(kafkaProducer: KafkaProducerWrapper) {
-    return new IngestionOutputs({
-        [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
-            INGESTION_WARNINGS_OUTPUT,
-            KAFKA_INGESTION_WARNINGS,
-            kafkaProducer,
-            'test'
-        ),
-    })
-}
-
 async function createPerson(
     hub: Hub,
     createdAt: DateTime,
@@ -223,10 +212,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStore(
-            personRepository,
-            createIngestionWarningsOutputs(kafkaProducer)
-        )
+        const personsStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
 
         const context = new PersonContext(
             fullEvent as any,
@@ -261,10 +247,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStore(
-            personRepository,
-            createIngestionWarningsOutputs(kafkaProducer)
-        )
+        const personsStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
 
         const context = new PersonContext(
             fullEvent as PluginEvent,
@@ -298,7 +281,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             customPersonRepository ?? (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
-            createIngestionWarningsOutputs(kafkaProducer)
+            createPersonOutputs(kafkaProducer)
         )
 
         const context = new PersonContext(
@@ -1359,7 +1342,7 @@ describe('PersonState.processEvent()', () => {
 
             const sharedPersonsStore = new BatchWritingPersonsStore(
                 personRepository,
-                createIngestionWarningsOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer)
             )
 
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1530,7 +1513,7 @@ describe('PersonState.processEvent()', () => {
 
             const sharedPersonsStore = new BatchWritingPersonsStore(
                 personRepository,
-                createIngestionWarningsOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer)
             )
 
             // Helper to create processor with shared store
@@ -1641,7 +1624,7 @@ describe('PersonState.processEvent()', () => {
 
             const sharedPersonsStore = new BatchWritingPersonsStore(
                 personRepository,
-                createIngestionWarningsOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer)
             )
 
             // Helper to create processor with shared store
@@ -4303,7 +4286,7 @@ describe('PersonState.processEvent()', () => {
 
                     const personsStore = new BatchWritingPersonsStore(
                         personRepository,
-                        createIngestionWarningsOutputs(kafkaProducer)
+                        createPersonOutputs(kafkaProducer)
                     )
 
                     const context = new PersonContext(

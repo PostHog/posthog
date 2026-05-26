@@ -19,6 +19,7 @@ export type ProcessPersonsInput = {
     team: Team
     timestamp: DateTime
     personlessPerson?: Person
+    batchId?: number
 }
 
 export type ProcessPersonsOutput = {
@@ -39,7 +40,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     return async function processPersonsStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonsOutput, AsyncOutput>> {
-        const { normalizedEvent, team, timestamp, personlessPerson } = input
+        const { normalizedEvent, team, timestamp, personlessPerson, batchId } = input
 
         if (personlessPerson && !personlessPerson.force_upgrade) {
             return ok({ ...input, person: personlessPerson })
@@ -58,7 +59,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,
             options.PERSON_PROPERTIES_UPDATE_ALL,
-            shouldUpdateLastSeenAt
+            shouldUpdateLastSeenAt,
+            batchId
         )
 
         const processor = new PersonEventProcessor(

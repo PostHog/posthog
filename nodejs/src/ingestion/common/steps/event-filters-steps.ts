@@ -10,6 +10,7 @@ import { AppMetricsOutput } from '../outputs'
 
 export interface EventFiltersBatchContext {
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
+    batchId: number
 }
 
 /**
@@ -21,7 +22,7 @@ export function createEventFiltersBatchAppMetricsBeforeBatchStep<TInput, CInput>
 ): BeforeBatchStep<TInput, CInput, EventFiltersBatchContext> {
     return function eventFiltersBatchAppMetricsBeforeBatchStep(input) {
         const eventFiltersBatchAppMetrics = new EventFiltersBatchAppMetrics(outputs)
-        const batchContext: EventFiltersBatchContext = { eventFiltersBatchAppMetrics }
+        const batchContext: EventFiltersBatchContext = { eventFiltersBatchAppMetrics, batchId: input.batchId }
 
         const elements = input.elements.map((element) => ({
             result: {

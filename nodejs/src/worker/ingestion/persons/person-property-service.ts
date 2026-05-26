@@ -42,7 +42,11 @@ export class PersonPropertyService {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
+        const person = await this.context.personStore.fetchForUpdate(
+            this.context.team.id,
+            this.context.distinctId,
+            this.context.batchId
+        )
         if (person) {
             return [person, false]
         }

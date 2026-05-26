@@ -49,6 +49,9 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             // batches by design under concurrentBatches > 1.
             const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
 
+            personsStore.releaseBatch(input.batchId)
+            groupStore.releaseBatch(input.batchId)
+
             logger.info('🔄', 'flushBatchStoresStep: Flushed stores', {
                 batchSize: input.elements.length,
                 personStoreMessageCount: personsStoreMessages.length,

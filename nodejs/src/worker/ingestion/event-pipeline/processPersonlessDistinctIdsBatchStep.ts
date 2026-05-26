@@ -7,7 +7,7 @@ import { PipelineEvent, Team } from '~/types'
 import { ONE_HOUR } from '../../../config/constants'
 import { PersonsStore } from '../persons/persons-store'
 
-type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team }
+type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team; batchId?: number }
 
 export const personlessDistinctIdCacheOperationsCounter = new Counter({
     name: 'personless_distinct_id_cache_operations_total',
@@ -71,7 +71,7 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
             if (personlessEntries.length > 0) {
                 personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss' }, personlessEntries.length)
 
-                await personsStore.processPersonlessDistinctIdsBatch(personlessEntries)
+                await personsStore.processPersonlessDistinctIdsBatch(personlessEntries, events[0]?.batchId)
 
                 // Update LRU cache for all entries we just inserted
                 for (const entry of personlessEntries) {
