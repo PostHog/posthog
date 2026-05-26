@@ -3330,6 +3330,25 @@ def parser_test_factory(backend: HogQLParserBackend):
             # A self-closing element has no “children” attribute at all.
             self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
 
+        def test_return_hogqlx_tag_value(self):
+            # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp and python accept it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
+            prog = cast(ast.Program, self._program("return <Sparkline />"))
+            stmt = cast(ast.ReturnStatement, prog.declarations[0])
+            self.assertIsInstance(stmt, ast.ReturnStatement)
+            self.assertEqual(stmt.expr, ast.HogQLXTag(kind="Sparkline", attributes=[]))
+            nested = cast(ast.ReturnStatement, cast(ast.Program, self._program("return <a>x</a>")).declarations[0])
+            self.assertEqual(
+                nested.expr,
+                ast.HogQLXTag(
+                    kind="a",
+                    attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="x")])],
+                ),
+            )
+            self.assertIsInstance(self._program("fn f() { return <em /> }"), ast.Program)
+            # The `<`-tag exception must not over-fire: `return < 5` is still a less-than expression statement, not a returnStmt.
+            lt = cast(ast.Program, self._program("return < 5"))
+            self.assertNotIsInstance(lt.declarations[0], ast.ReturnStatement)
+
         # 3. <strong>{event} <em>asd</em></strong>
         def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
             node = self._select("select <strong>{event} <em>asd</em></strong> from events")

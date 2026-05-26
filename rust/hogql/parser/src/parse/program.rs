@@ -170,8 +170,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // so cpp re-reads `return` as a Field and `()` as an empty call:
             // `Call(return, [])`. `return (expr)` keeps the returnStmt. Route the
             // empty-call case to the exprStmt arm below.
+            //
+            // Exception: a `<` that begins a HogQLX tag (`return <Tag/>`,
+            // `return <a>x</a>`) is a return VALUE, not the less-than operator
+            // binding `return` as a Field. `peek_next_starts_hogqlx_tag` probes
+            // past the `<`; a real less-than (`return < 5`) stays an exprStmt.
             TokenKind::Keyword(Kw::Return)
                 if (!is_pure_infix_op(self.peek_next())
+                    || self.peek_next_starts_hogqlx_tag()
                     || (self.peek_next() == TokenKind::Dot && !self.dot_next_is_chain_link()))
                     && !self.return_followed_by_empty_call() =>
             {
