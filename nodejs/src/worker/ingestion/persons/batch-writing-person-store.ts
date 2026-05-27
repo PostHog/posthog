@@ -1128,9 +1128,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const dirtyCount = Array.from(this.personUpdateCache.values()).filter((u) => u?.needs_write).length
         if (dirtyCount > 0) {
-            logger.error('🚨', 'BatchWritingPersonsStore.shutdown() called with dirty entries — flushing', {
+            logger.warn('⚠️', 'BatchWritingPersonsStore.shutdown() flushing remaining dirty entries', {
                 dirtyCount,
-                note: 'pipeline drain should have flushed before shutdown — investigate drain ordering',
             })
             try {
                 const flushResults = await this.flush()

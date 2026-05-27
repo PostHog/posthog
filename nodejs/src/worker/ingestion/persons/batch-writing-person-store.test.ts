@@ -2963,6 +2963,39 @@ describe('BatchWritingPersonStore', () => {
             // Remove injected entry so afterEach shutdown does not re-trigger a flush
             cache.delete(`${teamId}:${person.id}`)
         })
+
+        it('does not throw when flush rejects', async () => {
+            const cache = (personStore as any).personUpdateCache as Map<string, any>
+            cache.set(`${teamId}:${person.id}`, {
+                ...fromInternalPerson(person, 'test'),
+                needs_write: true,
+                properties_to_set: { x: '1' },
+            })
+
+            jest.spyOn(personStore, 'flush').mockRejectedValue(new Error('flush failed'))
+
+            await expect(personStore.shutdown()).resolves.not.toThrow()
+
+            cache.delete(`${teamId}:${person.id}`)
+        })
+
+        it('emits accumulated metrics even when flush rejects', async () => {
+            const cache = (personStore as any).personUpdateCache as Map<string, any>
+            cache.set(`${teamId}:${person.id}`, {
+                ...fromInternalPerson(person, 'test'),
+                needs_write: true,
+                properties_to_set: { x: '1' },
+            })
+
+            jest.spyOn(personStore, 'flush').mockRejectedValue(new Error('flush failed'))
+            const emitSpy = jest.spyOn(personStore as any, 'emitAccumulatedMetrics')
+
+            await personStore.shutdown()
+
+            expect(emitSpy).toHaveBeenCalledTimes(1)
+
+            cache.delete(`${teamId}:${person.id}`)
+        })
     })
 
     describe('releaseBatch', () => {

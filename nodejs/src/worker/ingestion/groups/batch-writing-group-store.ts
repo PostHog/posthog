@@ -683,9 +683,8 @@ export class BatchWritingGroupStore implements GroupStore {
             }
         }
         if (dirtyCount > 0) {
-            logger.error('🚨', 'BatchWritingGroupStore.shutdown() called with dirty entries — flushing', {
+            logger.warn('⚠️', 'BatchWritingGroupStore.shutdown() flushing remaining dirty entries', {
                 dirtyCount,
-                note: 'pipeline drain should have flushed before shutdown — investigate drain ordering',
             })
             try {
                 await this.flush()
