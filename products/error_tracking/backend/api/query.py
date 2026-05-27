@@ -83,7 +83,8 @@ def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]
     filter_group = build_property_group(
         [{"type": "event", "key": "$exception_fingerprint", "operator": "exact", "value": fingerprints}]
     )
-    assert filter_group is not None
+    if filter_group is None:
+        raise ValueError("build_property_group unexpectedly returned None for a non-empty filter list")
     return filter_group
 
 
