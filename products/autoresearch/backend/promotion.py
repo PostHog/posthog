@@ -1,0 +1,121 @@
+"""Champion selection and promotion for agent-recorded training runs.
+
+The agent records candidate iterations; the backend alone decides the champion. Used by
+the training-run ``complete`` action. Mirrors the champion-model shape in
+``training_ingestion._ingest_recipe`` (the set_output path) so both converge on the same
+``AutoresearchModel`` layout.
+"""
+
+from datetime import date
+from typing import Any
+from uuid import UUID
+
+from django.db import transaction
+from django.utils import timezone as django_timezone
+
+from products.autoresearch.backend.models import AutoresearchIteration, AutoresearchModel, AutoresearchTrainingRun
+
+# A challenger must beat the current champion's holdout score by at least this margin
+# before it is promoted — guards against thrashing on noise-level differences.
+CHAMPION_PROMOTION_MARGIN = 0.005
+
+
+class PromotionError(ValueError):
+    """Raised when completion cannot select a valid champion candidate."""
+
+
+def _select_best_iteration(
+    training_run: AutoresearchTrainingRun, best_iteration_id: UUID | None
+) -> AutoresearchIteration | None:
+    iterations = AutoresearchIteration.objects.filter(training_run=training_run)
+    if best_iteration_id is not None:
+        chosen = iterations.filter(id=best_iteration_id).first()
+        if chosen is None:
+            raise PromotionError(f"Iteration {best_iteration_id} not found in this training run.")
+        return chosen
+    kept = iterations.filter(status=AutoresearchIteration.Status.KEPT).order_by("-holdout_score").first()
+    return kept or iterations.order_by("-holdout_score").first()
+
+
+def _build_recipe(iteration: AutoresearchIteration) -> dict[str, Any]:
+    snapshot = iteration.recipe_snapshot or {}
+    spec = iteration.model_spec or {}
+    return {
+        "feature_sql": snapshot.get("feature_sql", ""),
+        "feature_transforms": snapshot.get("feature_transforms", []),
+        "model_class": spec.get("model_class", "sklearn.linear_model.LogisticRegression"),
+        "model_params": spec.get("model_params", {}),
+        "fit_signature": (iteration.recipe_hash or "")[:16],
+        "trained_on": date.today().isoformat(),
+        "holdout_score": iteration.holdout_score or 0.0,
+        "agent_description": iteration.agent_description,
+    }
+
+
+@transaction.atomic
+def complete_training_run(
+    training_run: AutoresearchTrainingRun,
+    *,
+    best_iteration_id: UUID | None = None,
+    model_explanation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
+    pipeline = training_run.pipeline
+    now = django_timezone.now()
+
+    best = _select_best_iteration(training_run, best_iteration_id)
+    iteration_count = AutoresearchIteration.objects.filter(training_run=training_run).count()
+
+    promoted = False
+    model: AutoresearchModel | None = None
+    role: str | None = None
+    best_score: float | None = None
+
+    if best is not None:
+        best_score = best.holdout_score
+        candidate_score = best.holdout_score or 0.0
+        current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+        is_cold_start = current is None
+        beats_champion = (
+            current is not None and candidate_score >= (current.holdout_score or 0.0) + CHAMPION_PROMOTION_MARGIN
+        )
+
+        if is_cold_start or beats_champion:
+            if current is not None:
+                AutoresearchModel.objects.filter(pk=current.pk).update(
+                    role=AutoresearchModel.Role.ARCHIVED, archived_at=now
+                )
+            role = AutoresearchModel.Role.CHAMPION
+            promoted = True
+        else:
+            role = AutoresearchModel.Role.CHALLENGER
+
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=role,
+            recipe_hash=best.recipe_hash or "",
+            model_recipe=_build_recipe(best),
+            model_explanation=model_explanation or {},
+            holdout_score=candidate_score,
+            metrics={"holdout_auc": candidate_score, "source": "agent_recorded"},
+            source_training_run=training_run,
+            agent_description=best.agent_description,
+            trained_on_start=date.today(),
+            trained_on_end=date.today(),
+            is_preliminary=True,
+            promoted_at=now if promoted else None,
+        )
+
+    training_run.status = AutoresearchTrainingRun.Status.COMPLETED
+    training_run.iteration_count = iteration_count
+    training_run.best_holdout_score = best_score
+    training_run.completed_at = now
+    training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "completed_at"])
+
+    return {
+        "promoted": promoted,
+        "model_id": str(model.pk) if model else None,
+        "role": role,
+        "iteration_count": iteration_count,
+        "best_holdout_score": best_score,
+    }

@@ -1,8 +1,12 @@
+import json
+import hashlib
 from typing import Any
+
+from django.utils import timezone as django_timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
@@ -16,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from products.autoresearch.backend.access import has_autoresearch_access
 from products.autoresearch.backend.inference import run_inference_for_pipeline
 from products.autoresearch.backend.models import (
+    AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
@@ -23,14 +28,19 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.online_validation import run_online_validation_for_pipeline
+from products.autoresearch.backend.promotion import complete_training_run
 from products.autoresearch.backend.serializers import (
+    AutoresearchIterationSerializer,
     AutoresearchModelSerializer,
     AutoresearchPipelineCreateSerializer,
     AutoresearchPipelineSerializer,
     AutoresearchRunSerializer,
     AutoresearchSuggestionSerializer,
     AutoresearchTrainingRunSerializer,
+    CompleteTrainingRunSerializer,
     CreateSuggestionSerializer,
+    OpenTrainingRunSerializer,
+    RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
     StartTrainingRequestSerializer,
@@ -435,12 +445,18 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
     """
-    List and retrieve training runs for a pipeline.
+    List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+
+    The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+    training run directly — recording each iteration as it completes rather than via a single
+    terminal sandbox output. Recipe validation and champion promotion stay server-side.
     """
 
     scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "record_iteration", "complete"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = AutoresearchTrainingRun.objects.all()
@@ -454,6 +470,121 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMo
         if pipeline_id:
             qs = qs.filter(pipeline_id=pipeline_id)
         return qs.order_by("-created_at")
+
+    def _get_pipeline(self) -> AutoresearchPipeline:
+        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
+        try:
+            return AutoresearchPipeline.objects.get(pk=pipeline_id, team=self.team)
+        except AutoresearchPipeline.DoesNotExist:
+            raise ValidationError("Pipeline not found.")
+
+    @validated_request(
+        request_serializer=OpenTrainingRunSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The opened training run. Record iterations against its id, then call complete.",
+            ),
+            400: OpenApiResponse(description="Pipeline is archived."),
+        },
+        summary="Open a training run",
+        description=(
+            "Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an "
+            "external bring-your-own agent, or a scheduled job — then records iterations against this run "
+            "and finalizes it with the complete endpoint. The run starts in 'running'."
+        ),
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        pipeline = self._get_pipeline()
+        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+            raise ValidationError("Cannot open a training run on an archived pipeline.")
+        data = request.validated_data  # type: ignore[attr-defined]
+        training_run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=data.get("iteration_budget") or pipeline.iteration_budget,
+            started_at=django_timezone.now(),
+        )
+        return Response(AutoresearchTrainingRunSerializer(training_run).data, status=201)
+
+    @validated_request(
+        request_serializer=RecordIterationSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AutoresearchIterationSerializer,
+                description="The recorded iteration.",
+            ),
+            400: OpenApiResponse(
+                description="Recipe failed validation (e.g. disallowed model_class) or run not running."
+            ),
+        },
+        summary="Record a training iteration",
+        description=(
+            "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the "
+            "same number updates that iteration. The recipe is validated server-side: model_class must be in "
+            "the allowlist and feature_sql must be a read-only SELECT keyed on person_id."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="iterations")
+    def record_iteration(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+            raise ValidationError("Can only record iterations on a running training run.")
+        data = request.validated_data  # type: ignore[attr-defined]
+        recipe_snapshot = data["recipe_snapshot"]
+        model_spec = data["model_spec"]
+        recipe_hash = hashlib.sha256(
+            json.dumps({"recipe": recipe_snapshot, "spec": model_spec}, sort_keys=True).encode()
+        ).hexdigest()
+        iteration, _ = AutoresearchIteration.objects.update_or_create(
+            training_run=training_run,
+            iteration_number=data["iteration_number"],
+            defaults={
+                "pipeline": training_run.pipeline,
+                "recipe_hash": recipe_hash,
+                "recipe_snapshot": recipe_snapshot,
+                "model_spec": model_spec,
+                "train_score": data.get("train_score"),
+                "holdout_score": data.get("holdout_score"),
+                "status": data["status"],
+                "agent_description": data.get("agent_description", ""),
+                "agent_confidence": data.get("agent_confidence"),
+            },
+        )
+        return Response(AutoresearchIterationSerializer(iteration).data, status=201)
+
+    @validated_request(
+        request_serializer=CompleteTrainingRunSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The completed training run. Call autoresearch-models-list to see the resulting champion/challenger.",
+            ),
+            400: OpenApiResponse(description="Run is already completed or failed."),
+        },
+        summary="Complete a training run",
+        description=(
+            "Finalize a training run. The backend selects the best iteration (highest holdout score, or the "
+            "one you name), decides champion vs challenger via the promotion ladder, and persists the model. "
+            "Agents cannot set the champion directly — promotion is server-side."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="complete")
+    def complete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        if training_run.status not in (
+            AutoresearchTrainingRun.Status.RUNNING,
+            AutoresearchTrainingRun.Status.PENDING,
+        ):
+            raise ValidationError("Training run is already completed or failed.")
+        data = request.validated_data  # type: ignore[attr-defined]
+        complete_training_run(
+            training_run,
+            best_iteration_id=data.get("best_iteration_id"),
+            model_explanation=data.get("model_explanation") or {},
+        )
+        training_run.refresh_from_db()
+        return Response(AutoresearchTrainingRunSerializer(training_run).data)
 
 
 @extend_schema(tags=["autoresearch"])

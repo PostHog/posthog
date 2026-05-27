@@ -13,6 +13,7 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.recipe_validation import RecipeValidationError, validate_recipe
 
 # ── Typed schema wrappers for JSONField -----------------------------------
 
@@ -465,6 +466,115 @@ class StartTrainingRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=500,
         help_text="Override the pipeline iteration budget for this training run.",
+    )
+
+
+# ── Agent-recorded training serializers ────────────────────────────────────
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Compact recipe for this iteration. Should contain feature_sql (a read-only HogQL SELECT "
+            "keyed on person_id) and optional feature_transforms."
+        ),
+        "example": {
+            "feature_sql": "SELECT person_id AS distinct_id, countIf(event='$pageview') AS pageviews FROM events GROUP BY person_id",
+            "feature_transforms": [],
+        },
+    }
+)
+class IterationRecipeField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Model class and hyperparameters tried this iteration. model_class must be one of the "
+            "allowlisted sklearn/xgboost classifiers."
+        ),
+        "example": {"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {"C": 1.0}},
+    }
+)
+class ModelSpecField(serializers.JSONField):
+    pass
+
+
+class OpenTrainingRunSerializer(serializers.Serializer):
+    """Input for opening an agent-driven training run."""
+
+    iteration_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.",
+    )
+
+
+class RecordIterationSerializer(serializers.Serializer):
+    """Input for recording one training iteration. Validated against the recipe allowlist."""
+
+    iteration_number = serializers.IntegerField(
+        min_value=0,
+        help_text="Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).",
+    )
+    recipe_snapshot = IterationRecipeField(
+        help_text="Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.",
+    )
+    model_spec = ModelSpecField(
+        help_text="model_class (must be allowlisted) and model_params tried this iteration.",
+    )
+    status = serializers.ChoiceField(
+        choices=["kept", "discarded", "crashed"],
+        help_text="'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.",
+    )
+    train_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Training-set AUC for this iteration.",
+    )
+    holdout_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Held-out AUC for this iteration. Used to pick the champion at completion.",
+    )
+    agent_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Agent's plain-English rationale for this iteration.",
+    )
+    agent_confidence = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=1,
+        help_text="Agent's self-assessed confidence (0–1) that this iteration helps.",
+    )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        try:
+            validate_recipe(model_spec=data.get("model_spec") or {}, recipe_snapshot=data.get("recipe_snapshot") or {})
+        except RecipeValidationError as e:
+            raise serializers.ValidationError(str(e)) from e
+        return data
+
+
+class CompleteTrainingRunSerializer(serializers.Serializer):
+    """Input for finalizing a training run. The backend selects/promotes the champion."""
+
+    best_iteration_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.",
+    )
+    model_explanation = ModelExplanationField(
+        required=False,
+        default=dict,
+        help_text="Global feature importance / directionality bundle for the champion model card.",
     )
 
 
