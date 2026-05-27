@@ -1290,11 +1290,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1335,11 +1337,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1380,11 +1384,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1429,11 +1435,13 @@ class TestCoordinatorWorkflowInsufficientData:
         mock_selection_result.cohort_ids = []
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
