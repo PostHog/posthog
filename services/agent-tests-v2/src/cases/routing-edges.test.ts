@@ -6,7 +6,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 describe('routing edges: real e2e', () => {
     let c: Cluster
@@ -25,7 +25,7 @@ describe('routing edges: real e2e', () => {
         c = await buildCluster()
         await c.deployAgent({
             slug: 'slack-only',
-            spec: { model: 'mock-echo', triggers: [{ type: 'slack', config: {} }] },
+            spec: { triggers: [{ type: 'slack', config: {} }] },
         })
         const res = await request(c.ingress).post('/agents/slack-only/run').send({ message: 'x' })
         expect(res.status).toBe(404)
@@ -36,7 +36,7 @@ describe('routing edges: real e2e', () => {
         c = await buildCluster()
         await c.deployAgent({
             slug: 'chat-only',
-            spec: { model: 'mock-echo', triggers: [{ type: 'chat', config: { require_auth: false } }] },
+            spec: { triggers: [{ type: 'chat', config: { require_auth: false } }] },
         })
         const res = await request(c.ingress)
             .post('/agents/chat-only/slack/events')
@@ -52,7 +52,7 @@ describe('routing edges: real e2e', () => {
         c = await buildCluster()
         await c.deployAgent({
             slug: 'no-webhook',
-            spec: { model: 'mock-echo', triggers: [{ type: 'chat', config: { require_auth: false } }] },
+            spec: { triggers: [{ type: 'chat', config: { require_auth: false } }] },
         })
         const res = await request(c.ingress).post('/agents/no-webhook/webhook').send({})
         expect(res.status).toBe(404)
@@ -87,7 +87,8 @@ describe('routing edges: real e2e', () => {
 
     it('domain-mode happy path: host=<slug>.<suffix> routes to the agent', async () => {
         c = await buildCluster({ routingMode: 'domain', domainSuffix: '.agents.posthog.test' })
-        await c.deployAgent({ slug: 'domain-agent', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('routed')])
+        await c.deployAgent({ slug: 'domain-agent', spec: {} })
         const res = await request(c.ingress)
             .post('/run')
             .set('host', 'domain-agent.agents.posthog.test')

@@ -1,18 +1,16 @@
-import { z } from 'zod'
-
-import { defineNativeTool } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 
 import { getPosthogInternalClient } from '../posthog-client'
 
 export const posthogQueryV1 = defineNativeTool({
     id: 'posthog.query.v1',
     description: "Run a HogQL query against the team's PostHog project. Returns rows and column names.",
-    args: z.object({
-        query: z.string().min(1).describe('HogQL query string'),
+    args: Type.Object({
+        query: Type.String({ minLength: 1, description: 'HogQL query string' }),
     }),
-    returns: z.object({
-        rows: z.array(z.record(z.string(), z.unknown())),
-        columns: z.array(z.string()),
+    returns: Type.Object({
+        rows: Type.Array(Type.Record(Type.String(), Type.Unknown())),
+        columns: Type.Array(Type.String()),
     }),
     requires: { integrations: [], scopes: ['analytics:read'] },
     cost_hint: 'medium',

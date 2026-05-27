@@ -1,15 +1,12 @@
 /**
  * Control-flow primitives: meta.ask_for_input (→ waiting), meta.end_session
- * (→ completed with summary), max_turns ceiling (→ failed).
- *
- * Old equivalent surface:
- *   - greeting-bot's ask-then-greet (parking)
- *   - failure: upstream Anthropic error → failed (we emit via mock-error)
+ * (→ completed with summary), max_turns ceiling (→ failed), upstream model
+ * error (→ failed).
  */
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxErrorTurn } from '../harness'
 
 describe('control flow: real e2e', () => {
     let c: Cluster
@@ -27,7 +24,8 @@ describe('control flow: real e2e', () => {
     })
 
     it('ask_for_input suspends the session to state=waiting', async () => {
-        await c.deployAgent({ slug: 'asker', spec: { model: 'mock-ask' } })
+        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        await c.deployAgent({ slug: 'asker' })
         const res = await request(c.ingress).post('/agents/asker/run').send({ message: 'hi' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
@@ -35,7 +33,8 @@ describe('control flow: real e2e', () => {
     })
 
     it("end_session completes the session with the model's summary", async () => {
-        await c.deployAgent({ slug: 'ender', spec: { model: 'mock-end' } })
+        c.setScript([fauxCallTool('meta.end_session.v1', { summary: 'all done' })])
+        await c.deployAgent({ slug: 'ender' })
         const res = await request(c.ingress).post('/agents/ender/run').send({ message: 'wrap' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
@@ -43,10 +42,15 @@ describe('control flow: real e2e', () => {
     })
 
     it('max_turns ceiling marks the session failed', async () => {
+        // Script 5 tool calls — but the agent's max_turns is 3.
+        c.setScript(
+            Array(5)
+                .fill(null)
+                .map(() => fauxCallTool('posthog.query.v1', { query: 'select 1' }))
+        )
         await c.deployAgent({
             slug: 'loopy',
             spec: {
-                model: 'mock-loop',
                 tools: [{ kind: 'native', id: 'posthog.query.v1' }],
                 limits: { max_turns: 3, max_tool_calls: 100, max_wall_seconds: 60 },
             },
@@ -57,8 +61,9 @@ describe('control flow: real e2e', () => {
         expect(session!.state).toBe('failed')
     })
 
-    it('upstream pi.dev error walks through to a failed session', async () => {
-        await c.deployAgent({ slug: 'boom', spec: { model: 'mock-error:500' } })
+    it('upstream model error walks through to a failed session', async () => {
+        c.setScript([fauxErrorTurn('rate_limit')])
+        await c.deployAgent({ slug: 'boom' })
         const res = await request(c.ingress).post('/agents/boom/run').send({ message: 'x' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)

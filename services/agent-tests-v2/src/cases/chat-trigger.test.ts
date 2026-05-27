@@ -1,18 +1,18 @@
 /**
- * Chat trigger (`/run`, `/send`, `/listen`) e2e. Real ingress, real runner,
- * real PG, real fs bundle, real HttpPiClient → mock-pi-dev HTTP.
+ * Chat trigger (`/run`, `/send`, `/listen`) e2e. Real ingress + runner + PG +
+ * filesystem + PiAiClient. Model invocations route through pi-ai's faux
+ * provider — `cluster.setScript([...])` arms responses for the next call(s).
  *
  * Covers the corresponding old test surface:
- *   - app: mock-anthropic SDK roundtrip (single-turn echo) — now mock-pi-dev
+ *   - app: mock-anthropic SDK roundtrip (single-turn echo)
  *   - app: greeting-bot (asks for name, greets on second turn)
  *   - persistent-chat: basic-multi-turn
- *   - persistent-chat: lifecycle-edges (/send to completed → 410, /send to
- *     missing → 404, /send to failed → 410, cancel of completed idempotent)
+ *   - persistent-chat: lifecycle-edges (covered in lifecycle-edges.test.ts)
  */
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
 describe('chat trigger: real e2e', () => {
     let c: Cluster
@@ -29,9 +29,10 @@ describe('chat trigger: real e2e', () => {
         await closeSharedPool()
     })
 
-    it('single-turn echo runs through mock-pi-dev and completes', async () => {
-        await c.deployAgent({ slug: 'echo', spec: { model: 'mock-echo' } })
-        const res = await request(c.ingress).post('/agents/echo/run').send({ message: 'hello world' })
+    it('single-turn echo: faux returns canned text, session completes', async () => {
+        c.setScript([fauxText('hello world')])
+        await c.deployAgent({ slug: 'echo' })
+        const res = await request(c.ingress).post('/agents/echo/run').send({ message: 'hi' })
         expect(res.status).toBe(200)
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
@@ -42,41 +43,32 @@ describe('chat trigger: real e2e', () => {
         expect(text).toBe('hello world')
     })
 
-    it('static-response model returns canned text', async () => {
-        await c.deployAgent({ slug: 'static', spec: { model: 'mock-static:always-the-same' } })
-        const res = await request(c.ingress).post('/agents/static/run').send({ message: 'anything' })
-        await c.drain()
-        const session = await c.queue.get(res.body.session_id)
-        const assistant = session!.conversation.find((m) => m.role === 'assistant')
-        const text = (assistant as { content: Array<{ type: string; text?: string }> }).content[0].text
-        expect(text).toBe('always-the-same')
-    })
-
-    it('greeting-bot style multi-turn: ask_for_input parks then resumes', async () => {
-        // Turn 1: asks. mock-ask emits meta.ask_for_input.v1 → session goes to waiting.
-        await c.deployAgent({ slug: 'greeter', spec: { model: 'mock-ask' } })
+    it('greeting-bot multi-turn: ask_for_input parks, /send resumes, second turn completes', async () => {
+        // Turn 1: ask_for_input (parks the session at waiting).
+        // Turn 2: a plain text response after the user's follow-up.
+        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: "What's your name?" }), fauxText('hello, alice')])
+        await c.deployAgent({ slug: 'greeter' })
         const res = await request(c.ingress).post('/agents/greeter/run').send({ message: 'hi' })
         const sid = res.body.session_id
         await c.drain()
         let session = await c.queue.get(sid)
         expect(session!.state).toBe('waiting')
 
-        // Turn 2: user sends their name → /send re-queues. The mock-ask handler
-        // returns end_turn on the follow-up because last message is now text.
+        // User replies with their name.
         await request(c.ingress).post('/agents/greeter/send').send({ session_id: sid, message: 'alice' })
         await c.drain()
         session = await c.queue.get(sid)
-        // mock-ask sees user text again → emits ask_for_input again → waiting.
-        // (That's fine — semantic test is that /send re-queued and a turn ran.)
-        expect(['waiting', 'completed']).toContain(session!.state)
-        // Two user messages in conversation
-        const userMsgs = session!.conversation.filter((m) => m.role === 'user')
-        expect(userMsgs.length).toBeGreaterThanOrEqual(2)
+        expect(session!.state).toBe('completed')
+
+        const assistantTurns = session!.conversation.filter((m) => m.role === 'assistant')
+        expect(assistantTurns).toHaveLength(2)
+        const finalText = (assistantTurns[1] as { content: Array<{ type: string; text?: string }> }).content[0].text
+        expect(finalText).toBe('hello, alice')
     })
 
-    it('basic-multi-turn: /send to a waiting session appends + re-queues', async () => {
-        // mock-ask parks at waiting after turn 1; /send then resumes.
-        await c.deployAgent({ slug: 'multi', spec: { model: 'mock-ask' } })
+    it('basic-multi-turn: /send routes into pending_inputs while waiting; runner drains on resume', async () => {
+        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' }), fauxText('ok done')])
+        await c.deployAgent({ slug: 'multi' })
         const run = await request(c.ingress).post('/agents/multi/run').send({ message: 'first' })
         const sid = run.body.session_id
         await c.drain()
@@ -84,15 +76,18 @@ describe('chat trigger: real e2e', () => {
 
         const send = await request(c.ingress).post('/agents/multi/send').send({ session_id: sid, message: 'second' })
         expect(send.status).toBe(200)
+
+        // /send routed into pending_inputs. Verify before drain.
+        const before = await c.queue.get(sid)
+        expect(before!.pending_inputs).toHaveLength(1)
+
         await c.drain()
         const session = await c.queue.get(sid)
+        expect(session!.state).toBe('completed')
+        expect(session!.pending_inputs).toHaveLength(0) // drained
+        // First user message + assistant(tool_use) + toolResult + drained user + assistant(final)
         const userMsgs = session!.conversation.filter((m) => m.role === 'user')
-        // First message + tool_result (ask parking) + second message
-        const userTexts = userMsgs
-            .map((m) =>
-                typeof m.content === 'string' ? m.content : ((m.content as Array<{ text?: string }>)[0]?.text ?? '')
-            )
-            .filter(Boolean)
+        const userTexts = userMsgs.map((m) => (typeof m.content === 'string' ? m.content : ''))
         expect(userTexts).toContain('first')
         expect(userTexts).toContain('second')
     })

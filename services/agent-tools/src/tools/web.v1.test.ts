@@ -10,7 +10,7 @@ describe('web.fetch.v1', () => {
     })
 
     it('returns status, body, content_type', async () => {
-        global.fetch = jest.fn(async () => ({
+        global.fetch = vi.fn(async () => ({
             ok: true,
             status: 200,
             text: async () => '<html></html>',
@@ -24,7 +24,7 @@ describe('web.fetch.v1', () => {
 
     it('truncates body to max_bytes', async () => {
         const big = 'x'.repeat(10_000)
-        global.fetch = jest.fn(async () => ({
+        global.fetch = vi.fn(async () => ({
             ok: true,
             status: 200,
             text: async () => big,

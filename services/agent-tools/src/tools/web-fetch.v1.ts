@@ -1,25 +1,22 @@
-import { z } from 'zod'
-
-import { defineNativeTool } from '@posthog/agent-shared-v2'
-
-const URL_SCHEMA = z.string().url()
+import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 
 export const webFetchV1 = defineNativeTool({
     id: 'web.fetch.v1',
     description: "GET a URL and return its body. Only domains in the agent's spec.web_fetch_allowlist are permitted.",
-    args: z.object({
-        url: URL_SCHEMA,
-        max_bytes: z.number().int().positive().max(5_000_000).default(1_000_000),
+    args: Type.Object({
+        url: Type.String({ format: 'uri' }),
+        max_bytes: Type.Optional(Type.Integer({ minimum: 1, maximum: 5_000_000, default: 1_000_000 })),
     }),
-    returns: z.object({
-        status: z.number(),
-        body: z.string(),
-        content_type: z.string(),
-        url: z.string(),
+    returns: Type.Object({
+        status: Type.Number(),
+        body: Type.String(),
+        content_type: Type.String(),
+        url: Type.String(),
     }),
     requires: { integrations: [], scopes: ['web:fetch'] },
     cost_hint: 'medium',
     async run(args, ctx) {
+        const maxBytes = args.max_bytes ?? 1_000_000
         const allowlist = ((): string[] => {
             // The runner is expected to project spec.tools.web_fetch.allowlist into ctx
             // via a global context bag; for v1 the bag isn't wired so we permit anything,
@@ -35,7 +32,7 @@ export const webFetchV1 = defineNativeTool({
         const text = await res.text()
         return {
             status: res.status,
-            body: text.length > args.max_bytes ? text.slice(0, args.max_bytes) : text,
+            body: text.length > maxBytes ? text.slice(0, maxBytes) : text,
             content_type: res.headers.get('content-type') ?? '',
             url: args.url,
         }

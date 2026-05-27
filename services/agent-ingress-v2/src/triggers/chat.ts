@@ -53,7 +53,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 application: resolved.application,
                 revision: resolved.revision,
                 externalKey,
-                seed: { role: 'user', content: message },
+                seed: { role: 'user', content: message, timestamp: Date.now() },
             }
         )
         res.json({ ok: true, session_id: sessionId, resumed: isResume, principal: auth.principal })
@@ -75,7 +75,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             res.status(410).json({ error: 'session_terminal', state: existing.state })
             return
         }
-        await deps.queue.appendMessage(sessionId, { role: 'user', content: message })
+        await deps.queue.appendPendingInput(sessionId, { role: 'user', content: message, timestamp: Date.now() })
         await deps.queue.update(sessionId, { state: 'queued' })
         res.json({ ok: true })
     })

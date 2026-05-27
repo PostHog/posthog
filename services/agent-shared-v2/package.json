@@ -5,27 +5,29 @@
     "description": "Shared types and contracts for the agent platform v2 (spec, bundle store, sandbox).",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
     "scripts": {
-        "build": "pnpm clean && tsc -b",
-        "clean": "rm -rf dist",
         "typescript:check": "tsc --noEmit -p .",
-        "test": "jest --runInBand --forceExit"
+        "test": "vitest run"
     },
     "dependencies": {
+        "@earendil-works/pi-ai": "^0.76.0",
         "pg": "^8.6.0",
+        "typebox": "^1.1.38",
         "uuid": "^10.0.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {
-        "@types/jest": "catalog:",
         "@types/node": "catalog:",
         "@types/pg": "^8.6.0",
         "@types/uuid": "^10.0.0",
-        "jest": "catalog:",
-        "ts-jest": "^29.1.0",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "vitest": "^2.1.9"
     },
     "engines": {
         "node": ">=24 <25"

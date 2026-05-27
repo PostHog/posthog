@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS agent_session_v2 (
     external_key    TEXT,
     state           TEXT NOT NULL DEFAULT 'queued',
     conversation    JSONB NOT NULL DEFAULT '[]'::jsonb,
+    pending_inputs  JSONB NOT NULL DEFAULT '[]'::jsonb,
     claimed_at      TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()

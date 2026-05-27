@@ -8,6 +8,8 @@
  * Outcome.kind to suspend or terminate the session.
  */
 
+import { Value } from 'typebox/value'
+
 import { AgentRevision, IntegrationCredentials, Sandbox, ToolRef } from '@posthog/agent-shared-v2'
 import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
 
@@ -61,11 +63,14 @@ export async function dispatchTool(
         return { kind: 'ok', result: r.result }
     }
 
-    // native
+    // native — validate via TypeBox, run in-process.
     const native = getNativeTool(toolName)
+    if (!Value.Check(native.schema.args, args)) {
+        const first = [...Value.Errors(native.schema.args, args)][0]
+        return { kind: 'error', message: first?.message ?? 'invalid args' }
+    }
     try {
-        const parsed = native.schema.args.parse(args)
-        const result = await native.run(parsed, {
+        const result = await native.run(args, {
             teamId: input.teamId,
             sessionId: input.sessionId,
             integrations: input.integrations,

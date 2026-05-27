@@ -7,7 +7,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 describe('webhook trigger: real e2e', () => {
     let c: Cluster
@@ -25,7 +25,8 @@ describe('webhook trigger: real e2e', () => {
     })
 
     it('creates a session with the JSON body as content', async () => {
-        await c.deployAgent({ slug: 'wh', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('ack')])
+        await c.deployAgent({ slug: 'wh', spec: {} })
         const res = await request(c.ingress)
             .post('/agents/wh/webhook')
             .send({ payload: { account: 'acme' } })
@@ -37,7 +38,7 @@ describe('webhook trigger: real e2e', () => {
     })
 
     it('x-external-key header is used for dedupe', async () => {
-        await c.deployAgent({ slug: 'wh2', spec: { model: 'mock-echo' } })
+        await c.deployAgent({ slug: 'wh2', spec: {} })
         const a = await request(c.ingress).post('/agents/wh2/webhook').set('x-external-key', 'k-1').send({ a: 1 })
         const b = await request(c.ingress).post('/agents/wh2/webhook').set('x-external-key', 'k-1').send({ a: 2 })
         // First creates fresh, second resumes (since first is still queued/running)
@@ -88,7 +89,8 @@ describe('per-agent MCP transport: real e2e', () => {
     })
 
     it('tools/call name=chat enqueues a session and returns its id', async () => {
-        await c.deployAgent({ slug: 'callee', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('mcp ack')])
+        await c.deployAgent({ slug: 'callee', spec: {} })
         const res = await request(c.ingress)
             .post('/agents/callee/mcp')
             .send({

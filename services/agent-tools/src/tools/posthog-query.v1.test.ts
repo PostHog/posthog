@@ -1,3 +1,5 @@
+import { Value } from 'typebox/value'
+
 import { setPosthogInternalClient } from '../posthog-client'
 import { makeCapturingCtx } from '../test-helpers'
 import { posthogQueryV1 } from './posthog-query.v1'
@@ -21,8 +23,8 @@ describe('posthog.query.v1', () => {
         expect(logs[0].msg).toBe('hogql.executed')
     })
 
-    it('validates args via schema', () => {
-        expect(() => posthogQueryV1.schema.args.parse({ query: '' })).toThrow()
-        expect(posthogQueryV1.schema.args.parse({ query: 'select 1' })).toEqual({ query: 'select 1' })
+    it('validates args via TypeBox schema', () => {
+        expect(Value.Check(posthogQueryV1.schema.args, { query: '' })).toBe(false)
+        expect(Value.Check(posthogQueryV1.schema.args, { query: 'select 1' })).toBe(true)
     })
 })

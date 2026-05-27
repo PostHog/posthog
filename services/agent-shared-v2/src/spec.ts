@@ -145,19 +145,89 @@ export interface AgentSession {
     team_id: number
     external_key: string | null
     state: 'queued' | 'running' | 'waiting' | 'completed' | 'failed'
+    /**
+     * The active conversation history. Built up turn-by-turn. Uses pi-ai's
+     * Message shape verbatim so the runner can hand it straight to `complete()`.
+     */
     conversation: ConversationMessage[]
+    /**
+     * Inputs that arrived while a turn was in flight. The runner drains this
+     * into `conversation` at the start of the next turn. Lets `/send` calls
+     * during a running turn be durable without contending on the active
+     * conversation list. See docs/native-refactor.md (queued-followups).
+     */
+    pending_inputs: ConversationMessage[]
     created_at: string
     updated_at: string
 }
 
-export type ConversationMessage =
-    | { role: 'user'; content: string | UserContentBlock[] }
-    | { role: 'assistant'; content: AssistantContentBlock[] }
+/**
+ * One message in a session's conversation. Structurally identical to pi-ai's
+ * `Message` so the runner can pass `conversation` directly as
+ * `Context.messages`. We re-declare it (rather than `import type`) to keep
+ * agent-shared-v2 free of a forced dependency on pi-ai at the import site.
+ */
+export type ConversationMessage = UserMessage | AssistantMessageRecord | ToolResultMessage
 
-export type UserContentBlock =
-    | { type: 'text'; text: string }
-    | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+export interface UserMessage {
+    role: 'user'
+    content: string | (TextContent | ImageContent)[]
+    timestamp: number
+}
 
-export type AssistantContentBlock =
-    | { type: 'text'; text: string }
-    | { type: 'tool_use'; id: string; name: string; input: unknown }
+/**
+ * Renamed to AssistantMessageRecord to avoid colliding with pi-ai's exported
+ * AssistantMessage type when consumers re-export both.
+ */
+export interface AssistantMessageRecord {
+    role: 'assistant'
+    content: (TextContent | ThinkingContent | ToolCall)[]
+    api?: string
+    provider?: string
+    model?: string
+    usage?: {
+        input: number
+        output: number
+        cacheRead?: number
+        cacheWrite?: number
+        totalTokens?: number
+        cost?: { input?: number; output?: number; total?: number }
+    }
+    stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
+    errorMessage?: string
+    timestamp: number
+}
+
+export interface ToolResultMessage {
+    role: 'toolResult'
+    toolCallId: string
+    toolName: string
+    content: (TextContent | ImageContent)[]
+    isError: boolean
+    timestamp: number
+}
+
+export interface TextContent {
+    type: 'text'
+    text: string
+}
+
+export interface ImageContent {
+    type: 'image'
+    data: string
+    mimeType: string
+}
+
+export interface ThinkingContent {
+    type: 'thinking'
+    thinking: string
+    thinkingSignature?: string
+    redacted?: boolean
+}
+
+export interface ToolCall {
+    type: 'toolCall'
+    id: string
+    name: string
+    arguments: Record<string, unknown>
+}

@@ -72,10 +72,10 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.status).toBe(200)
         expect(res.body.session_id).not.toBeUndefined()
         const session = await queue.get(res.body.session_id)
-        expect(session!.conversation[0]).toEqual({ role: 'user', content: 'hi' })
+        expect(session!.conversation[0]).toMatchObject({ role: 'user', content: 'hi' })
     })
 
-    it('POST /send appends to an existing session', async () => {
+    it('POST /send buffers into pending_inputs (drained by runner at next turn)', async () => {
         const { revisions, queue, app } = mk()
         await seedApp(revisions, 'x')
         const createRes = await request(app).post('/agents/x/run').send({ message: 'first' })
@@ -83,7 +83,8 @@ describe('ingress HTTP server (path mode)', () => {
         const sendRes = await request(app).post('/agents/x/send').send({ session_id: sid, message: 'second' })
         expect(sendRes.status).toBe(200)
         const session = await queue.get(sid)
-        expect(session!.conversation).toHaveLength(2)
+        expect(session!.conversation).toHaveLength(1)
+        expect(session!.pending_inputs).toHaveLength(1)
     })
 
     it('POST /slack/events handles url_verification challenge', async () => {
@@ -114,7 +115,10 @@ describe('ingress HTTP server (path mode)', () => {
         expect(second.body.resumed).toBe(true)
         expect(second.body.session_id).toBe(first.body.session_id)
         const session = await queue.get(first.body.session_id)
-        expect(session!.conversation).toHaveLength(2)
+        // First message lands in conversation (fresh session). Second goes
+        // into pending_inputs (resume of a still-live session).
+        expect(session!.conversation).toHaveLength(1)
+        expect(session!.pending_inputs).toHaveLength(1)
     })
 
     it('POST /webhook creates a session with body as content', async () => {

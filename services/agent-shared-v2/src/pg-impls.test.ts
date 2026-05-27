@@ -129,7 +129,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 team_id: 1,
                 external_key: null,
                 state: 'queued',
-                conversation: [{ role: 'user', content: `msg ${i}` }],
+                conversation: [{ role: 'user', content: `msg ${i}`, timestamp: Date.now() }],
+                pending_inputs: [],
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -144,7 +145,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(a!.state).toBe('running')
     })
 
-    it('PgSessionQueue appendMessage appends to conversation JSONB', async () => {
+    it('PgSessionQueue appendPendingInput buffers into pending_inputs JSONB', async () => {
         if (!reachable) {
             return
         }
@@ -164,14 +165,20 @@ maybeDescribe('Postgres impls (real PG)', () => {
             revision_id: rev.id,
             team_id: 1,
             external_key: 'ext-1',
-            state: 'queued',
-            conversation: [{ role: 'user', content: 'first' }],
+            state: 'running',
+            conversation: [{ role: 'user', content: 'first', timestamp: Date.now() }],
+            pending_inputs: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
-        await queue.appendMessage('11111111-1111-1111-1111-111111111111', { role: 'user', content: 'second' })
+        await queue.appendPendingInput('11111111-1111-1111-1111-111111111111', {
+            role: 'user',
+            content: 'second',
+            timestamp: Date.now(),
+        })
         const after = await queue.get('11111111-1111-1111-1111-111111111111')
-        expect(after!.conversation).toHaveLength(2)
+        expect(after!.conversation).toHaveLength(1)
+        expect(after!.pending_inputs).toHaveLength(1)
     })
 
     it('findByExternalKey resolves on (application_id, external_key)', async () => {
@@ -196,6 +203,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             external_key: 'slack:C01:T1',
             state: 'queued',
             conversation: [],
+            pending_inputs: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })

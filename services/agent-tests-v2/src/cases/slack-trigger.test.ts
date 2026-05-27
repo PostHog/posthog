@@ -20,7 +20,7 @@
 import { createHmac } from 'crypto'
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 function slackEvent(opts: {
     channel?: string
@@ -76,7 +76,8 @@ describe('slack trigger: real e2e', () => {
     })
 
     it('thread_ts dedupe: second mention in same thread resumes existing session', async () => {
-        await c.deployAgent({ slug: 'thready', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('first reply'), fauxText('second reply')])
+        await c.deployAgent({ slug: 'thready', spec: {} })
         const first = await request(c.ingress)
             .post('/agents/thready/slack/events')
             .send(slackEvent({ ts: '1', thread_ts: '1', text: 'first' }))
@@ -90,13 +91,14 @@ describe('slack trigger: real e2e', () => {
 
         await c.drain()
         const session = await c.queue.get(first.body.session_id)
-        // 2 user messages appended pre-drain
+        // First message in conversation, second was queued into pending_inputs
+        // and then drained by the next turn.
         const userMsgs = session!.conversation.filter((m) => m.role === 'user')
         expect(userMsgs.length).toBe(2)
     })
 
     it('distinct threads create distinct sessions', async () => {
-        await c.deployAgent({ slug: 'distinct', spec: { model: 'mock-echo' } })
+        await c.deployAgent({ slug: 'distinct', spec: {} })
         const a = await request(c.ingress)
             .post('/agents/distinct/slack/events')
             .send(slackEvent({ ts: '1', thread_ts: '1', text: 'thread a' }))
@@ -116,7 +118,8 @@ describe('slack trigger: real e2e', () => {
     })
 
     it('completed thread starts a fresh session on the next mention', async () => {
-        await c.deployAgent({ slug: 'freshish', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('done')])
+        await c.deployAgent({ slug: 'freshish', spec: {} })
         const first = await request(c.ingress)
             .post('/agents/freshish/slack/events')
             .send(slackEvent({ ts: '1', thread_ts: '1', text: 'first' }))

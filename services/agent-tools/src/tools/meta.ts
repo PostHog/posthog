@@ -7,17 +7,15 @@
  *   - emit_event     → emit a structured event into the team's event stream
  */
 
-import { z } from 'zod'
-
-import { defineNativeTool } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 
 export const askForInputTool = defineNativeTool({
     id: 'meta.ask_for_input.v1',
     description: 'Suspend the agent and ask the user for input. The session resumes when the user replies.',
-    args: z.object({
-        prompt: z.string().describe('The question to ask the user.'),
+    args: Type.Object({
+        prompt: Type.String({ description: 'The question to ask the user.' }),
     }),
-    returns: z.object({ suspended: z.literal(true) }),
+    returns: Type.Object({ suspended: Type.Literal(true) }),
     requires: { integrations: [], scopes: [] },
     cost_hint: 'cheap',
     async run(_args, _ctx) {
@@ -29,10 +27,10 @@ export const askForInputTool = defineNativeTool({
 export const endSessionTool = defineNativeTool({
     id: 'meta.end_session.v1',
     description: 'End the agent session. Optionally include a final summary.',
-    args: z.object({
-        summary: z.string().optional(),
+    args: Type.Object({
+        summary: Type.Optional(Type.String()),
     }),
-    returns: z.object({ ended: z.literal(true) }),
+    returns: Type.Object({ ended: Type.Literal(true) }),
     requires: { integrations: [], scopes: [] },
     cost_hint: 'cheap',
     async run(_args, _ctx) {
@@ -43,12 +41,12 @@ export const endSessionTool = defineNativeTool({
 export const emitEventTool = defineNativeTool({
     id: 'meta.emit_event.v1',
     description: "Emit a structured event into the team's PostHog project.",
-    args: z.object({
-        event: z.string(),
-        distinct_id: z.string(),
-        properties: z.record(z.string(), z.unknown()).default({}),
+    args: Type.Object({
+        event: Type.String(),
+        distinct_id: Type.String(),
+        properties: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     }),
-    returns: z.object({ emitted: z.literal(true) }),
+    returns: Type.Object({ emitted: Type.Literal(true) }),
     requires: { integrations: [], scopes: ['events:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {

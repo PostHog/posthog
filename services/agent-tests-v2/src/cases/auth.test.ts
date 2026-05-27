@@ -52,7 +52,7 @@ describe('trigger auth: real e2e', () => {
 
     describe('public', () => {
         it('enqueues without auth, principal is anonymous', async () => {
-            await c.deployAgent({ slug: 'pub', spec: { model: 'mock-echo', auth: { mode: 'public' } } })
+            await c.deployAgent({ slug: 'pub', spec: { auth: { mode: 'public' } } })
             const res = await request(c.ingress).post('/agents/pub/run').send({ message: 'x' })
             expect(res.status).toBe(200)
             expect(res.body.principal).toEqual({ kind: 'anonymous' })
@@ -61,7 +61,7 @@ describe('trigger auth: real e2e', () => {
 
     describe('pat', () => {
         it('happy: valid bearer → 200 + service principal', async () => {
-            await c.deployAgent({ slug: 'p1', spec: { model: 'mock-echo', auth: { mode: 'pat' } } })
+            await c.deployAgent({ slug: 'p1', spec: { auth: { mode: 'pat' } } })
             const res = await request(c.ingress)
                 .post('/agents/p1/run')
                 .set('authorization', `Bearer ${KNOWN_PAT}`)
@@ -71,7 +71,7 @@ describe('trigger auth: real e2e', () => {
         })
 
         it('wrong token → 401', async () => {
-            await c.deployAgent({ slug: 'p2', spec: { model: 'mock-echo', auth: { mode: 'pat' } } })
+            await c.deployAgent({ slug: 'p2', spec: { auth: { mode: 'pat' } } })
             const res = await request(c.ingress)
                 .post('/agents/p2/run')
                 .set('authorization', 'Bearer wrong-token')
@@ -80,7 +80,7 @@ describe('trigger auth: real e2e', () => {
         })
 
         it('missing header → 401', async () => {
-            await c.deployAgent({ slug: 'p3', spec: { model: 'mock-echo', auth: { mode: 'pat' } } })
+            await c.deployAgent({ slug: 'p3', spec: { auth: { mode: 'pat' } } })
             const res = await request(c.ingress).post('/agents/p3/run').send({ message: 'x' })
             expect(res.status).toBe(401)
         })
@@ -88,7 +88,7 @@ describe('trigger auth: real e2e', () => {
 
     describe('posthog_internal', () => {
         it('happy: matching internal header → 200 + internal principal', async () => {
-            await c.deployAgent({ slug: 'i1', spec: { model: 'mock-echo', auth: { mode: 'posthog_internal' } } })
+            await c.deployAgent({ slug: 'i1', spec: { auth: { mode: 'posthog_internal' } } })
             const res = await request(c.ingress)
                 .post('/agents/i1/run')
                 .set('x-posthog-internal', KNOWN_INTERNAL_SECRET)
@@ -98,13 +98,13 @@ describe('trigger auth: real e2e', () => {
         })
 
         it('missing internal header → 403', async () => {
-            await c.deployAgent({ slug: 'i2', spec: { model: 'mock-echo', auth: { mode: 'posthog_internal' } } })
+            await c.deployAgent({ slug: 'i2', spec: { auth: { mode: 'posthog_internal' } } })
             const res = await request(c.ingress).post('/agents/i2/run').send({ message: 'x' })
             expect(res.status).toBe(403)
         })
 
         it('wrong internal header value → 403', async () => {
-            await c.deployAgent({ slug: 'i3', spec: { model: 'mock-echo', auth: { mode: 'posthog_internal' } } })
+            await c.deployAgent({ slug: 'i3', spec: { auth: { mode: 'posthog_internal' } } })
             const res = await request(c.ingress)
                 .post('/agents/i3/run')
                 .set('x-posthog-internal', 'wrong')
@@ -117,7 +117,7 @@ describe('trigger auth: real e2e', () => {
         it('happy: matching header value → 200 + shared_secret principal', async () => {
             await c.deployAgent({
                 slug: 's1',
-                spec: { model: 'mock-echo', auth: { mode: 'shared_secret', header: 'x-acme-secret' } },
+                spec: { auth: { mode: 'shared_secret', header: 'x-acme-secret' } },
             })
             const res = await request(c.ingress)
                 .post('/agents/s1/run')
@@ -130,7 +130,7 @@ describe('trigger auth: real e2e', () => {
         it('wrong header value → 401', async () => {
             await c.deployAgent({
                 slug: 's2',
-                spec: { model: 'mock-echo', auth: { mode: 'shared_secret', header: 'x-acme-secret' } },
+                spec: { auth: { mode: 'shared_secret', header: 'x-acme-secret' } },
             })
             const res = await request(c.ingress)
                 .post('/agents/s2/run')
@@ -142,7 +142,7 @@ describe('trigger auth: real e2e', () => {
         it('missing header → 401', async () => {
             await c.deployAgent({
                 slug: 's3',
-                spec: { model: 'mock-echo', auth: { mode: 'shared_secret', header: 'x-acme-secret' } },
+                spec: { auth: { mode: 'shared_secret', header: 'x-acme-secret' } },
             })
             const res = await request(c.ingress).post('/agents/s3/run').send({ message: 'x' })
             expect(res.status).toBe(401)

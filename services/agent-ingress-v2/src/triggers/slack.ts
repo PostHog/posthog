@@ -56,7 +56,7 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 application: resolved.application,
                 revision: resolved.revision,
                 externalKey,
-                seed: { role: 'user', content: event.text ?? '' },
+                seed: { role: 'user', content: event.text ?? '', timestamp: Date.now() },
             }
         )
         res.json({ ok: true, session_id: sessionId, resumed: isResume })

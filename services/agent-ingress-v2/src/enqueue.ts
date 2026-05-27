@@ -4,9 +4,10 @@
  * externalKey for dedupe.
  *
  * externalKey rule: if an existing session for (application, externalKey)
- * exists and is not in a terminal state, append the new message to it and
- * re-enqueue. Otherwise create a fresh session. This is what makes Slack
- * thread-anchored conversations work.
+ * exists and is not in a terminal state, append the new message to its
+ * `pending_inputs` queue and re-enqueue. The runner drains pending_inputs at
+ * the start of its next turn — so this works whether the session is currently
+ * queued, running (in-flight), or waiting (parked).
  */
 
 import { randomUUID } from 'crypto'
@@ -34,7 +35,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
     if (input.externalKey) {
         const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
         if (existing && existing.state !== 'completed' && existing.state !== 'failed') {
-            await deps.queue.appendMessage(existing.id, input.seed)
+            await deps.queue.appendPendingInput(existing.id, input.seed)
             await deps.queue.update(existing.id, { state: 'queued' })
             return { sessionId: existing.id, isResume: true }
         }
@@ -47,6 +48,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         external_key: input.externalKey,
         state: 'queued' as const,
         conversation: [input.seed],
+        pending_inputs: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }

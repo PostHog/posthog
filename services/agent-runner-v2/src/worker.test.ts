@@ -9,7 +9,7 @@ import {
 } from '@posthog/agent-shared-v2'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { endTurn, MockPiClient, toolUseTurn } from './pi-client'
+import { endTurn, FauxPiClient, toolCall, toolUseTurn } from './faux-pi-client'
 import { Worker } from './worker'
 
 describe('Worker', () => {
@@ -35,7 +35,7 @@ describe('Worker', () => {
             parent_revision_id: null,
             created_by: 'u',
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'claude-opus-4-7' }),
+            spec: AgentSpecSchema.parse({ model: 'faux/test' }),
         })
         await bundle.write(rev.id, 'agent.md', 'you are a bot')
 
@@ -46,7 +46,8 @@ describe('Worker', () => {
             team_id: 1,
             external_key: null,
             state: 'queued',
-            conversation: [{ role: 'user', content: 'hello' }],
+            conversation: [{ role: 'user', content: 'hello', timestamp: Date.now() }],
+            pending_inputs: [],
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -57,7 +58,7 @@ describe('Worker', () => {
             revisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
-            pi: new MockPiClient([endTurn('hi back')]),
+            pi: new FauxPiClient([endTurn('hi back')]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
@@ -86,7 +87,7 @@ describe('Worker', () => {
             created_by: 'u',
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'faux/test',
                 tools: [{ kind: 'custom', id: 'noop', path: 'tools/noop/' }],
             }),
         })
@@ -101,7 +102,8 @@ describe('Worker', () => {
             team_id: 1,
             external_key: null,
             state: 'queued',
-            conversation: [{ role: 'user', content: 'hi' }],
+            conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+            pending_inputs: [],
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -113,10 +115,7 @@ describe('Worker', () => {
             revisions,
             bundle,
             sandboxes: pool,
-            pi: new MockPiClient([
-                toolUseTurn([{ type: 'tool_use', id: 'x', name: 'noop', input: {} }]),
-                endTurn('done'),
-            ]),
+            pi: new FauxPiClient([toolUseTurn([toolCall('noop', {})]), endTurn('done')]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({ ACME_KEY: 'topsecret' }),
@@ -125,5 +124,63 @@ describe('Worker', () => {
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
         const after = await queue.get('sess2')
         expect(after!.state).toBe('completed')
+    })
+
+    it('shutdown signal re-queues an in-flight session as queued for handoff', async () => {
+        const revisions = new MemoryRevisionStore()
+        const bundle = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+
+        const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by: 'u',
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({
+                model: 'faux/test',
+                tools: [{ kind: 'native', id: 'posthog.query.v1' }],
+            }),
+        })
+        await bundle.write(rev.id, 'agent.md', 'x')
+
+        const session: AgentSession = {
+            id: 'sess3',
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            state: 'queued',
+            conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+            pending_inputs: [],
+            created_at: '2026-05-27',
+            updated_at: '2026-05-27',
+        }
+        await queue.enqueue(session)
+
+        const worker = new Worker({
+            queue,
+            revisions,
+            bundle,
+            sandboxes: new InProcessSandboxPool(),
+            pi: new FauxPiClient([
+                (() => {
+                    // Signal shutdown after the first turn so the next iteration sees it.
+                    queueMicrotask(() => void worker.stop())
+                    return toolUseTurn([toolCall('posthog.query.v1', { query: 'x' })])
+                }) as never,
+                endTurn('never reaches here'),
+            ]),
+            broker: new SecretBroker(),
+            resolveIntegrations: async () => ({}),
+            resolveSecrets: async () => ({}),
+        })
+
+        await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
+        const after = await queue.get('sess3')
+        // After shutdown mid-loop, session is re-queued for sibling pickup.
+        expect(after!.state).toBe('queued')
+        // Conversation persists across the handoff.
+        expect(after!.conversation.length).toBeGreaterThan(1)
     })
 })

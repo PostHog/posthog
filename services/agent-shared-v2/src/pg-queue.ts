@@ -3,8 +3,9 @@
  * Each row in `agent_session_v2` IS the queue entry; state transitions drive
  * lifecycle.
  *
- * The runner subprocess and the test process share the same table — claims
- * are at PG transaction granularity, so concurrent workers are safe.
+ * pending_inputs is a separate JSONB column from conversation so /send during
+ * an in-flight turn doesn't race with the runner writing conversation back.
+ * The runner drains pending_inputs into conversation at turn start atomically.
  */
 
 import type { Pool, PoolClient } from 'pg'
@@ -12,17 +13,22 @@ import type { Pool, PoolClient } from 'pg'
 import { SessionQueue } from './queue'
 import { AgentSession, ConversationMessage } from './spec'
 
+const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
+                     conversation, pending_inputs, created_at, updated_at`
+
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
 
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
             `INSERT INTO agent_session_v2
-                (id, application_id, revision_id, team_id, external_key, state, conversation, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+                (id, application_id, revision_id, team_id, external_key, state,
+                 conversation, pending_inputs, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
+                pending_inputs = EXCLUDED.pending_inputs,
                 updated_at = EXCLUDED.updated_at`,
             [
                 session.id,
@@ -32,6 +38,7 @@ export class PgSessionQueue implements SessionQueue {
                 session.external_key,
                 session.state,
                 JSON.stringify(session.conversation),
+                JSON.stringify(session.pending_inputs),
                 session.created_at,
                 session.updated_at,
             ]
@@ -54,19 +61,8 @@ export class PgSessionQueue implements SessionQueue {
         const client: PoolClient = await this.pool.connect()
         try {
             await client.query('BEGIN')
-            const sel = await client.query<{
-                id: string
-                application_id: string
-                revision_id: string
-                team_id: number
-                external_key: string | null
-                state: string
-                conversation: unknown
-                created_at: Date
-                updated_at: Date
-            }>(
-                `SELECT id, application_id, revision_id, team_id, external_key, state,
-                        conversation, created_at, updated_at
+            const sel = await client.query<DbRow>(
+                `SELECT ${SELECT_COLS}
                  FROM agent_session_v2
                  WHERE state = 'queued'
                  ORDER BY created_at ASC
@@ -105,6 +101,10 @@ export class PgSessionQueue implements SessionQueue {
             sets.push(`conversation = $${i++}::jsonb`)
             params.push(JSON.stringify(patch.conversation))
         }
+        if (patch.pending_inputs !== undefined) {
+            sets.push(`pending_inputs = $${i++}::jsonb`)
+            params.push(JSON.stringify(patch.pending_inputs))
+        }
         if (patch.external_key !== undefined) {
             sets.push(`external_key = $${i++}`)
             params.push(patch.external_key)
@@ -112,7 +112,17 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(`UPDATE agent_session_v2 SET ${sets.join(', ')} WHERE id = $1`, params)
     }
 
-    async appendMessage(sessionId: string, msg: ConversationMessage): Promise<void> {
+    async appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void> {
+        await this.pool.query(
+            `UPDATE agent_session_v2
+             SET pending_inputs = pending_inputs || $2::jsonb,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [sessionId, JSON.stringify([msg])]
+        )
+    }
+
+    async appendConversation(sessionId: string, msg: ConversationMessage): Promise<void> {
         await this.pool.query(
             `UPDATE agent_session_v2
              SET conversation = conversation || $2::jsonb,
@@ -123,11 +133,7 @@ export class PgSessionQueue implements SessionQueue {
     }
 
     async get(sessionId: string): Promise<AgentSession | null> {
-        const r = await this.pool.query(
-            `SELECT id, application_id, revision_id, team_id, external_key, state, conversation, created_at, updated_at
-             FROM agent_session_v2 WHERE id = $1`,
-            [sessionId]
-        )
+        const r = await this.pool.query<DbRow>(`SELECT ${SELECT_COLS} FROM agent_session_v2 WHERE id = $1`, [sessionId])
         if (r.rowCount === 0) {
             return null
         }
@@ -135,9 +141,8 @@ export class PgSessionQueue implements SessionQueue {
     }
 
     async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
-        // Return the most recently updated live one, if any.
-        const r = await this.pool.query(
-            `SELECT id, application_id, revision_id, team_id, external_key, state, conversation, created_at, updated_at
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
              FROM agent_session_v2
              WHERE application_id = $1 AND external_key = $2
              ORDER BY updated_at DESC
@@ -152,8 +157,8 @@ export class PgSessionQueue implements SessionQueue {
 
     /** Test helper — list all sessions for a given application. */
     async listForApplication(applicationId: string): Promise<AgentSession[]> {
-        const r = await this.pool.query(
-            `SELECT id, application_id, revision_id, team_id, external_key, state, conversation, created_at, updated_at
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
              FROM agent_session_v2
              WHERE application_id = $1
              ORDER BY created_at ASC`,
@@ -163,7 +168,7 @@ export class PgSessionQueue implements SessionQueue {
     }
 }
 
-function rowToSession(row: {
+interface DbRow {
     id: string
     application_id: string
     revision_id: string
@@ -171,9 +176,12 @@ function rowToSession(row: {
     external_key: string | null
     state: string
     conversation: unknown
+    pending_inputs: unknown
     created_at: Date
     updated_at: Date
-}): AgentSession {
+}
+
+function rowToSession(row: DbRow): AgentSession {
     return {
         id: row.id,
         application_id: row.application_id,
@@ -182,6 +190,7 @@ function rowToSession(row: {
         external_key: row.external_key,
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
+        pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }

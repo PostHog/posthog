@@ -1,111 +1,74 @@
 /**
- * pi.dev wire interface. The runner depends on this shape, not on a vendor
- * SDK. Two impls below: HttpPiClient (prod, hits pi.dev) and MockPiClient
- * (tests, returns canned responses).
+ * PiClient — the runner's LLM-invocation surface. Backed by `@earendil-works/pi-ai`,
+ * the unified TS SDK that handles Anthropic / OpenAI / Bedrock / Google / Mistral
+ * / any OpenAI-compatible endpoint (which includes PostHog's llm-gateway).
+ *
+ * The runner never knows which provider it actually hit — model selection
+ * happens here, in `resolveModel()`, based on `spec.model` from the revision.
+ *
+ * Test paths register the faux provider and supply a `faux/<id>` model spec.
+ * Real-inference paths use the real provider id (`anthropic/claude-sonnet-4-7`,
+ * `openai/gpt-4o-mini`, etc.) — same code path, different model.
  */
 
-export interface PiInvokeRequest {
-    model: string
-    system: string
-    tools: PiToolDeclaration[]
-    messages: PiMessage[]
-    /** Maximum tokens the model may emit. */
-    max_tokens?: number
-}
-
-export interface PiToolDeclaration {
-    name: string
-    description: string
-    input_schema: Record<string, unknown>
-}
-
-export type PiMessage =
-    | { role: 'user'; content: string | PiUserContentBlock[] }
-    | { role: 'assistant'; content: PiAssistantContentBlock[] }
-
-export type PiUserContentBlock =
-    | { type: 'text'; text: string }
-    | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
-
-export type PiAssistantContentBlock =
-    | { type: 'text'; text: string }
-    | { type: 'tool_use'; id: string; name: string; input: unknown }
-
-export interface PiInvokeResponse {
-    /** "end_turn" → assistant finished cleanly; "tool_use" → it called tools; "max_tokens" → cut off. */
-    stop_reason: 'end_turn' | 'tool_use' | 'max_tokens' | 'error'
-    content: PiAssistantContentBlock[]
-    usage: { input_tokens: number; output_tokens: number }
-}
+import {
+    AssistantMessage,
+    complete,
+    Context,
+    getModel,
+    KnownProvider,
+    Model,
+    ProviderStreamOptions,
+} from '@earendil-works/pi-ai'
 
 export interface PiClient {
-    invoke(req: PiInvokeRequest): Promise<PiInvokeResponse>
+    /**
+     * Run one assistant turn against the given context. Returns the raw
+     * AssistantMessage from pi-ai — the runner pushes it into the conversation
+     * and inspects `content[]` for `toolCall` blocks.
+     */
+    invoke(context: Context, opts?: InvokeOpts): Promise<AssistantMessage>
 }
 
-/* -------------------------------------------------------------------------- */
+export interface InvokeOpts {
+    maxTokens?: number
+    temperature?: number
+    /** Cancel the in-flight request (used for shutdown). */
+    signal?: AbortSignal
+}
 
-export class HttpPiClient implements PiClient {
-    private readonly baseUrl: string
-    private readonly apiKey: string
+/** Production impl. Backed by pi-ai's `complete()`. */
+export class PiAiClient implements PiClient {
+    constructor(
+        private readonly model: Model<string>,
+        private readonly apiKey?: string
+    ) {}
 
-    constructor(opts: { baseUrl?: string; apiKey: string }) {
-        this.baseUrl = opts.baseUrl ?? 'https://api.pi.dev'
-        this.apiKey = opts.apiKey
-    }
-
-    async invoke(req: PiInvokeRequest): Promise<PiInvokeResponse> {
-        const res = await fetch(`${this.baseUrl}/v1/invoke`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${this.apiKey}`,
-            },
-            body: JSON.stringify(req),
-        })
-        if (!res.ok) {
-            throw new Error(`pi.dev HTTP ${res.status}: ${await res.text()}`)
+    async invoke(context: Context, opts?: InvokeOpts): Promise<AssistantMessage> {
+        const streamOpts: ProviderStreamOptions = {
+            apiKey: this.apiKey,
+            maxTokens: opts?.maxTokens,
+            temperature: opts?.temperature,
+            signal: opts?.signal,
         }
-        return (await res.json()) as PiInvokeResponse
+        return complete(this.model, context, streamOpts)
     }
 }
 
-/* -------------------------------------------------------------------------- */
-
-export type MockResponder = (req: PiInvokeRequest) => PiInvokeResponse | Promise<PiInvokeResponse>
-
-export class MockPiClient implements PiClient {
-    private readonly responses: MockResponder[]
-    public readonly calls: PiInvokeRequest[] = []
-    private idx = 0
-
-    constructor(responses: Array<PiInvokeResponse | MockResponder>) {
-        this.responses = responses.map((r) => (typeof r === 'function' ? r : () => r))
+/**
+ * Resolve a spec.model string to a pi-ai `Model`. Format:
+ *   "<provider>/<model-id>"           — built-in pi-ai providers
+ *   "faux/<model-id>"                 — scripted faux model (tests register first)
+ *
+ * For custom endpoints (llm-gateway, Ollama, etc.) callers build the Model
+ * directly and skip this helper — see `llm-gateway-model.ts`.
+ */
+export function resolveModel(specModel: string): Model<string> {
+    const slash = specModel.indexOf('/')
+    if (slash === -1) {
+        throw new Error(`spec.model must be "<provider>/<model-id>" (got ${JSON.stringify(specModel)})`)
     }
-
-    async invoke(req: PiInvokeRequest): Promise<PiInvokeResponse> {
-        this.calls.push(req)
-        if (this.idx >= this.responses.length) {
-            throw new Error(`MockPiClient out of responses (idx=${this.idx})`)
-        }
-        const responder = this.responses[this.idx++]
-        return responder(req)
-    }
-}
-
-/** Helper: build a simple assistant turn from text content. */
-export function endTurn(text: string): PiInvokeResponse {
-    return {
-        stop_reason: 'end_turn',
-        content: [{ type: 'text', text }],
-        usage: { input_tokens: 0, output_tokens: 0 },
-    }
-}
-
-/** Helper: build a tool-use turn. */
-export function toolUseTurn(blocks: PiAssistantContentBlock[]): PiInvokeResponse {
-    return {
-        stop_reason: 'tool_use',
-        content: blocks,
-        usage: { input_tokens: 0, output_tokens: 0 },
-    }
+    const provider = specModel.slice(0, slash)
+    const modelId = specModel.slice(slash + 1)
+    return getModel(provider as KnownProvider, modelId as never) as Model<string>
 }

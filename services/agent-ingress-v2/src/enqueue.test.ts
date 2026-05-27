@@ -38,7 +38,7 @@ describe('enqueueOrResume', () => {
                 application: app,
                 revision: rev,
                 externalKey: null,
-                seed: { role: 'user', content: 'hi' },
+                seed: { role: 'user', content: 'hi', timestamp: Date.now() },
             }
         )
         expect(isResume).toBe(false)
@@ -53,7 +53,7 @@ describe('enqueueOrResume', () => {
                 application: app,
                 revision: rev,
                 externalKey: 'slack:C01:thread1',
-                seed: { role: 'user', content: 'first' },
+                seed: { role: 'user', content: 'first', timestamp: Date.now() },
             }
         )
         const second = await enqueueOrResume(
@@ -62,13 +62,16 @@ describe('enqueueOrResume', () => {
                 application: app,
                 revision: rev,
                 externalKey: 'slack:C01:thread1',
-                seed: { role: 'user', content: 'follow-up' },
+                seed: { role: 'user', content: 'follow-up', timestamp: Date.now() },
             }
         )
         expect(second.isResume).toBe(true)
         expect(second.sessionId).toBe(first.sessionId)
         const session = await queue.get(first.sessionId)
-        expect(session!.conversation).toHaveLength(2)
+        // Initial seed in conversation; follow-up lands in pending_inputs so
+        // the runner drains it at the start of the next turn.
+        expect(session!.conversation).toHaveLength(1)
+        expect(session!.pending_inputs).toHaveLength(1)
     })
 
     it('creates a new session if existing one is completed', async () => {
@@ -80,7 +83,7 @@ describe('enqueueOrResume', () => {
                 application: app,
                 revision: rev,
                 externalKey: 'slack:C01:thread2',
-                seed: { role: 'user', content: 'first' },
+                seed: { role: 'user', content: 'first', timestamp: Date.now() },
             }
         )
         await queue.update(first.sessionId, { state: 'completed' })
@@ -90,7 +93,7 @@ describe('enqueueOrResume', () => {
                 application: app,
                 revision: rev,
                 externalKey: 'slack:C01:thread2',
-                seed: { role: 'user', content: 'second' },
+                seed: { role: 'user', content: 'second', timestamp: Date.now() },
             }
         )
         expect(second.isResume).toBe(false)

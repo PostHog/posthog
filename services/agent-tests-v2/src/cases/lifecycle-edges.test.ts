@@ -6,7 +6,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxErrorTurn, fauxText } from '../harness'
 
 describe('session lifecycle edges: real e2e', () => {
     let c: Cluster
@@ -24,7 +24,8 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/send to a completed session → 410 Gone', async () => {
-        await c.deployAgent({ slug: 'lc1', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('done')])
+        await c.deployAgent({ slug: 'lc1' })
         const create = await request(c.ingress).post('/agents/lc1/run').send({ message: 'first' })
         await c.drain()
         expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
@@ -37,7 +38,8 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/send to a failed session → 410 Gone', async () => {
-        await c.deployAgent({ slug: 'lc2', spec: { model: 'mock-error:500' } })
+        c.setScript([fauxErrorTurn('boom')])
+        await c.deployAgent({ slug: 'lc2' })
         const create = await request(c.ingress).post('/agents/lc2/run').send({ message: 'first' })
         await c.drain()
         expect((await c.queue.get(create.body.session_id))!.state).toBe('failed')
@@ -56,7 +58,8 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/cancel of a parked (waiting) session → terminal failed', async () => {
-        await c.deployAgent({ slug: 'cc1', spec: { model: 'mock-ask' } })
+        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        await c.deployAgent({ slug: 'cc1' })
         const create = await request(c.ingress).post('/agents/cc1/run').send({ message: 'hi' })
         await c.drain()
         expect((await c.queue.get(create.body.session_id))!.state).toBe('waiting')
@@ -66,13 +69,14 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/cancel of a terminal (completed) session is idempotent', async () => {
-        await c.deployAgent({ slug: 'cc2', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('done')])
+        await c.deployAgent({ slug: 'cc2' })
         const create = await request(c.ingress).post('/agents/cc2/run').send({ message: 'hi' })
         await c.drain()
         const cancel = await request(c.ingress).post('/agents/cc2/cancel').send({ session_id: create.body.session_id })
         expect(cancel.status).toBe(200)
         expect(cancel.body.idempotent).toBe(true)
-        expect((await c.queue.get(create.body.session_id))!.state).toBe('completed') // unchanged
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
     })
 
     it('/cancel of a nonexistent session → 404', async () => {

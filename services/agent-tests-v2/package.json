@@ -5,11 +5,13 @@
     "description": "End-to-end test harness for the v2 agent platform. Boots ingress + runner + janitor in-process, fires triggers, asserts on outcomes.",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
+    "type": "module",
     "scripts": {
         "typescript:check": "tsc --noEmit -p .",
-        "test": "jest --runInBand --forceExit"
+        "test": "vitest run"
     },
     "dependencies": {
+        "@earendil-works/pi-ai": "^0.76.0",
         "@posthog/agent-ingress-v2": "workspace:*",
         "@posthog/agent-janitor-v2": "workspace:*",
         "@posthog/agent-runner-v2": "workspace:*",
@@ -19,15 +21,13 @@
     },
     "devDependencies": {
         "@types/express": "^4.17.21",
-        "@types/jest": "catalog:",
         "@types/node": "catalog:",
         "@types/pg": "^8.6.0",
         "@types/supertest": "^6.0.2",
         "express": "^4.21.1",
-        "jest": "catalog:",
         "supertest": "^7.0.0",
-        "ts-jest": "^29.1.0",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "vitest": "^2.1.9"
     },
     "engines": {
         "node": ">=24 <25"

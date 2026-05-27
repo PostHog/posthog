@@ -11,7 +11,14 @@ export interface SessionQueue {
     /** Block-claim the next session, returning null if none available within timeoutMs. */
     claim(timeoutMs: number): Promise<AgentSession | null>
     update(sessionId: string, patch: Partial<AgentSession>): Promise<void>
-    appendMessage(sessionId: string, msg: ConversationMessage): Promise<void>
+    /**
+     * Append a message into a session. By default routes into `pending_inputs`
+     * so it doesn't contend with an in-flight turn. The runner drains
+     * pending_inputs into `conversation` at the start of each turn.
+     */
+    appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void>
+    /** Append directly into `conversation` (runner-side use only). */
+    appendConversation(sessionId: string, msg: ConversationMessage): Promise<void>
     get(sessionId: string): Promise<AgentSession | null>
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
@@ -49,7 +56,16 @@ export class MemorySessionQueue implements SessionQueue {
         Object.assign(s, patch, { updated_at: new Date().toISOString() })
     }
 
-    async appendMessage(sessionId: string, msg: ConversationMessage): Promise<void> {
+    async appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void> {
+        const s = this.sessions.get(sessionId)
+        if (!s) {
+            return
+        }
+        s.pending_inputs.push(msg)
+        s.updated_at = new Date().toISOString()
+    }
+
+    async appendConversation(sessionId: string, msg: ConversationMessage): Promise<void> {
         const s = this.sessions.get(sessionId)
         if (!s) {
             return

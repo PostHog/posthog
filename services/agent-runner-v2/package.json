@@ -2,32 +2,36 @@
     "name": "@posthog/agent-runner-v2",
     "version": "0.1.0",
     "private": true,
-    "description": "Greenfield session executor for the agent platform. Loads AgentRevision, calls pi.dev, dispatches native+custom tools.",
+    "description": "Greenfield session executor for the agent platform. Loads AgentRevision, calls pi-ai for model invocation, dispatches native+custom tools.",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
-    "main": "dist/lib.js",
+    "type": "module",
+    "main": "./src/lib.ts",
+    "types": "./src/lib.ts",
     "exports": {
-        ".": "./dist/lib.js",
-        "./bin": "./dist/index.js"
+        ".": "./src/lib.ts",
+        "./bin": "./src/index.ts"
     },
     "scripts": {
-        "build": "pnpm clean && tsc -b",
-        "clean": "rm -rf dist",
         "typescript:check": "tsc --noEmit -p .",
-        "test": "jest --runInBand --forceExit",
-        "start": "node dist/index.js"
+        "test": "vitest run",
+        "start": "tsx src/index.ts",
+        "start:dev": "tsx watch src/index.ts"
     },
     "dependencies": {
+        "@earendil-works/pi-ai": "^0.76.0",
         "@posthog/agent-shared-v2": "workspace:*",
         "@posthog/agent-tools": "workspace:*",
+        "pg": "^8.6.0",
+        "tsx": "^4.7.0",
+        "typebox": "^1.1.38",
         "zod": "^4.3.6"
     },
     "devDependencies": {
-        "@types/jest": "catalog:",
         "@types/node": "catalog:",
-        "jest": "catalog:",
-        "ts-jest": "^29.1.0",
-        "typescript": "catalog:"
+        "@types/pg": "^8.6.0",
+        "typescript": "catalog:",
+        "vitest": "^2.1.9"
     },
     "engines": {
         "node": ">=24 <25"

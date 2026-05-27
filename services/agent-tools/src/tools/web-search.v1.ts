@@ -1,6 +1,4 @@
-import { z } from 'zod'
-
-import { defineNativeTool } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 
 export interface WebSearchProvider {
     search(query: string, limit: number): Promise<Array<{ title: string; url: string; snippet: string }>>
@@ -15,16 +13,16 @@ export function setWebSearchProvider(p: WebSearchProvider): void {
 export const webSearchV1 = defineNativeTool({
     id: 'web.search.v1',
     description: 'Search the web; returns title, url, and snippet for each result.',
-    args: z.object({
-        query: z.string().min(1),
-        limit: z.number().int().positive().max(20).default(10),
+    args: Type.Object({
+        query: Type.String({ minLength: 1 }),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 10 })),
     }),
-    returns: z.object({
-        results: z.array(
-            z.object({
-                title: z.string(),
-                url: z.string(),
-                snippet: z.string(),
+    returns: Type.Object({
+        results: Type.Array(
+            Type.Object({
+                title: Type.String(),
+                url: Type.String(),
+                snippet: Type.String(),
             })
         ),
     }),
@@ -34,7 +32,7 @@ export const webSearchV1 = defineNativeTool({
         if (!PROVIDER) {
             throw new Error('web.search provider not configured')
         }
-        const results = await PROVIDER.search(args.query, args.limit)
+        const results = await PROVIDER.search(args.query, args.limit ?? 10)
         return { results }
     },
 })

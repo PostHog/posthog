@@ -112,7 +112,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                         application: resolved.application,
                         revision: resolved.revision,
                         externalKey,
-                        seed: { role: 'user', content: message },
+                        seed: { role: 'user', content: message, timestamp: Date.now() },
                     }
                 )
                 res.json(

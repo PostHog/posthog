@@ -85,6 +85,8 @@ minimumReleaseAgeExclude:
     - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.5
+    - '@earendil-works/*'
+    - typebox
     - chartjs-plugin-stacked100@1.7.1
     - torph@0.0.5
     - oxfmt@0.35.0

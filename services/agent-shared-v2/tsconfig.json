@@ -1,15 +1,10 @@
 {
     "compilerOptions": {
-        "module": "CommonJS",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
         "target": "ES2022",
         "lib": ["ES2022"],
-        "declaration": true,
-        "declarationMap": true,
-        "sourceMap": true,
-        "outDir": "dist/",
-        "rootDir": "src/",
-        "moduleResolution": "node",
-        "ignoreDeprecations": "6.0",
+        "noEmit": true,
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "strict": true,
@@ -20,8 +15,9 @@
         "allowUnusedLabels": false,
         "useUnknownInCatchVariables": false,
         "skipLibCheck": true,
-        "types": ["node", "jest"]
+        "verbatimModuleSyntax": false,
+        "types": ["node", "vitest/globals"]
     },
     "include": ["src"],
-    "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+    "exclude": ["node_modules"]
 }

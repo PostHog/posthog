@@ -11,6 +11,7 @@ function session(id: string, state: AgentSession['state'], updatedAt: string): A
         external_key: null,
         state,
         conversation: [],
+        pending_inputs: [],
         created_at: updatedAt,
         updated_at: updatedAt,
     }

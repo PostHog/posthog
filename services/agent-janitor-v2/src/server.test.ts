@@ -12,7 +12,8 @@ function session(id: string): AgentSession {
         team_id: 1,
         external_key: null,
         state: 'running',
-        conversation: [{ role: 'user', content: 'hi' }],
+        conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+        pending_inputs: [],
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }

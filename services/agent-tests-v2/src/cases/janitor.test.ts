@@ -6,7 +6,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
 describe('janitor: real e2e', () => {
     let c: Cluster
@@ -24,7 +24,8 @@ describe('janitor: real e2e', () => {
     })
 
     it('GET /sessions/:id returns full session JSON after a run', async () => {
-        await c.deployAgent({ slug: 'j1', spec: { model: 'mock-echo' } })
+        c.setScript([fauxText('done')])
+        await c.deployAgent({ slug: 'j1', spec: {} })
         const create = await request(c.ingress).post('/agents/j1/run').send({ message: 'hi' })
         await c.drain()
         const res = await request(c.janitor).get(`/sessions/${create.body.session_id}`)
@@ -39,7 +40,8 @@ describe('janitor: real e2e', () => {
     })
 
     it('POST /sessions/:id/cancel marks failed', async () => {
-        await c.deployAgent({ slug: 'j2', spec: { model: 'mock-ask' } })
+        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        await c.deployAgent({ slug: 'j2', spec: {} })
         const create = await request(c.ingress).post('/agents/j2/run').send({ message: 'hi' })
         await c.drain()
         expect((await c.queue.get(create.body.session_id))!.state).toBe('waiting')

@@ -1,26 +1,36 @@
 /**
  * One turn through the agent. Driven by `runSession` which loops turns until
- * pi.dev's stop_reason is "end_turn" (or a meta tool ends/suspends, or limits
- * are hit). See docs/native-refactor.md §4.2.
+ * the model returns stopReason=stop (or a meta tool ends/suspends, or limits
+ * are hit, or shutdown is requested).
+ *
+ * Turn boundary discipline:
+ *   - At turn start we drain `session.pending_inputs` into `conversation`.
+ *     This is the recovery point for the "queued follow-ups during in-flight
+ *     turn" case — /send appends to pending_inputs; the next turn picks it up.
+ *   - After each turn we check the shutdown signal. If aborted, we persist
+ *     and return `state=suspended` so a sibling worker can resume from PG.
+ *   - pi-ai's `complete(model, context, { signal })` propagates the abort
+ *     into the in-flight provider call too, so a SIGTERM during an LLM
+ *     request cuts cleanly.
  */
+
+import type { AssistantMessage, Context, Tool, ToolCall } from '@earendil-works/pi-ai'
 
 import {
     AgentRevision,
     AgentSession,
-    AssistantContentBlock,
+    AssistantMessageRecord,
     BundleStore,
-    ConversationMessage,
     IntegrationCredentials,
     Sandbox,
     SecretBroker,
-    UserContentBlock,
+    ToolResultMessage,
 } from '@posthog/agent-shared-v2'
 import { listNativeTools } from '@posthog/agent-tools'
 
-import { PiClient, PiInvokeRequest, PiToolDeclaration, PiUserContentBlock } from './pi-client'
+import { PiClient } from './pi-client'
 import { buildSystemPrompt } from './system-prompt'
 import { dispatchTool } from './tool-dispatch'
-import { zodToJsonSchema } from './zod-to-jsonschema'
 
 export interface RunSessionDeps {
     pi: PiClient
@@ -30,16 +40,24 @@ export interface RunSessionDeps {
     /** Resolved plaintext secrets keyed by name. */
     secrets: Record<string, string>
     broker?: SecretBroker
+    /** Aborting this signal mid-turn cancels the LLM call and stops the loop. */
+    shutdownSignal?: AbortSignal
+    /**
+     * Called once per turn after a fresh assistant message is appended. The
+     * worker uses it to persist progress so a crash mid-loop leaves valid state.
+     */
+    onTurnPersist?: (session: AgentSession) => Promise<void>
 }
 
 export type RunOutcome =
     | { state: 'completed'; summary?: string; turns: number }
     | { state: 'waiting'; prompt: string; turns: number }
+    | { state: 'suspended'; reason: 'shutdown'; turns: number }
     | { state: 'failed'; reason: string; turns: number }
 
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
     const system = await buildSystemPrompt(rev, deps.bundle)
-    const tools = await buildToolDeclarations(rev, deps.bundle)
+    const tools = await buildToolList(rev, deps.bundle)
     let turns = 0
     const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
         // eslint-disable-next-line no-console
@@ -47,44 +65,81 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     }
 
     while (turns < rev.spec.limits.max_turns) {
+        // Shutdown check at the top of every turn — clean suspension point.
+        if (deps.shutdownSignal?.aborted) {
+            return { state: 'suspended', reason: 'shutdown', turns }
+        }
+
+        // Drain pending_inputs into the active conversation BEFORE invoking
+        // the model. This is the merge point for /send during an in-flight
+        // turn: those messages land here for the next pi-ai call to see.
+        if (session.pending_inputs.length > 0) {
+            session.conversation.push(...session.pending_inputs)
+            session.pending_inputs = []
+        }
+
         turns++
 
-        const req: PiInvokeRequest = {
-            model: rev.spec.model,
-            system,
+        const context: Context = {
+            systemPrompt: system,
+            messages: session.conversation as unknown as Context['messages'],
             tools,
-            messages: session.conversation as unknown as PiInvokeRequest['messages'],
         }
-        const result = await deps.pi.invoke(req)
-
-        const assistantBlocks: AssistantContentBlock[] = result.content
-        session.conversation.push({ role: 'assistant', content: assistantBlocks })
-
-        if (result.stop_reason === 'error') {
-            return { state: 'failed', reason: 'pi.dev returned error', turns }
+        let result: AssistantMessage
+        try {
+            result = await deps.pi.invoke(context, {
+                maxTokens: 4096,
+                signal: deps.shutdownSignal,
+            })
+        } catch (err) {
+            const e = err as Error & { name?: string }
+            if (e.name === 'AbortError' || deps.shutdownSignal?.aborted) {
+                return { state: 'suspended', reason: 'shutdown', turns }
+            }
+            return { state: 'failed', reason: e.message ?? 'pi-ai_error', turns }
         }
-        if (result.stop_reason === 'max_tokens') {
+
+        // Persist the assistant message into the conversation. We store the
+        // full AssistantMessage including api/provider/model/usage/stopReason
+        // — pi-ai accepts these back as context for the next turn.
+        const assistantRecord: AssistantMessageRecord = {
+            role: 'assistant',
+            content: result.content,
+            api: result.api,
+            provider: result.provider,
+            model: result.model,
+            usage: result.usage,
+            stopReason: result.stopReason,
+            errorMessage: result.errorMessage,
+            timestamp: result.timestamp,
+        }
+        session.conversation.push(assistantRecord)
+        await deps.onTurnPersist?.(session)
+
+        if (result.stopReason === 'error') {
+            return { state: 'failed', reason: result.errorMessage ?? 'model_error', turns }
+        }
+        if (result.stopReason === 'aborted') {
+            return { state: 'suspended', reason: 'shutdown', turns }
+        }
+        if (result.stopReason === 'length') {
             return { state: 'failed', reason: 'max_tokens', turns }
         }
-        if (result.stop_reason === 'end_turn') {
+        if (result.stopReason === 'stop') {
             return { state: 'completed', turns }
         }
 
-        // tool_use — dispatch every tool_use block, append a single user message
-        // with the tool_result blocks, then loop for the follow-up turn.
-        const toolUseBlocks = assistantBlocks.filter((b) => b.type === 'tool_use')
-        if (toolUseBlocks.length === 0) {
+        // stopReason === 'toolUse' — dispatch every tool call, append one
+        // toolResult message per dispatch, loop for the follow-up turn.
+        const toolCalls = result.content.filter((b): b is ToolCall => b.type === 'toolCall')
+        if (toolCalls.length === 0) {
             return { state: 'completed', turns }
         }
 
-        const userContent: PiUserContentBlock[] = []
         let suspend: { prompt: string } | null = null
         let end: { summary?: string } | null = null
 
-        for (const block of toolUseBlocks) {
-            if (block.type !== 'tool_use') {
-                continue
-            }
+        for (const call of toolCalls) {
             const outcome = await dispatchTool(
                 {
                     teamId: session.team_id,
@@ -95,46 +150,41 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     secret: (name) => deps.secrets[name],
                     log,
                 },
-                block.name,
-                block.input
+                call.name,
+                call.arguments
             )
-            if (outcome.kind === 'ok') {
-                userContent.push({
-                    type: 'tool_result',
-                    tool_use_id: block.id,
-                    content: JSON.stringify(outcome.result),
-                })
-            } else if (outcome.kind === 'error') {
-                userContent.push({
-                    type: 'tool_result',
-                    tool_use_id: block.id,
-                    content: outcome.message,
-                    is_error: true,
-                })
-            } else if (outcome.kind === 'suspend') {
+            const toolResult: ToolResultMessage = {
+                role: 'toolResult',
+                toolCallId: call.id,
+                toolName: call.name,
+                content: [
+                    {
+                        type: 'text',
+                        text:
+                            outcome.kind === 'ok'
+                                ? JSON.stringify(outcome.result)
+                                : outcome.kind === 'error'
+                                  ? outcome.message
+                                  : outcome.kind === 'suspend'
+                                    ? JSON.stringify({ suspended: true })
+                                    : JSON.stringify({ ended: true }),
+                    },
+                ],
+                isError: outcome.kind === 'error',
+                timestamp: Date.now(),
+            }
+            session.conversation.push(toolResult)
+            if (outcome.kind === 'suspend') {
                 suspend = { prompt: outcome.prompt }
-                userContent.push({
-                    type: 'tool_result',
-                    tool_use_id: block.id,
-                    content: JSON.stringify({ suspended: true }),
-                })
                 break
-            } else if (outcome.kind === 'end') {
+            }
+            if (outcome.kind === 'end') {
                 end = { summary: outcome.summary }
-                userContent.push({
-                    type: 'tool_result',
-                    tool_use_id: block.id,
-                    content: JSON.stringify({ ended: true }),
-                })
                 break
             }
         }
 
-        const followUp: ConversationMessage = {
-            role: 'user',
-            content: userContent as UserContentBlock[],
-        }
-        session.conversation.push(followUp)
+        await deps.onTurnPersist?.(session)
 
         if (end) {
             return { state: 'completed', summary: end.summary, turns }
@@ -146,8 +196,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     return { state: 'failed', reason: 'max_turns_exceeded', turns }
 }
 
-async function buildToolDeclarations(rev: AgentRevision, bundle: BundleStore): Promise<PiToolDeclaration[]> {
-    const decls: PiToolDeclaration[] = []
+async function buildToolList(rev: AgentRevision, bundle: BundleStore): Promise<Tool[]> {
+    const decls: Tool[] = []
     const seen = new Set<string>()
     for (const t of rev.spec.tools) {
         if (seen.has(t.id)) {
@@ -162,23 +212,23 @@ async function buildToolDeclarations(rev: AgentRevision, bundle: BundleStore): P
             decls.push({
                 name: native.id,
                 description: native.schema.description,
-                input_schema: zodToJsonSchema(native.schema.args),
+                parameters: native.schema.args,
             })
         } else {
             const schemaPath = `${t.path.replace(/\/$/, '')}/schema.json`
             try {
                 const raw = await bundle.readText(rev.id, schemaPath)
-                const schema = JSON.parse(raw) as { description?: string; args?: Record<string, unknown> }
+                const schema = JSON.parse(raw) as { description?: string; args?: unknown }
                 decls.push({
                     name: t.id,
                     description: schema.description ?? `custom tool ${t.id}`,
-                    input_schema: schema.args ?? { type: 'object' },
+                    parameters: (schema.args as Tool['parameters']) ?? ({ type: 'object' } as Tool['parameters']),
                 })
             } catch {
                 decls.push({
                     name: t.id,
                     description: `custom tool ${t.id}`,
-                    input_schema: { type: 'object' },
+                    parameters: { type: 'object' } as Tool['parameters'],
                 })
             }
         }

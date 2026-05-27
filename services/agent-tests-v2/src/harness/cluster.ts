@@ -1,23 +1,22 @@
 /**
  * In-process cluster harness for v2 e2e tests.
  *
- * Real:
+ * Real everywhere except model invocation:
  *   - Postgres (agent_runtime_queue_test) — PgSessionQueue + PgRevisionStore.
- *     Schema is created fresh per suite, tables truncated per test.
- *   - Filesystem — FsBundleStore in a per-suite tmp dir.
+ *     Schema is dropped + recreated per test.
+ *   - Filesystem — FsBundleStore in a per-test tmp dir.
  *   - Express ingress — full real route table.
- *   - Runner Worker — same loop the prod bin runs.
- *   - Sandbox pool — InProcessSandboxPool (zero-isolation, fast).
- *   - HttpPiClient hitting a real HTTP server we control (mock-pi-dev).
+ *   - Runner Worker — same loop the prod bin runs (concurrency, shutdown, pending_inputs).
+ *   - Sandbox pool — InProcessSandboxPool.
+ *   - PiAiClient — the real production client, pointed at pi-ai's faux provider.
  *
- * Mocked (HTTP level only):
- *   - mock-pi-dev — model API. Built-in models (mock-echo, mock-static:…,
- *     mock-tool:…, mock-ask, mock-end, mock-loop, mock-error:…) cover most
- *     test needs. Real inference proxies via `proxyUpstream` when configured.
- *
- * Everything else runs the real code path.
+ * Mocked at the model layer ONLY: pi-ai's `faux` provider, registered once per
+ * process. Each test sets its own scripted response list before firing the
+ * trigger. Real-inference variants (gated by ANTHROPIC_API_KEY / etc.) skip the
+ * faux setup and use a real provider Model — same harness, different model.
  */
 
+import type { Model } from '@earendil-works/pi-ai'
 import { Express } from 'express'
 import { promises as fs } from 'fs'
 import * as os from 'os'
@@ -26,7 +25,7 @@ import { Pool } from 'pg'
 
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress-v2'
 import { buildJanitorApp } from '@posthog/agent-janitor-v2'
-import { HttpPiClient, Worker } from '@posthog/agent-runner-v2'
+import { PiAiClient, Worker } from '@posthog/agent-runner-v2'
 import {
     AgentApplication,
     AgentRevision,
@@ -41,12 +40,10 @@ import {
 } from '@posthog/agent-shared-v2'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { MockPiHandle, startMockPi } from './mock-pi-dev'
+import { buildFauxModel, ScriptedTurn } from './faux'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
-const PROXY_UPSTREAM = process.env.PI_DEV_BASE_URL // when set, mock proxies real inference
-const PROXY_API_KEY = process.env.PI_DEV_API_KEY
 
 export interface BuildAgentInput {
     slug: string
@@ -67,11 +64,14 @@ export interface Cluster {
     bus: SessionEventBus
     sandboxes: InProcessSandboxPool
     broker: SecretBroker
-    pi: MockPiHandle
-    piClient: HttpPiClient
+    /** The faux pi-ai Model the runner is wired with. */
+    model: Model<string>
+    piClient: PiAiClient
     ingress: Express
     janitor: Express
     worker: Worker
+    /** Rearm the faux provider's response script for the next pi-ai call(s). */
+    setScript(turns: ScriptedTurn[]): void
     deployAgent(input: BuildAgentInput): Promise<{ application: AgentApplication; revision: AgentRevision }>
     /** Pump the runner. Default: drain queue (up to 50 iterations). */
     drain(opts?: { iterations?: number }): Promise<void>
@@ -91,6 +91,16 @@ export interface BuildClusterOpts {
         sessionId: string
     ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     authProvider?: AuthProvider
+    /**
+     * Optional initial script for the faux provider. Tests that script per-test
+     * call `cluster.setScript(...)` before firing triggers.
+     */
+    initialScript?: ScriptedTurn[]
+    /**
+     * Override the model — set this to a real provider Model (e.g.
+     * `getModel('anthropic', 'claude-sonnet-4-7')`) for real-inference tests.
+     */
+    model?: Model<string>
 }
 
 let _pool: Pool | null = null
@@ -100,7 +110,7 @@ async function getPool(): Promise<Pool> {
         return _pool
     }
     _pool = new Pool({ connectionString: TEST_DB_URL, max: 8 })
-    await _pool.query('SELECT 1') // probe
+    await _pool.query('SELECT 1')
     return _pool
 }
 
@@ -115,7 +125,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const teamId = opts.teamId ?? 1
     const pool = await getPool()
 
-    // Fresh schema per test — drop and recreate.
     await pool.query(DROP_SQL)
     await pool.query(SCHEMA_SQL)
 
@@ -127,14 +136,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const sandboxes = new InProcessSandboxPool()
     const broker = new SecretBroker()
 
-    const pi = await startMockPi({
-        proxyUpstream: PROXY_UPSTREAM,
-        proxyApiKey: PROXY_API_KEY,
-    })
-    const piClient = new HttpPiClient({
-        baseUrl: pi.baseUrl,
-        apiKey: process.env.AGENT_TEST_PI_API_KEY ?? 'test-key',
-    })
+    const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
+    const piClient = new PiAiClient(model, process.env.AGENT_TEST_API_KEY ?? 'faux-key')
 
     // For native posthog.query.v1 etc. tests use the in-process echo client.
     setPosthogInternalClient({
@@ -155,6 +158,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         broker,
         resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
+        maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
     const ingress = buildApp({
@@ -183,11 +187,14 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bus,
         sandboxes,
         broker,
-        pi,
+        model,
         piClient,
         ingress,
         janitor,
         worker,
+        setScript(turns) {
+            buildFauxModel(turns)
+        },
         async deployAgent(input) {
             const tid = input.teamId ?? teamId
             const app = await revisions.createApplication({
@@ -196,10 +203,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 name: input.name ?? input.slug,
                 description: input.description ?? '',
             })
-            // Default: every trigger enabled. Tests that want trigger gating
-            // pass `spec.triggers` explicitly to restrict.
             const spec = AgentSpecSchema.parse({
-                model: 'mock-echo',
+                // Default model is "faux/<name>"; tests can override via spec.model.
+                model: 'faux/faux',
                 triggers: [
                     { type: 'chat', config: { require_auth: false } },
                     { type: 'slack', config: {} },
@@ -230,8 +236,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
             return { application: refreshedApp!, revision: refreshedRev! }
         },
         async drain(o) {
-            // Quick-drain: each iteration tries to claim with a tiny timeout; if
-            // we get N consecutive empties, the queue is drained.
             const maxIterations = o?.iterations ?? 50
             const maxEmpty = 3
             let empty = 0
@@ -249,7 +253,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
             }
         },
         async teardown() {
-            await pi.close().catch(() => undefined)
             await fs.rm(bundleRoot, { recursive: true, force: true }).catch(() => undefined)
         },
     }

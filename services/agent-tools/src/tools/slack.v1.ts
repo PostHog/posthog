@@ -1,6 +1,4 @@
-import { z } from 'zod'
-
-import { defineNativeTool, IntegrationCredentials } from '@posthog/agent-shared-v2'
+import { defineNativeTool, IntegrationCredentials, Type } from '@posthog/agent-shared-v2'
 
 function slackAuth(creds: IntegrationCredentials | undefined): string {
     if (!creds || !creds.access_token) {
@@ -31,15 +29,15 @@ async function slackCall(token: string, method: string, body: Record<string, unk
 export const slackPostMessageV1 = defineNativeTool({
     id: 'slack.post_message.v1',
     description: 'Post a message to a Slack channel or thread.',
-    args: z.object({
-        team_integration_id: z.string(),
-        channel: z.string(),
-        text: z.string(),
-        thread_ts: z.string().optional(),
+    args: Type.Object({
+        team_integration_id: Type.String(),
+        channel: Type.String(),
+        text: Type.String(),
+        thread_ts: Type.Optional(Type.String()),
     }),
-    returns: z.object({
-        ts: z.string(),
-        channel: z.string(),
+    returns: Type.Object({
+        ts: Type.String(),
+        channel: Type.String(),
     }),
     requires: { integrations: ['slack'], scopes: ['chat:write'] },
     cost_hint: 'cheap',
@@ -57,13 +55,13 @@ export const slackPostMessageV1 = defineNativeTool({
 export const slackUpdateMessageV1 = defineNativeTool({
     id: 'slack.update_message.v1',
     description: 'Edit a previously-posted Slack message.',
-    args: z.object({
-        team_integration_id: z.string(),
-        channel: z.string(),
-        ts: z.string(),
-        text: z.string(),
+    args: Type.Object({
+        team_integration_id: Type.String(),
+        channel: Type.String(),
+        ts: Type.String(),
+        text: Type.String(),
     }),
-    returns: z.object({ ok: z.boolean() }),
+    returns: Type.Object({ ok: Type.Boolean() }),
     requires: { integrations: ['slack'], scopes: ['chat:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
@@ -76,13 +74,13 @@ export const slackUpdateMessageV1 = defineNativeTool({
 export const slackReactV1 = defineNativeTool({
     id: 'slack.react.v1',
     description: 'Add an emoji reaction to a Slack message.',
-    args: z.object({
-        team_integration_id: z.string(),
-        channel: z.string(),
-        ts: z.string(),
-        name: z.string(),
+    args: Type.Object({
+        team_integration_id: Type.String(),
+        channel: Type.String(),
+        ts: Type.String(),
+        name: Type.String(),
     }),
-    returns: z.object({ ok: z.boolean() }),
+    returns: Type.Object({ ok: Type.Boolean() }),
     requires: { integrations: ['slack'], scopes: ['reactions:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {

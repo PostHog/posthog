@@ -1,22 +1,30 @@
 /**
- * Native tool contract. Every tool in the agent-tools package exports these three:
+ * Native tool contract. Every tool exports these three:
  *   - id    : "posthog.query.v1" — versioned id; bumping creates a parallel tool
  *   - schema: declarative args/returns + requirements (description, cost hint)
  *   - run   : the actual call
  *
- * The runner imports tools by id, validates args with schema.args (a zod
- * schema), and calls run() in-process. No sandbox for native tools.
+ * Schemas are TypeBox (the schema language pi-ai uses for tool parameters).
+ * pi-ai passes the schema through to the model provider verbatim — no
+ * zod→json-schema translation step.
+ *
+ * The runner imports tools by id, validates args via TypeBox's runtime
+ * validator, and calls run() in-process. No sandbox for native tools.
  *
  * The authoring layer reads `schema` to know what tools exist and what each
  * one needs, so the wizard can compose a spec.
  */
 
-import { z, ZodTypeAny } from 'zod'
+import { Static, TSchema, Type } from 'typebox'
+
+export type { Static, TSchema }
 
 export interface NativeToolSchema {
     description: string
-    args: ZodTypeAny
-    returns: ZodTypeAny
+    /** TypeBox schema. pi-ai accepts this natively as a Tool's `parameters`. */
+    args: TSchema
+    /** TypeBox schema for the return value (informational; not enforced at runtime today). */
+    returns: TSchema
     /** Required integrations / scopes the team must have to use this tool. */
     requires: {
         integrations: string[]
@@ -50,16 +58,16 @@ export interface NativeTool<TArgs = unknown, TReturn = unknown> {
     run(args: TArgs, ctx: ToolContext): Promise<TReturn>
 }
 
-/** Helper to author a tool with type-safe args/returns inferred from zod. */
-export function defineNativeTool<TArgsSchema extends ZodTypeAny, TReturnSchema extends ZodTypeAny>(def: {
+/** Helper to author a tool with type-safe args/returns inferred from TypeBox. */
+export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema extends TSchema>(def: {
     id: string
     description: string
     args: TArgsSchema
     returns: TReturnSchema
     requires?: Partial<NativeToolSchema['requires']>
     cost_hint?: NativeToolSchema['cost_hint']
-    run: (args: z.infer<TArgsSchema>, ctx: ToolContext) => Promise<z.infer<TReturnSchema>>
-}): NativeTool<z.infer<TArgsSchema>, z.infer<TReturnSchema>> {
+    run: (args: Static<TArgsSchema>, ctx: ToolContext) => Promise<Static<TReturnSchema>>
+}): NativeTool<Static<TArgsSchema>, Static<TReturnSchema>> {
     return {
         id: def.id,
         schema: {
@@ -75,3 +83,6 @@ export function defineNativeTool<TArgsSchema extends ZodTypeAny, TReturnSchema e
         run: def.run,
     }
 }
+
+/** Re-export TypeBox `Type` so tool authors have one import. */
+export { Type }

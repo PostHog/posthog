@@ -50,7 +50,7 @@ describe('cross-team isolation: real e2e', () => {
     it('team A PAT against a team A agent → 200', async () => {
         await cA.deployAgent({
             slug: 'team-a-bot',
-            spec: { model: 'mock-echo', auth: { mode: 'pat' } },
+            spec: { auth: { mode: 'pat' } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-bot/run')
@@ -63,7 +63,7 @@ describe('cross-team isolation: real e2e', () => {
     it('team B PAT against a team A agent → 401 (team-scoping closes)', async () => {
         await cA.deployAgent({
             slug: 'team-a-secured',
-            spec: { model: 'mock-echo', auth: { mode: 'pat' } },
+            spec: { auth: { mode: 'pat' } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-secured/run')
@@ -75,7 +75,7 @@ describe('cross-team isolation: real e2e', () => {
     it('totally unknown PAT → 401', async () => {
         await cA.deployAgent({
             slug: 'team-a-secured2',
-            spec: { model: 'mock-echo', auth: { mode: 'pat' } },
+            spec: { auth: { mode: 'pat' } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-secured2/run')

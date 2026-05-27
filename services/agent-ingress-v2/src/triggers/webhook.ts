@@ -37,7 +37,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
                 application: resolved.application,
                 revision: resolved.revision,
                 externalKey,
-                seed: { role: 'user', content: JSON.stringify(req.body) },
+                seed: { role: 'user', content: JSON.stringify(req.body), timestamp: Date.now() },
             }
         )
         res.json({ ok: true, session_id: sessionId, resumed: isResume })

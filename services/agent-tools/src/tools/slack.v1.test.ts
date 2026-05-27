@@ -9,7 +9,7 @@ describe('slack.* tools', () => {
     })
 
     function mockFetch(body: Record<string, unknown>): void {
-        global.fetch = jest.fn(async () => ({
+        global.fetch = vi.fn(async () => ({
             ok: true,
             status: 200,
             json: async () => ({ ok: true, ...body }),
@@ -58,7 +58,7 @@ describe('slack.* tools', () => {
     })
 
     it('propagates slack api errors', async () => {
-        global.fetch = jest.fn(async () => ({
+        global.fetch = vi.fn(async () => ({
             ok: true,
             status: 200,
             json: async () => ({ ok: false, error: 'channel_not_found' }),
