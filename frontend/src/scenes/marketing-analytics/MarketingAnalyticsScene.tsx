@@ -217,7 +217,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
 }
 
-const MarketingAnalyticsMaxToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -304,9 +304,9 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             </>
                         }
                     />
-                    <MarketingAnalyticsMaxToolWrapper>
+                    <MarketingAnalyticsAIToolWrapper>
                         <MarketingAnalyticsContent />
-                    </MarketingAnalyticsMaxToolWrapper>
+                    </MarketingAnalyticsAIToolWrapper>
                 </SceneContent>
             </BindLogic>
         </BindLogic>
