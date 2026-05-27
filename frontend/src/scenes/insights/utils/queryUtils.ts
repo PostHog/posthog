@@ -232,6 +232,8 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             aggregationAxisPrefix: undefined,
             aggregationAxisPostfix: undefined,
             decimalPlaces: undefined,
+            xAxisLabel: undefined,
+            yAxisLabel: undefined,
             layout: undefined,
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,

@@ -943,7 +943,8 @@
   '''
   SELECT "posthog_resourcenotebook"."id",
          "posthog_resourcenotebook"."notebook_id",
-         "posthog_resourcenotebook"."group_id"
+         "posthog_resourcenotebook"."group_id",
+         "posthog_resourcenotebook"."account_id"
   FROM "posthog_resourcenotebook"
   WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
   '''
@@ -952,7 +953,8 @@
   '''
   SELECT "posthog_resourcenotebook"."id",
          "posthog_resourcenotebook"."notebook_id",
-         "posthog_resourcenotebook"."group_id"
+         "posthog_resourcenotebook"."group_id",
+         "posthog_resourcenotebook"."account_id"
   FROM "posthog_resourcenotebook"
   WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
   '''

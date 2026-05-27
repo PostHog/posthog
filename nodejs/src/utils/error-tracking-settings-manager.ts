@@ -4,12 +4,16 @@ import { LazyLoader } from './lazy-loader'
 export interface ErrorTrackingSettings {
     projectRateLimitValue: number | null
     projectRateLimitBucketSizeMinutes: number | null
+    perIssueRateLimitValue: number | null
+    perIssueRateLimitBucketSizeMinutes: number | null
 }
 
 interface RawSettingsRow {
     team_id: number
     project_rate_limit_value: number | null
     project_rate_limit_bucket_size_minutes: number | null
+    per_issue_rate_limit_value: number | null
+    per_issue_rate_limit_bucket_size_minutes: number | null
 }
 
 export class ErrorTrackingSettingsManager {
@@ -47,7 +51,9 @@ export class ErrorTrackingSettingsManager {
             `SELECT
                 team_id,
                 project_rate_limit_value,
-                project_rate_limit_bucket_size_minutes
+                project_rate_limit_bucket_size_minutes,
+                per_issue_rate_limit_value,
+                per_issue_rate_limit_bucket_size_minutes
             FROM posthog_errortrackingsettings
             WHERE team_id = ANY($1)`,
             [numericTeamIds],
@@ -58,6 +64,8 @@ export class ErrorTrackingSettingsManager {
             result[String(row.team_id)] = {
                 projectRateLimitValue: row.project_rate_limit_value,
                 projectRateLimitBucketSizeMinutes: row.project_rate_limit_bucket_size_minutes,
+                perIssueRateLimitValue: row.per_issue_rate_limit_value,
+                perIssueRateLimitBucketSizeMinutes: row.per_issue_rate_limit_bucket_size_minutes,
             }
         }
 
