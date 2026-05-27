@@ -12,7 +12,6 @@ from rest_framework import status
 from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -20,6 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
@@ -1172,7 +1172,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1252,7 +1252,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert endpoint_data.get("materialization", {}).get("status") is None
 
     def test_bucket_overrides_stored_on_version(self):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"

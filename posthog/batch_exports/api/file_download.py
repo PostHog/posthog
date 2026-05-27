@@ -5,7 +5,7 @@ import datetime as dt
 import posixpath
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 
@@ -15,7 +15,7 @@ from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -28,6 +28,11 @@ from products.batch_exports.backend.service import cancel_running_batch_export_r
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
 LOGGER = structlog.get_logger(__name__)
+_FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
+    # 4 ASCII bytes to fill 32-bit PostgreSQL lock key
+    b"FDBE",
+    byteorder="big",
+)
 
 
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
@@ -143,6 +148,16 @@ class CreateOutputSerializer(serializers.Serializer):
     id = serializers.UUIDField()
 
 
+class ListOutputSerializer(serializers.Serializer):
+    """Typed output for view set `list`."""
+
+    id = serializers.UUIDField(help_text="ID of the file download batch export run.")
+    status = serializers.ChoiceField(
+        choices=BatchExportRun.Status.choices,
+        help_text="Current status of the file download batch export run.",
+    )
+
+
 class RetrieveBasicOutputSerializer(serializers.Serializer):
     """Typed output for view set `retrieve` with any of the statuses without extra output."""
 
@@ -178,9 +193,22 @@ class RetrieveOutputSerializer(serializers.Serializer):
     )
 
 
+class TooManyConcurrentFileDownloads(APIException):
+    """Raised when a team creates too many file download batch exports."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_code = "too_many_concurrent_file_downloads"
+    default_detail = "Too many concurrent file download batch exports for this team."
+
+
 @extend_schema(tags=["batch_exports"])
 class FileDownloadBatchExportOnDemandViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    TeamAndOrgViewSetMixin,
+    LogEntryMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
 ):
     scope_object = "batch_export"
     queryset = (
@@ -194,6 +222,12 @@ class FileDownloadBatchExportOnDemandViewSet(
     log_source = "batch_exports"
     # Not linked directly with a team, we need to go through batch export
     filter_rewrite_rules = {"team_id": "batch_export_on_demand__team_id"}
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.action == "list":
+            return ListOutputSerializer
+
+        return FileDownloadBatchExportOnDemandSerializer
 
     @extend_schema(
         request=PolymorphicProxySerializer(
@@ -211,7 +245,31 @@ class FileDownloadBatchExportOnDemandViewSet(
         """Create and start a batch export on demand run to download a file."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        instance = serializer.save()
+
+        with transaction.atomic():
+            # Concurrent requests after the first one to obtain a lock will wait here
+            # until transaction is done. This prevents creating batch exports over the
+            # limit. Note we use our own 32-bit lock key additional to team_id to avoid
+            # conflicts with other parts of the application which may have also
+            # obtained a lock based on team_id.
+            # NOTE: If team_id ever becomes a 64-bit int update this.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(%s::integer, %s::integer)",
+                    (_FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY, self.team_id),
+                )
+
+            current_count = BatchExportRun.objects.filter(
+                status__in=(BatchExportRun.Status.STARTING, BatchExportRun.Status.RUNNING),
+                batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+                batch_export_on_demand__team_id=self.team_id,
+                batch_export_on_demand__deleted=False,
+            ).count()
+
+            if current_count >= settings.BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM:
+                raise TooManyConcurrentFileDownloads()
+
+            instance = serializer.save()
 
         try:
             start_file_download_batch_export(
@@ -260,7 +318,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         },
     )
     def retrieve(self, *args, **kwargs) -> response.Response:
-        """Get a run of a batch export on demand.
+        """Get a batch export on demand run.
 
         If the underlying batch export run has completed, we return keys to the
         generated file downloads so that users may download them by making a request

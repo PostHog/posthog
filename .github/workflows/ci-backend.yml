@@ -75,6 +75,8 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -197,6 +199,11 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      product_yamls:
+                        # Validates owner team slugs against PostHog/posthog collaborator teams.
+                        # Costs one GitHub API call; gated here so we only pay it when ownership
+                        # actually changes. Drives the validate-product-yamls job below.
+                        - 'products/*/product.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -395,9 +402,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -533,9 +540,9 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -560,6 +567,66 @@ jobs:
 
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+
+    # Validates product.yaml owners against PostHog/posthog collaborator teams.
+    # Gated on the product_yamls paths filter so we only spend a GitHub API call
+    # when ownership actually changes. The scoped form (positional product names)
+    # means a PR can't trip on pre-existing stale ownership in unrelated yamls.
+    # Skipped for fork PRs — app-token secrets aren't available there, and forks
+    # can't introduce new product.yaml entries that ship to master without a
+    # same-repo PR going through this check anyway.
+    validate-product-yamls:
+        needs: [changes]
+        if: >
+            needs.changes.outputs.product_yamls == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        name: Validate product.yaml owners (ubuntu-latest)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Default GITHUB_TOKEN can't list /repos/{repo}/teams (needs org-level
+            # `members: read`). Reuse the assign-reviewers app — same secret, same
+            # use case. `owner: PostHog` scopes the issued token at the org so
+            # org-level permissions actually flow through; otherwise the token is
+            # repo-scoped and the org scope gets dropped.
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.11.14'
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Validate changed product.yaml owners
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              run: |
+                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # Each entry is products/<name>/product.yaml — strip to <name>.
+                  names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
+                  if [ -z "$names" ]; then
+                    echo "No product.yaml files in diff after filtering"
+                    exit 0
+                  fi
+                  ./bin/hogli product:lint:owners $names
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -603,9 +670,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1159,7 +1226,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1462,9 +1529,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1642,7 +1709,7 @@ jobs:
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
                       matrix.person-on-events
-                      && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                      && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog'
                       )
                   }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
@@ -2016,9 +2083,9 @@ jobs:
                   filter: blob:none
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
 
             - name: Download JUnit artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -2106,9 +2173,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -2244,10 +2311,10 @@ jobs:
                     echo "available=false" >> "$GITHUB_OUTPUT"
                     echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
                   fi
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0

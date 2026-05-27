@@ -3042,6 +3042,19 @@ export interface HogQLMetadataResponseApi {
     warnings: HogQLNoticeApi[]
 }
 
+export interface DataWarehouseSyncWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+}
+
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
@@ -3071,6 +3084,8 @@ export interface Response3Api {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response4Api {
@@ -4411,12 +4426,14 @@ export interface ExperimentMeanMetricApi {
     ignore_zeros?: boolean | null
     isSharedMetric?: boolean | null
     kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
     lower_bound_percentile?: number | null
     metric_type?: 'mean'
     name?: string | null
     response?: ExperimentMeanMetricApiResponse
     sharedMetricId?: number | null
     source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
     /** version of the node, used for schema migrations */
@@ -4444,6 +4461,14 @@ export interface ExperimentFunnelMetricApi {
     version?: number | null
 }
 
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+}
+
 export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentRatioMetricApi {
@@ -4451,6 +4476,7 @@ export interface ExperimentRatioMetricApi {
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     fingerprint?: string | null
     goal?: ExperimentMetricGoalApi | null
     isSharedMetric?: boolean | null
@@ -4458,6 +4484,7 @@ export interface ExperimentRatioMetricApi {
     metric_type?: 'ratio'
     name?: string | null
     numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     response?: ExperimentRatioMetricApiResponse
     sharedMetricId?: number | null
     uuid?: string | null
@@ -4731,6 +4758,8 @@ export interface HogQLQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface HogQLVariableApi {

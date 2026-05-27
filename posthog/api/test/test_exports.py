@@ -19,11 +19,9 @@ from rest_framework import status
 
 from posthog.hogql.errors import QueryError
 
-from posthog.api.insight import InsightSerializer
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import (
@@ -39,6 +37,8 @@ from posthog.tasks.exports.image_exporter import export_image
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.api.insight import InsightSerializer
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.rbac.access_control import AccessControl
 

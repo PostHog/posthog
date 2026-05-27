@@ -22,10 +22,9 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Insight
-
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager

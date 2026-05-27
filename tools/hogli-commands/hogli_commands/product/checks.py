@@ -757,7 +757,18 @@ class ProductYamlCheck(ProductCheck):
 
 
 class ProductYamlOwnersCheck(ProductCheck):
-    """Validates product.yaml owner slugs against GitHub org teams."""
+    """Validates product.yaml owner slugs against GitHub team slugs in the PostHog org.
+
+    Not part of the default CHECKS list — pays a GitHub API call per run, so it's
+    only invoked via the dedicated ``product:lint:owners`` subcommand. CI gates
+    that subcommand on a ``products/*/product.yaml`` paths filter, so the API
+    call only fires when an ownership change is actually proposed.
+
+    Validates "team exists in the org", not "team has access to this repo" — the
+    repo-collaborator endpoint needs a permission the assign-reviewers GH App
+    lacks. The "exists but lacks repo access" gap is covered by the script's
+    422 fallback (drops bad teams, keeps valid ones).
+    """
 
     label = "product.yaml owners"
 
@@ -779,10 +790,6 @@ class ProductYamlOwnersCheck(ProductCheck):
 
         gh_teams, fetch_err = get_team_slugs()
         if gh_teams is None:
-            import os
-
-            if os.environ.get("GITHUB_ACTIONS") == "true":
-                return CheckResult(lines=[f"⚠ {fetch_err}, skipping in CI"])
             return CheckResult(
                 lines=[f"✗ {fetch_err}"],
                 issues=[fetch_err],
@@ -792,9 +799,22 @@ class ProductYamlOwnersCheck(ProductCheck):
         result = CheckResult(file=f"products/{ctx.name}/product.yaml")
 
         for owner in owners:
-            if isinstance(owner, str) and owner not in gh_teams:
+            if not isinstance(owner, str):
+                continue
+            # `@username` entries are individual reviewers, not teams — validating
+            # them needs a different endpoint, and the assign-reviewers script
+            # already routes them separately. Skip here.
+            if owner.startswith("@"):
+                continue
+            if owner == "team-CHANGEME":
                 result.issues.append(
-                    f"owner '{owner}' is not a GitHub team in PostHog org — check https://github.com/orgs/PostHog/teams"
+                    "owner is still the 'team-CHANGEME' scaffold placeholder — pick a real owning team"
+                )
+                continue
+            if owner not in gh_teams:
+                result.issues.append(
+                    f"owner '{owner}' is not a GitHub team in the PostHog org. "
+                    f"See https://github.com/orgs/PostHog/teams"
                 )
 
         if result.issues:
@@ -806,7 +826,6 @@ class ProductYamlOwnersCheck(ProductCheck):
 
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
-    ProductYamlOwnersCheck(),
     RequiredRootFilesCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
