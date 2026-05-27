@@ -20,8 +20,23 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
+    /// Final destination read by ClickHouse via the kafka_property_values
+    /// table engine. Stage 2's producer writes here.
     #[envconfig(default = "clickhouse_property_values")]
     pub output_topic: String,
+
+    /// Intermediate topic for the two-stage aggregation shuffle. Stage 1's
+    /// producer writes here (keyed by full tuple); stage 2's consumer reads
+    /// here and re-aggregates to collapse cross-pod duplicates before
+    /// forwarding to `output_topic`.
+    #[envconfig(default = "property_vals_intermediate")]
+    pub intermediate_topic: String,
+
+    /// Consumer group for stage 2 (intermediate -> output). Distinct from
+    /// the stage-1 consumer groups (events/groups) so partition assignment
+    /// is independent.
+    #[envconfig(default = "clickhouse-property-vals-rs-stage2")]
+    pub stage2_consumer_group: String,
 
     #[envconfig(default = "30")]
     pub flush_interval_secs: u64,

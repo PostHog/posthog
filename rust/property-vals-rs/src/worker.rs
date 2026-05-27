@@ -24,10 +24,11 @@ pub async fn worker_loop<E, P, F>(
     producer: P,
     handle: lifecycle::Handle,
     fan_out_fn: F,
+    bypass_team_filter: bool,
 ) where
     E: IngestableEvent,
     P: Producer,
-    F: Fn(&E) -> Vec<TupleKey>,
+    F: Fn(&E) -> Vec<(TupleKey, u64)>,
 {
     let _guard = handle.process_scope();
 
@@ -61,11 +62,11 @@ pub async fn worker_loop<E, P, F>(
                     Ok((event, offset)) => {
                         metrics::counter!(EVENTS_RECEIVED).increment(1);
 
-                        if config.should_process(event.team_id()) {
+                        if bypass_team_filter || config.should_process(event.team_id()) {
                             let tuples = fan_out_fn(&event);
                             metrics::counter!(TUPLES_AGGREGATED).increment(tuples.len() as u64);
-                            for t in tuples {
-                                aggregator.add(t, 1);
+                            for (t, count) in tuples {
+                                aggregator.add(t, count);
                             }
                         } else {
                             metrics::counter!(EVENTS_FILTERED).increment(1);

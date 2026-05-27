@@ -6,9 +6,9 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
     config::Config,
-    fan_out::{fan_out, fan_out_group},
+    fan_out::{fan_in, fan_out, fan_out_group},
     producer::AggregatedProducer,
-    types::{Event, GroupIdentify},
+    types::{Event, GroupIdentify, PropertyValueMessage},
     worker::worker_loop,
 };
 use serve_metrics::setup_metrics_routes;
@@ -66,6 +66,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
+    let stage2_handle = manager.register(
+        "stage2-worker",
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(30))
+            .with_liveness_deadline(Duration::from_secs(60))
+            .with_stall_threshold(3),
+    );
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
@@ -78,6 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_consumer_group = %config.consumer.kafka_consumer_group,
         groups_topic = %config.groups_kafka_consumer_topic,
         groups_consumer_group = %config.groups_kafka_consumer_group,
+        intermediate_topic = %config.intermediate_topic,
+        stage2_consumer_group = %config.stage2_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
         "config loaded"
@@ -85,15 +94,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
 
+    // Stage 1 (events) — consumes raw events, fans out to per-pod aggregates,
+    // produces to the intermediate topic.
     let events_consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
     let events_producer = AggregatedProducer::new(
         &config.kafka,
         events_handle.clone(),
-        config.output_topic.clone(),
+        config.intermediate_topic.clone(),
         produce_timeout,
     )
     .await?;
 
+    // Stage 1 (groups) — consumes group-identify events, fans out, produces
+    // to the intermediate topic (same destination as the events stage).
     let mut groups_consumer_config = config.consumer.clone();
     groups_consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
     groups_consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
@@ -101,6 +114,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let groups_producer = AggregatedProducer::new(
         &config.kafka,
         groups_handle.clone(),
+        config.intermediate_topic.clone(),
+        produce_timeout,
+    )
+    .await?;
+
+    // Stage 2 — consumes the intermediate topic and collapses the per-pod
+    // emissions stage 1 produced for the same tuple, then forwards to the
+    // final output topic that ClickHouse reads.
+    let mut stage2_consumer_config = config.consumer.clone();
+    stage2_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
+    stage2_consumer_config.kafka_consumer_group = config.stage2_consumer_group.clone();
+    let stage2_consumer = SingleTopicConsumer::new(config.kafka.clone(), stage2_consumer_config)?;
+    let stage2_producer = AggregatedProducer::new(
+        &config.kafka,
+        stage2_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
     )
@@ -114,6 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Subscribed to topic: {}",
         config.groups_kafka_consumer_topic
     );
+    info!("Subscribed to topic: {}", config.intermediate_topic);
 
     let shared_config = Arc::new(config.clone());
 
@@ -128,6 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_producer,
         events_handle.clone(),
         move |e: &Event| fan_out(e, &excluded_events),
+        false,
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),
@@ -135,9 +165,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_producer,
         groups_handle.clone(),
         move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
+        false,
+    ));
+    // Stage 2 bypasses the team filter: every record on the intermediate topic
+    // already passed the stage-1 filter, and re-applying would silently drop
+    // partial aggregates if rollout_percentage shrinks between deploys, breaking
+    // sum-conservation.
+    tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
+        shared_config.clone(),
+        stage2_consumer,
+        stage2_producer,
+        stage2_handle.clone(),
+        |m: &PropertyValueMessage| fan_in(m),
+        true,
     ));
     drop(events_handle);
     drop(groups_handle);
+    drop(stage2_handle);
 
     let app = Router::new()
         .route("/", get(index))
