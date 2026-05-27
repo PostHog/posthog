@@ -10,11 +10,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 
 from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6

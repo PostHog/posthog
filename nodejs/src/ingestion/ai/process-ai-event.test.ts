@@ -244,6 +244,64 @@ describe('processAiEvent()', () => {
         })
     })
 
+    describe('OTel ingestion', () => {
+        it('extracts Pydantic AI tool calls from output message parts', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'logfire.json_schema': '{}',
+                'gen_ai.response.model': 'testing_model',
+                'gen_ai.provider.name': 'openai',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 50,
+                'gen_ai.output.messages': JSON.stringify([
+                    {
+                        role: 'assistant',
+                        parts: [
+                            { type: 'text', content: 'Let me check.' },
+                            {
+                                type: 'tool_call',
+                                id: 'call_weather',
+                                name: 'get_weather',
+                                arguments: '{"city":"NYC"}',
+                            },
+                            {
+                                type: 'tool_call',
+                                id: 'call_docs',
+                                name: 'search_docs',
+                                arguments: '{"query":"weather"}',
+                            },
+                        ],
+                    },
+                ]),
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_output_choices).toEqual([
+                {
+                    role: 'assistant',
+                    parts: [
+                        { type: 'text', content: 'Let me check.' },
+                        {
+                            type: 'tool_call',
+                            id: 'call_weather',
+                            name: 'get_weather',
+                            arguments: '{"city":"NYC"}',
+                        },
+                        {
+                            type: 'tool_call',
+                            id: 'call_docs',
+                            name: 'search_docs',
+                            arguments: '{"query":"weather"}',
+                        },
+                    ],
+                },
+            ])
+            expect(result.properties!.$ai_tools_called).toBe('get_weather,search_docs')
+            expect(result.properties!.$ai_tool_call_count).toBe(2)
+        })
+    })
+
     describe('model matching', () => {
         it('matches exact model names', () => {
             const result = processAiEvent(event)

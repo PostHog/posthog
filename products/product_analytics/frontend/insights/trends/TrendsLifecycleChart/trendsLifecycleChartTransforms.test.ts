@@ -141,6 +141,18 @@ describe('buildTrendsLifecycleConfig', () => {
         const cfg = buildTrendsLifecycleConfig({ isStacked: true, tooltip })
         expect(cfg.tooltip).toEqual(tooltip)
     })
+
+    it.each([
+        { input: true, expected: true },
+        { input: false, expected: false },
+        {
+            input: { formatter: (v: number) => `${v}!` },
+            expected: { formatter: expect.any(Function) },
+        },
+    ])('forwards valueLabels=$input to the config', ({ input, expected }) => {
+        const cfg = buildTrendsLifecycleConfig({ isStacked: true, valueLabels: input })
+        expect(cfg.valueLabels).toEqual(expected)
+    })
 })
 
 describe('shortenLifecycleLabel', () => {
