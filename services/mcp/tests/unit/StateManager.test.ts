@@ -325,6 +325,11 @@ describe('StateManager', () => {
         it('returns undefined when no org can be resolved (does not throw)', async () => {
             // Preserves the best-effort contract used by getEnvironmentPrompt and
             // consent checks: if no org is in scope, the call is a no-op.
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                scopes: ['organization:read'],
+                scoped_organizations: [],
+                scoped_teams: [],
+            })
             vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
                 organizationId: undefined,
                 projectId: undefined,
@@ -379,6 +384,27 @@ describe('StateManager', () => {
                 expect(orgGet).not.toHaveBeenCalled()
             }
         )
+
+        it('skips org resolution for project-scoped API keys', async () => {
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                scopes: ['*'],
+                scoped_organizations: [],
+                scoped_teams: [456],
+            })
+            const setDefaultSpy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject')
+            const getProjectSpy = vi.spyOn(stateManager, 'getCachedOrFetchProject')
+            const orgGet = vi.fn()
+            ;(stateManager as any)._api = {
+                organizations: () => ({ get: orgGet }),
+            }
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toBeUndefined()
+            expect(setDefaultSpy).not.toHaveBeenCalled()
+            expect(getProjectSpy).not.toHaveBeenCalled()
+            expect(orgGet).not.toHaveBeenCalled()
+        })
 
         it.each([['organization:read'], ['organization:write'], ['*']])(
             'fetches the org when the API key carries %s',

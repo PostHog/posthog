@@ -279,17 +279,18 @@ export class StateManager {
     }
 
     async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
-        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
-        // consent checks treat "no org" as "skip", not as a hard error.
-        const orgId = await this._resolveOrganizationId()
-        if (!orgId) {
-            return undefined
-        }
         const apiKey = await this.getApiKey()
         // `/api/organizations/{id}/` is not project-nested. Backend permission
         // checks reject project-scoped tokens there even when they carry
         // `organization:read` or `*`, so skip the best-effort fetch entirely.
         if (apiKey.scoped_teams.length > 0 || !hasScope(apiKey.scopes, 'organization:read')) {
+            return undefined
+        }
+
+        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
+        // consent checks treat "no org" as "skip", not as a hard error.
+        const orgId = await this._resolveOrganizationId()
+        if (!orgId) {
             return undefined
         }
         return this.getOrFetchCached({
