@@ -808,18 +808,28 @@ class MemoryLeakTestMixin:
     MEMORY_LEAK_CHECK_RUNS_N: int
     """How many times to run every test method to check for memory leaks"""
 
+    # Re-run index for the current test, exposed so a test body can do work that must happen
+    # exactly once (e.g. a snapshot/oracle comparison whose own machinery allocates and would
+    # otherwise trip the leak check on every rerun) only when this is 0, while still exercising
+    # the code under test on every rerun. Outside the priming/measure loop it stays 0.
+    _memory_leak_run_index: int = 0
+
     def _callTestMethod(self, method):
         # Tests marked `@no_memory_leak_check` run once, no priming/measure loop.
         if getattr(method, "_no_memory_leak_check", False):
+            self._memory_leak_run_index = 0
             method()
             return
         test_case = cast(unittest.TestCase, self)
+        self._memory_leak_run_index = 0
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
+            self._memory_leak_run_index += 1
         mem_primed_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_LEAK_CHECK_RUNS_N):  # Memory leak check runs
             method()
+            self._memory_leak_run_index += 1
         mem_tested_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         avg_memory_priming_increase_b = (mem_primed_b - mem_original_b) / self.MEMORY_PRIMING_RUNS_N
         avg_memory_test_increase_b = (mem_tested_b - mem_primed_b) / self.MEMORY_LEAK_CHECK_RUNS_N

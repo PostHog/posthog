@@ -3,12 +3,14 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+
+import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
     Security = 'security',
@@ -203,6 +205,92 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     )
 }
 
+function PipelineNotificationSelector(): JSX.Element {
+    const { userLoading } = useValues(userLogic)
+    const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
+    const { pipelines, pipelinesLoading, pipelinesByTeam, allPipelineIds, isPipelineDisabled } =
+        useValues(pipelineNotificationsLogic)
+    const [expanded, setExpanded] = useState(true)
+
+    return (
+        <div>
+            <LemonButton
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+                size="small"
+                type="tertiary"
+                className="p-0"
+            >
+                Select pipelines to receive notifications for
+            </LemonButton>
+
+            {expanded && (
+                <div className="mt-3 ml-6 space-y-2">
+                    <p className="text-muted text-xs">
+                        All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications for.
+                    </p>
+                    {pipelinesLoading ? (
+                        <div className="flex items-center gap-2 py-2">
+                            <Spinner className="text-lg" />
+                            <span className="text-muted text-sm">Loading pipelines...</span>
+                        </div>
+                    ) : pipelines.length === 0 ? (
+                        <p className="text-muted text-sm">No pipelines found in your projects.</p>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-row items-center gap-4">
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updatePipelineNotificationForAll(allPipelineIds, true)}
+                                >
+                                    Enable all notifications
+                                </LemonButton>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updatePipelineNotificationForAll(allPipelineIds, false)}
+                                >
+                                    Mute all notifications
+                                </LemonButton>
+                            </div>
+
+                            {Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => (
+                                <div key={key} className="flex flex-col gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium">{teamName}</span>
+                                        <LemonTag type="muted">id: {teamId}</LemonTag>
+                                    </div>
+                                    <div className="ml-4 flex flex-col gap-1">
+                                        {items.map((pipeline) => (
+                                            <LemonCheckbox
+                                                key={pipeline.id}
+                                                id={`pipeline-${pipeline.id}`}
+                                                data-attr={`pipeline_notification_${pipeline.id}`}
+                                                onChange={(checked) => updatePipelineNotification(pipeline.id, checked)}
+                                                checked={!isPipelineDisabled(pipeline.id)}
+                                                disabled={userLoading}
+                                                label={
+                                                    <div className="flex items-center gap-2">
+                                                        <span>{pipeline.name}</span>
+                                                        <LemonTag type="default">
+                                                            {PIPELINE_KIND_LABELS[pipeline.kind]}
+                                                        </LemonTag>
+                                                    </div>
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const {
@@ -327,6 +415,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                         </div>
                     </div>
                 )}
+                {user?.notification_settings?.plugin_disabled !== false && <PipelineNotificationSelector />}
             </div>
         ),
         [NotificationBlock.IssueAssigned]: (

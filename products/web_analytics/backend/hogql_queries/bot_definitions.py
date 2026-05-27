@@ -147,6 +147,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Google-NotebookLM": BotDefinition(
         "NotebookLM", "ai_assistant", "AI Agent", "Google", documentation_url="https://notebooklm.google.com/"
     ),
+    "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap"),
     # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
     # Dots are escaped because keys are evaluated as re2 regex by ClickHouse multiMatchAnyIndex.
     r"desktop\.hog\.dev": BotDefinition(
@@ -203,6 +204,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Yahoo", "search_crawler", "Bot", "Yahoo", documentation_url="https://bots.fyi/d/yahoo-slurp"
     ),
     "Yeti/": BotDefinition("Naver", "search_crawler", "Bot", "Naver", documentation_url="https://bots.fyi/d/naverbot"),
+    "YisouSpider": BotDefinition(
+        "Yisou", "search_crawler", "Bot", "Yisou", documentation_url="https://bots.fyi/d/yisouspider"
+    ),
+    "Sogou web spider": BotDefinition("Sogou", "search_crawler", "Bot", "Sogou"),
+    "pageburst": BotDefinition("Pageburst", "search_crawler", "Bot", "Pageburst"),
+    "360Spider": BotDefinition("360 Spider", "search_crawler", "Bot", "Qihoo 360"),
     # Search Crawlers (Google variants)
     "AdsBot-Google": BotDefinition(
         "Google Ads", "search_crawler", "Bot", "Google", documentation_url="https://bots.fyi/d/google-adsbot"
@@ -214,6 +221,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Google",
         documentation_url="https://bots.fyi/d/google-inspectiontool",
     ),
+    "Google-Food": BotDefinition("Google Food", "search_crawler", "Bot", "Google"),
     # SEO Tools
     "AhrefsSiteAudit": BotDefinition(
         "Ahrefs Site Audit", "seo_crawler", "Bot", "Ahrefs", documentation_url="https://bots.fyi/d/ahrefssiteaudit"
@@ -241,6 +249,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Lighthouse": BotDefinition(
         "Lighthouse", "seo_crawler", "Bot", "Google", documentation_url="https://bots.fyi/d/chrome-lighthouse"
     ),
+    "MeltwaterNews": BotDefinition("Meltwater", "seo_crawler", "Bot", "Meltwater"),
     # Social Crawlers
     "FacebookBot": BotDefinition(
         "Facebook Bot",
@@ -317,6 +326,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Datadog",
         documentation_url="https://bots.fyi/d/datadog-synthetic-monitoring-robot",
     ),
+    "GrafanaSyntheticMonitoring": BotDefinition("Grafana Synthetic", "monitoring", "Bot", "Grafana Labs"),
+    "DMBrowser": BotDefinition("Doctom Monitor", "monitoring", "Bot", "Doctom"),
+    "DigitalOcean Uptime Probe": BotDefinition("DigitalOcean Uptime", "monitoring", "Bot", "DigitalOcean"),
     # HTTP Clients
     "curl/": BotDefinition("curl", "http_client", "Automation", "curl", documentation_url="https://curl.se/"),
     "Wget": BotDefinition(
@@ -354,6 +366,34 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "LWP", "http_client", "Automation", "Perl", documentation_url="https://metacpan.org/pod/LWP"
     ),
     "Scrapy": BotDefinition("Scrapy", "http_client", "Automation", "Scrapy", documentation_url="https://scrapy.org/"),
+    # First-party vendor crawlers and verifiers
+    "PlayStore-Google": BotDefinition("Google Play Store", "http_client", "Bot", "Google"),
+    "Amazon CloudFront": BotDefinition("Amazon CloudFront", "http_client", "Bot", "Amazon"),
+    "AmazonProductDiscovery": BotDefinition("Amazon Product Discovery", "http_client", "Bot", "Amazon"),
+    "Google-BusinessLinkVerification": BotDefinition("Google Business Link", "http_client", "Bot", "Google"),
+    "Storebot-Google": BotDefinition(
+        "Google Storebot",
+        "http_client",
+        "Bot",
+        "Google",
+        documentation_url="https://bots.fyi/d/storebot-google",
+    ),
+    "Google-Read-Aloud": BotDefinition(
+        "Google Read Aloud",
+        "http_client",
+        "Bot",
+        "Google",
+        documentation_url="https://bots.fyi/d/google-read-aloud",
+    ),
+    "Google-Appointments": BotDefinition("Google Appointments", "http_client", "Bot", "Google"),
+    "Google-Actions": BotDefinition(
+        "Google Actions",
+        "http_client",
+        "Bot",
+        "Google",
+        documentation_url="https://bots.fyi/d/google-actions",
+    ),
+    "OneTrust": BotDefinition("OneTrust", "http_client", "Bot", "OneTrust"),
     # Prefetch/Proxy
     "Chrome Privacy Preserving Prefetch Proxy": BotDefinition(
         "Chrome Prefetch Proxy",

@@ -92,11 +92,28 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 "Created bulk database pools"
             );
 
+            assert!(
+                config.bulk_chunk_size >= 1,
+                "BULK_CHUNK_SIZE must be at least 1"
+            );
+            assert!(
+                config.bulk_max_concurrent_chunks >= 1,
+                "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
+            );
+            assert!(
+                config.bulk_max_concurrent_chunks <= config.bulk_max_pg_connections as usize,
+                "BULK_MAX_CONCURRENT_CHUNKS ({}) must not exceed BULK_MAX_PG_CONNECTIONS ({})",
+                config.bulk_max_concurrent_chunks,
+                config.bulk_max_pg_connections
+            );
+
             Arc::new(PostgresStorage::new(
                 primary_pool,
                 replica_pool,
                 bulk_primary_pool,
                 bulk_replica_pool,
+                config.bulk_chunk_size,
+                config.bulk_max_concurrent_chunks,
             ))
         }
         other => {
@@ -323,7 +340,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv)
                     .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                    .send_compressed(CompressionEncoding::Zstd)
+                    .accept_compressed(CompressionEncoding::Gzip)
+                    .send_compressed(CompressionEncoding::Gzip),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

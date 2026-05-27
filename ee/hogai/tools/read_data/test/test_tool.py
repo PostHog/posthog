@@ -18,12 +18,12 @@ from posthog.schema import (
 )
 
 from posthog.models import Insight
-from posthog.models.feature_flag import FeatureFlag
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.llm_analytics.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,

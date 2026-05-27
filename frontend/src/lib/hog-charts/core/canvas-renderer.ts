@@ -199,13 +199,23 @@ export function drawArea(
 
     ctx.globalAlpha = opacity
 
+    // Gradient applies only to the un-stacked baseline fill; dashed-partial segments
+    // stay on a solid fill via the branch below.
+    const useGradient = series.fill?.gradient && !bottomValues
+    let gradient: CanvasGradient | null = null
+    if (useGradient) {
+        gradient = ctx.createLinearGradient(0, dimensions.plotTop, 0, baseline)
+        gradient.addColorStop(0, series.color)
+        gradient.addColorStop(1, 'transparent')
+    }
+
     for (const { top, bottom } of segments) {
         if (top.length < 2) {
             continue
         }
 
         if (dashedFrom === null && dashedTo === null) {
-            ctx.fillStyle = series.color
+            ctx.fillStyle = gradient ?? series.color
             fillAreaPath(ctx, top, bottom)
             continue
         }
@@ -297,11 +307,11 @@ export interface DrawGridOptions {
     categoryTicks?: number[]
 }
 
-/** Draws the grid lines and the categorical-axis baseline.
+/** Draws the grid lines and the full plot-area frame.
  *
  * `orientation`:
- *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baseline on the left.
- *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baseline on the top.
+ *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baselines on both left and right.
+ *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baselines on both top and bottom.
  *
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
@@ -347,6 +357,13 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         ctx.moveTo(dimensions.plotLeft, axisY)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
         ctx.stroke()
+        // Far-edge snap uses `- 0.5` (mirror of the `+ 0.5` near edge above) so the
+        // closing stroke lands just inside `plotTop + plotHeight` and stays within the plot rect.
+        const closingY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+        ctx.beginPath()
+        ctx.moveTo(dimensions.plotLeft, closingY)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, closingY)
+        ctx.stroke()
         return
     }
 
@@ -373,6 +390,13 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.beginPath()
     ctx.moveTo(axisX, dimensions.plotTop)
     ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+
+    // See the horizontal-mode block for the `- 0.5` snap rationale (mirror of the near-edge `+ 0.5`).
+    const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) - 0.5
+    ctx.beginPath()
+    ctx.moveTo(closingX, dimensions.plotTop)
+    ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
     ctx.stroke()
 }
 

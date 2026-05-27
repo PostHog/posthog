@@ -29,7 +29,6 @@ from ..ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
 
@@ -40,7 +39,6 @@ from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
-from .feature_flag import FeatureFlag
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -78,7 +76,6 @@ from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
-from .scheduled_change import ScheduledChange
 from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
@@ -141,9 +138,6 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
-    "EvaluationContext",
-    "FeatureFlagEvaluationContext",
-    "TeamDefaultEvaluationContext",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -151,7 +145,6 @@ __all__ = [
     "RoleExternalReference",
     "ExportedAsset",
     "ExportedRecording",
-    "FeatureFlag",
     "FileSystem",
     "FileSystemViewLog",
     "Filter",
@@ -235,6 +228,8 @@ __all__ = [
     "UserGroupMembership",
     "UserIntegration",
     "UserPushToken",
+    "DataWarehouseTable",
+    "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
     # Deprecated models here for backwards compatibility
