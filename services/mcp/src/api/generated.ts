@@ -35602,6 +35602,33 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
+    /**
+     * * `suppressed` - suppressed
+    * `potential` - potential
+     */
+    export type SignalReportStateRequestStateEnum = typeof SignalReportStateRequestStateEnum[keyof typeof SignalReportStateRequestStateEnum];
+
+
+    export const SignalReportStateRequestStateEnum = {
+      Suppressed: 'suppressed',
+      Potential: 'potential',
+    } as const;
+
+    export interface SignalReportStateRequest {
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+
+      * `suppressed` - suppressed
+      * `potential` - potential */
+      state: SignalReportStateRequestStateEnum;
+      /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
+      dismissal_reason?: string;
+      /**
+         * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      dismissal_note?: string;
+    }
+
     export interface _User {
       readonly id: number;
       readonly uuid: string;

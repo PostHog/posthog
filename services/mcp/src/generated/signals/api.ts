@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -53,6 +53,48 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Transition a report to a new state. The model validates allowed transitions.
+
+Body: {
+    "state": "suppressed" | "potential",
+    # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+    "dismissal_reason": "<any string code, owned by the caller>",
+    "dismissal_note": "free-form text",
+    ...other kwargs passed to transition_to
+}
+ */
+export const SignalsReportsStateCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsReportsStateCreateBodyDismissalNoteMax = 4000
+
+export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
+    state: zod
+        .enum(['suppressed', 'potential'])
+        .describe('* `suppressed` - suppressed\n* `potential` - potential')
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+        ),
+    dismissal_reason: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side."
+        ),
+    dismissal_note: zod
+        .string()
+        .max(signalsReportsStateCreateBodyDismissalNoteMax)
+        .optional()
+        .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
 })
 
 export const SignalsSourceConfigsListParams = /* @__PURE__ */ zod.object({

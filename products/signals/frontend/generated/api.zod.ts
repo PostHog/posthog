@@ -18,6 +18,39 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Pause the grouping pipeline until this timestamp (ISO 8601).'),
 })
 
+/**
+ * Transition a report to a new state. The model validates allowed transitions.
+
+Body: {
+    "state": "suppressed" | "potential",
+    # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+    "dismissal_reason": "<any string code, owned by the caller>",
+    "dismissal_note": "free-form text",
+    ...other kwargs passed to transition_to
+}
+ */
+export const signalsReportsStateCreateBodyDismissalNoteMax = 4000
+
+export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
+    state: zod
+        .enum(['suppressed', 'potential'])
+        .describe('\* `suppressed` - suppressed\n\* `potential` - potential')
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze\/reopen it for later review.\n\n\* `suppressed` - suppressed\n\* `potential` - potential"
+        ),
+    dismissal_reason: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side."
+        ),
+    dismissal_note: zod
+        .string()
+        .max(signalsReportsStateCreateBodyDismissalNoteMax)
+        .optional()
+        .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+})
+
 export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .enum([

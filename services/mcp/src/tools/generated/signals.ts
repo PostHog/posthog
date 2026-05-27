@@ -5,6 +5,8 @@ import type { Schemas } from '@/api/generated'
 import {
     SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
+    SignalsReportsStateCreateBody,
+    SignalsReportsStateCreateParams,
     SignalsSourceConfigsListQueryParams,
     SignalsSourceConfigsRetrieveParams,
 } from '@/generated/signals/api'
@@ -83,6 +85,37 @@ const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, Wit
     },
 })
 
+const InboxReportsStateCreateSchema = SignalsReportsStateCreateParams.omit({ project_id: true }).extend(
+    SignalsReportsStateCreateBody.shape
+)
+
+const inboxReportsStateCreate = (): ToolBase<
+    typeof InboxReportsStateCreateSchema,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-state-create',
+    schema: InboxReportsStateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsStateCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.state !== undefined) {
+            body['state'] = params.state
+        }
+        if (params.dismissal_reason !== undefined) {
+            body['dismissal_reason'] = params.dismissal_reason
+        }
+        if (params.dismissal_note !== undefined) {
+            body['dismissal_note'] = params.dismissal_note
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/state/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
 const InboxSourceConfigsListSchema = SignalsSourceConfigsListQueryParams
 
 const inboxSourceConfigsList = (): ToolBase<
@@ -140,6 +173,7 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
+    'inbox-reports-state-create': inboxReportsStateCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
 }
