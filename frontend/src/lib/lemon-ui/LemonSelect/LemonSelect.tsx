@@ -76,6 +76,8 @@ export interface LemonSelectPropsBase<T> extends Pick<
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopoverProps['placement']
+    /** Forwarded to LemonMenu — overrides the default flip fallback placements. Pass `[]` to disable flipping entirely. */
+    dropdownFallbackPlacements?: LemonMenuProps['fallbackPlacements']
     className?: string
     placeholder?: string
     size?: LemonButtonProps['size']
@@ -83,6 +85,8 @@ export interface LemonSelectPropsBase<T> extends Pick<
     visible?: LemonDropdownProps['visible']
     startVisible?: LemonDropdownProps['startVisible']
     truncateText?: { maxWidthClass: string }
+    /** Forwarded to LemonMenu — opt out of scrolling the active item into view on open. */
+    scrollToActiveOnOpen?: LemonMenuProps['scrollToActiveOnOpen']
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -115,6 +119,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     dropdownMatchSelectWidth = true,
     dropdownMaxContentWidth = false,
     dropdownPlacement,
+    dropdownFallbackPlacements,
     allowClear = false,
     className,
     menu,
@@ -122,6 +127,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     visible,
     startVisible,
     truncateText,
+    scrollToActiveOnOpen,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -144,6 +150,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
             tooltipPlacement={optionTooltipPlacement}
             matchWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
+            fallbackPlacements={dropdownFallbackPlacements}
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
             activeItemIndex={items
@@ -152,6 +159,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
             visible={visible}
             startVisible={startVisible}
+            scrollToActiveOnOpen={scrollToActiveOnOpen}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}

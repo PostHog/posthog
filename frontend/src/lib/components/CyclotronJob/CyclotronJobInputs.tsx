@@ -464,6 +464,8 @@ function CyclotronJobInputRenderer({
                         onChange={onValueChange}
                         options={schema.choices ?? []}
                         disabled={disabled}
+                        scrollToActiveOnOpen={false}
+                        dropdownFallbackPlacements={[]}
                     />
                 )
             }
