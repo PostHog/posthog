@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG = "retention-fixed-interval-base-query-dwh-variant"
 
+SHARED_EVENT_TIMESTAMPS_ALIAS = "_shared_event_timestamps"
+
 
 def retention_fixed_interval_base_query_use_dwh_variant(team: "Team") -> bool:
     return bool(
@@ -341,14 +343,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # When the start and return entities are identical, the start-side and return-side
         # `groupUniqArrayIf` aggregates are byte-identical over the same filter. Hoist them
         # to a single alias so ClickHouse aggregates the events table once instead of twice.
-        # Excludes the property-aggregation path (computes 3-tuples, not bare timestamps) and
-        # the minimum_occurrences>1 path (return side needs groupArrayIf with duplicates).
-        can_share_event_aggregate = (
-            self._start_and_return_entities_are_same()
-            and not self.has_property_aggregation
-            and self.minimum_occurrences == 1
-        )
-
+        # Excludes the property-aggregation path (return side emits 3-tuples, not bare
+        # timestamps) and minimum_occurrences>1 (return side filters
+        # return_event_counts_by_interval, not the same aggregate as the start side).
         base_event_timestamps_expr = parse_expr(
             """
             arraySort(
@@ -367,12 +364,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
         shared_event_timestamps_alias: ast.Alias | None = None
-        if can_share_event_aggregate:
+        shared_event_timestamps_ref: ast.Field | None = None
+        if (
+            self._start_and_return_entities_are_same()
+            and not self.has_property_aggregation
+            and self.minimum_occurrences == 1
+        ):
             shared_event_timestamps_alias = ast.Alias(
-                alias="_shared_event_timestamps",
+                alias=SHARED_EVENT_TIMESTAMPS_ALIAS,
                 expr=base_event_timestamps_expr,
             )
-            start_event_timestamps: ast.Expr = ast.Field(chain=["_shared_event_timestamps"])
+            shared_event_timestamps_ref = ast.Field(chain=[SHARED_EVENT_TIMESTAMPS_ALIAS])
+            start_event_timestamps: ast.Expr = shared_event_timestamps_ref
         else:
             start_event_timestamps = base_event_timestamps_expr
 
@@ -415,9 +418,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # Reference the pre-computed aliases rather than inlining the expressions again
             return_event_timestamps = parse_expr("arrayMap(x -> x.1, _return_event_data)")
             return_event_values = (start_event_data, return_event_data)
-        elif shared_event_timestamps_alias is not None:
-            # Reuse the hoisted aggregate computed for the start side.
-            return_event_timestamps = ast.Field(chain=["_shared_event_timestamps"])
+        elif shared_event_timestamps_ref is not None:
+            return_event_timestamps = shared_event_timestamps_ref
             return_event_values = None
         else:
             return_event_timestamps = self._get_return_event_timestamps_expr(
@@ -431,7 +433,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             min_timestamp_inner_expr = self.get_first_time_anchor_expr(self.start_event)
             min_timestamp_expr = self.query_date_range.date_to_start_of_interval_hogql(min_timestamp_inner_expr)
 
-            if shared_event_timestamps_alias is not None:
+            if shared_event_timestamps_ref is not None:
                 # When the source is the hoisted SELECT alias, reference it twice directly instead of
                 # using the inline `expr as _start_event_timestamps` rename. Aliasing a SELECT-level
                 # alias inside an expression is brittle in ClickHouse, and the alias is already a
@@ -439,7 +441,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 start_event_timestamps = parse_expr(
                     "if(has({s}, {min_timestamp}), {s}, [])",
                     {
-                        "s": ast.Field(chain=["_shared_event_timestamps"]),
+                        "s": shared_event_timestamps_ref,
                         "min_timestamp": min_timestamp_expr,
                     },
                 )
@@ -457,32 +459,24 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     """,
                     {
                         "start_event_timestamps": start_event_timestamps,
-                        # cast this to start of interval as well so we can compare with the timestamps fetched above
                         "min_timestamp": min_timestamp_expr,
                     },
                 )
-            # interval must be same as first interval of in which start event happened
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         retention_value_expr: ast.Expr | None
         intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
 
+        # `shared_event_timestamps_alias` (when set) must precede the columns that reference it.
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.aggregation_target_events_column])),
+            *([shared_event_timestamps_alias] if shared_event_timestamps_alias is not None else []),
+            # start events between date_from and date_to (represented by start of interval)
+            # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
+            ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+            # get all intervals between date_from and date_to (represented by start of interval)
+            self._date_range_alias(),
+            *minimum_occurrences_aliases,
         ]
-        # When start and return share an aggregate, the alias must precede any column that
-        # references `_shared_event_timestamps` (start_event_timestamps below).
-        if shared_event_timestamps_alias is not None:
-            select_fields.append(shared_event_timestamps_alias)
-        select_fields.extend(
-            [
-                # start events between date_from and date_to (represented by start of interval)
-                # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
-                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-                # get all intervals between date_from and date_to (represented by start of interval)
-                self._date_range_alias(),
-                *minimum_occurrences_aliases,
-            ]
-        )
 
         # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
         # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
