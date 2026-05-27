@@ -24,7 +24,6 @@ from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
     OAuthApplicationAccessLevel,
-    OAuthApplicationAuthBrand,
     OAuthGrant,
     OAuthRefreshToken,
 )
@@ -2809,7 +2808,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("posthog_region", data)
         self.assertNotIn("posthog_base_url", data)
 
-    def _create_first_party_app(self, *, slug: str, auth_brand: str) -> OAuthApplication:
+    def _create_first_party_app(self, *, slug: str, is_first_party: bool = True) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name=f"First Party App {slug}",
             client_id=f"first_party_{slug}_client_id",
@@ -2820,20 +2819,16 @@ class TestOAuthAPI(APIBaseTest):
             user=self.user,
             hash_client_secret=True,
             algorithm="RS256",
-            is_first_party=True,
-            auth_brand=auth_brand,
+            is_first_party=is_first_party,
         )
 
     @freeze_time("2025-01-01 00:00:00")
-    def test_token_response_derives_scoped_teams_for_twig_brand(self):
-        twig_app = self._create_first_party_app(
-            slug="twig-derive",
-            auth_brand=OAuthApplicationAuthBrand.TWIG.value,
-        )
+    def test_token_response_derives_scoped_teams_for_first_party_app(self):
+        app = self._create_first_party_app(slug="first-party-derive")
         grant = OAuthGrant.objects.create(
-            application=twig_app,
+            application=app,
             user=self.user,
-            code="twig_derive_code",
+            code="first_party_derive_code",
             code_challenge=self.code_challenge,
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
@@ -2846,8 +2841,8 @@ class TestOAuthAPI(APIBaseTest):
             "/oauth/token/",
             {
                 **self.base_token_body,
-                "client_id": twig_app.client_id,
-                "client_secret": "first_party_twig-derive_client_secret",
+                "client_id": app.client_id,
+                "client_secret": "first_party_first-party-derive_client_secret",
                 "code": grant.code,
             },
         )
@@ -2861,15 +2856,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(access_token.scoped_teams, [])
 
     @freeze_time("2025-01-01 00:00:00")
-    def test_token_response_does_not_derive_scoped_teams_for_non_twig_brand(self):
-        posthog_app = self._create_first_party_app(
-            slug="posthog-no-derive",
-            auth_brand=OAuthApplicationAuthBrand.POSTHOG.value,
-        )
+    def test_token_response_does_not_derive_scoped_teams_for_third_party_app(self):
+        app = self._create_first_party_app(slug="third-party-no-derive", is_first_party=False)
         grant = OAuthGrant.objects.create(
-            application=posthog_app,
+            application=app,
             user=self.user,
-            code="posthog_no_derive_code",
+            code="third_party_no_derive_code",
             code_challenge=self.code_challenge,
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
@@ -2882,8 +2874,8 @@ class TestOAuthAPI(APIBaseTest):
             "/oauth/token/",
             {
                 **self.base_token_body,
-                "client_id": posthog_app.client_id,
-                "client_secret": "first_party_posthog-no-derive_client_secret",
+                "client_id": app.client_id,
+                "client_secret": "first_party_third-party-no-derive_client_secret",
                 "code": grant.code,
             },
         )
@@ -2894,15 +2886,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_teams"], [])
 
     @freeze_time("2025-01-01 00:00:00")
-    def test_token_response_preserves_stored_scoped_teams_for_twig_brand(self):
-        twig_app = self._create_first_party_app(
-            slug="twig-preserve",
-            auth_brand=OAuthApplicationAuthBrand.TWIG.value,
-        )
+    def test_token_response_preserves_stored_scoped_teams_for_first_party_app(self):
+        app = self._create_first_party_app(slug="first-party-preserve")
         grant = OAuthGrant.objects.create(
-            application=twig_app,
+            application=app,
             user=self.user,
-            code="twig_preserve_code",
+            code="first_party_preserve_code",
             code_challenge=self.code_challenge,
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
@@ -2915,8 +2904,8 @@ class TestOAuthAPI(APIBaseTest):
             "/oauth/token/",
             {
                 **self.base_token_body,
-                "client_id": twig_app.client_id,
-                "client_secret": "first_party_twig-preserve_client_secret",
+                "client_id": app.client_id,
+                "client_secret": "first_party_first-party-preserve_client_secret",
                 "code": grant.code,
             },
         )
