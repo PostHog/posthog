@@ -99,6 +99,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
         clearObservationFilters: true,
+        setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
     }),
 
     forms(({ props }) => ({
@@ -205,6 +206,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 clearObservationFilters: () => [],
             },
         ],
+        chartDateFrom: ['-14d' as string | null, { setChartDateRange: (_, { dateFrom }) => dateFrom }],
+        chartDateTo: [null as string | null, { setChartDateRange: (_, { dateTo }) => dateTo }],
     }),
 
     selectors({
@@ -396,6 +399,45 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 items.sort((a, b) => a - b)
                 return items
+            },
+        ],
+        scorerHistogram: [
+            (s) => [s.scorerScores, s.succeededObservations],
+            (
+                scores: number[],
+                observations: ReplayObservationApi[]
+            ): { counts: number[]; labels: string[]; scaleMin: number; scaleMax: number } => {
+                if (scores.length === 0) {
+                    return { counts: [], labels: [], scaleMin: 0, scaleMax: 1 }
+                }
+                // Bucket against the configured scale so sparse data lines up against the full range.
+                const cfg = observations[0]?.scanner_snapshot?.scanner_config
+                const scale =
+                    cfg && typeof cfg === 'object' && 'scale' in cfg ? (cfg as { scale?: unknown }).scale : null
+                const scaleMin =
+                    scale && typeof (scale as { min?: unknown }).min === 'number'
+                        ? (scale as { min: number }).min
+                        : scores[0]
+                const rawMax =
+                    scale && typeof (scale as { max?: unknown }).max === 'number'
+                        ? (scale as { max: number }).max
+                        : scores[scores.length - 1]
+                const scaleMax = rawMax > scaleMin ? rawMax : scaleMin + 1
+                const bucketCount = 10
+                const step = (scaleMax - scaleMin) / bucketCount
+                const counts = Array.from({ length: bucketCount }, () => 0)
+                for (const score of scores) {
+                    const clamped = Math.max(scaleMin, Math.min(scaleMax, score))
+                    const index = Math.min(bucketCount - 1, Math.floor((clamped - scaleMin) / step))
+                    counts[index] += 1
+                }
+                const decimals = step >= 1 ? 0 : 1
+                const labels = Array.from(
+                    { length: bucketCount },
+                    (_, i) =>
+                        `${(scaleMin + i * step).toFixed(decimals)}–${(scaleMin + (i + 1) * step).toFixed(decimals)}`
+                )
+                return { counts, labels, scaleMin, scaleMax }
             },
         ],
         // Distinct sessions scanned: last 14 days and total. Surfaces sweep-job coverage.

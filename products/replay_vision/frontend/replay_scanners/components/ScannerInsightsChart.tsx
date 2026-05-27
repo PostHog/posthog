@@ -1,14 +1,18 @@
+import { useActions, useValues } from 'kea'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+
 import { Query } from '~/queries/Query/Query'
-import { EventPropertyFilter, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
+import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerType } from '../types'
 
 const RECORDING_OBSERVED_EVENT = '$recording_observed'
-const DEFAULT_DATE_FROM = '-14d'
 const COLLECTION_ID = 'replay-vision-scanner-insights'
 
-function scannerIdFilter(scannerId: string): EventPropertyFilter {
+function scannerIdFilter(scannerId: string): AnyPropertyFilter {
     return {
         type: PropertyFilterType.Event,
         key: 'scanner_id',
@@ -17,8 +21,14 @@ function scannerIdFilter(scannerId: string): EventPropertyFilter {
     }
 }
 
-function buildQuery(scannerId: string, scannerType: ScannerType): TrendsQuery {
+function buildQuery(
+    scannerId: string,
+    scannerType: ScannerType,
+    dateFrom: string | null,
+    dateTo: string | null
+): TrendsQuery {
     const base = scannerIdFilter(scannerId)
+    const dateRange = { date_from: dateFrom, date_to: dateTo }
     if (scannerType === 'monitor') {
         return {
             kind: NodeKind.TrendsQuery,
@@ -47,7 +57,7 @@ function buildQuery(scannerId: string, scannerType: ScannerType): TrendsQuery {
                 },
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B * 100' },
-            dateRange: { date_from: DEFAULT_DATE_FROM },
+            dateRange,
             interval: 'day',
         }
     }
@@ -70,7 +80,7 @@ function buildQuery(scannerId: string, scannerType: ScannerType): TrendsQuery {
                 breakdown_type: 'hogql',
             },
             trendsFilter: { display: ChartDisplayType.ActionsAreaGraph },
-            dateRange: { date_from: DEFAULT_DATE_FROM },
+            dateRange,
             interval: 'day',
         }
     }
@@ -91,7 +101,7 @@ function buildQuery(scannerId: string, scannerType: ScannerType): TrendsQuery {
                 scoreSeries(PropertyMathType.Average, 'avg'),
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-            dateRange: { date_from: DEFAULT_DATE_FROM },
+            dateRange,
             interval: 'day',
         }
     }
@@ -107,7 +117,7 @@ function buildQuery(scannerId: string, scannerType: ScannerType): TrendsQuery {
             },
         ],
         trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-        dateRange: { date_from: DEFAULT_DATE_FROM },
+        dateRange,
         interval: 'day',
     }
 }
@@ -128,20 +138,28 @@ function chartTitle(scannerType: ScannerType): string {
 export function ScannerInsightsChart({
     scannerId,
     scannerType,
+    tabId,
 }: {
     scannerId: string
     scannerType: ScannerType
+    tabId: string
 }): JSX.Element {
+    const { chartDateFrom, chartDateTo } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId, tabId }))
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const source: TrendsQuery = {
-        ...buildQuery(scannerId, scannerType),
+        ...buildQuery(scannerId, scannerType, chartDateFrom, chartDateTo),
         tags: { productKey: ProductKey.REPLAY_VISION },
     }
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-medium">{chartTitle(scannerType)}</span>
-                <span className="text-xs text-muted">Last 14 days</span>
+                <DateFilter
+                    dateFrom={chartDateFrom}
+                    dateTo={chartDateTo}
+                    onChange={(from, to) => setChartDateRange(from ?? null, to ?? null)}
+                />
             </div>
             <div className="InsightCard h-80">
                 <Query
@@ -151,7 +169,7 @@ export function ScannerInsightsChart({
                     inSharedMode
                     context={{
                         insightProps: {
-                            dashboardItemId: `replay-vision-scanner-${scannerId}-chart`,
+                            dashboardItemId: `new-replay-vision-scanner-${scannerId}-chart`,
                             dataNodeCollectionId: COLLECTION_ID,
                         },
                     }}

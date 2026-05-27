@@ -1,18 +1,15 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { buildTheme } from 'lib/charts/utils/theme'
+import { BoxPlot } from 'lib/hog-charts'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
-import { ChartDisplayType, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
-
-const SCORE_BOXPLOT_COLLECTION_ID = 'replay-vision-scanner-score-boxplot'
 
 function OverviewPanel({
     title,
@@ -104,58 +101,40 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
     )
 }
 
+function quantile(sorted: number[], q: number): number {
+    if (sorted.length === 1) {
+        return sorted[0]
+    }
+    const pos = (sorted.length - 1) * q
+    const lo = Math.floor(pos)
+    const hi = Math.ceil(pos)
+    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
+}
+
 function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scorerScores, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     if (scorerScores.length === 0) {
         return null
     }
     const min = scorerScores[0]
     const max = scorerScores[scorerScores.length - 1]
     const avg = scorerScores.reduce((a, b) => a + b, 0) / scorerScores.length
-    const mid = Math.floor(scorerScores.length / 2)
-    const median = scorerScores.length % 2 === 0 ? (scorerScores[mid - 1] + scorerScores[mid]) / 2 : scorerScores[mid]
-
-    const boxplotQuery: TrendsQuery = {
-        kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: '$recording_observed',
-                math: PropertyMathType.Sum,
-                math_property: 'scanner_output_score',
-                name: 'Score',
-                properties: [
-                    {
-                        type: PropertyFilterType.Event,
-                        key: 'scanner_id',
-                        operator: PropertyOperator.Exact,
-                        value: scannerId,
-                    },
-                ],
-            },
-        ],
-        trendsFilter: { display: ChartDisplayType.BoxPlot },
-        dateRange: { date_from: '-14d' },
-        interval: 'day',
-        tags: { productKey: ProductKey.REPLAY_VISION },
-    }
+    const median = quantile(scorerScores, 0.5)
+    const p25 = quantile(scorerScores, 0.25)
+    const p75 = quantile(scorerScores, 0.75)
 
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored · last 14 days`}>
-            <div className="InsightCard h-40">
-                <Query
-                    query={{ kind: NodeKind.InsightVizNode, source: boxplotQuery } as InsightVizNode}
-                    readOnly
-                    embedded
-                    inSharedMode
-                    context={{
-                        insightProps: {
-                            dashboardItemId: `replay-vision-scanner-${scannerId}-boxplot`,
-                            dataNodeCollectionId: SCORE_BOXPLOT_COLLECTION_ID,
-                        },
-                    }}
-                />
-            </div>
+        <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
+            <ScoreBoxPlot
+                min={min}
+                p25={p25}
+                median={median}
+                mean={avg}
+                p75={p75}
+                max={max}
+                scaleMin={scorerHistogram.scaleMin}
+                scaleMax={scorerHistogram.scaleMax}
+            />
             <div className="flex justify-between gap-4 text-xs text-muted tabular-nums pt-1 border-t">
                 <span>min {min.toFixed(1)}</span>
                 <span>median {median.toFixed(1)}</span>
@@ -163,6 +142,43 @@ function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string
                 <span>max {max.toFixed(1)}</span>
             </div>
         </OverviewPanel>
+    )
+}
+
+function ScoreBoxPlot({
+    min,
+    p25,
+    median,
+    mean,
+    p75,
+    max,
+}: {
+    min: number
+    p25: number
+    median: number
+    mean: number
+    p75: number
+    max: number
+    scaleMin: number
+    scaleMax: number
+}): JSX.Element {
+    const theme = useMemo(() => buildTheme(), [])
+    return (
+        <div className="h-40 flex flex-col">
+            <BoxPlot
+                labels={['Scores']}
+                series={[
+                    {
+                        key: 'scores',
+                        label: 'Scores',
+                        color: theme.colors[0],
+                        data: [{ min, p25, median, mean, p75, max }],
+                    },
+                ]}
+                config={{ showGrid: false }}
+                theme={theme}
+            />
+        </div>
     )
 }
 
@@ -198,7 +214,7 @@ export function ScannerOverview({ scannerId, tabId }: { scannerId: string; tabId
                     <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
                 </div>
             )}
-            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
+            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} tabId={tabId} />}
             {typeOverview}
         </div>
     )
