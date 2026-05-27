@@ -1,5 +1,8 @@
 import { loadCompiledAgent } from '@repo/ass-server/load-compiled-agent'
 import { runSession } from '@repo/ass-server/session-runner'
+import { mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
     ApplicationsRepository,
@@ -119,6 +122,17 @@ export class AssServerExecutor implements SessionExecutor {
         // generic boundary that the workspace re-exports don't carry.
         const { project, agent } = await loadCompiledAgent(bundleDir)
 
+        // The SDK persists each session's conversation to
+        // `<CLAUDE_CONFIG_DIR>/projects/<hash-of-cwd>/<sessionId>.jsonl`.
+        // If `cwd` changes between turns of the same session, the
+        // hash changes and `resume:` can't find the prior history.
+        // The default bundle dir is fresh per turn (we re-extract on
+        // every dequeue), so we pin cwd to a stable per-session path
+        // under tmp instead. The SDK's child claude CLI only uses
+        // cwd for session storage + its own scratch — our MCP tools
+        // do their own path handling and don't care.
+        const sessionCwd = await ensureSessionCwd(input.job.sessionId)
+
         const triggerPayload = input.state.initialInput ?? null
         const sessionId = input.job.sessionId
         const isFirstTurn = input.state.turnCount === 0
@@ -183,6 +197,11 @@ export class AssServerExecutor implements SessionExecutor {
             // Threaded so the sandbox container is labelled `ass.revision=<id>`,
             // making it attributable to a deploy in `docker ps` / orphan reaping.
             revisionId: revision.revisionId,
+            // Stable per-session cwd so the SDK's session store key
+            // (`<CLAUDE_CONFIG_DIR>/projects/<cwd-hash>/<sessionId>.jsonl`)
+            // matches across turns. The bundle dir is fresh per turn,
+            // so the default cwd would invalidate `resume:`.
+            cwd: sessionCwd,
             // Turn-by-turn mode: ask_for_input ends the SDK turn via
             // q.interrupt() and the worker parks the queue row, instead
             // of suspending on an in-process Promise that handle.send
@@ -264,6 +283,25 @@ export class AssServerExecutor implements SessionExecutor {
             reason: null,
         }
     }
+}
+
+/**
+ * Make sure a stable working directory exists for the SDK's session
+ * store. The path is deterministic per `agent_sessions.id` so all
+ * turns of the same session resolve to the same SDK session file —
+ * `resume:` finds prior conversation, no matter which worker picked
+ * the row up. Lives under `AGENT_RUNNER_SESSION_CWD_ROOT` (env) or
+ * `<os.tmpdir()>/agent-runtime-sessions/` by default.
+ *
+ * Today this is host-local — workers on different machines (or pods
+ * with ephemeral disks) lose conversation. A pluggable SessionStore
+ * adapter (writing to Postgres or S3) is the next layer.
+ */
+async function ensureSessionCwd(sessionId: string): Promise<string> {
+    const root = process.env.AGENT_RUNNER_SESSION_CWD_ROOT ?? join(tmpdir(), 'agent-runtime-sessions')
+    const dir = join(root, sessionId)
+    await mkdir(dir, { recursive: true })
+    return dir
 }
 
 /** Walk `state.messages` tail-first; return the latest user-role content or null. */
