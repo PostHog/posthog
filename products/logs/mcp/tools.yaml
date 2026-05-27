@@ -9,6 +9,9 @@ feature: logs
 url_prefix: /logs
 ui_apps: {}
 tools:
+    agent-applications-sessions-logs:
+        operation: agent_applications_sessions_logs
+        enabled: false
     batch-exports-logs-retrieve:
         operation: batch_exports_logs_retrieve
         enabled: false

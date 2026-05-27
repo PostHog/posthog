@@ -12567,26 +12567,6 @@ export namespace Schemas {
 
     export const DeploymentErrorStep = {...ErrorStepEnum,...BlankEnum,} as const
     /**
-     * * `queued` - Queued
-    * `initializing` - Initializing
-    * `building` - Building
-    * `ready` - Ready
-    * `error` - Error
-    * `cancelled` - Cancelled
-     */
-    export type DeploymentStatusEnum = typeof DeploymentStatusEnum[keyof typeof DeploymentStatusEnum];
-
-
-    export const DeploymentStatusEnum = {
-      Queued: 'queued',
-      Initializing: 'initializing',
-      Building: 'building',
-      Ready: 'ready',
-      Error: 'error',
-      Cancelled: 'cancelled',
-    } as const;
-
-    /**
      * * `manual` - Manual
     * `git` - Git
     * `redeploy` - Redeploy

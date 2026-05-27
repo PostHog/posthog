@@ -132,22 +132,16 @@ export interface DeploymentProjectCreateApi {
 }
 
 /**
- * * `queued` - Queued
- * `initializing` - Initializing
- * `building` - Building
- * `ready` - Ready
- * `error` - Error
- * `cancelled` - Cancelled
+ * * `live` - live
+ * `preview` - preview
+ * `disabled` - disabled
  */
 export type DeploymentStatusEnumApi = (typeof DeploymentStatusEnumApi)[keyof typeof DeploymentStatusEnumApi]
 
 export const DeploymentStatusEnumApi = {
-    Queued: 'queued',
-    Initializing: 'initializing',
-    Building: 'building',
-    Ready: 'ready',
-    Error: 'error',
-    Cancelled: 'cancelled',
+    Live: 'live',
+    Preview: 'preview',
+    Disabled: 'disabled',
 } as const
 
 /**

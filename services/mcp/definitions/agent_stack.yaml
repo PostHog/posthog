@@ -9,7 +9,46 @@ feature: agent_stack
 url_prefix: /agent_applications
 ui_apps: {}
 tools:
-    # --- Applications: read-only inspection ---
+    agent-applications-complete-upload-create:
+        operation: agent_applications_complete_upload_create
+        enabled: false
+    agent-applications-create:
+        operation: agent_applications_create
+        enabled: false
+    agent-applications-destroy:
+        operation: agent_applications_destroy
+        enabled: false
+    agent-applications-disable-revision-create:
+        operation: agent_applications_disable_revision_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Disable revision
+        description: >
+            Pull a revision out of traffic by setting its deployment_status to `disabled`. Use this to roll back a
+            broken live or preview revision. Idempotent — disabling an already-disabled revision is a no-op. Allowed
+            from any state (does not require state=ready).
+    agent-applications-env-partial-update:
+        operation: agent_applications_env_partial_update
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Patch secrets
+        description: >
+            Set or remove individual environment variables on an application. Body shape: `{ keys: { FOO: "bar", OLD:
+            null } }` — `null` removes the key. Returns the application with `env_redacted` updated. Required for
+            promoting a revision when the manifest declares new secrets that aren't yet set.
+    agent-applications-env-update:
+        operation: agent_applications_env_update
+        enabled: false
     agent-applications-list:
         operation: agent_applications_list
         enabled: true
@@ -22,11 +61,39 @@ tools:
         list: true
         title: List agent applications
         description: >
-            List every agent application in the current project. Use this to discover available agent
-            slugs, see who created what, and inspect basic metadata (name, description, has_env). The
-            returned `slug` field is the canonical identifier — pass it as `id` to the per-application
-            tools (revisions, sessions, env).
-
+            List every agent application in the current project. Use this to discover available agent slugs, see who
+            created what, and inspect basic metadata (name, description, has_env). The returned `slug` field is the
+            canonical identifier — pass it as `id` to the per-application tools (revisions, sessions, env).
+    agent-applications-partial-update:
+        operation: agent_applications_partial_update
+        enabled: false
+    agent-applications-preview-create:
+        operation: agent_applications_preview_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Mark revision as preview
+        description: >
+            Mark a ready revision as `deployment_status: preview` for testing without affecting live traffic. Same
+            readiness + secret requirements as promote.
+    agent-applications-promote-create:
+        operation: agent_applications_promote_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Promote revision to live
+        description: >
+            Promote a ready revision to `deployment_status: live`. Replaces the previous live revision. The revision
+            must be in `state: ready` and the application's env must contain every required secret declared by the
+            bundle manifest — otherwise returns 409 with a `missing_secrets` list.
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true
@@ -38,11 +105,9 @@ tools:
             idempotent: true
         title: Get agent application
         description: >
-            Get a single agent application by slug. Returns name, description, env_redacted (redacted
-            env preview), created/updated timestamps. For prompt/tools/triggers, fetch the live revision
-            via `agent-applications-revisions-list?deployment_status=live`.
-
-    # --- Revisions: history + management ---
+            Get a single agent application by slug. Returns name, description, env_redacted (redacted env preview),
+            created/updated timestamps. For prompt/tools/triggers, fetch the live revision via
+            `agent-applications-revisions-list?deployment_status=live`.
     agent-applications-revisions-list:
         operation: agent_applications_revisions_list
         enabled: true
@@ -55,11 +120,10 @@ tools:
         list: true
         title: List revisions
         description: >
-            List all deployment revisions for an application, newest first. Supports filtering by
-            `deployment_status` (live | preview | disabled) and `state` (pending_upload | uploaded |
-            validating | ready | failed). Use this to find a specific revision id for show / promote /
-            disable, or to see which one is currently serving traffic (`deployment_status: live`).
-
+            List all deployment revisions for an application, newest first. Supports filtering by `deployment_status`
+            (live | preview | disabled) and `state` (pending_upload | uploaded | validating | ready | failed). Use this
+            to find a specific revision id for show / promote / disable, or to see which one is currently serving
+            traffic (`deployment_status: live`).
     agent-applications-revisions-retrieve:
         operation: agent_applications_revisions_retrieve
         enabled: true
@@ -71,11 +135,10 @@ tools:
             idempotent: true
         title: Get revision
         description: >
-            Get a single revision by id. Returns the parsed manifest (prompt, tools, triggers), bundle
-            metadata (size, sha256), validation_report (when state=failed), and timestamps.
-
-    agent-applications-disable-revision-create:
-        operation: agent_applications_disable_revision_create
+            Get a single revision by id. Returns the parsed manifest (prompt, tools, triggers), bundle metadata (size,
+            sha256), validation_report (when state=failed), and timestamps.
+    agent-applications-sessions-cancel:
+        operation: agent_applications_sessions_cancel
         enabled: true
         scopes:
             - agent_application:write
@@ -83,42 +146,10 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Disable revision
+        title: Cancel session
         description: >
-            Pull a revision out of traffic by setting its deployment_status to `disabled`. Use this to
-            roll back a broken live or preview revision. Idempotent — disabling an already-disabled
-            revision is a no-op. Allowed from any state (does not require state=ready).
-
-    agent-applications-promote-create:
-        operation: agent_applications_promote_create
-        enabled: true
-        scopes:
-            - agent_application:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Promote revision to live
-        description: >
-            Promote a ready revision to `deployment_status: live`. Replaces the previous live revision.
-            The revision must be in `state: ready` and the application's env must contain every required
-            secret declared by the bundle manifest — otherwise returns 409 with a `missing_secrets` list.
-
-    agent-applications-preview-create:
-        operation: agent_applications_preview_create
-        enabled: true
-        scopes:
-            - agent_application:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Mark revision as preview
-        description: >
-            Mark a ready revision as `deployment_status: preview` for testing without affecting live
-            traffic. Same readiness + secret requirements as promote.
-
-    # --- Sessions: inspection + control ---
+            Cancel a running session. Sets the session's status to `canceled` so the runner workers stop processing it.
+            Use this to kill stuck or runaway agents. Idempotent: cancelling an already-terminal session is a no-op.
     agent-applications-sessions-list:
         operation: agent_applications_sessions_list
         enabled: true
@@ -131,39 +162,9 @@ tools:
         list: true
         title: List sessions
         description: >
-            List recent agent runtime sessions for an application. Each entry includes id, status
-            (available | running | completed | failed | canceled), scheduled / created / last_heartbeat
-            timestamps, transition_count. Supports filters: status, limit, created_before.
-
-    agent-applications-sessions-retrieve:
-        operation: agent_applications_sessions_retrieve
-        enabled: true
-        scopes:
-            - agent_application:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get session
-        description: >
-            Get a single session by id. Returns the same shape as the list endpoint but with full state
-            metadata including state_byte_size (a hint that very large state may need offloading).
-
-    agent-applications-sessions-cancel:
-        operation: agent_applications_sessions_cancel
-        enabled: true
-        scopes:
-            - agent_application:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Cancel session
-        description: >
-            Cancel a running session. Sets the session's status to `canceled` so the runner workers
-            stop processing it. Use this to kill stuck or runaway agents. Idempotent: cancelling an
-            already-terminal session is a no-op.
-
+            List recent agent runtime sessions for an application. Each entry includes id, status (available | running |
+            completed | failed | canceled), scheduled / created / last_heartbeat timestamps, transition_count. Supports
+            filters: status, limit, created_before.
     agent-applications-sessions-logs:
         operation: agent_applications_sessions_logs
         enabled: true
@@ -175,50 +176,25 @@ tools:
             idempotent: true
         title: Read session logs
         description: >
-            Fetch per-session log entries from ClickHouse. Each entry has timestamp, level
-            (DEBUG | INFO | WARNING | ERROR) and a human-readable message. Pass `after=<iso-timestamp>`
-            to paginate forward (use the response's `next_after` cursor). Default limit 200, max 500.
-
-    # --- Env / secrets ---
-    agent-applications-env-partial-update:
-        operation: agent_applications_env_partial_update
+            Fetch per-session log entries from ClickHouse. Each entry has timestamp, level (DEBUG | INFO | WARNING |
+            ERROR) and a human-readable message. Pass `after=<iso-timestamp>` to paginate forward (use the response's
+            `next_after` cursor). Default limit 200, max 500.
+    agent-applications-sessions-retrieve:
+        operation: agent_applications_sessions_retrieve
         enabled: true
         scopes:
-            - agent_application:write
+            - agent_application:read
         annotations:
-            readOnly: false
-            destructive: true
+            readOnly: true
+            destructive: false
             idempotent: true
-        title: Patch secrets
+        title: Get session
         description: >
-            Set or remove individual environment variables on an application. Body shape:
-            `{ keys: { FOO: "bar", OLD: null } }` — `null` removes the key. Returns the application
-            with `env_redacted` updated. Required for promoting a revision when the manifest declares
-            new secrets that aren't yet set.
-
-    # --- Disabled: lifecycle CRUD that the CLI/UI flows orchestrate ---
-    # The Promote/Preview/DisableRevision actions above cover the "operate on
-    # an existing revision" surface. Application create/update/destroy and the
-    # deploy upload dance (start_deploy + complete_upload, which require a
-    # presigned S3 PUT outside the MCP wire shape) stay disabled here.
-    agent-applications-create:
-        operation: agent_applications_create
-        enabled: false
-    agent-applications-update:
-        operation: agent_applications_update
-        enabled: false
-    agent-applications-partial-update:
-        operation: agent_applications_partial_update
-        enabled: false
-    agent-applications-destroy:
-        operation: agent_applications_destroy
-        enabled: false
+            Get a single session by id. Returns the same shape as the list endpoint but with full state metadata
+            including state_byte_size (a hint that very large state may need offloading).
     agent-applications-start-deploy-create:
         operation: agent_applications_start_deploy_create
         enabled: false
-    agent-applications-complete-upload-create:
-        operation: agent_applications_complete_upload_create
-        enabled: false
-    agent-applications-env-update:
-        operation: agent_applications_env_update
+    agent-applications-update:
+        operation: agent_applications_update
         enabled: false
