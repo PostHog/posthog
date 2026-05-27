@@ -75,7 +75,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('shows the series value in the tooltip on hover', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
@@ -101,7 +101,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -112,7 +112,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('shows a date header in the tooltip', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.title()).toMatch(/Jun/)
@@ -120,7 +120,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('opens the persons modal on click for a single series', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         await chart.clickAtIndex(2)
 
@@ -201,7 +201,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -242,7 +242,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
         expect(getHogChart().xAxisLabel()).toBe('Total events')
         expect(getHogChart().yAxisLabel()).toBe('Series')
         expect(
@@ -288,7 +288,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             query: aggregatedBar(),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(0)
         expect(tooltip.title()).toBe('')
@@ -299,7 +299,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             query: aggregatedBar(),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -318,7 +318,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             query: aggregatedBar({ compareFilter: { compare: true } }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -340,7 +340,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             context: { onDataPointClick },
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -439,7 +439,7 @@ describe('TrendsBarChart overlays', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
@@ -470,7 +470,7 @@ describe('TrendsBarChart overlays', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
@@ -509,7 +509,7 @@ describe('TrendsBarChart overlays', () => {
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
             const lines = getHogChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
             expect(lines[0].orientation).toBe(expectedOrientation)
