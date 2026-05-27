@@ -24,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
@@ -205,6 +206,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             checker.visit(expr)
 
     def to_query(self) -> ast.SelectQuery:
+        # EventsQuery is the events explorer — `select`, `where`, and `orderBy` are
+        # user-supplied HogQL strings parsed below.
+        tag_contains_user_hogql()
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
         with self.timings.measure("build_ast"):
             # columns & group_by

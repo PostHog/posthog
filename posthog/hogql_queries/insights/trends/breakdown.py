@@ -15,6 +15,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
 from posthog.hogql.parser import parse_expr
@@ -308,6 +309,8 @@ class Breakdown:
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
+            if breakdown_type == "hogql":
+                tag_contains_user_hogql()
             left = strip_user_aliases(parse_expr(breakdown_value))
         else:
             left = ast.Field(
@@ -419,6 +422,8 @@ class Breakdown:
             )
 
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
+            if breakdown_type == "hogql":
+                tag_contains_user_hogql()
             inner = strip_user_aliases(parse_expr(cast(str, value)))
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(inner))
 

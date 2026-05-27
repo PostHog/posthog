@@ -26,6 +26,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     get_query_tags,
     reset_query_tags,
+    tag_contains_user_hogql,
     tag_queries,
     tags_context,
     update_tags,
@@ -292,6 +293,35 @@ def test_get_caller_source_skips_infrastructure():
         assert prefix.startswith(_PROJECT_ROOT_PREFIX)
 
 
+def test_tag_contains_user_hogql_sets_flag():
+    reset_query_tags()
+    assert get_query_tag_value("contains_user_hogql") is None
+    tag_contains_user_hogql()
+    assert get_query_tag_value("contains_user_hogql") is True
+
+
+def test_tag_contains_user_hogql_is_idempotent():
+    reset_query_tags()
+    tag_contains_user_hogql()
+    tag_contains_user_hogql()
+    assert get_query_tag_value("contains_user_hogql") is True
+
+
+def test_contains_user_hogql_excluded_from_json_when_none():
+    qt = QueryTags(git_commit="test", container_hostname="test", service_name="test")
+    assert "contains_user_hogql" not in qt.to_json()
+
+
+def test_contains_user_hogql_included_in_json_when_set():
+    qt = QueryTags(
+        contains_user_hogql=True,
+        git_commit="test",
+        container_hostname="test",
+        service_name="test",
+    )
+    assert '"contains_user_hogql":true' in qt.to_json()
+
+
 def test_source_file_excluded_from_json_when_none():
     qt = QueryTags(git_commit="test", container_hostname="test", service_name="test")
     data = qt.to_json()
@@ -439,6 +469,32 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["hogql_features"] == {"tables": ["events"], "events": []}
         assert comment["product"] == Product.PRODUCT_ANALYTICS.value
+
+    def test_hogql_query_runner_marks_contains_user_hogql(self):
+        # A query routed through `HogQLQueryRunner` is, by definition, user-written SQL;
+        # the flag must land in `system.query_log` so log triage can split user vs platform errors.
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+        from posthog.schema import HogQLQuery
+
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
+
+        runner = HogQLQueryRunner(query=HogQLQuery(query=f"SELECT '{marker}'"), team=self.team)  # noqa: S608
+        runner._calculate()
+
+        comment = self._get_log_comment(marker)
+        assert comment.get("contains_user_hogql") is True
+
+    def test_platform_query_does_not_mark_contains_user_hogql(self):
+        # Plain sync_execute from platform code must NOT set the flag.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query", product=Product.INTERNAL)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+        assert "contains_user_hogql" not in comment
 
     def test_execute_hogql_query_with_mcp_source_still_attributes_via_features(self):
         # Pulling MCP traffic apart by what it actually does is the whole point

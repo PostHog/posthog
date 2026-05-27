@@ -38,6 +38,7 @@ from posthog.schema import (
     WorkflowVariablePropertyFilter,
 )
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.database.models import BooleanDatabaseField
@@ -806,6 +807,7 @@ def property_to_expr(
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
+        tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
