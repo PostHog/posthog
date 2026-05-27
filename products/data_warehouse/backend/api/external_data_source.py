@@ -1074,6 +1074,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Schemas given do not exist in source"},
             )
 
+        # Reject `sync_type=cdc` schemas when source-level CDC isn't enabled (either the team
+        # doesn't have the feature, or the user didn't toggle CDC on in step 1 of the wizard).
+        # Without this, the per-schema CDC config gets persisted but `_setup_cdc_slot` never
+        # runs — so no replication slot/publication exists on the source DB and every CDC sync
+        # fails. The wizard frontend should also gate this, but a stale UI or a direct API/MCP
+        # call can bypass it.
+        if not cdc_enabled:
+            cdc_schemas_in_payload = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                }
+            )
+            if cdc_schemas_in_payload:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "CDC must be enabled on the source before selecting it as a sync type. "
+                            f"The following schemas requested CDC: {', '.join(cdc_schemas_in_payload)}."
+                        )
+                    },
+                )
+
         active_schemas: list[ExternalDataSchema] = []
 
         # Pre-fetch PK column names for CDC tables
