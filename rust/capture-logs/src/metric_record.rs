@@ -258,14 +258,15 @@ fn build_number_row(
     flags: u32,
 ) -> Result<(KafkaMetricRow, bool)> {
     // OTel exemplars attach trace context (and per-bucket trace context on histograms) to
-    // data points. V1 picks the first well-formed exemplar: a 16-byte trace_id is the spec
-    // length, so anything else (empty / truncated) is either "no trace context attached" or
-    // a malformed SDK payload — both should not pollute the trace_id column. Per-bucket
-    // attribution is lost in this representation; revisit when we add a multi-row exemplar
-    // shape or an array column.
+    // data points. V1 picks the first non-empty exemplar and runs it through the shared
+    // extract_trace_id / extract_span_id helpers, matching the log_record / trace_record
+    // precedent. Malformed-length IDs zero-fill to all-zeros via the helpers — consistent
+    // with how logs and traces treat malformed trace context today. Per-bucket attribution
+    // on histograms is lossy in this representation; revisit when we add a multi-row or
+    // array exemplar column.
     let (exemplar_trace_id, exemplar_span_id) = exemplars
         .iter()
-        .find(|e| e.trace_id.len() == 16)
+        .find(|e| !e.trace_id.is_empty())
         .map(|e| {
             (
                 BASE64_STANDARD.encode(extract_trace_id(&e.trace_id)),
@@ -574,13 +575,13 @@ mod tests {
     }
 
     #[test]
-    fn test_first_well_formed_exemplar_is_picked() {
-        // First exemplar has a malformed (8-byte) trace_id and should be skipped;
-        // second is well-formed and should win.
+    fn test_first_non_empty_exemplar_is_picked() {
+        // First exemplar has an empty trace_id (no context attached) and is skipped;
+        // second carries real bytes and wins. Matches "first non-empty wins" semantics.
         let other_trace = [9u8; 16];
         let other_span = [9u8; 8];
         let exemplars = vec![
-            make_exemplar(vec![0; 8], vec![0; 8]),
+            make_exemplar(vec![], vec![]),
             make_exemplar(other_trace.to_vec(), other_span.to_vec()),
         ];
         let row = build_test_row(&exemplars);
@@ -590,14 +591,16 @@ mod tests {
     }
 
     #[test]
-    fn test_exemplar_malformed_trace_id_is_skipped() {
-        // A 12-byte trace_id is not spec-conformant; skip rather than zero-pad,
-        // which would create a fake "all zeros" trace_id that collides across payloads.
+    fn test_exemplar_malformed_trace_id_zero_fills() {
+        // Matches log_record / trace_record precedent: a non-empty but malformed trace_id
+        // is run through extract_trace_id, which zero-fills wrong-length inputs to [0; 16].
+        // Documents (rather than fixes) the all-zeros-collision behavior — addressing it
+        // would mean changing the helper, which lives in log_record and is shared.
         let exemplar = make_exemplar(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], vec![]);
         let row = build_test_row(&[exemplar]);
 
-        assert_eq!(row.trace_id, "");
-        assert_eq!(row.span_id, "");
+        assert_eq!(row.trace_id, BASE64_STANDARD.encode([0u8; 16]));
+        assert_eq!(row.span_id, BASE64_STANDARD.encode([0u8; 8]));
     }
 
     #[test]
