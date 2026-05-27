@@ -43,6 +43,46 @@ describe('Hono App Routes', () => {
         })
     })
 
+    describe('SSE to MCP redirect', () => {
+        // The legacy /sse endpoint is deprecated. Clients still pointed at it
+        // must land on /mcp with a 308 (preserves method + body) and an
+        // _deprecated=sse marker so analytics can correlate. Original query
+        // params come along for the ride.
+        it.each([
+            { from: 'http://mcp.posthog.com/sse', toPath: '/mcp' },
+            { from: 'http://mcp.posthog.com/sse/', toPath: '/mcp/' },
+            { from: 'http://mcp.posthog.com/sse/message', toPath: '/mcp/message' },
+            { from: 'http://mcp.posthog.com/sse?features=flags', toPath: '/mcp' },
+            { from: 'http://mcp.posthog.com/sse?features=flags&region=eu', toPath: '/mcp' },
+        ])('redirects $from to $toPath with 308 and tracking marker', async ({ from, toPath }) => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(from)
+
+            expect(res.status).toBe(308)
+            const location = new URL(res.headers.get('location')!)
+            expect(location.pathname).toBe(toPath)
+            expect(location.searchParams.get('_deprecated')).toBe('sse')
+
+            // Original query params are preserved through the redirect.
+            const originalParams = new URL(from).searchParams
+            for (const [key, value] of originalParams) {
+                expect(location.searchParams.get(key)).toBe(value)
+            }
+        })
+
+        it('does not affect /mcp requests', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('http://mcp.posthog.com/mcp', { method: 'POST' })
+            expect(res.status).not.toBe(308)
+        })
+
+        it('applies to all HTTP methods on /sse (POST stays a 308 so the body is preserved)', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('http://mcp.posthog.com/sse', { method: 'POST' })
+            expect(res.status).toBe(308)
+        })
+    })
+
     describe('health checks', () => {
         it('should return 200 with JSON on /healthz', async () => {
             const { app } = createApp(mockRedis)
