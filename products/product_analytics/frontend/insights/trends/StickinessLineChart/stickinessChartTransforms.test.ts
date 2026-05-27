@@ -94,20 +94,16 @@ describe('stickinessChartTransforms', () => {
             expect(series.yAxisId).toBe(DEFAULT_Y_AXIS_ID)
         })
 
-        it('attaches an empty fill object when display is ActionsAreaGraph', () => {
+        it.each<[string, ChartDisplayType | undefined, Record<string, never> | undefined]>([
+            ['ActionsAreaGraph sets fill', ChartDisplayType.ActionsAreaGraph, {}],
+            ['ActionsLineGraph leaves fill undefined', ChartDisplayType.ActionsLineGraph, undefined],
+            ['undefined display leaves fill undefined', undefined, undefined],
+        ])('%s', (_, display, expected) => {
             const series = buildStickinessMainSeries(makeResult(), 0, {
                 getColor: () => RED,
-                display: ChartDisplayType.ActionsAreaGraph,
+                display,
             })
-            expect(series.fill).toEqual({})
-        })
-
-        it('leaves fill undefined for non-area displays', () => {
-            const series = buildStickinessMainSeries(makeResult(), 0, {
-                getColor: () => RED,
-                display: ChartDisplayType.ActionsLineGraph,
-            })
-            expect(series.fill).toBeUndefined()
+            expect(series.fill).toEqual(expected)
         })
 
         it('passes the result index through to getColor and buildMeta', () => {
