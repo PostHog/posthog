@@ -240,13 +240,13 @@ where
                     warn!(error = %e, "gzip compression failed, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "compress_error")
                         .increment(1);
-                    let boxed: ResponseBody = Box::pin(PrecomputedBody::empty());
+                    let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
                 Err(e) => {
                     warn!(error = %e, "spawn_blocking panicked, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "spawn_error").increment(1);
-                    let boxed: ResponseBody = Box::pin(PrecomputedBody::empty());
+                    let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
             }
@@ -270,6 +270,13 @@ impl PrecomputedBody {
     fn new(data: Bytes, trailers: Option<HeaderMap>) -> Self {
         Self {
             data: if data.is_empty() { None } else { Some(data) },
+            trailers,
+        }
+    }
+
+    fn trailers_only(trailers: Option<HeaderMap>) -> Self {
+        Self {
+            data: None,
             trailers,
         }
     }
