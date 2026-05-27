@@ -46947,6 +46947,11 @@ export namespace Schemas {
     workflow_id?: string;
     };
 
+    export type WizardSessionsStreamRetrieveParams = {
+    skill_id?: string;
+    workflow_id: string;
+    };
+
     export type PublicHogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
