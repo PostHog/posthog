@@ -80,6 +80,7 @@ PRODUCTS_APPS = [
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
+    "products.product_analytics.backend.apps.ProductAnalyticsConfig",
     "products.wizard.backend.apps.WizardConfig",
 ]
 
@@ -470,6 +471,7 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+        "BatchExportRunStatusEnum": "posthog.batch_exports.models.BatchExportRun.Status",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

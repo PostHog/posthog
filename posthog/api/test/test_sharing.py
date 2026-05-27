@@ -17,12 +17,12 @@ from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 def mock_exporter_template(test_func):
@@ -1241,7 +1241,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         )
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @patch("products.product_analytics.backend.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
     def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_fetch_cached, mock_calculate):
         """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
@@ -1263,7 +1263,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @patch("products.product_analytics.backend.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
     def test_cache_miss_falls_back_to_normal_calculation(self, mock_fetch_cached, mock_calculate):
         """Test that cache miss on expected key falls back to normal calculation."""
@@ -1288,7 +1288,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @patch("products.product_analytics.backend.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
     def test_invalid_cache_keys_param_continues_without_it(self, mock_fetch_cached, mock_calculate):
         """Test that invalid cache_keys parameter is ignored and normal flow continues."""

@@ -149,15 +149,13 @@ mod tests {
     use uuid::Uuid;
 
     use crate::router;
+    use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::constants::*;
     use crate::v1::test_utils::{batch_payload, compressed_payload, valid_event, TestStateBuilder};
 
     fn test_app(state: router::State) -> Router {
         Router::new()
-            .route(
-                "/i/v1/general/events",
-                axum::routing::post(super::handle_request),
-            )
+            .route(CAPTURE_V1_PATH, axum::routing::post(super::handle_request))
             .layer(axum::middleware::from_fn(
                 super::super::router::v1_common_headers,
             ))
@@ -167,7 +165,7 @@ mod tests {
     fn valid_request() -> axum::http::request::Builder {
         Request::builder()
             .method("POST")
-            .uri("/i/v1/general/events")
+            .uri(CAPTURE_V1_PATH)
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
@@ -235,7 +233,7 @@ mod tests {
         let payload = batch_payload(&[valid_event()]);
         let req = Request::builder()
             .method("POST")
-            .uri("/i/v1/general/events")
+            .uri(CAPTURE_V1_PATH)
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
             .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
@@ -259,7 +257,7 @@ mod tests {
         // Only Authorization and Content-Type — missing SDK-Info, Attempt, etc.
         let req = Request::builder()
             .method("POST")
-            .uri("/i/v1/general/events")
+            .uri(CAPTURE_V1_PATH)
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
@@ -324,7 +322,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/i/v1/general/events")
+            .uri(CAPTURE_V1_PATH)
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "gzip")
@@ -355,7 +353,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/i/v1/general/events")
+            .uri(CAPTURE_V1_PATH)
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "zstd")
@@ -382,7 +380,7 @@ mod tests {
         let payload = batch_payload(&[valid_event()]);
         let req = Request::builder()
             .method("POST")
-            .uri("/i/v1/general/events")
+            .uri(CAPTURE_V1_PATH)
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "lz4")
