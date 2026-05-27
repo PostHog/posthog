@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
@@ -6,22 +8,25 @@ import dagster
 
 from posthog.schema import WebStatsBreakdown
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, Team
 from posthog.models.feature_flag import FeatureFlag
 
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
-    BASELINE_WINDOWS,
-    DASHBOARD_DEFAULT_WINDOW_DAYS,
     EAGER_FLAG_KEY,
     _baseline_queries,
-    _extract_email_domains_from_flag,
-    _validate_domains,
+    _extract_organization_ids_from_flag,
     _warm_baseline_for_team,
     get_eager_team_ids,
     warm_eager_baseline_op,
 )
+
+# Generic placeholder UUIDs for tests — these never touch customer data and
+# the flag conditions in production are opaque organization IDs.
+_ORG_UUID_A = "11111111-1111-4111-8111-111111111111"
+_ORG_UUID_B = "22222222-2222-4222-8222-222222222222"
+_ORG_UUID_C = "33333333-3333-4333-8333-333333333333"
 
 
 def _make_flag(team: Team, *, groups: list[dict], active: bool = True, deleted: bool = False) -> FeatureFlag:
@@ -30,37 +35,29 @@ def _make_flag(team: Team, *, groups: list[dict], active: bool = True, deleted: 
         key=EAGER_FLAG_KEY,
         active=active,
         deleted=deleted,
-        filters={"groups": groups},
+        filters={"groups": groups, "aggregation_group_type_index": 0},
     )
 
 
-def _email_icontains_group(domain: str) -> dict:
-    return {
-        "properties": [
-            {"key": "email", "type": "person", "value": domain, "operator": "icontains"},
-        ],
-        "rollout_percentage": 100,
-    }
+def _org_id_group(org_id: str, *, operator: str | None = "exact") -> dict:
+    prop: dict = {"key": "id", "type": "group", "group_type_index": 0, "value": org_id}
+    if operator is not None:
+        prop["operator"] = operator
+    return {"properties": [prop], "rollout_percentage": 100}
 
 
-class TestExtractEmailDomainsFromFlag:
+class TestExtractOrganizationIdsFromFlag:
     @pytest.mark.parametrize(
         "filters,expected",
         [
             pytest.param(
-                {"groups": [_email_icontains_group("@lovable.dev")]},
-                ["@lovable.dev"],
-                id="single_group_string_value",
+                {"groups": [_org_id_group(_ORG_UUID_A)]},
+                [_ORG_UUID_A],
+                id="single_group_single_org",
             ),
             pytest.param(
-                {
-                    "groups": [
-                        _email_icontains_group("@lovable.dev"),
-                        _email_icontains_group("@heygen.com"),
-                        _email_icontains_group("@researchgate.net"),
-                    ]
-                },
-                ["@lovable.dev", "@heygen.com", "@researchgate.net"],
+                {"groups": [_org_id_group(_ORG_UUID_A), _org_id_group(_ORG_UUID_B), _org_id_group(_ORG_UUID_C)]},
+                [_ORG_UUID_A, _ORG_UUID_B, _ORG_UUID_C],
                 id="multiple_groups_preserved_in_order",
             ),
             pytest.param(
@@ -69,60 +66,63 @@ class TestExtractEmailDomainsFromFlag:
                         {
                             "properties": [
                                 {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["@lovable.dev", "@heygen.com"],
-                                    "operator": "icontains",
+                                    "key": "id",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                    "value": [_ORG_UUID_A, _ORG_UUID_B],
+                                    "operator": "exact",
                                 }
                             ],
                             "rollout_percentage": 100,
                         }
                     ]
                 },
-                ["@lovable.dev", "@heygen.com"],
+                [_ORG_UUID_A, _ORG_UUID_B],
                 id="list_value",
+            ),
+            pytest.param(
+                {"groups": [_org_id_group(_ORG_UUID_A, operator=None)]},
+                [_ORG_UUID_A],
+                id="missing_operator_defaults_to_exact",
             ),
             pytest.param({}, [], id="empty_filters"),
             pytest.param({"groups": []}, [], id="empty_groups"),
             pytest.param(
-                {
-                    "groups": [
-                        {
-                            "properties": [
-                                {"key": "email", "type": "person", "value": "@x.com", "operator": "exact"},
-                            ],
-                            "rollout_percentage": 100,
-                        }
-                    ]
-                },
+                {"groups": [_org_id_group(_ORG_UUID_A, operator="icontains")]},
                 [],
-                id="ignores_non_icontains_operator",
+                id="ignores_non_exact_operator",
             ),
             pytest.param(
                 {
                     "groups": [
                         {
                             "properties": [
-                                {"key": "name", "type": "person", "value": "alice", "operator": "icontains"},
+                                {
+                                    "key": "name",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                    "value": "x",
+                                    "operator": "exact",
+                                },
                             ]
                         }
                     ]
                 },
                 [],
-                id="ignores_non_email_key",
+                id="ignores_non_id_key",
             ),
             pytest.param(
                 {
                     "groups": [
                         {
                             "properties": [
-                                {"key": "email", "type": "group", "value": "@x.com", "operator": "icontains"},
+                                {"key": "id", "type": "person", "value": _ORG_UUID_A, "operator": "exact"},
                             ]
                         }
                     ]
                 },
                 [],
-                id="ignores_non_person_type",
+                id="ignores_person_type",
             ),
             # Malformed-shape defenses — should return [] not raise.
             pytest.param({"groups": None}, [], id="groups_is_none"),
@@ -135,29 +135,13 @@ class TestExtractEmailDomainsFromFlag:
             pytest.param({"groups": [{"properties": ["string"]}]}, [], id="prop_is_string"),
         ],
     )
-    def test_extracts_expected_domains(self, filters, expected):
+    def test_extracts_expected_org_ids(self, filters, expected):
         flag = FeatureFlag(filters=filters)
-        assert _extract_email_domains_from_flag(flag) == expected
+        assert _extract_organization_ids_from_flag(flag) == expected
 
     def test_handles_completely_none_filters(self):
         flag = FeatureFlag(filters=None)
-        assert _extract_email_domains_from_flag(flag) == []
-
-
-class TestValidateDomains:
-    @pytest.mark.parametrize(
-        "input_domains,expected",
-        [
-            pytest.param(["@lovable.dev", "@heygen.com"], ["@lovable.dev", "@heygen.com"], id="valid_domains"),
-            pytest.param(["lovable.dev"], [], id="rejects_missing_at_prefix"),
-            pytest.param(["@a"], [], id="rejects_too_short"),
-            pytest.param(["@.com"], ["@.com"], id="accepts_minimum_length"),
-            pytest.param(["", "@valid.io"], ["@valid.io"], id="filters_empty_string"),
-            pytest.param([".com"], [], id="rejects_typo_dot_com"),
-        ],
-    )
-    def test_validates_domain_shape(self, input_domains, expected):
-        assert _validate_domains(input_domains) == expected
+        assert _extract_organization_ids_from_flag(flag) == []
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
@@ -177,90 +161,59 @@ class TestGetEagerTeamIds(APIBaseTest):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
-    def _make_org_with_member(self, *, email: str, name: str = "Org", is_active: bool = True) -> Team:
+    def _make_org_with_team(self, *, name: str = "Org") -> tuple[Team, str]:
+        """Create an org + team. Returns (team, str(org.id))."""
         org = Organization.objects.create(name=name)
-        user = User.objects.create(email=email, first_name="member", distinct_id=email, is_active=is_active)
-        OrganizationMembership.objects.create(user=user, organization=org, level=1)
-        return Team.objects.create(organization=org, name=f"{name}-team")
+        team = Team.objects.create(organization=org, name=f"{name}-team")
+        return team, str(org.id)
 
     def test_returns_empty_when_flag_absent(self, _is_cloud):
         assert get_eager_team_ids() == []
 
     def test_returns_empty_when_flag_inactive(self, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")], active=False)
-        self._make_org_with_member(email="alice@lovable.dev")
+        _, org_id = self._make_org_with_team()
+        _make_flag(self.team, groups=[_org_id_group(org_id)], active=False)
         assert get_eager_team_ids() == []
 
     def test_returns_empty_when_flag_deleted(self, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")], deleted=True)
-        self._make_org_with_member(email="alice@lovable.dev")
+        _, org_id = self._make_org_with_team()
+        _make_flag(self.team, groups=[_org_id_group(org_id)], deleted=True)
         assert get_eager_team_ids() == []
 
-    def test_returns_empty_when_no_domain_conditions(self, _is_cloud):
+    def test_returns_empty_when_no_org_id_conditions(self, _is_cloud):
         _make_flag(self.team, groups=[{"rollout_percentage": 100}])
         assert get_eager_team_ids() == []
 
     def test_returns_empty_on_self_hosted(self, _is_cloud):
         _is_cloud.return_value = False
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")])
-        self._make_org_with_member(email="alice@lovable.dev")
+        _, org_id = self._make_org_with_team()
+        _make_flag(self.team, groups=[_org_id_group(org_id)])
         assert get_eager_team_ids() == []
 
-    def test_resolves_single_domain_to_team(self, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")])
-        target = self._make_org_with_member(email="alice@lovable.dev")
-        self._make_org_with_member(email="bob@unrelated.com")
+    def test_resolves_single_org_to_team(self, _is_cloud):
+        target, org_id = self._make_org_with_team(name="A")
+        self._make_org_with_team(name="Other")
+        _make_flag(self.team, groups=[_org_id_group(org_id)])
         assert get_eager_team_ids() == [target.pk]
 
-    def test_unions_teams_across_multiple_domain_groups(self, _is_cloud):
-        _make_flag(
-            self.team,
-            groups=[
-                _email_icontains_group("@lovable.dev"),
-                _email_icontains_group("@heygen.com"),
-            ],
-        )
-        a = self._make_org_with_member(email="alice@lovable.dev", name="A")
-        b = self._make_org_with_member(email="bob@heygen.com", name="B")
-        self._make_org_with_member(email="carol@elsewhere.com", name="C")
+    def test_unions_teams_across_multiple_org_groups(self, _is_cloud):
+        a, org_a = self._make_org_with_team(name="A")
+        b, org_b = self._make_org_with_team(name="B")
+        self._make_org_with_team(name="C")
+        _make_flag(self.team, groups=[_org_id_group(org_a), _org_id_group(org_b)])
         assert get_eager_team_ids() == sorted([a.pk, b.pk])
 
-    def test_dedupes_teams_when_org_has_multiple_matching_members(self, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")])
+    def test_returns_all_teams_in_an_enrolled_org(self, _is_cloud):
         org = Organization.objects.create(name="Multi")
-        for email in ("alice@lovable.dev", "bob@lovable.dev"):
-            user = User.objects.create(email=email, first_name="m", distinct_id=email)
-            OrganizationMembership.objects.create(user=user, organization=org, level=1)
-        target = Team.objects.create(organization=org, name="multi-team")
-        assert get_eager_team_ids() == [target.pk]
+        team_a = Team.objects.create(organization=org, name="multi-a")
+        team_b = Team.objects.create(organization=org, name="multi-b")
+        _make_flag(self.team, groups=[_org_id_group(str(org.id))])
+        assert get_eager_team_ids() == sorted([team_a.pk, team_b.pk])
 
-    def test_excludes_orgs_whose_only_matching_member_is_inactive(self, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")])
-        self._make_org_with_member(email="ghost@lovable.dev", is_active=False)
-        assert get_eager_team_ids() == []
-
-    def test_anchors_domain_suffix_so_substring_attacks_do_not_match(self, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@lovable.dev")])
-        # Email contains `@lovable.dev` as a substring but does not end with it.
-        # `iregex` (the old impl) would have matched; `iendswith` should not.
-        self._make_org_with_member(email="alice@lovable.dev.attacker.example")
-        assert get_eager_team_ids() == []
-
-    def test_drops_flag_values_without_at_prefix(self, _is_cloud):
-        # A typo where the value is `lovable.dev` (no `@`) is silently
-        # ignored — otherwise it would match emails like
-        # `lovable.dev-something@x.com`.
-        _make_flag(
-            self.team,
-            groups=[
-                {
-                    "properties": [
-                        {"key": "email", "type": "person", "value": "lovable.dev", "operator": "icontains"},
-                    ],
-                }
-            ],
-        )
-        self._make_org_with_member(email="alice@lovable.dev")
+    def test_unknown_org_id_resolves_to_empty(self, _is_cloud):
+        # A flag listing an org UUID that no longer exists should not
+        # crash; the resolver just returns no teams.
+        _make_flag(self.team, groups=[_org_id_group(str(uuid4()))])
         assert get_eager_team_ids() == []
 
 
@@ -277,14 +230,14 @@ class TestBaselineQueries:
         expected = {b.value for b in BASELINE_BREAKDOWNS}
         assert seen_breakdowns == expected
 
-    def test_matrix_warms_both_windows(self):
+    def test_matrix_uses_single_28_day_window(self):
         queries = _baseline_queries()
         windows_seen = {q["dateRange"]["date_from"] for q in queries}
-        assert windows_seen == {f"-{DASHBOARD_DEFAULT_WINDOW_DAYS}d", f"-{BASELINE_WINDOW_DAYS}d"}
+        assert windows_seen == {f"-{BASELINE_WINDOW_DAYS}d"}
 
-    def test_total_query_count_equals_breakdowns_plus_three_per_window(self):
-        per_window = 3 + len(BASELINE_BREAKDOWNS)
-        assert len(_baseline_queries()) == per_window * len(BASELINE_WINDOWS)
+    def test_total_query_count_equals_breakdowns_plus_three(self):
+        # WebOverview + WebGoals + WebVitalsPathBreakdown + each WebStats breakdown
+        assert len(_baseline_queries()) == 3 + len(BASELINE_BREAKDOWNS)
 
     def test_every_query_filters_test_accounts(self):
         for q in _baseline_queries():
@@ -316,21 +269,18 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
-    def _enroll_team(self, *, name: str, domain: str) -> Team:
-        # Use `name` as the local-part so multiple enrolled teams sharing the
-        # same domain don't collide on `posthog_user.distinct_id`.
+    def _enroll_org(self, *, name: str) -> tuple[Team, str]:
+        """Create an org + team, return the team and `str(org.id)` so it
+        can be added to the flag config."""
         org = Organization.objects.create(name=name)
-        email = f"{name.lower()}@{domain}"
-        user = User.objects.create(email=email, first_name=name, distinct_id=email)
-        OrganizationMembership.objects.create(user=user, organization=org, level=1)
-        return Team.objects.create(organization=org, name=f"{name}-team")
+        return Team.objects.create(organization=org, name=f"{name}-team"), str(org.id)
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_one_team_failure_does_not_poison_other_teams(self, get_runner, tag_queries_mock, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@x.com"), _email_icontains_group("@y.com")])
-        t1 = self._enroll_team(name="A", domain="x.com")
-        t2 = self._enroll_team(name="B", domain="y.com")
+        t1, org_a = self._enroll_org(name="A")
+        t2, org_b = self._enroll_org(name="B")
+        _make_flag(self.team, groups=[_org_id_group(org_a), _org_id_group(org_b)])
 
         ok_runner = Mock()
         ok_runner.run.return_value = None
@@ -374,9 +324,9 @@ class TestWarmEagerBaselineOp(APIBaseTest):
     @patch("products.web_analytics.dags.eager_web_analytics_precompute._MAX_ENROLLED_TEAMS", 1)
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_caps_audience_when_resolved_set_is_too_large(self, get_runner, _is_cloud):
-        _make_flag(self.team, groups=[_email_icontains_group("@x.com")])
-        self._enroll_team(name="A", domain="x.com")
-        self._enroll_team(name="B", domain="x.com")
+        _, org_a = self._enroll_org(name="A")
+        _, org_b = self._enroll_org(name="B")
+        _make_flag(self.team, groups=[_org_id_group(org_a), _org_id_group(org_b)])
 
         context = dagster.build_op_context()
         result = warm_eager_baseline_op(context)

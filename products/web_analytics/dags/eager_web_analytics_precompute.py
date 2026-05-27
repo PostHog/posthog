@@ -1,37 +1,46 @@
 """Eager web analytics precompute — hourly baseline warming.
 
-A single Dagster job that pre-warms the lazy precompute cache and Django
-response cache for the Web analytics dashboard's main tile matrix over
-the last 28 days (and the default 7 day window the dashboard requests
-on load), for every team whose organization has at least one active
-member matching the `web-analytics-pre-aggregated-tables` feature flag's
-email conditions.
+A single Dagster job that pre-warms the lazy precompute cache for the
+Web analytics dashboard's main tile matrix over the trailing 28 days,
+for every team belonging to an organization rolled out on the
+`web-analytics-precompute-toggle` feature flag.
+
+The job is intentionally thin: it enumerates the dashboard's query
+families and dispatches each through `get_query_runner(...).run(...)`.
+The runner routes through its family's lazy precompute path, which
+already knows what's stale and INSERTs only what's missing. This DAG is
+the *trigger*; the runner is the source of truth for freshness.
 
 Why this exists
 ---------------
 The lazy precompute path caches per-day buckets in `web_*_preaggregated`
-tables with a 2h TTL. For high-traffic customers, the dashboard's main
-tiles are requested constantly — there is no reason to compute them
-reactively. Running the same query set ahead of every reasonable visit
-keeps the cache perpetually warm, so user requests turn into pure reads.
+tables with a 2h TTL. For high-traffic teams the dashboard's main tiles
+are requested constantly — there is no reason to compute them reactively.
+Running the same query set ahead of every reasonable visit keeps the
+cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-Source of truth is the `web-analytics-pre-aggregated-tables` flag on
-PostHog's internal dogfooding project. The job parses the flag's
-`email icontains "@domain"` conditions, then resolves them to the set of
-teams whose org has at least one active user with a matching email
-suffix. The job is a no-op on self-hosted instances (`is_cloud()`
-returns False) to avoid resolving a same-keyed flag on an unrelated
-tenant.
+Source of truth is the `web-analytics-precompute-toggle` feature flag,
+the same flag the runtime lazy read path checks before serving from the
+precompute cache. The flag is structured as one group per enrolled
+organization (`Match organizations against id equals <uuid>`). The job
+extracts those UUIDs from the flag's filter groups and resolves them to
+the set of teams belonging to those organizations.
+
+Reusing the runtime flag for the audience guarantees the eager warming
+audience never drifts from the audience the read path will actually
+serve — there is no second flag to keep in sync.
+
+The job is a no-op on self-hosted instances (`is_cloud()` returns False)
+to avoid resolving a same-keyed flag on an unrelated tenant.
 
 Composition with the lazy read path
 -----------------------------------
-This job populates the cache the lazy read path consults. It does NOT
-flip the lazy read path's rollout flag (`web-analytics-precompute-toggle`).
-For an enrolled team to actually be served from the warmed cache, that
-team must also be on the rollout flag. The two flags are independent by
-design; operators are expected to overlap their audiences.
+This job and the lazy read path consult the same flag, so an
+organization rolled out on the flag is both warmed by this job and
+served from the warmed cache at request time. No two-flag coordination
+needed.
 
 This job is complementary to `cache_warming.py`, which replays whatever
 queries users actually ran. The eager job covers the fixed UI matrix;
@@ -39,8 +48,6 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
 import time
-
-from django.db.models import Q
 
 import dagster
 import structlog
@@ -57,30 +64,23 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.user import User
 
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
 
 
-EAGER_FLAG_KEY = "web-analytics-pre-aggregated-tables"
+EAGER_FLAG_KEY = "web-analytics-precompute-toggle"
 # Team id of PostHog's internal dogfooding project on PostHog Cloud, where
 # this rollout flag lives. Coupled with the `is_cloud()` gate in
 # `get_eager_team_ids` so we never accidentally resolve a same-keyed flag
 # against a self-hosted tenant's team 2.
 EAGER_FLAG_TEAM_ID = 2
 
-# Primary warming window — the "last 28 days" coverage the eager rollout
-# targets. We also warm the dashboard's default 7d window so the Django
-# response cache is hit on default loads, not just the lazy CH cache.
+# Single warming window: the trailing 28 days. The lazy precompute path
+# stores per-day buckets, so a 28-day warm naturally serves any user
+# request for a sub-window (today, last 7d, etc.) via the lazy CH cache.
 BASELINE_WINDOW_DAYS = 28
-DASHBOARD_DEFAULT_WINDOW_DAYS = 7
-BASELINE_WINDOWS: tuple[int, ...] = (DASHBOARD_DEFAULT_WINDOW_DAYS, BASELINE_WINDOW_DAYS)
-
-# Minimum length for a parsed domain value. Short values (e.g. ".com")
-# would otherwise pull in any matching email on the instance.
-_MIN_DOMAIN_LEN = 5
 
 # Hard cap on enrolled teams per cycle. A typo in the flag config can
 # explode the audience; this cap fails-loudly rather than silently
@@ -137,14 +137,19 @@ EAGER_PRECOMPUTE_BASELINE_FAILED = Counter(
 )
 
 
-def _extract_email_domains_from_flag(flag: FeatureFlag) -> list[str]:
-    """Pull `email icontains <domain>` values out of a flag's filter groups.
+def _extract_organization_ids_from_flag(flag: FeatureFlag) -> list[str]:
+    """Pull `id equals <uuid>` values out of a flag's filter groups.
 
-    Defends against malformed JSON shapes — any group/property/value that
-    isn't shaped as expected is silently skipped instead of crashing the
-    parser. The flag is user-editable from the product UI.
+    Expects org-aggregated flags shaped as one group per enrolled org
+    with a `{type: "group", key: "id", operator: "exact", value: <uuid>}`
+    property — the shape the product UI produces for "Match organizations
+    against id equals <uuid>" conditions.
+
+    Defends against malformed JSON: any group/property/value not shaped
+    as expected is silently skipped instead of crashing the parser. The
+    flag is user-editable from the product UI.
     """
-    domains: list[str] = []
+    org_ids: list[str] = []
     try:
         groups = (flag.filters or {}).get("groups", []) or []
         if not isinstance(groups, list):
@@ -158,36 +163,29 @@ def _extract_email_domains_from_flag(flag: FeatureFlag) -> list[str]:
             for prop in properties:
                 if not isinstance(prop, dict):
                     continue
-                if prop.get("type") != "person" or prop.get("key") != "email":
+                if prop.get("type") != "group" or prop.get("key") != "id":
                     continue
-                if prop.get("operator") != "icontains":
+                # `exact` is the default operator when not specified.
+                operator = prop.get("operator") or "exact"
+                if operator != "exact":
                     continue
                 value = prop.get("value")
                 if isinstance(value, str) and value:
-                    domains.append(value)
+                    org_ids.append(value)
                 elif isinstance(value, list):
-                    domains.extend(v for v in value if isinstance(v, str) and v)
+                    org_ids.extend(v for v in value if isinstance(v, str) and v)
     except (TypeError, AttributeError):
         return []
-    return domains
-
-
-def _validate_domains(domains: list[str]) -> list[str]:
-    """Keep only values that look like email domains.
-
-    Requires `@` prefix and a minimum length so a typo (e.g. `.com`)
-    can't enroll every email on the instance.
-    """
-    return [d for d in domains if d.startswith("@") and len(d) >= _MIN_DOMAIN_LEN]
+    return org_ids
 
 
 def get_eager_team_ids() -> list[int]:
-    """Resolve the audience: teams whose org has at least one active user
-    whose email ends with one of the flag's `@<domain>` values.
+    """Resolve the audience: teams belonging to organizations rolled out
+    on the `web-analytics-precompute-toggle` flag.
 
     Returns `[]` for any of: not running on PostHog Cloud, flag absent,
-    flag inactive/deleted, no valid domains parsed. The empty-list result
-    cleanly turns the warming op into a no-op.
+    flag inactive/deleted, no organization-id conditions parsed. The
+    empty-list result cleanly turns the warming op into a no-op.
     """
     if not is_cloud():
         return []
@@ -197,62 +195,51 @@ def get_eager_team_ids() -> list[int]:
     except FeatureFlag.DoesNotExist:
         return []
 
-    domains = _validate_domains(_extract_email_domains_from_flag(flag))
-    if not domains:
+    org_ids = _extract_organization_ids_from_flag(flag)
+    if not org_ids:
         return []
 
-    # `iendswith` lowers to `LOWER(email) LIKE LOWER('%@foo.com')` which
-    # is still a sequential scan against `posthog_user` but cheaper than
-    # `iregex` (no regex compile per row) and end-anchored to prevent
-    # `@foo.com` matching `@foo.com.attacker.example`.
-    email_filter = Q()
-    for d in domains:
-        email_filter |= Q(email__iendswith=d)
-    matching_user_ids = User.objects.filter(email_filter, is_active=True).values("id")
-
-    return list(
-        Team.objects.filter(organization__members__in=matching_user_ids)
-        .values_list("pk", flat=True)
-        .distinct()
-        .order_by("pk")
-    )
+    return list(Team.objects.filter(organization_id__in=org_ids).values_list("pk", flat=True).distinct().order_by("pk"))
 
 
 def _baseline_queries() -> list[dict]:
-    """Return the dashboard tile matrix across both warming windows.
+    """Return the eager warming queries — one per family/breakdown.
+
+    Each payload is handed to `get_query_runner(...).run(...)`, which
+    dispatches into the family's lazy precompute path. That path is
+    idempotent: it checks the family's preagg job table and short-
+    circuits on jobs that are already READY for the requested time
+    range. The runner — not this DAG — is the source of truth for
+    freshness; this function only enumerates the surface (which query
+    kinds + breakdowns the dashboard renders).
 
     `useWebAnalyticsPrecompute=True` is required — without it the lazy
-    precompute path rejects the query via `PerQueryOptInNotSet` and the
-    warmer silently falls back to the legacy compute path, leaving the
-    `web_*_preaggregated` tables cold.
+    path rejects the query via `PerQueryOptInNotSet` and the warmer
+    silently falls back to legacy compute.
 
     `filterTestAccounts=True` and `limit=10` match the dashboard's
     defaults so the warmed Django response cache hits on default loads.
     """
-    common_base: dict = {
+    common = {
+        "dateRange": {"date_from": f"-{BASELINE_WINDOW_DAYS}d"},
         "properties": [],
         "filterTestAccounts": True,
         "useWebAnalyticsPrecompute": True,
     }
-    queries: list[dict] = []
-    for window_days in BASELINE_WINDOWS:
-        common = {**common_base, "dateRange": {"date_from": f"-{window_days}d"}}
-        queries.extend(
-            [
-                {"kind": "WebOverviewQuery", **common},
-                {"kind": "WebGoalsQuery", "limit": 10, **common},
-                {"kind": "WebVitalsPathBreakdownQuery", **common},
-            ]
+    queries: list[dict] = [
+        {"kind": "WebOverviewQuery", **common},
+        {"kind": "WebGoalsQuery", "limit": 10, **common},
+        {"kind": "WebVitalsPathBreakdownQuery", **common},
+    ]
+    for breakdown in BASELINE_BREAKDOWNS:
+        queries.append(
+            {
+                "kind": "WebStatsTableQuery",
+                "breakdownBy": breakdown.value,
+                "limit": 10,
+                **common,
+            }
         )
-        for breakdown in BASELINE_BREAKDOWNS:
-            queries.append(
-                {
-                    "kind": "WebStatsTableQuery",
-                    "breakdownBy": breakdown.value,
-                    "limit": 10,
-                    **common,
-                }
-            )
     return queries
 
 
@@ -331,10 +318,11 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 
 @dagster.job(
     description=(
-        "Hourly pre-warmer for Web analytics: populates the lazy precompute and Django response "
-        f"caches by running the dashboard's main tile matrix over the last {BASELINE_WINDOW_DAYS} days "
-        f"and the default {DASHBOARD_DEFAULT_WINDOW_DAYS}-day window, for every team whose org has "
-        f"an active member matching the `{EAGER_FLAG_KEY}` flag."
+        "Hourly pre-warmer for Web analytics: runs the dashboard's main tile matrix over the last "
+        f"{BASELINE_WINDOW_DAYS} days for every team belonging to an organization rolled out on the "
+        f"`{EAGER_FLAG_KEY}` flag. Each query is dispatched through its standard runner, which routes "
+        f"through the family's lazy precompute path — the runner decides what's stale and inserts only "
+        f"what's missing."
     ),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
