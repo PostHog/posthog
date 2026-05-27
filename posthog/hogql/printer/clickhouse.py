@@ -1288,8 +1288,10 @@ class ClickHousePrinter(BasePrinter):
             in_conditional_aggregate = any(
                 isinstance(item, ast.Call) and item.name.endswith("If") for item in self.stack
             )
-            if not in_join_constraint and not in_index_hint and (
-                (nullable_left and not not_nullable) or in_conditional_aggregate
+            if (
+                not in_join_constraint
+                and not in_index_hint
+                and ((nullable_left and not not_nullable) or in_conditional_aggregate)
             ):
                 return f"ifNull({op}, 1)"
             return op
