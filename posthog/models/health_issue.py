@@ -2,7 +2,7 @@ import json
 import hashlib
 from typing import Any, Optional
 
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
@@ -119,7 +119,19 @@ class HealthIssue(UUIDModel):
             key = (issue["team_id"], issue["unique_hash"])
             incoming[key] = issue
 
+        # Serialize concurrent upserts for the same (kind, team_id) — SELECT
+        # FOR UPDATE can't lock a row that doesn't exist yet, and READ
+        # COMMITTED doesn't lock gaps, so two callers would otherwise both
+        # decide a hash is new and race into a duplicate bulk_create. Locks
+        # acquired in sorted order to avoid deadlocks across overlapping
+        # team_id sets.
+        kind_lock_key = int.from_bytes(hashlib.sha256(kind.encode()).digest()[:4], "big", signed=True)
+
         with transaction.atomic():
+            with connection.cursor() as cursor:
+                for team_id in sorted({tid for tid, _ in incoming}):
+                    cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [kind_lock_key, team_id])
+
             existing_issues = {
                 (issue.team_id, issue.unique_hash): issue
                 for issue in cls.objects.filter(
@@ -195,7 +207,7 @@ class HealthIssue(UUIDModel):
                     status=cls.Status.ACTIVE,
                     team_id__in=team_ids,
                 )
-                resolved_rows = list(qs)
+                resolved_rows = list(qs.select_for_update())
                 qs.update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
                 _mark_resolved(resolved_rows)
                 return resolved_rows
@@ -209,7 +221,7 @@ class HealthIssue(UUIDModel):
                     status=cls.Status.ACTIVE,
                     team_id__in=team_ids_without_keep_hashes,
                 )
-                batch = list(qs)
+                batch = list(qs.select_for_update())
                 qs.update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
                 resolved_rows.extend(batch)
 
@@ -221,7 +233,7 @@ class HealthIssue(UUIDModel):
                 )
                 if hashes:
                     team_qs = team_qs.exclude(unique_hash__in=hashes)
-                batch = list(team_qs)
+                batch = list(team_qs.select_for_update())
                 team_qs.update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
                 resolved_rows.extend(batch)
 
