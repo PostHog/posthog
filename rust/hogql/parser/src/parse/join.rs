@@ -43,18 +43,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             {
                 break;
             }
-            // `,` cross join. cpp's ANTLR ALL(*) tolerates a trailing
-            // comma after a constrained JOIN chain (`a JOIN b ON 1,`)
-            // when nothing parseable follows — the comma is recovery-
-            // discarded. Mirror that: if peek_next isn't a token that
-            // can start a table atom, consume + discard the trailing
-            // comma so the outer SELECT parser keeps walking.
+            // `,` cross join. A trailing comma (peek_next can't start a table
+            // atom) is NOT a join-chain construct — cpp rejects it after a
+            // cross / plain / positional join (`a, b,`, `a join b,`). The only
+            // tolerated trailing comma is an ON / USING `columnExprList`'s
+            // optional `COMMA?` (`a JOIN b ON 1,`), which is consumed inside
+            // `parse_join_constraint_opt` so its span matches cpp's. So just
+            // leave any trailing comma here for the SELECT parser, which
+            // rejects it.
             if self.peek() == TokenKind::Comma {
                 if !self.peek_next_starts_table_atom() {
-                    if joined_any {
-                        // Trailing comma after at least one join — discard.
-                        self.bump()?;
-                    }
                     break;
                 }
                 self.bump()?;
@@ -237,8 +235,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
         // visitor's JoinExprPivot does the same).
         // Grammar order: `TableExprAlias` (alias + columnAliases) binds
-        // inside `tableExpr`, then `JoinExprTable` adds `FINAL?`.
-        let (alias, column_aliases) = self.consume_table_alias_chain()?;
+        // inside `tableExpr`, then `JoinExprTable` adds `FINAL?
+        // sampleClause?`.
+        let (alias, column_aliases, _) = self.consume_table_alias_chain()?;
         let table_final = self.eat_kw(Kw::Final)?;
         // Table-level SAMPLE (`tableExpr FINAL? sampleClause?`) binds only to a tableExpr-pivot; a joinExpr-pivot's trailing SAMPLE is statement-level, left for `reject_select_level_sample`.
         let sample = if operand_is_table_expr {
@@ -473,22 +472,27 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // to fall out and let the outer chain consume it as
             // cross-join, silently emitting a divergent JoinExpr.
             //
-            // A *trailing* comma (`FROM a JOIN b ON 1,` with nothing
-            // parseable after) is tolerated — cpp's ANTLR recovery
-            // discards it. Leave the outer JOIN loop to handle that.
-            if self.peek() == TokenKind::Comma
-                && !matches!(
+            // A *trailing* comma (`FROM a JOIN b ON 1,` with nothing parseable
+            // after) is the `columnExprList`'s optional `COMMA?` — valid, and
+            // cpp's JoinConstraint span covers it. Consume it here so the span
+            // matches (and so the outer JOIN loop doesn't have to special-case
+            // it). A comma with a real expression after is the unsupported
+            // multi-expression list.
+            if self.peek() == TokenKind::Comma {
+                if matches!(
                     self.peek_next(),
                     TokenKind::Eof | TokenKind::Semicolon | TokenKind::RParen
-                )
-            {
-                let start = self.peek0.start;
-                let end = self.peek0.end;
-                return Err(ParseError::not_implemented(
-                    "Unsupported: JOIN ... ON with multiple expressions",
-                    start,
-                    end,
-                ));
+                ) {
+                    self.bump()?;
+                } else {
+                    let start = self.peek0.start;
+                    let end = self.peek0.end;
+                    return Err(ParseError::not_implemented(
+                        "Unsupported: JOIN ... ON with multiple expressions",
+                        start,
+                        end,
+                    ));
+                }
             }
             return Ok(Some(
                 self.wrap_pos(self.emit.join_constraint(expr, "ON"), cons_start),
@@ -515,6 +519,17 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             } else {
                 self.emit.tuple_(exprs)
             };
+            // Trailing `COMMA?` of the columnExprList — the paren form leaves it
+            // after `)`; the no-paren list parse already absorbs it. Consume it
+            // so the JoinConstraint span matches cpp's (`USING (c),`).
+            if self.peek() == TokenKind::Comma
+                && matches!(
+                    self.peek_next(),
+                    TokenKind::Eof | TokenKind::Semicolon | TokenKind::RParen
+                )
+            {
+                self.bump()?;
+            }
             return Ok(Some(
                 self.wrap_pos(self.emit.join_constraint(expr, "USING"), cons_start),
             ));
@@ -581,14 +596,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // first, FINAL and SAMPLE after. Parsing SAMPLE before the
         // alias (as this did) silently dropped the sample on an
         // aliased table — `t AS e SAMPLE 1` lost its `SampleExpr`.
-        let (alias, column_aliases) = self.consume_table_alias_chain()?;
+        let (alias, column_aliases, first_alias_end) = self.consume_table_alias_chain()?;
         let had_alias = alias.is_some() || column_aliases.is_some();
-        // Snapshot end after alias / column_aliases — cpp's
-        // `TableExprAlias` ctx covers `tableExpr alias columnAliases?` and
-        // its JoinExpr wrap stops there. The subsequent FINAL / SAMPLE
-        // sit in the parent `JoinExprTable` rule, which adds them as
-        // fields on the existing JoinExpr WITHOUT widening its span.
-        let after_alias_end = self.last_consumed_end;
+        // Snapshot end after the FIRST alias / column_aliases — cpp's
+        // `TableExprAlias` ctx covers `tableExpr alias columnAliases?` and its
+        // JoinExpr wrap stops at the innermost (first) alias. Stacked aliases
+        // (`x a b c`, or the `t format JSON` FORMAT-as-alias chain) overwrite
+        // the alias field but don't widen the span; the subsequent FINAL /
+        // SAMPLE in the parent `JoinExprTable` rule don't widen it either.
+        let after_alias_end = first_alias_end.unwrap_or(self.last_consumed_end);
         // `JoinExprTable: tableExpr FINAL? sampleClause?` — FINAL and
         // SAMPLE decorate the (possibly aliased) table.
         let final_ = self.eat_kw(Kw::Final)?;
@@ -638,17 +654,32 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `(None, None)` when the table carries no alias at all.
     fn consume_table_alias_chain(
         &mut self,
-    ) -> Result<(Option<String>, Option<Vec<String>>), ParseError> {
+    ) -> Result<(Option<String>, Option<Vec<String>>, Option<usize>), ParseError> {
+        // NB: `from <implicitAlias>` as a *table* (`select a from b, from c` —
+        // table `from` aliased `c`) is valid; the grammar's
+        // `ColumnExprInvalidFromImplicitAlias` footgun is a SELECT-*column*
+        // form only, enforced in `parse_select_columns`. Do not reject a bare
+        // `from` table here.
         let mut alias: Option<String> = None;
         let mut column_aliases: Option<Vec<String>> = None;
+        // `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs make
+        // the JoinExpr span end at the INNERMOST alias (the first `tableExpr
+        // alias columnAliases?`), while each outer alias only overwrites the
+        // `alias` / `column_aliases` fields. Capture the end after the FIRST
+        // alias so the caller clamps the span there (`from x a b` ends at `a`,
+        // `from x a (c1) b (c2)` ends at `a (c1)`).
+        let mut first_alias_end: Option<usize> = None;
         while let Some(a) = self.try_consume_table_alias()? {
             alias = Some(a);
             // `columnAliases` belongs to *this* alias's `TableExprAlias`;
             // re-read each iteration so the last alias's value (present
             // or absent) is the one that survives.
             column_aliases = self.try_consume_column_aliases()?;
+            if first_alias_end.is_none() {
+                first_alias_end = Some(self.last_consumed_end);
+            }
         }
-        Ok((alias, column_aliases))
+        Ok((alias, column_aliases, first_alias_end))
     }
 
     /// Optional `columnAliases` — `LPAREN identifier (COMMA identifier)*
@@ -781,9 +812,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 &Self::parse_join_expr_parens_arm,
             ]);
         }
-        // `{name}` — placeholder table reference.
+        // `{name}` — placeholder table reference (a Dict `{}` / `{k: v}` is not a tableExpr).
         if self.peek() == TokenKind::LBrace {
-            return self.parse_brace_dict_or_placeholder();
+            return self.parse_brace_placeholder_only();
         }
         // Identifier-led: either a Field chain (plain table reference) or
         // a tableFunction (`name(args)`). Grammar's `tableIdentifier` →
@@ -1090,7 +1121,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // wraps in RatioExpr.
         let ratio_start = self.peek0.start;
         if self.peek() == TokenKind::LBrace {
-            return self.parse_brace_dict_or_placeholder();
+            return self.parse_brace_placeholder_only();
         }
         let left = self.consume_ratio_value()?;
         let right = if self.eat(TokenKind::Slash)? {

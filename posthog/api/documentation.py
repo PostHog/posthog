@@ -20,9 +20,10 @@ from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.entity import MathType
-from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+
+from products.feature_flags.backend.types import PropertyFilterType
 
 # Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
 # therefore cannot be derived from any model field.  We pre-supply their

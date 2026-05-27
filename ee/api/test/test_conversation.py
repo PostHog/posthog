@@ -1153,3 +1153,95 @@ class TestConversation(APIBaseTest):
                 workflow_inputs = mock_astream.call_args[0][1]
                 self.assertIsNotNone(workflow_inputs.billing_context.spend_history)
                 self.assertEqual(len(workflow_inputs.billing_context.spend_history), 20)
+
+
+class TestConversationSoftDelete(APIBaseTest):
+    def _make_conversation(self, **overrides) -> Conversation:
+        defaults: dict[str, Any] = {
+            "user": self.user,
+            "team": self.team,
+            "title": "A chat",
+            "type": Conversation.Type.ASSISTANT,
+        }
+        defaults.update(overrides)
+        return Conversation.objects.create(**defaults)
+
+    def test_delete_marks_row_soft_deleted(self):
+        conversation = self._make_conversation()
+
+        before = timezone.now()
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+        after = timezone.now()
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        refreshed = Conversation.objects.get(pk=conversation.pk)
+        self.assertTrue(refreshed.deleted)
+        assert refreshed.deleted_at is not None
+        self.assertGreaterEqual(refreshed.deleted_at, before)
+        self.assertLessEqual(refreshed.deleted_at, after)
+
+    def test_delete_other_users_conversation_returns_404(self):
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="other-softdelete@posthog.com",
+            password="password",
+            first_name="Other",
+        )
+        conversation = self._make_conversation(user=other_user)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        refreshed = Conversation.objects.get(pk=conversation.pk)
+        self.assertFalse(refreshed.deleted)
+
+    def test_delete_already_deleted_returns_404(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_excludes_soft_deleted(self):
+        kept = self._make_conversation(title="kept")
+        self._make_conversation(title="gone", deleted=True, deleted_at=timezone.now())
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [c["id"] for c in response.json()["results"]]
+        self.assertEqual(ids, [str(kept.id)])
+
+    def test_retrieve_soft_deleted_returns_404(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_with_deleted_id_does_not_resurrect(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "content": "hello",
+                "trace_id": str(uuid.uuid4()),
+                "conversation": str(conversation.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        still_deleted = Conversation.objects.get(pk=conversation.pk)
+        self.assertTrue(still_deleted.deleted)
+        self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)

@@ -1152,3 +1152,148 @@ async fn partial_timeout_with_serialization_error() {
     assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::Timeout);
     assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
 }
+
+// ===========================================================================
+// Realistic WrappedEvent — destination routing, property injection, options
+// ===========================================================================
+
+#[tokio::test]
+async fn realistic_exception_routes_to_exception_topic() {
+    let h = TestHarness::new();
+    let wrapped = test_utils::wrapped_event("$exception", "user-1")
+        .with_destination(Destination::ExceptionErrorTracking);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(records[0].topic, "error_tracking_events");
+    });
+}
+
+#[tokio::test]
+async fn realistic_heatmap_routes_to_heatmap_topic() {
+    let h = TestHarness::new();
+    let wrapped =
+        test_utils::wrapped_event("$$heatmap", "user-1").with_destination(Destination::HeatmapMain);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(records[0].topic, "heatmaps_ingestion");
+    });
+}
+
+#[tokio::test]
+async fn realistic_session_id_injected_into_properties() {
+    let h = TestHarness::new();
+    let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
+    wrapped.event.session_id = Some("sess-123".to_string());
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        let captured: CapturedEvent =
+            serde_json::from_str(&records[0].payload).expect("must deserialize as CapturedEvent");
+        let data: RawEvent =
+            serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
+        assert_eq!(data.properties["$session_id"], "sess-123");
+    });
+}
+
+#[tokio::test]
+async fn realistic_window_id_injected_into_properties() {
+    let h = TestHarness::new();
+    let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
+    wrapped.event.window_id = Some("win-456".to_string());
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        let captured: CapturedEvent =
+            serde_json::from_str(&records[0].payload).expect("must deserialize as CapturedEvent");
+        let data: RawEvent =
+            serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
+        assert_eq!(data.properties["$window_id"], "win-456");
+    });
+}
+
+#[tokio::test]
+async fn realistic_cookieless_partition_key() {
+    let h = TestHarness::new();
+    let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
+    wrapped.event.options.cookieless_mode = Some(true);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    let expected_key = format!("{}:{}", h.ctx.api_token, h.ctx.client_ip);
+    h.producer.with_records(|records| {
+        let key = records[0].key.as_deref().expect("key should be present");
+        assert_eq!(key, expected_key);
+    });
+}
+
+#[rstest]
+#[case::main(0, Some("events_main"))]
+#[case::historical(1, Some("events_hist"))]
+#[case::overflow(2, Some("events_overflow"))]
+#[case::dlq(3, Some("events_dlq"))]
+#[case::custom(4, Some("custom_topic"))]
+#[case::drop(5, None)]
+#[tokio::test]
+async fn realistic_spread_destinations_routes_correctly(
+    #[case] idx: usize,
+    #[case] expected_topic: Option<&str>,
+) {
+    let h = TestHarness::new();
+    let all = test_utils::realistic_spread_destinations();
+    let ev = &all[idx];
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![ev];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    match expected_topic {
+        Some(topic) => {
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].outcome(), Outcome::Success);
+            h.producer.with_records(|records| {
+                assert_eq!(records[0].topic, topic);
+            });
+        }
+        None => {
+            assert!(results.is_empty());
+            assert_eq!(h.producer.record_count(), 0);
+        }
+    }
+}
+
+#[tokio::test]
+async fn realistic_force_disable_pp_null_partition_key() {
+    let h = TestHarness::new();
+    let wrapped = test_utils::wrapped_event("$pageview", "user-1")
+        .with_force_disable_person_processing(true)
+        .with_destination(Destination::AnalyticsMain);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert!(records[0].key.is_none());
+    });
+}
