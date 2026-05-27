@@ -85,7 +85,7 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
                 # Two attempts: the second is the next 5-min tick's natural retry.
                 # Higher attempts bleed into the next tick's wall-time budget.
                 maximum_attempts=2,
-                non_retryable_error_types=["FeatureValidationError", "ScoreRangeError"],
+                non_retryable_error_types=["FeatureValidationError", "ScoreRangeError", "ModelNotConfiguredError"],
             ),
         )
 

@@ -62,9 +62,9 @@ the existing session row without disturbing any other aggregate.
 
 Feature alignment contract: the final SELECT alias list must match the
 booster's `feature_names` exactly (set + order). `feature_columns_in_select`
-extracts the alias list at test time so a unit test can assert parity with
-the bundled `model.ubj` before any chunk ever runs in CH. Drift = silently
-mis-scored sessions, so we catch it at CI rather than at runtime.
+extracts the alias list so `test_sql_alignment.py` asserts parity against
+`FEATURE_RANGES` at CI time; worker boot re-asserts against the S3 booster.
+Drift = silently mis-scored sessions, so we catch it before runtime.
 """
 
 import re

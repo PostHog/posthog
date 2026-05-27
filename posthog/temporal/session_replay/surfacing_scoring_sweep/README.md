@@ -85,26 +85,22 @@ shows up as a `validate_features` failure rather than silent score skew.
 
 Three artifacts must stay identical (same columns, same order):
 
-| Artifact                                    | Source of truth for            |
-| ------------------------------------------- | ------------------------------ |
-| `fetch_features_sql()` final SELECT aliases | What ClickHouse returns        |
-| `FEATURE_RANGES` keys in `features.py`      | Runtime dtype/range validation |
-| `booster.feature_names` in `model.ubj`      | What XGBoost predicts on       |
+| Artifact                                        | Source of truth for            |
+| ----------------------------------------------- | ------------------------------ |
+| `fetch_features_sql()` final SELECT aliases     | What ClickHouse returns        |
+| `FEATURE_RANGES` keys in `features.py`          | Runtime dtype/range validation |
+| `booster.feature_names` in the S3-hosted `.ubj` | What XGBoost predicts on       |
 
 `feature_schema.py` enforces parity:
 
-- **Worker boot** (`scorer.warmup()`, wired from `start_temporal_worker`): runs
-  `assert_serving_schema_parity()` — a drifted deploy fails before accepting
-  chunks.
-- **CI** (`test_sql_alignment.py`): same checks against the bundled `model.ubj`.
-- **Retrain workflow**: after changing SQL or `FEATURE_RANGES`, regenerate the
-  model with `python bin/generate_surfacing_placeholder_model.py` (placeholder)
-  or mount a prod-trained `.ubj` whose `feature_names` match the SELECT list.
-  Refresh example fixtures with `python bin/generate_surfacing_example_fixtures.py`.
+- **Worker boot**: `scorer.warmup()` fetches the booster from S3 and runs
+  `assert_serving_schema_parity()` — drifted deploy fails before accepting chunks.
+- **CI** (`test_sql_alignment.py`): SQL ↔ FEATURE_RANGES, plus booster-side
+  checks against a synthetic booster trained on `FEATURE_RANGES.keys()`.
 
-When adding/removing a feature: update `sql.py` SELECT + `FEATURE_RANGES`,
-retrain/replace the booster, bump `MODEL_FEATURE_SCHEMA_VERSION`, rerun the
-alignment tests.
+To change features: update `sql.py` SELECT + `FEATURE_RANGES`, retrain and
+upload the new `.ubj` (see [Uploading a model to S3](#uploading-a-model-to-s3)),
+bump `MODEL_FEATURE_SCHEMA_VERSION`, rerun the alignment tests.
 
 Sessions without replay features are dropped by the inner join and stay
 NULL in `session_replay_events`. They re-appear on subsequent ticks until
@@ -188,23 +184,41 @@ threads fighting for N cores.
 
 ## Model file
 
-A trained booster ships with the package at
-`posthog/temporal/session_replay/surfacing_scoring_sweep/model.ubj`,
-and that path is the default for `SESSION_INTERESTINGNESS_MODEL_PATH`.
-Override the env var in production to point at a sidecar-mounted booster
-when the bundled file should be replaced without a code deploy. First-call
-latency is paid once per pod; warm with `scorer.warmup()` from the worker
-bootstrap to remove that latency from the first chunk's wall time.
+S3 is the **single source of truth** — no bundled fallback, no local-file
+override. `SESSION_INTERESTINGNESS_MODEL_S3_URI` (`s3://bucket/key`) is
+required on every surfacing worker. Prod, staging, and local dev (against
+MinIO) all use the same code path: fetch once per pod, cache to a
+tempfile, roll pods to pick up new models.
 
-The bundled file is also the source of truth for the `test_sql_alignment.py`
-parity test — any SQL/booster drift fails CI before the activity ever runs
-in production. See "Updating features" below for the workflow when the
-feature set changes.
+Unset → `ModelNotConfiguredError` at worker boot. Warm with
+`scorer.warmup()` so the S3 fetch isn't on the first chunk's path.
 
-`xgboost==3.2.0` is a top-level dependency, installed in every Python image.
-It pulls `nvidia-nccl-cu12` (~322 MB of CUDA libs on Linux, even in CPU-only
-mode) into the layer cache; that's a deliberate trade-off for keeping a
-single image rather than maintaining a dedicated scoring-worker variant.
+`xgboost==3.2.0` is a top-level dependency (pulls `nvidia-nccl-cu12`
+~322 MB on Linux even in CPU mode) — deliberate trade-off for a single
+worker image.
+
+### Uploading a model to S3
+
+```bash
+./bin/python manage.py upload_surfacing_model ./model.ubj
+# → s3://<settings.OBJECT_STORAGE_BUCKET>/surfacing-scoring/model.ubj
+
+# Override bucket/key for date-stamped rollouts:
+./bin/python manage.py upload_surfacing_model ./model.ubj \
+    --bucket my-bucket --key surfacing-scoring/2026-05-27.ubj
+```
+
+The command uses the same `posthog.storage.object_storage` client the
+worker reads with (works against prod S3, staging, and local MinIO) and
+validates the `.ubj` before upload (`--skip-validate` to bypass).
+
+Then on the worker pod, roll to pick up the new model:
+
+```bash
+SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/surfacing-scoring/model.ubj
+```
+
+Plain `aws s3 cp` works too.
 
 ## Updating features
 
@@ -220,8 +234,8 @@ What still needs to be kept in sync **outside** the booster file:
    `_AGGREGATED_STATS_FRAGMENT` and `_REPLAY_FEATURES_FRAGMENT` CTEs that
    produce them) must produce a column named exactly the same as every
    `feature_names` entry, in the same order. `test_sql_alignment.py`
-   asserts this against the bundled `model.ubj` at CI time;
-   `validate_features` enforces it again at runtime as a defense in depth.
+   asserts this at CI time; `validate_features` enforces it again at
+   runtime as a defense in depth.
 2. `features.FEATURE_RANGES` — runtime dtype + value-bounds contract.
    xgboost does **not** carry value ranges in the model file, so this is
    the runtime guard against "model trained on [0, 1] but the SQL started
@@ -233,13 +247,13 @@ What still needs to be kept in sync **outside** the booster file:
 
 Workflow when changing features:
 
-1. Retrain on the new feature set; replace `model.ubj` (committed to repo).
-2. Update `_AGGREGATED_STATS_FRAGMENT`, `_REPLAY_FEATURES_FRAGMENT`, and
-   the final SELECT in `sql.py` to produce/expose the new aliases.
-3. Update `FEATURE_RANGES` to mirror the new set.
-4. Bump `features.MODEL_FEATURE_SCHEMA_VERSION`.
-5. `pytest posthog/temporal/tests/session_replay/surfacing_scoring_sweep/test_sql_alignment.py`
-   passes when all four are aligned.
+1. Update SQL (`_AGGREGATED_STATS_FRAGMENT`, `_REPLAY_FEATURES_FRAGMENT`,
+   final SELECT) + `FEATURE_RANGES` to match.
+2. Bump `features.MODEL_FEATURE_SCHEMA_VERSION`.
+3. `pytest .../test_sql_alignment.py` passes when SQL and FEATURE_RANGES agree.
+4. Retrain and upload the new `.ubj` (see [Uploading a model to
+   S3](#uploading-a-model-to-s3)); roll workers. `assert_serving_schema_parity`
+   fails boot loudly if the new booster's `feature_names` don't match.
 
 `validate_features` is a hard gate — any mismatch raises
 `FeatureValidationError`, marked `non_retryable=True` in the workflow so a
@@ -259,13 +273,13 @@ tick's CH `IS NULL` filter naturally picks up whatever the slow tick missed).
 
 These are deliberately out of scope for the initial PR:
 
-- **Extend the feature set.** The committed `model.ubj` was trained on the
+- **Extend the feature set.** The initial production booster covers the
   36 features the live `session_replay_features` DDL exposes today. To add
   more (e.g. `*_path_visit_count`, `network_4xx_count`, `mutation_count`,
-  `unique_form_field_count`), they need to land in
+  `unique_form_field_count`), land them in
   `posthog/session_recordings/sql/session_replay_feature_sql.py` (CH
-  migration + Kafka MV) first, then a retrained `model.ubj` + matching
-  changes to `sql.py`/`FEATURE_RANGES` get gated by `test_sql_alignment.py`.
+  migration + Kafka MV) first, then retrain + upload + update
+  `sql.py`/`FEATURE_RANGES` (gated by `test_sql_alignment.py`).
 - **Integration test for `score_chunk_activity`.** Unit coverage exists for
   `validate_features` and `scorer` (load + predict + thread safety + range
   guards). The end-to-end activity flow against real CH is still untested;

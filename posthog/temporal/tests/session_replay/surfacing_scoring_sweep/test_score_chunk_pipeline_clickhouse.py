@@ -1,11 +1,8 @@
-"""End-to-end check that the fetch → validate → predict pipeline works against
-real ClickHouse and the bundled `model.ubj`.
+"""End-to-end check that fetch → validate → predict works against real ClickHouse.
 
-Closes the README's "Integration test for `score_chunk_activity`" follow-up.
-The earlier `test_sql_clickhouse.py` only proves the eligible_sessions CTE
-join wires up; this one runs the full `_fetch_features_dataframe` SELECT
-through `validate_features` and `predict`, which is what catches schema
-drift between the SQL aliases and the booster's `feature_names`.
+Booster comes from the `surfacing_booster_path` fixture (prod uses S3).
+Catches SQL/booster schema drift the static `test_sql_alignment.py` can't —
+specifically dtype-from-CH bugs.
 
 Prereqs that the local CH database needs:
     * `surfacing_score` column on `session_replay_events` (added by an
@@ -24,6 +21,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
@@ -36,8 +34,9 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.types import ChunkS
 from posthog.temporal.tests.session_replay.surfacing_scoring_sweep.ch_insert_helpers import insert_session_replay_event
 
 
+@pytest.mark.usefixtures("surfacing_booster_path")
 class TestScoreChunkPipelineClickhouse(ClickhouseTestMixin, BaseTest):
-    """One realistic session, full pipeline, real booster."""
+    """One realistic session, full pipeline, synthetic booster."""
 
     def setUp(self) -> None:
         super().setUp()

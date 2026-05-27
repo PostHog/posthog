@@ -1,8 +1,11 @@
 """Manual smoke-test for the session surfacing scoring pipeline.
 
-Pulls one bucket of unscored sessions from ClickHouse, runs the bundled
-XGBoost booster against them, and prints the resulting scores. Does NOT
-write anything back — read-only.
+Pulls one bucket of unscored sessions from ClickHouse, runs the XGBoost
+booster against them, and prints the resulting scores. Does NOT write
+anything back — read-only.
+
+Requires `SESSION_INTERESTINGNESS_MODEL_S3_URI` to be set
+(see surfacing_scoring_sweep README).
 
 Use cases:
     * Verify the model loads and predicts in a fresh dev / staging environment

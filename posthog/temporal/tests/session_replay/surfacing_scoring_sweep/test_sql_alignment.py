@@ -1,14 +1,14 @@
-"""CI guard: fetch_features_sql(), FEATURE_RANGES, and model.ubj stay aligned."""
+"""CI guard: fetch_features_sql(), FEATURE_RANGES, and a synthetic booster stay aligned.
+
+Prod model lives in S3; `assert_serving_schema_parity` re-runs at worker boot.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import xgboost as xgb
 
-from posthog.temporal.session_replay.surfacing_scoring_sweep import scorer as scorer_mod
 from posthog.temporal.session_replay.surfacing_scoring_sweep.feature_schema import (
     assert_booster_matches_sql,
     assert_serving_schema_parity,
@@ -19,47 +19,27 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.features import FEA
 from posthog.temporal.session_replay.surfacing_scoring_sweep.sql import feature_columns_in_select, fetch_features_sql
 
 
-@pytest.fixture(scope="module")
-def bundled_model_path() -> Path:
-    path = Path(scorer_mod._BUNDLED_MODEL_PATH)
-    if not path.exists():
-        pytest.fail(
-            f"Bundled model file not found at {path}. The pipeline ships with "
-            "a checked-in model.ubj — regenerate it with "
-            "`python bin/generate_surfacing_placeholder_model.py`."
-        )
-    return path
-
-
-@pytest.fixture(scope="module")
-def bundled_booster_feature_names(bundled_model_path: Path) -> tuple[str, ...]:
+def _feature_names(model_path: Path) -> tuple[str, ...]:
     booster = xgb.Booster()
-    booster.load_model(str(bundled_model_path))
-    names = tuple(booster.feature_names or ())
-    if not names:
-        pytest.fail(
-            f"Bundled booster at {bundled_model_path} has no feature_names. "
-            "Retrain and pass feature_names= to xgb.DMatrix."
-        )
-    return names
+    booster.load_model(str(model_path))
+    return tuple(booster.feature_names or ())
 
 
 class TestServingFeatureSchemaParity:
     def test_sql_select_aliases_match_feature_ranges(self) -> None:
         assert_sql_matches_feature_ranges()
 
-    def test_sql_select_aliases_match_booster_feature_names(
-        self, bundled_booster_feature_names: tuple[str, ...]
-    ) -> None:
-        assert_booster_matches_sql(bundled_booster_feature_names)
+    def test_sql_select_aliases_match_booster_feature_names(self, surfacing_booster_path: Path) -> None:
+        assert_booster_matches_sql(_feature_names(surfacing_booster_path))
 
-    def test_full_serving_schema_parity(self, bundled_booster_feature_names: tuple[str, ...]) -> None:
-        assert_serving_schema_parity(bundled_booster_feature_names)
+    def test_full_serving_schema_parity(self, surfacing_booster_path: Path) -> None:
+        assert_serving_schema_parity(_feature_names(surfacing_booster_path))
 
-    def test_feature_ranges_is_exactly_booster_features(self, bundled_booster_feature_names: tuple[str, ...]) -> None:
-        extra = set(FEATURE_RANGES.keys()) - set(bundled_booster_feature_names)
+    def test_feature_ranges_is_exactly_booster_features(self, surfacing_booster_path: Path) -> None:
+        booster_names = set(_feature_names(surfacing_booster_path))
+        extra = set(FEATURE_RANGES.keys()) - booster_names
         assert not extra, (
-            f"FEATURE_RANGES has {len(extra)} entries not declared by the bundled booster: "
+            f"FEATURE_RANGES has {len(extra)} entries not declared by the booster: "
             f"{sorted(extra)}. Drop stale entries or retrain the model."
         )
 

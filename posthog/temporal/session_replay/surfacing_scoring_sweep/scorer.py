@@ -6,51 +6,72 @@ by libomp; we want libomp to use the worker pod's full CPU budget on a
 single chunk at a time, not split it across many concurrent activities (see
 `README.md` for the OMP_NUM_THREADS guidance).
 
-Loading from disk is paid on first use; pin the model file in the worker
-container image so the load is local + fast.
-
-`get_feature_names()` reads booster.feature_names; load runs
-`feature_schema.assert_serving_schema_parity` so SQL, FEATURE_RANGES, and the
-booster cannot drift.
+S3 is the single source of truth for the model (no bundled fallback). On
+first load we fetch the booster, cache it in a tempfile, and run
+`assert_serving_schema_parity` — SQL, FEATURE_RANGES, and the booster
+cannot drift.
 """
 
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 import structlog
 
+from posthog.storage import object_storage
 from posthog.temporal.session_replay.surfacing_scoring_sweep.feature_schema import assert_serving_schema_parity
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import feature_matrix
 
 logger = structlog.get_logger(__name__)
 
 
-# Path on disk where the trained booster is mounted/baked. Override with
-# `SESSION_INTERESTINGNESS_MODEL_PATH` in an environment-specific settings file
-# or container spec — keeps this module portable across local / staging / prod.
-# The default points at the booster file that ships in this package
-# (`model.ubj` next to `scorer.py`), so dev/test/CI all use the same
-# checked-in model the SQL/booster parity test pins against. Production
-# overrides this via the env var to point at the prod-trained model.
-_MODEL_PATH_ENV_VAR = "SESSION_INTERESTINGNESS_MODEL_PATH"
-_BUNDLED_MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.ubj")
-_DEFAULT_MODEL_PATH = _BUNDLED_MODEL_PATH
+_MODEL_S3_URI_ENV_VAR = "SESSION_INTERESTINGNESS_MODEL_S3_URI"
 
 _BOOSTER: xgb.Booster | None = None
 # Cached tuple of `_BOOSTER.feature_names` to avoid the C++ → Python attribute
 # lookup on the predict hot path. Set in lockstep with `_BOOSTER`; reset to
 # None whenever `_BOOSTER` is reset (test fixtures clear both).
 _FEATURE_NAMES: tuple[str, ...] | None = None
+_S3_CACHED_PATH: str | None = None
 _BOOSTER_LOCK = threading.Lock()
 
 
+class ModelNotConfiguredError(RuntimeError):
+    """`SESSION_INTERESTINGNESS_MODEL_S3_URI` is not set."""
+
+
+def _fetch_from_s3(uri: str) -> str:
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError(f"{_MODEL_S3_URI_ENV_VAR} must be 's3://bucket/key', got {uri!r}")
+    bucket, key = parsed.netloc, parsed.path.lstrip("/")
+    payload = object_storage.read_bytes(key, bucket=bucket)
+    if payload is None:
+        raise FileNotFoundError(f"{uri} returned no body")
+    # delete=False: xgb.Booster.load_model reopens the path itself.
+    with tempfile.NamedTemporaryFile(suffix=".ubj", delete=False) as fh:
+        fh.write(payload)
+        return fh.name
+
+
 def _model_path() -> str:
-    return os.environ.get(_MODEL_PATH_ENV_VAR, _DEFAULT_MODEL_PATH)
+    global _S3_CACHED_PATH
+    s3_uri = os.environ.get(_MODEL_S3_URI_ENV_VAR)
+    if not s3_uri:
+        raise ModelNotConfiguredError(
+            f"Set {_MODEL_S3_URI_ENV_VAR}=s3://bucket/key. "
+            "See surfacing_scoring_sweep/README.md → 'Uploading a model to S3'."
+        )
+    if _S3_CACHED_PATH is None:
+        _S3_CACHED_PATH = _fetch_from_s3(s3_uri)
+        logger.info("surfacing_scoring_sweep.model_fetched_from_s3", uri=s3_uri, path=_S3_CACHED_PATH)
+    return _S3_CACHED_PATH
 
 
 def _load_booster() -> xgb.Booster:
@@ -92,10 +113,10 @@ def _load_booster() -> xgb.Booster:
 def warmup() -> None:
     """Eagerly load the booster on worker startup.
 
-    Call from the worker bootstrap so the first activity doesn't pay the
-    load cost (typically tens of ms but spikes badly if the model file is
-    on a slow mount). Also surfaces `MissingFeatureRangeError` at boot
-    rather than on the first chunk.
+    Call from the worker bootstrap so the first chunk doesn't pay the S3
+    fetch latency. Also surfaces `ModelNotConfiguredError` /
+    `FeatureSchemaDriftError` / `MissingFeatureRangeError` at boot rather
+    than on the first chunk.
     """
     _load_booster()
 
