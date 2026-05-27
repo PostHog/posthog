@@ -585,6 +585,13 @@ def _alt_to_literal(alt: Alternative, host_token: str, lexer: Grammar) -> str | 
 # HogQLX and Hog-program productions are explicitly out of scope (per
 # product requirements). We carry a hard-coded skip-set; any rule
 # alternative that transitively requires an excluded rule is dropped.
+#
+# TODO(parser-parity): bring these back into the fuzzer. HogQLX tags, template
+# strings, and their lexer mode-stack are exactly the mode-dependent surface
+# where two hand-written visitors are most likely to diverge, and excluding
+# them leaves a coverage blind spot the grammar PBT can't reach. Un-excluding
+# needs the generator to model the lexer mode transitions and the
+# variable-content HogQLX-text / template tokens (escape-hatch strategies).
 
 EXCLUDED_RULES: frozenset[str] = frozenset(
     {
