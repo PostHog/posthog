@@ -327,6 +327,15 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+# Vestigial app — only retains the migration history under the llm_analytics
+# Django app label. All models and code live under products.ai_observability now.
+# Historical migration files reference posthog.models.utils etc.; allowed because
+# they're frozen history, not new code.
+path = "products.llm_analytics"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
 path = "products.logs"
 depends_on = [
     "posthog",

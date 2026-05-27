@@ -9,11 +9,23 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import (
+    Annotation,
+    Cohort,
+    ExportedAsset,
+    Group,
+    GroupTypeMapping,
+    GroupUsageMetric,
+    Organization,
+    Team,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
+
 from products.actions.backend.models.action import Action
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
@@ -29,19 +41,9 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
-from posthog.models import (
-    Annotation,
-    Cohort,
-    ExportedAsset,
-    Group,
-    GroupTypeMapping,
-    GroupUsageMetric,
-    Organization,
-    Team,
-)
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey

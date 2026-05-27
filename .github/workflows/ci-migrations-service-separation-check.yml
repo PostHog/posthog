@@ -16,14 +16,45 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            # Author-attested escape hatch for DB-noop migrations (e.g. SeparateDatabaseAndState
+            # state-only renames) that ship safely alongside service code. The check is path-only
+            # and can't tell a CREATE TABLE from an app-label rename, so the label opt-in matches
+            # the precedent set by skip-inkeep-docs.
+            - name: Check for skip label
+              id: skip-label
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                      labels='${{ toJson(github.event.pull_request.labels.*.name) }}'
+                  elif [ "${{ github.event_name }}" = "merge_group" ]; then
+                      # github.ref looks like refs/heads/gh-readonly-queue/<base>/pr-<num>-<sha>
+                      pr_num=$(echo "${{ github.ref }}" | grep -oE 'pr-[0-9]+' | head -1 | sed 's/pr-//')
+                      if [ -n "$pr_num" ]; then
+                          labels=$(gh api "repos/${{ github.repository }}/issues/$pr_num/labels" --jq '[.[].name]')
+                      else
+                          labels='[]'
+                      fi
+                  else
+                      labels='[]'
+                  fi
+                  echo "Labels: $labels"
+                  if echo "$labels" | grep -q '"skip-migration-service-check"'; then
+                      echo "skip=true" >> "$GITHUB_OUTPUT"
+                      echo "::notice::Skipping check — 'skip-migration-service-check' label is set."
+                  else
+                      echo "skip=false" >> "$GITHUB_OUTPUT"
+                  fi
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: steps.skip-label.outputs.skip != 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
+              if: steps.skip-label.outputs.skip != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -47,6 +78,7 @@ jobs:
             # filter — the ! patterns are silently ignored.
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: rust-filter
+              if: steps.skip-label.outputs.skip != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   predicate-quantifier: 'every'
@@ -60,6 +92,7 @@ jobs:
 
             - name: Check for conflicting changes
               id: check
+              if: steps.skip-label.outputs.skip != 'true'
               env:
                   MIGRATIONS_CHANGED: ${{ steps.filter.outputs.migrations }}
                   NODEJS_CHANGED: ${{ steps.filter.outputs.nodejs }}
@@ -107,4 +140,8 @@ jobs:
                   echo "Solution: Split into two PRs:"
                   echo "  1. First PR: Migration changes only (merge and wait for it to deploy)"
                   echo "  2. Second PR: Service code changes (merge after migration is deployed)"
+                  echo ""
+                  echo "If every migration in this PR is DB-noop (e.g. SeparateDatabaseAndState"
+                  echo "with empty database_operations, or RunPython data-only steps), apply the"
+                  echo "'skip-migration-service-check' label and the check will skip."
                   exit 1

@@ -17,6 +17,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -406,6 +407,7 @@ function SkillViewDetails(): JSX.Element {
 function SkillDiffView(): JSX.Element {
     const { skill, compareSkill, compareSkillLoading, compareVersion, compareVersionOptions } = useValues(llmSkillLogic)
     const { setCompareVersion } = useActions(llmSkillLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!skill || !isSkill(skill)) {
         return <></>
@@ -453,6 +455,7 @@ function SkillDiffView(): JSX.Element {
                             value={modified}
                             modified={modified}
                             language="markdown"
+                            theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                             options={{
                                 readOnly: true,
                                 renderSideBySide: true,

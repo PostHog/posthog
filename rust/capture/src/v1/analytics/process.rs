@@ -503,6 +503,7 @@ mod tests {
     use crate::event_restrictions::{
         Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
+    use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
     use crate::v1::test_utils::{
@@ -867,7 +868,7 @@ mod tests {
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             query: crate::v1::analytics::query::Query::default(),
             method: axum::http::Method::POST,
-            path: "/i/v1/general/events",
+            path: CAPTURE_V1_PATH,
             server_received_at,
             created_at: None,
             capture_internal: false,
