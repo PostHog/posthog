@@ -44,6 +44,7 @@ from .coder import (
     ensure_runtime_ready,
     ensure_tailscale_connected,
     ensure_tailscale_routes_accepted,
+    exec_replace,
     extract_workspace_label,
     get_coder_url,
     get_coder_user_info,
@@ -67,7 +68,6 @@ from .coder import (
     parse_workspace_target,
     port_forward_replace,
     print_setup_summary,
-    replace_with_workspace_command,
     restart_workspace,
     server_supports_user_secrets,
     share_workspace,
@@ -1207,7 +1207,7 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
     """
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace_name)
-    replace_with_workspace_command(name, list(command))
+    exec_replace(name, list(command))
 
 
 @click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")

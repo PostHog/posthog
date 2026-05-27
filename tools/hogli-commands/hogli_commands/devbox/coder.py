@@ -1233,6 +1233,26 @@ def ssh_replace(name: str) -> None:
     os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
+def exec_replace(name: str, command: list[str]) -> None:
+    """Run a single command in the workspace over the ssh host alias, replacing the process.
+
+    Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
+    for two reasons:
+
+    1. ``coder ssh`` does not propagate the remote command's exit code -- it
+       prints ``Process exited with status N`` to stderr but exits 0 itself,
+       so callers and agents can't tell success from failure. Real ssh
+       forwards the exit code faithfully.
+    2. The ``Host coder.*`` block applies the user's ssh config (IdentityAgent
+       forwarding), same as :func:`ssh_replace`.
+
+    ``command`` tokens are shell-quoted into one string so the remote login
+    shell preserves argument boundaries -- ssh otherwise space-joins argv,
+    which would split a token like ``"uname -sm"`` back into two.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     """Port-forward to a workspace and replace the current process."""
     _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])

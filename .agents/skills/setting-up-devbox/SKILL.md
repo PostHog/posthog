@@ -64,7 +64,7 @@ hogli devbox:setup --configure-dotfiles    # saves dotfiles_uri; synced on next 
 
 ### 4. Verify on the box, remotely
 
-`devbox:exec` runs one command over `coder ssh` and returns its exit code — use it to confirm the fan-out actually worked, and to prototype before moving steps into `install.sh`:
+`devbox:exec` runs one command on the box over SSH and propagates its exit code — use it to confirm the fan-out actually worked, and to prototype before moving steps into `install.sh`:
 
 ```bash
 hogli devbox:exec -- bash -lc 'gh auth status'
@@ -73,7 +73,7 @@ hogli devbox:exec -- bash -lc 'ls ~/dotfiles && type my-alias'
 hogli devbox:exec -n api -- bash -lc 'cd ~/posthog && git status'   # -n targets a named box
 ```
 
-Always wrap verify commands in `bash -lc '...'`: `coder ssh -- cmd` runs in a **non-login, non-interactive** shell that does not source `~/.bashrc`/`~/.zshrc`, so a bare `gh auth status` reports "command not found" for anything dotfiles put on a login-shell `PATH` (e.g. `~/.local/bin`) — a false negative, not a real failure. Use `--` to separate hogli's flags from the command's own.
+Always wrap verify commands in `bash -lc '...'`: a non-login shell doesn't reliably source `~/.bashrc`/`~/.zshrc`, so a bare `gh auth status` may report "command not found" for anything dotfiles put on a login-shell `PATH` (e.g. `~/.local/bin`) — a false negative, not a real failure. The login shell also makes the exit code trustworthy: `exec` returns the command's real status (so `&&` chaining and `if` checks work), but only if the command itself ran. Use `--` to separate hogli's flags from the command's own.
 
 `devbox:exec` runs a single command instead of opening a shell (unlike `devbox:ssh`), which is what lets an agent drive a box. It is not side-effect-free: like every `devbox:*` command it first runs the reachability check, which on Linux may `sudo tailscale set --accept-routes` and prompt for a password. Run `hogli devbox:setup` once interactively so routes are already accepted before an agent drives `devbox:exec` unattended.
 
