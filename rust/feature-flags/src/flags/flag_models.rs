@@ -384,8 +384,8 @@ impl PreparedFlagDefinitions {
                         })
                         .sum()
                 };
-                let filters_size: usize = group_size(&f.filters.groups)
-                    + estimate_json_map_size(&f.filters.extra);
+                let filters_size: usize =
+                    group_size(&f.filters.groups) + estimate_json_map_size(&f.filters.extra);
                 let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
                 struct_size
