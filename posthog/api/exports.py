@@ -19,7 +19,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
-from posthog.models import Insight, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.models.organization import Organization
@@ -31,6 +31,8 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+
+from products.product_analytics.backend.models.insight import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {

@@ -607,6 +607,8 @@ describe('hog-charts canvas-renderer', () => {
                 hoverIndex,
                 hoverPosition: null,
                 theme: {} as ChartTheme,
+                hoverProgress: 1,
+                resetHoverFade: () => 0,
             }
         }
 

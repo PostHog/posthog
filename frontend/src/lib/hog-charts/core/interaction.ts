@@ -74,7 +74,10 @@ export function buildTooltipContext<Meta = unknown>(
     /** Resolves the value used to *anchor* the tooltip per series. Defaults to `resolveValue`.
      *  Stacked charts pass the stacked-top resolver here so the anchor lands at the visual top
      *  of each segment while each tooltip row still shows its own value via `resolveValue`. */
-    resolvePositionValue: ResolveValueFn = resolveValue
+    resolvePositionValue: ResolveValueFn = resolveValue,
+    /** Optional horizontal data-extent centered on the categorical axis position — bar charts
+     *  pass band width so the tooltip can anchor at the band edge instead of its center. */
+    positionExtent?: number
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -111,7 +114,11 @@ export function buildTooltipContext<Meta = unknown>(
         valueAnchor = interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
     }
 
-    const position = interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
+    const position: TooltipContext<Meta>['position'] =
+        interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
+    if (positionExtent != null && positionExtent > 0) {
+        position.width = positionExtent
+    }
 
     return {
         dataIndex,

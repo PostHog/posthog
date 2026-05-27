@@ -137,6 +137,7 @@ export class RequestStateResolver {
         }
 
         const apiKeyScopes = _apiKey?.scopes ?? []
+        const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
 
         const excludeTools: string[] = []
@@ -154,6 +155,7 @@ export class RequestStateResolver {
             readOnly,
             featureFlags: toolFeatureFlags,
             scopes: apiKeyScopes,
+            scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
         })
 
