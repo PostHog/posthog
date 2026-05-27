@@ -47,8 +47,8 @@ def emit_health_check_alert(issue: HealthIssue, *, status: Literal["firing", "re
     """Emit one $health_check_issue_{firing,resolved} event for a transition.
 
     Returns True if the event was produced. Failures (render or Kafka) are
-    swallowed and reported to Sentry so a single bad issue cannot break the
-    orchestrator batch.
+    swallowed and reported to error tracking so a single bad issue cannot
+    break the orchestrator batch.
     """
     try:
         content = _render(issue)
