@@ -269,10 +269,6 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   clean: false
-                  # PR-controlled code runs in this job (pnpm installs, Playwright tests). Don't leave
-                  # GITHUB_TOKEN in .git/config where that code could read it — the comment step
-                  # below receives the token explicitly via its `github-token:` input instead.
-                  persist-credentials: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
