@@ -1,12 +1,34 @@
 from django.db import migrations, models
 
+# Guarded with to_regclass so the migration no-ops on DBs without the sourcebatch table.
+_CREATE_INDEX_SQL = """
+DO $$
+BEGIN
+    IF to_regclass('public.sourcebatch') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS sb_run_uuid_bi_idx
+            ON sourcebatch (run_uuid, batch_index);
+    END IF;
+END
+$$;
+"""
+
+_DROP_INDEX_SQL = """
+DO $$
+BEGIN
+    IF to_regclass('public.sourcebatch') IS NOT NULL THEN
+        DROP INDEX IF EXISTS sb_run_uuid_bi_idx;
+    END IF;
+END
+$$;
+"""
+
 
 def _create_index(apps, schema_editor):
-    schema_editor.execute("CREATE INDEX IF NOT EXISTS sb_run_uuid_bi_idx ON sourcebatch (run_uuid, batch_index);")
+    schema_editor.execute(_CREATE_INDEX_SQL)
 
 
 def _drop_index(apps, schema_editor):
-    schema_editor.execute("DROP INDEX IF EXISTS sb_run_uuid_bi_idx;")
+    schema_editor.execute(_DROP_INDEX_SQL)
 
 
 class Migration(migrations.Migration):
