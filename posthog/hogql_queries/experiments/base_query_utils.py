@@ -20,11 +20,11 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,

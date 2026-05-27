@@ -38,7 +38,6 @@ from posthog.schema import (
     WorkflowVariablePropertyFilter,
 )
 
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.database.models import BooleanDatabaseField
@@ -49,6 +48,7 @@ from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.element import Element

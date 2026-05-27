@@ -473,8 +473,9 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
     def test_hogql_query_runner_marks_contains_user_hogql(self):
         # A query routed through `HogQLQueryRunner` is, by definition, user-written SQL;
         # the flag must land in `system.query_log` so log triage can split user vs platform errors.
-        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
         from posthog.schema import HogQLQuery
+
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         marker = str(uuid.uuid4())
         reset_query_tags()

@@ -206,9 +206,6 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             checker.visit(expr)
 
     def to_query(self) -> ast.SelectQuery:
-        # EventsQuery is the events explorer — `select`, `where`, and `orderBy` are
-        # user-supplied HogQL strings parsed below.
-        tag_contains_user_hogql()
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
         with self.timings.measure("build_ast"):
             # columns & group_by
@@ -423,6 +420,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 return stmt
 
     def _calculate(self) -> EventsQueryResponse:
+        # Tag here (not in `to_query()`) so platform code that calls `to_query()` as a
+        # sub-query helper — e.g. `hogql_cohort_query.py` — doesn't false-positive when
+        # the `select` / `where` strings it builds are platform constants. User-facing
+        # `EventsQuery` execution always lands in `_calculate()` via the runner.
+        tag_contains_user_hogql()
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
