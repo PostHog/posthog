@@ -14,10 +14,17 @@ PostHog's production ClickHouse clusters are reachable for ad-hoc analysis throu
 internal Metabase instances. Both Metabases sit behind an AWS ALB with Cognito
 OAuth, so authentication is **SSO-gated** — Metabase API keys alone won't work.
 
-This skill is for `system.query_log` analysis from inside the posthog repo.
-For pre-built canned queries (slow query summaries, materialization analysis),
-see the `query-performance-analysis` repo, which is the source of truth for
-those and uses the same Metabase API surface.
+This skill is the _mechanism_ for running ClickHouse queries via Metabase (auth + `hogli
+metabase:query`). For the _methodology_ of producing a slow-query performance report (categorizing and
+attributing slow queries, root-causing them, and the report structure), use the
+[`analyzing-clickhouse-query-performance`](../analyzing-clickhouse-query-performance/SKILL.md) skill.
+Finished reports are not public; they live in the private `PostHog/query-performance-analysis` repo.
+
+> **Multi-day analysis:** `system.query_log` on the production clusters retains only a few **hours**,
+> so `clusterAllReplicas(posthog, system, query_log)` cannot answer questions over days. For any
+> window beyond the last few hours, query the `posthog.query_log_archive` table instead (~3 weeks
+> retention, `log_comment` pre-parsed into typed `lc_*` columns). The `system.query_log` patterns
+> below remain valid for live / last-few-hours queries.
 
 ## Environment
 

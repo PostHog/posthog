@@ -1,0 +1,135 @@
+---
+name: analyzing-clickhouse-query-performance
+description: >
+  Produce and structure slow-query performance reports for PostHog's production
+  ClickHouse (US and EU). Use when asked for a slow query report, query performance
+  analysis over the last N days, per-team query cost, OOM or timeout investigation,
+  cluster cost/memory regressions, or materialization candidates. Covers the modern
+  `query_log_archive` source (typed `lc_*` columns, multi-day retention), how to
+  categorize and attribute slow queries, root-cause patterns (unmaterialized
+  JSONExtract, high-cardinality breakdowns, heavy joins), and the report structure.
+  Runs queries via the `query-clickhouse-via-metabase` skill.
+---
+
+# Analyzing ClickHouse query performance
+
+This skill is the _methodology_ for investigating slow ClickHouse queries and writing up a
+performance report. It pairs with [`query-clickhouse-via-metabase`](../query-clickhouse-via-metabase/SKILL.md),
+which is the _mechanism_ (SSO-gated auth and `hogli metabase:query`). Run every query in this skill
+through that one.
+
+Reports themselves are not public. Write finished analyses to the private
+`PostHog/query-performance-analysis` repo (`analysis/<date>-<topic>.md`), which holds the historical
+reports and example query IDs. This repo holds only the tooling and methodology.
+
+## Data source: `posthog.query_log_archive` (not `system.query_log`)
+
+`system.query_log` on the production clusters retains only a few **hours**, so it cannot answer a
+multi-day question. Use the Distributed archive table instead:
+
+```sql
+FROM posthog.query_log_archive
+```
+
+It retains roughly three weeks and exposes `log_comment` as typed columns, so you skip `JSONExtract`.
+Query it directly (it already fans out across the cluster). Always filter `is_initial_query` so
+distributed sub-queries are not double-counted. Confirm current retention with a per-day
+`count()` before trusting a window (see `references/query-patterns.md`).
+
+Key columns (full list via `system.columns WHERE table='query_log_archive'`):
+
+| Column                                                                                    | Meaning                                                                                                                    |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `team_id` (Int64)                                                                         | Tenant. `0` / empty means internal or unattributed.                                                                        |
+| `lc_kind`                                                                                 | How the query was issued: `request` (sync API/web), `celery` (async refresh), `temporal`, `cohort_calculation`, `dagster`. |
+| `lc_product`                                                                              | `product_analytics`, `warehouse`, `experiments`, `messaging`, `web_analytics`, `replay`, `llm_analytics`, `cohorts`, ...   |
+| `lc_access_method`                                                                        | `personal_api_key`, `oauth`, `sharing_token`, or empty (logged-in web).                                                    |
+| `lc_query__kind`                                                                          | Product query type: `TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `HogQLQuery`, ...                                     |
+| `lc_workload`                                                                             | `Workload.OFFLINE` / `ONLINE`.                                                                                             |
+| `lc_feature`, `lc_temporal__workflow_type`, `lc_route_id`, `lc_api_key_label`             | Origin detail for attribution.                                                                                             |
+| `lc_dashboard_id`, `lc_insight_id`, `lc_experiment_id`, `lc_cohort_id`                    | Link a query back to the object that triggered it.                                                                         |
+| `query`, `query_duration_ms`, `read_bytes`, `read_rows`, `memory_usage`, `exception_code` | The query and its cost.                                                                                                    |
+
+Both regions have the archive. US and EU are separate clusters with different workloads and
+materialized columns; run cross-region comparisons against both. Discover the current ClickHouse
+database id per region with `hogli metabase:databases` (ids are not stable). Note that the ONLINE and
+OFFLINE Metabase connections for a region fan out to the same logical cluster, so they return the same
+`query_log_archive` data.
+
+## What counts as a slow query
+
+```sql
+query_duration_ms > 30000 OR exception_code IN (159, 160, 241)
+```
+
+| Code | Meaning               |
+| ---- | --------------------- |
+| 159  | TIMEOUT_EXCEEDED      |
+| 160  | TOO_SLOW              |
+| 241  | MEMORY_LIMIT_EXCEEDED |
+
+Do **not** add `type = 'QueryFinish'`: OOM and timeout rows are `type = 'ExceptionWhileProcessing'`,
+so that filter silently drops every failure. The duration/exception predicate already excludes
+`QueryStart` rows (duration 0). Exclude the cluster health-poll query by `normalized_query_hash`
+(pattern in `references/query-patterns.md`).
+
+## Producing the report
+
+The standard workflow, building from coarse to specific. Each step's SQL is in
+`references/query-patterns.md`.
+
+1. **Confirm the window.** Per-day `count()` over the intended range to verify the archive actually
+   covers it (retention can be shorter than you expect).
+2. **Headline summary.** Total slow queries, total cluster query-hours, bytes read, teams touched,
+   and the split across succeeded-but-slow / timeouts / OOMs / other.
+3. **Date distribution.** Slow count, timeouts, and OOMs per day. This is where incidents announce
+   themselves: a multi-day OOM or timeout surge against a flat baseline.
+4. **Categorize.** Group by `lc_kind` × `lc_product` × `lc_access_method`. This separates background
+   work (data modeling, dagster pre-aggregation, batch exports) from synchronous user-facing queries.
+5. **Attribute.** Drill into the worst categories by `team_id`. Rank by **total cluster-hours**
+   (`sum(query_duration_ms)`) and by **OOM count** separately. Before calling anything systemic,
+   check whether one team or one API key dominates a metric: a single integration querying via a
+   `personal_api_key` can account for the large majority of cluster OOMs, and the "incident" is then
+   really one tenant. Attribute by `team_id` + `lc_api_key_label` first.
+6. **Characterize user-facing slowness.** For `lc_kind='request' AND lc_product='product_analytics'`
+   with empty `lc_access_method` (logged-in web), break down by `lc_query__kind` and flag
+   `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable bucket.
+7. **Examples + write-up.** Capture `query_id` + `event_date` for the worst offenders in each finding,
+   then write the report (structure below). Because `system.query_log` retention is short, examples are
+   resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the Metabase
+   lookup card.
+
+## Interpreting the results
+
+- **Two populations live in "slow queries."** Tight-timeout API noise (queries erroring at ~10s
+  against a low `max_execution_time`, usually `personal_api_key`) inflates the raw count without
+  representing real compute. Genuinely expensive work is better measured by total cluster-hours and
+  OOM count. Always call this distinction out; do not let timeout volume masquerade as slowness.
+- **Bytes read is the truest cost signal**, more than duration (which varies with cache and cluster
+  load). High bytes against low rows means heavy columns, almost always JSONExtract over a `properties`
+  blob. See `references/investigation-playbook.md` for root-causing individual queries.
+- **Background pipelines usually dominate raw cluster-time** (data-modeling DAGs, web-analytics
+  pre-aggregation). That is expected; weigh them by whether their scan volume is necessary, separately
+  from user-facing latency.
+
+## Report structure
+
+A report should contain, in order:
+
+1. One-line scope: region, window, and the slow definition / exclusions used.
+2. Headline numbers table + the two-populations caveat.
+3. Daily distribution table (flag any incident window).
+4. Findings, worst first. **Every finding needs at least one concrete `query_id` + `event_date`** so a
+   reader can pull the exact query. Group findings by what they are: a per-tenant incident, the
+   heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
+5. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
+   make pipeline Y incremental, ...).
+
+## References
+
+- `references/query-patterns.md`: ready-to-run SQL for every step above, against `query_log_archive`.
+- `references/investigation-playbook.md`: root-causing a specific slow query (bytes-vs-rows, the
+  JSONExtract/session-join/breakdown patterns, `EXPLAIN indexes=1`, `log_comment` origin tracing, and
+  the relevant PostHog codebase paths).
+- `references/materialization-analysis.md`: finding properties to materialize and columns to drop,
+  run across both US and EU.
