@@ -73,11 +73,10 @@ fn sanitize_header_tag(raw: &str) -> &str {
     }
 }
 
-/// Extract the client name from HTTP headers, defaulting to `"unknown"`.
-fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
+fn extract_sanitized_header<B>(request: &Request<B>, header: &str) -> Arc<str> {
     request
         .headers()
-        .get(CLIENT_NAME_HEADER)
+        .get(header)
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(sanitize_header_tag)
@@ -85,16 +84,12 @@ fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
         .into()
 }
 
-/// Extract the caller tag from HTTP headers, defaulting to `"unknown"`.
+fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
+    extract_sanitized_header(request, CLIENT_NAME_HEADER)
+}
+
 fn extract_caller_tag<B>(request: &Request<B>) -> Arc<str> {
-    request
-        .headers()
-        .get(CALLER_TAG_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .map(sanitize_header_tag)
-        .unwrap_or("unknown")
-        .into()
+    extract_sanitized_header(request, CALLER_TAG_HEADER)
 }
 
 // ============================================================
