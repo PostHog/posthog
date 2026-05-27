@@ -115,5 +115,5 @@ tools:
             rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an
             investigation: pick a scanner that matches the question you want answered, and point it at the session
             you're examining.
-        feature_flag: replay-vision
         requires_ai_consent: true
+        feature_flag: replay-vision

@@ -5611,8 +5611,8 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "replay-vision",
-        "requires_ai_consent": true
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
     },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
