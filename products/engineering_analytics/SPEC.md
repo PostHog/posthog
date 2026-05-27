@@ -55,11 +55,12 @@ Rules:
 - Django ORM is not used by this product. There is no product Postgres DB in v1 — see BRIEF §10.
 - `logic/queries/` is the only module that names warehouse tables (`github_pull_requests`, `github_workflow_runs`). Logic and facade work with canonical types only.
 - One contract feeds both surfaces: DRF viewsets with `@extend_schema` produce OpenAPI → TypeScript types AND MCP tool descriptions. Logic functions are called by both.
+- Every MCP-tools PR ships with a matching in-product skill at `skills/<name>/SKILL.md` so the dogfooder has an installed playbook for chaining tool calls — same pattern as `products/visual_review/skills/triaging-visual-review-runs/`.
 - Provider abstraction (`CodeHostProvider` Protocol) is **deferred**. GitHub-specific HogQL lives in `logic/queries/` directly; when a second provider lands, the Protocol is extracted then. See §7.
 
 ## 4. Canonical types
 
-Defined in `backend/facade/contracts.py`. Frozen dataclasses, no Django imports.
+Defined in `backend/facade/contracts.py` as `pydantic.dataclasses.dataclass(frozen=True)` — same `is_dataclass()` semantics as the stdlib variant (so `DataclassSerializer` works) but with runtime validation at construction. No Django imports.
 
 ```mermaid
 classDiagram
@@ -141,13 +142,13 @@ UI: one read-only scene rendering `workflow_report` as a horizontal bar chart of
 
 Vertical slices. Each PR independently mergeable. Draft-only by default. No date commitments.
 
-| Step | PR                                                                                                                                           | Output                                       | Status            |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------- |
-| 1    | #58888 — scaffold + SPEC.md + PRODUCT_BRIEF.md                                                                                               | Empty product shell, this doc, alignment doc | In progress       |
-| 2    | #58890 — `github_workflow_runs` warehouse source                                                                                             | CI run data ingested                         | Ready for review  |
-| 3    | New — `workflow_report` + `time_to_merge` + `pr_lifecycle` MCP tools (HogQL → logic → facade → DRF → MCP, one vertical slice with all three) | First useful MCP tools                       | Pending step 2    |
-| 4    | New — read-only UI scene for `workflow_report`                                                                                               | Demo surface                                 | Pending step 3    |
-| 5    | New (parallel) — `pull_request_reviews` warehouse source                                                                                     | Unblocks the wedge tool when we build it     | Independent track |
+| Step | PR                                                                                                                                                                               | Output                                       | Status            |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------- |
+| 1    | #58888 — scaffold + SPEC.md + PRODUCT_BRIEF.md                                                                                                                                   | Empty product shell, this doc, alignment doc | In progress       |
+| 2    | #58890 — `github_workflow_runs` warehouse source                                                                                                                                 | CI run data ingested                         | Ready for review  |
+| 3    | New — `workflow_report` + `time_to_merge` + `pr_lifecycle` MCP tools (HogQL → logic → facade → DRF → MCP, one vertical slice with all three) + matching `skills/<name>/SKILL.md` | First useful MCP tools + installed playbook  | Pending step 2    |
+| 4    | New — read-only UI scene for `workflow_report`                                                                                                                                   | Demo surface                                 | Pending step 3    |
+| 5    | New (parallel) — `pull_request_reviews` warehouse source                                                                                                                         | Unblocks the wedge tool when we build it     | Independent track |
 
 Rule: each PR independently mergeable. Bottom must be merged before the next opens for review. Draft-only until manual approval.
 
