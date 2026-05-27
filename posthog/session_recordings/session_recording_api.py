@@ -79,6 +79,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
+from posthog.personhog_client.interceptor import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -2047,7 +2048,8 @@ def list_recordings_from_query(
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        with personhog_caller_tag("session-recordings/persons"):
+            distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:

@@ -54,12 +54,16 @@ def delete_bulky_postgres_data(team_ids: list[int]):
         _delete_cohort_members_for_teams(team_ids, cohort_ids)
 
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
-    _delete_groups_for_teams(team_ids)
-    _delete_group_type_mappings_for_teams(team_ids)
 
-    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
-    # Falls back to ORM batch deletion when personhog is not available.
-    _delete_persons_for_teams(team_ids)
+    from posthog.personhog_client.interceptor import personhog_caller_tag
+
+    with personhog_caller_tag("admin/team-delete"):
+        _delete_groups_for_teams(team_ids)
+        _delete_group_type_mappings_for_teams(team_ids)
+
+        # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
+        # Falls back to ORM batch deletion when personhog is not available.
+        _delete_persons_for_teams(team_ids)
 
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 

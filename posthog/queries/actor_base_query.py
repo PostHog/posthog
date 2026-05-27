@@ -254,8 +254,10 @@ def get_groups(
 ) -> tuple[list[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
     from posthog.models.group.util import get_groups_by_identifiers
+    from posthog.personhog_client.interceptor import personhog_caller_tag
 
-    groups = get_groups_by_identifiers(team_id, group_type_index, [str(gid) for gid in group_ids])
+    with personhog_caller_tag("insights/actor-query"):
+        groups = get_groups_by_identifiers(team_id, group_type_index, [str(gid) for gid in group_ids])
     return groups, serialize_groups(groups, value_per_actor_id)
 
 
@@ -286,10 +288,12 @@ def get_people(
 ) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     from posthog.personhog_client.gate import use_personhog
+    from posthog.personhog_client.interceptor import personhog_caller_tag
 
     if use_personhog():
         try:
-            persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)
+            with personhog_caller_tag("insights/actor-query"):
+                persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_people", source="personhog", client_name=get_client_name()
             ).inc()

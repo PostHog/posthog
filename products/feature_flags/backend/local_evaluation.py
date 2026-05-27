@@ -580,8 +580,11 @@ def _get_flags_response_for_local_evaluation_batch(
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
     from posthog.models.group_type_mapping import get_group_types_for_projects
+    from posthog.personhog_client.interceptor import personhog_caller_tag
 
-    for pid, mappings in get_group_types_for_projects(list(project_ids)).items():
+    with personhog_caller_tag("feature-flags/local-evaluation"):
+        project_mappings = get_group_types_for_projects(list(project_ids))
+    for pid, mappings in project_mappings.items():
         for m in mappings:
             gtm_by_project[pid][str(m["group_type_index"])] = m["group_type"]
 
