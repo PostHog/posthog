@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { OnboardingStepKey, type SDK } from '~/types'
 
 import { OnboardingStep } from '../../../OnboardingStep'
@@ -41,7 +43,7 @@ export function WizardOnlyVariant({
 }: VariantProps): JSX.Element {
     const [manualModalOpen, setManualModalOpen] = useState(false)
     const [sdkInstructionsOpen, setSdkInstructionsOpen] = useState(false)
-    const isTakeoverActive = useWizardTakeoverActive()
+    const isSyncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
 
     const handleWizardOnlySDKClick = (sdk: SDK): void => {
         sdkGridProps.onSDKClick(sdk)
@@ -67,15 +69,11 @@ export function WizardOnlyVariant({
             {header}
             {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6 space-y-8">
-                {!isTakeoverActive && <WizardOnlyIntro />}
-
-                <div className={`${isTakeoverActive ? 'max-w-3xl' : 'max-w-xl'} mx-auto`}>
-                    {isTakeoverActive ? (
-                        <WizardProgressTracker onManualSetup={() => setManualModalOpen(true)} />
-                    ) : (
-                        <WizardCommandBlock />
-                    )}
-                </div>
+                {isSyncEnabled ? (
+                    <WizardOnlyBodyWithSync onManualSetup={() => setManualModalOpen(true)} />
+                ) : (
+                    <WizardOnlyBodyStatic />
+                )}
 
                 <div className="text-center">
                     <LemonButton type="tertiary" size="small" onClick={() => setManualModalOpen(true)}>
@@ -110,5 +108,30 @@ export function WizardOnlyVariant({
                 />
             )}
         </OnboardingStep>
+    )
+}
+
+function WizardOnlyBodyStatic(): JSX.Element {
+    return (
+        <>
+            <WizardOnlyIntro />
+            <div className="max-w-xl mx-auto">
+                <WizardCommandBlock />
+            </div>
+        </>
+    )
+}
+
+// Mounted only when ONBOARDING_WIZARD_SYNC = "test"; subscribes to the SSE stream
+// via wizardProgressTrackerLogic, so we keep it isolated behind the flag.
+function WizardOnlyBodyWithSync({ onManualSetup }: { onManualSetup: () => void }): JSX.Element {
+    const isTakeoverActive = useWizardTakeoverActive()
+    return (
+        <>
+            {!isTakeoverActive && <WizardOnlyIntro />}
+            <div className={`${isTakeoverActive ? 'max-w-3xl' : 'max-w-xl'} mx-auto`}>
+                {isTakeoverActive ? <WizardProgressTracker onManualSetup={onManualSetup} /> : <WizardCommandBlock />}
+            </div>
+        </>
     )
 }

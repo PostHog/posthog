@@ -48,7 +48,7 @@ type WizardSessionFixture = {
     tasks: Array<{
         id: string
         title: string
-        status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+        status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'canceled'
     }>
     event_plan: unknown | null
     error: { type: string; message: string } | null
@@ -175,7 +175,7 @@ export const Completed: StoryFn = withSession(
 export const Errored: StoryFn = withSession(
     makeSession({
         run_phase: 'error',
-        tasks: buildTasks(['completed', 'completed', 'failed', 'cancelled', 'cancelled']),
+        tasks: buildTasks(['completed', 'completed', 'failed', 'canceled', 'canceled']),
         error: {
             type: 'CompositionError',
             message: 'Could not detect a writable .env file. Re-run from the project root and try again.',
