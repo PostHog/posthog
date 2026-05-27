@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,7 +20,10 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
 
-function makeTrendsQuery(display?: ChartDisplayType): TrendsQuery {
+function makeTrendsQuery(
+    display?: ChartDisplayType,
+    trendsFilter: NonNullable<TrendsQuery['trendsFilter']> = {}
+): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [
@@ -32,6 +36,7 @@ function makeTrendsQuery(display?: ChartDisplayType): TrendsQuery {
         ],
         trendsFilter: {
             display,
+            ...trendsFilter,
         },
     }
 }
@@ -114,6 +119,26 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
+        })
+
+        it('removes axis label option count after clearing a committed label', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
+            })
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
+
+            const optionsButton = screen.getAllByRole('button', { name: /Options/ })[0]
+            expect(optionsButton).toHaveTextContent(/\(1\)/)
+
+            await openOptionsMenu()
+            const input = await screen.findByPlaceholderText('X-axis label')
+            await userEvent.clear(input)
+            expect(optionsButton).toHaveTextContent(/\(1\)/)
+
+            fireEvent.blur(input)
+            await waitFor(() => {
+                expect(optionsButton).not.toHaveTextContent(/\(1\)/)
+            })
         })
     })
 })

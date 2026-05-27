@@ -4,9 +4,11 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
 
+from posthog.schema import EntityType
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import entity_to_expr
+from posthog.hogql.property import entity_to_expr, property_to_expr
 
 from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
 
@@ -48,12 +50,37 @@ class RetentionBaseQueryBuilder(ABC):
     def start_entity_expr(self) -> ast.Expr:
         return self.runner.start_entity_expr
 
+    def entity_expr_no_props(self, entity: RetentionEntity) -> ast.Expr:
+        # Entity matcher with property filters stripped — used to anchor "first ever" against the unfiltered stream.
+        # For a data warehouse entity, "presence in the table" is the unfiltered stream, so the predicate is a truthy constant.
+        if entity.type == EntityType.DATA_WAREHOUSE:
+            return ast.Constant(value=True)
+        clean_entity = entity.model_copy(deep=True)
+        clean_entity.properties = []
+        return entity_to_expr(clean_entity, self.team)
+
+    def entity_expr_with_props(self, entity: RetentionEntity) -> ast.Expr:
+        # For data warehouse entities the table itself IS the type matcher, so the "with properties" predicate is
+        # just the property filter (or a truthy constant when no properties are configured).
+        if entity.type == EntityType.DATA_WAREHOUSE:
+            if entity.properties:
+                return property_to_expr(entity.properties, self.team)
+            return ast.Constant(value=True)
+        return entity_to_expr(entity, self.team)
+
+    def entity_timestamp_field(self, entity: RetentionEntity) -> ast.Expr:
+        if entity.type == EntityType.DATA_WAREHOUSE:
+            if not entity.table_name or not entity.timestamp_field:
+                raise ValueError(
+                    f"DATA_WAREHOUSE RetentionEntity requires table_name and timestamp_field, "
+                    f"got table_name={entity.table_name!r}, timestamp_field={entity.timestamp_field!r}"
+                )
+            return ast.Field(chain=[entity.table_name, entity.timestamp_field])
+        return ast.Field(chain=["events", "timestamp"])
+
     @cached_property
     def start_entity_expr_no_props(self) -> ast.Expr:
-        # Start-event matcher with property filters stripped — used to anchor "first ever" against the unfiltered stream.
-        clean_start_event = self.start_event.model_copy(deep=True)
-        clean_start_event.properties = []
-        return entity_to_expr(clean_start_event, self.team)
+        return self.entity_expr_no_props(self.start_event)
 
     @property
     def return_entity_expr(self) -> ast.Expr:
@@ -164,25 +191,33 @@ class RetentionBaseQueryBuilder(ABC):
     def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
         return self.runner.events_timestamp_filter(field=field)
 
-    def get_first_time_anchor_expr(self) -> ast.Expr:
-        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            start_entity_with_properties_expr = entity_to_expr(self.start_event, self.team)
-
-            if self.is_first_ever_occurrence:
-                # First-ever occurrence of the target event, then check filters.
-                # We find the timestamp of the first event of this type, and the first event of this type that also matches properties.
-                # If they are the same, this is the user's cohorting event.
-                min_ts_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": self.start_entity_expr_no_props})
-                min_ts_with_props_expr = parse_expr(
-                    "minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr}
-                )
-
-                return parse_expr(
-                    "if({min_ts} = {min_ts_with_props}, {min_ts}, NULL)",
-                    {"min_ts": min_ts_expr, "min_ts_with_props": min_ts_with_props_expr},
-                )
-            else:  # is_first_occurrence_matching_filters
-                # First occurrence of the target event that matches filters.
-                return parse_expr("minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr})
-        else:
+    def get_first_time_anchor_expr(self, entity: RetentionEntity) -> ast.Expr:
+        if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
             return ast.Constant(value=None)
+
+        timestamp_field = self.entity_timestamp_field(entity)
+        entity_with_properties_expr = self.entity_expr_with_props(entity)
+
+        if self.is_first_ever_occurrence:
+            # First-ever occurrence of the target entity, then check filters.
+            # We find the timestamp of the first row of this entity, and the first row that also matches properties.
+            # If they are the same, this is the user's cohorting event.
+            min_ts_expr = parse_expr(
+                "minIf({ts}, {expr})",
+                {"ts": timestamp_field, "expr": self.entity_expr_no_props(entity)},
+            )
+            min_ts_with_props_expr = parse_expr(
+                "minIf({ts}, {expr})",
+                {"ts": timestamp_field, "expr": entity_with_properties_expr},
+            )
+
+            return parse_expr(
+                "if({min_ts} = {min_ts_with_props}, {min_ts}, NULL)",
+                {"min_ts": min_ts_expr, "min_ts_with_props": min_ts_with_props_expr},
+            )
+
+        # is_first_occurrence_matching_filters: first occurrence of the target entity that matches filters.
+        return parse_expr(
+            "minIf({ts}, {expr})",
+            {"ts": timestamp_field, "expr": entity_with_properties_expr},
+        )
