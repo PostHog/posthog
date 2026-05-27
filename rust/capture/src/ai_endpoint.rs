@@ -29,7 +29,7 @@ use crate::event_restrictions::{
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::payload::decompression::decompress_gzip_to_bytes;
-use crate::prometheus::report_dropped_events;
+use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
@@ -122,6 +122,18 @@ struct ParsedMultipartData {
 
 pub async fn ai_handler(
     State(state): State<AppState>,
+    ip: Option<InsecureClientIp>,
+    path: MatchedPath,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Json<AIEndpointResponse>, CaptureError> {
+    ai_handler_inner(state, ip, path, headers, body)
+        .await
+        .inspect_err(|err| report_internal_error_metrics(err.to_metric_tag(), "ai"))
+}
+
+async fn ai_handler_inner(
+    state: AppState,
     ip: Option<InsecureClientIp>,
     path: MatchedPath,
     headers: HeaderMap,
