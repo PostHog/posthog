@@ -13,6 +13,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflowInputs,
     create_posthog_code_task_for_repo_activity,
+    enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
 )
 
@@ -31,6 +32,16 @@ def _command_result(**kwargs):
     defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+def _assert_quota_denial_posted(mock_slack_instance: MagicMock, channel: str, thread_ts: str) -> None:
+    denial_calls = [
+        call
+        for call in mock_slack_instance.client.chat_postMessage.call_args_list
+        if call.kwargs.get("channel") == channel and call.kwargs.get("thread_ts") == thread_ts
+    ]
+    assert denial_calls, "Expected an in-thread denial message when over quota"
+    assert "PostHog AI credits" in denial_calls[0].kwargs["text"]
 
 
 class TestSlackThreadTaskMapping(TestCase):
@@ -401,6 +412,36 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
         assert task.description.endswith("do something")
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
+    def test_quota_exceeded_blocks_task_creation_with_thread_message(
+        self,
+        _mock_is_team_limited,
+        mock_slack_cls,
+        mock_execute_workflow,
+    ):
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "do something"}],
+            None,
+        )
+
+        # No task created, no workflow started.
+        assert not self.Task.objects.filter(team=self.team).exists()
+        mock_execute_workflow.assert_not_called()
+
+        _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
+
 
 class TestForwardPostHogCodeFollowupActivity(TestCase):
     def setUp(self):
@@ -445,6 +486,27 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
         assert result is False
+
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_quota_exceeded_blocks_followup_with_thread_message(
+        self,
+        mock_slack_cls,
+        _mock_is_team_limited,
+    ):
+        self._create_mapping()
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
+        )
+
+        # The follow-up was handled by refusal, so the workflow shouldn't fall
+        # through to new-task creation.
+        assert result is True
+        _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
@@ -714,6 +776,52 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             channel="C123", timestamp="1234.5679", name="seedling"
         )
         # Response is delivered by relayAgentResponse, not by this activity.
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
+
+
+class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
+    """The workflow's first activity gate. Returns True (and posts a denial) when
+    the team is over its AI-credits quota; False otherwise."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="TestOrg")
+        self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
+    def test_returns_true_and_posts_denial_when_over_quota(self, _mock_is_team_limited, mock_slack_cls):
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        blocked = enforce_posthog_code_billing_quota_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+        )
+
+        assert blocked is True
+        _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
+    def test_returns_false_and_posts_nothing_when_under_quota(self, _mock_is_team_limited, mock_slack_cls):
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        blocked = enforce_posthog_code_billing_quota_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+        )
+
+        assert blocked is False
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 

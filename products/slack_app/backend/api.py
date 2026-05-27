@@ -299,6 +299,45 @@ def lookup_slack_user_id_by_email(
     return slack_user_id
 
 
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Your team has used its monthly PostHog AI credits. "
+    "Top up at https://us.posthog.com/organization/billing to continue."
+)
+
+
+def post_quota_exhausted_denial(
+    *,
+    integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-credits denial message into a Slack thread.
+
+    Called by the workflow's quota gate after it determines the team is over
+    quota. Lives in this module so the Slack-posting helpers and the message
+    text stay co-located; the quota check itself lives in the temporal layer
+    (which is the only side allowed to import ``ee.billing``).
+    """
+    logger.info(
+        "posthog_code_slack_blocked_by_quota",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
+
+
 def _post_slack_user_feedback(
     slack: SlackIntegration,
     channel: str,
@@ -1034,7 +1073,7 @@ def classify_task_needs_repo(
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
     )
     try:
-        client = get_llm_client("slack-posthog-code")
+        client = get_llm_client("slack_app_routing")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -1072,6 +1111,29 @@ def _posthog_code_flag_subject(integration: Integration) -> User | None:
         .first()
     )
     return fallback.user if fallback else None
+
+
+def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
+
+    - "edit": Slack re-fires app_mention with a new event_id when a previously-posted
+      mention is edited. The new event_id bypasses Temporal workflow dedup, so without
+      this guard the edit spawns a duplicate task alongside the original.
+    - "bot_author": the message was authored by another Slack app/bot. Foreign bots
+      that quote `<@PostHog>` in their text (incident bots, alert relays, our own
+      notifications integration) would trigger reply loops on every re-post.
+    """
+    if event.get("edited") or event.get("subtype") == "message_changed":
+        return "edit"
+    if (
+        event.get("bot_id")
+        or event.get("bot_profile")
+        or event.get("app_id")
+        or event.get("subtype") == "bot_message"
+        or event.get("user") == "USLACKBOT"
+    ):
+        return "bot_author"
+    return None
 
 
 def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
@@ -1179,6 +1241,16 @@ def route_posthog_code_event_to_relevant_region(
                     "posthog_code_event_flag_off",
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
+                )
+                return ROUTE_HANDLED_LOCALLY
+            ignore_reason = _app_mention_ignore_reason(event)
+            if ignore_reason:
+                logger.info(
+                    "posthog_code_event_app_mention_ignored",
+                    reason=ignore_reason,
+                    slack_team_id=slack_team_id,
+                    channel=event.get("channel"),
+                    message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
             slack = SlackIntegration(local_match)

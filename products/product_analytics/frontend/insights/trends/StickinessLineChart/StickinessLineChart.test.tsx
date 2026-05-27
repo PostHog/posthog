@@ -30,9 +30,7 @@ describe('StickinessLineChart', () => {
         it('renders the chart from a StickinessQuery with one series', async () => {
             renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
 
-            await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
-            })
+            await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 3000 })
         })
     })
 

@@ -60,7 +60,7 @@ class DashboardTile(models.Model):
     # Relations
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
-        "posthog.Insight",
+        "product_analytics.Insight",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
@@ -148,7 +148,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                from posthog.models.insight import generate_insight_filters_hash
+                from products.product_analytics.backend.models.insight import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
