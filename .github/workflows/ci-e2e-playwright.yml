@@ -258,6 +258,9 @@ jobs:
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
+        permissions:
+            contents: read
+            pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
