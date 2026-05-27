@@ -7,6 +7,7 @@ from typing import Optional
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
 from rest_framework.decorators import action
@@ -31,6 +32,7 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(exclude=True)
 class DebugCHQueries(viewsets.ViewSet):
     """
     List recent CH queries initiated by this user.
