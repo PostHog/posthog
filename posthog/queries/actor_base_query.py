@@ -20,7 +20,6 @@ from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
-from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.queries.insight import insight_sync_execute
@@ -263,19 +262,15 @@ def get_groups(
 def _fetch_people_via_personhog(
     team_id: int, people_ids: list[Any], distinct_id_limit: int | None = 1000
 ) -> list[Person]:
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
     uuids = [str(pid) for pid in people_ids]
-    valid_persons = _batched_get_persons_by_uuids(client, team_id, uuids, "get_people")
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_people")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
     distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
-        client, team_id, person_ids, limit_per_person=distinct_id_limit
+        team_id, person_ids, limit_per_person=distinct_id_limit
     )
 
     persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]

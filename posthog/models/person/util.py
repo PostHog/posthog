@@ -54,16 +54,24 @@ PERSONHOG_BATCH_SIZE = 500
 
 
 if TYPE_CHECKING:
-    from posthog.personhog_client.client import PersonHogClient
     from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
 
 
+def _get_client():
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+    return client
+
+
 def _batched_get_persons_by_uuids(
-    client: PersonHogClient,
     team_id: int,
     uuids: list[str],
     operation: str,
 ) -> list[person_pb2.Person]:
+    client = _get_client()
     valid_persons: list[person_pb2.Person] = []
     for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE):
         batch = uuids[i : i + PERSONHOG_BATCH_SIZE]
@@ -83,12 +91,12 @@ def _batched_get_persons_by_uuids(
 
 
 def _batched_get_persons_by_distinct_ids(
-    client: PersonHogClient,
     team_id: int,
     distinct_ids: list[str],
     operation: str,
     deduplicate_by_person: bool = True,
 ) -> list[person_pb2.PersonWithDistinctIds]:
+    client = _get_client()
     seen_person_ids: set[int] = set()
     valid_results: list[person_pb2.PersonWithDistinctIds] = []
 
@@ -118,11 +126,11 @@ def _batched_get_persons_by_distinct_ids(
 
 
 def _batched_get_distinct_ids_for_persons(
-    client: PersonHogClient,
     team_id: int,
     person_ids: list[int],
     limit_per_person: int | None = None,
 ) -> dict[int, list[str]]:
+    client = _get_client()
     distinct_ids_by_person: dict[int, list[str]] = {}
     for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
         batch_ids = person_ids[i : i + PERSONHOG_BATCH_SIZE]
@@ -304,20 +312,14 @@ def create_person_distinct_id(
 def _fetch_persons_by_distinct_ids_via_personhog(
     team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
 ) -> list[Person]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    valid_results = _batched_get_persons_by_distinct_ids(client, team_id, distinct_ids, "get_persons_by_distinct_ids")
+    valid_results = _batched_get_persons_by_distinct_ids(team_id, distinct_ids, "get_persons_by_distinct_ids")
 
     person_ids = [r.person.id for r in valid_results]
     if not person_ids:
         return []
 
     distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
-        client, team_id, person_ids, limit_per_person=distinct_id_limit
+        team_id, person_ids, limit_per_person=distinct_id_limit
     )
 
     return [
@@ -432,14 +434,8 @@ def get_persons_mapped_by_distinct_id(
         return result
 
     def personhog_fn() -> dict[str, Person]:
-        from posthog.personhog_client.client import get_personhog_client
-
-        client = get_personhog_client()
-        if client is None:
-            raise RuntimeError("personhog client not configured")
-
         valid_results = _batched_get_persons_by_distinct_ids(
-            client, team_id, distinct_ids, "get_persons_mapped_by_distinct_id", deduplicate_by_person=False
+            team_id, distinct_ids, "get_persons_mapped_by_distinct_id", deduplicate_by_person=False
         )
         return {r.distinct_id: proto_person_to_model(r.person, distinct_ids=[r.distinct_id]) for r in valid_results}
 
@@ -452,19 +448,13 @@ def get_persons_mapped_by_distinct_id(
 
 
 def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    valid_persons = _batched_get_persons_by_uuids(client, team_id, uuids, "get_persons_by_uuids")
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(client, team_id, person_ids)
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
 
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
@@ -596,13 +586,9 @@ def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
 
 
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    valid_persons = _batched_get_persons_by_uuids(client, team_id, uuids, "validate_person_uuids_exist")
+    # _batched_get_persons_by_uuids also filters out persons with id == 0 (server "not found" sentinel),
+    # which the previous single-RPC implementation did not do. This is intentionally more correct.
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "validate_person_uuids_exist")
     return [p.uuid for p in valid_persons]
 
 
