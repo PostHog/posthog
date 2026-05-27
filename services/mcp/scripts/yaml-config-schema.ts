@@ -98,6 +98,15 @@ export const ToolConfigSchema = z
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),
+        /**
+         * Cross-field refinements applied to the composed tool schema.
+         * Each entry names a function exported from `@/schema/tool-inputs` whose
+         * signature is `(data, ctx: z.RefinementCtx) => void`. The codegen wires
+         * one `.superRefine(<fn>)` call per entry, in order. Use this when a single
+         * field's schema can't express the rule (e.g. mutual exclusivity between
+         * two optional fields).
+         */
+        validators: z.array(z.string()).optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**

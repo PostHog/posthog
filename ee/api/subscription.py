@@ -30,7 +30,6 @@ from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
@@ -42,6 +41,8 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
@@ -347,12 +348,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _prompt_guide_feature_enabled(self) -> bool:
-        """Evaluate the prompt-guide feature flag for the caller's organization.
+    def _evaluate_feature_flag(self, flag_key: str) -> bool:
+        """Evaluate a feature flag for the caller's organization.
 
-        Scoped by organization (not user) so the gate is stable across a team's
+        Scoped by organization (not user) so gates are stable across a team's
         members. `only_evaluate_locally=False` so we respect server-side cohort
-        / property conditions — this isn't on a hot path.
+        / property conditions — these checks aren't on a hot path.
         """
         request = self.context.get("request")
         if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
@@ -361,13 +362,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         org_id = str(organization.id) if organization else ""
         return bool(
             posthoganalytics.feature_enabled(
-                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                flag_key,
                 str(request.user.distinct_id),
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
             )
         )
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        return self._evaluate_feature_flag(SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY)
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)

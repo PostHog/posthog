@@ -37,6 +37,7 @@ from posthog.hogql.direct_connection import (
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -293,7 +294,11 @@ class HogQLQueryExecutor:
                 self.select_query = self.query
                 self.query = None
             else:
-                self.select_query = parse_select(str(self.query), timings=self.timings)
+                self.select_query = parse_select(
+                    str(self.query),
+                    timings=self.timings,
+                    parser_mode=self.query_modifiers.parserMode,
+                )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
@@ -383,6 +388,11 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 connection_id=self.connection_id,
             )
+
+        # Reset between executions: the resolver appends per query, and dataclasses.replace below
+        # shares this dict by reference. Without reset, callers reusing a HogQLContext across
+        # executors would see warnings from prior runs.
+        self.context.data_warehouse_sync_warnings.clear()
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -561,7 +571,7 @@ class HogQLQueryExecutor:
 
         from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
 
-        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
         try:
             source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
@@ -796,11 +806,14 @@ class HogQLQueryExecutor:
         assert clickhouse_context is not None
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
+            with self.timings.measure("extract_hogql_features"):
+                hogql_features = extract_hogql_features(self.select_query)
             tag_queries(
                 team_id=self.team.pk,
                 query_type=self.query_type,
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
+                hogql_features=hogql_features,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -872,6 +885,7 @@ class HogQLQueryExecutor:
             elif self.clickhouse_sql is not None:
                 self._execute_clickhouse_query()
 
+        warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
@@ -884,6 +898,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             explain=self.explain,
             metadata=self.metadata,
+            warnings=warnings or None,
             hasMore=self.has_more,
             limit=self.limit,
             offset=self.offset,

@@ -1,10 +1,10 @@
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from itertools import batched
 
 from django.conf import settings
 from django.db import close_old_connections
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -24,7 +24,6 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.rollout import filter_ids_for_rollout
 from posthog.user_permissions import UserPermissions
 
 from products.web_analytics.backend.temporal.weekly_digest.types import (
@@ -32,6 +31,8 @@ from products.web_analytics.backend.temporal.weekly_digest.types import (
     DigestBatchInput,
     DigestBatchResult,
     DigestOutcome,
+    OrgBatchPageInput,
+    OrgBatchPageResult,
     OrgDigestCounts,
     SendTestDigestInput,
     WAWeeklyDigestInput,
@@ -41,7 +42,41 @@ from products.web_analytics.backend.weekly_digest import auto_select_project_for
 logger = structlog.get_logger(__name__)
 
 
-def _get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
+def _get_org_queryset_for_digest(input: WAWeeklyDigestInput) -> tuple[QuerySet[Organization], datetime | None]:
+    qs = Organization.objects.all()
+    cutoff = None
+    if input.active_since_days is not None and input.active_since_days > 0:
+        cutoff = timezone.now() - timedelta(days=input.active_since_days)
+        qs = qs.filter(
+            Exists(
+                OrganizationMembership.objects.filter(
+                    organization_id=OuterRef("id"),
+                    user__last_login__gte=cutoff,
+                )
+            )
+        )
+    return qs, cutoff
+
+
+def _paginate_index(items: list[str], cursor: str | None, page_size: int) -> tuple[list[str], str | None]:
+    start = int(cursor) if cursor is not None else 0
+    page = items[start : start + page_size]
+    next_index = start + len(page)
+    next_cursor = str(next_index) if next_index < len(items) else None
+    return page, next_cursor
+
+
+def _paginate_keyset(qs: QuerySet[Organization], cursor: str | None, page_size: int) -> tuple[list[str], str | None]:
+    if cursor is not None:
+        qs = qs.filter(id__gt=cursor)
+    fetched = [str(oid) for oid in qs.order_by("id").values_list("id", flat=True)[: page_size + 1]]
+    page = fetched[:page_size]
+    has_more = len(fetched) > page_size
+    next_cursor = page[-1] if has_more and page else None
+    return page, next_cursor
+
+
+def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
     """Raises non-retryable `ApplicationError` when email is globally unavailable
     — per-org skips would silently absorb the outage.
     """
@@ -53,7 +88,7 @@ def _get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
             "skipping wa weekly digest due to clickhouse kill switch",
             kill_switch_level=kill_switch_level.value,
         )
-        return []
+        return OrgBatchPageResult(batches=[], cursor=None)
 
     if not is_email_available(with_absolute_urls=True):
         raise ApplicationError(
@@ -62,55 +97,35 @@ def _get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
             non_retryable=True,
         )
 
-    if input.org_ids:
-        org_ids = list(input.org_ids)
-        logger.info("processing configured orgs for WA digest", count=len(org_ids))
+    workflow_input = input.workflow_input
+    cutoff: datetime | None = None
+
+    if workflow_input.org_ids:
+        page_org_ids, next_cursor = _paginate_index(list(workflow_input.org_ids), input.cursor, input.page_size)
+        source = "configured"
     else:
-        qs = Organization.objects.all()
-        cutoff = None
-        if input.active_since_days is not None and input.active_since_days > 0:
-            cutoff = timezone.now() - timedelta(days=input.active_since_days)
-            qs = qs.filter(
-                Exists(
-                    OrganizationMembership.objects.filter(
-                        organization_id=OuterRef("id"),
-                        user__last_login__gte=cutoff,
-                    )
-                )
-            )
-        all_org_ids = [str(oid) for oid in qs.values_list("id", flat=True)]
+        qs, cutoff = _get_org_queryset_for_digest(workflow_input)
+        page_org_ids, next_cursor = _paginate_keyset(qs, input.cursor, input.page_size)
+        source = "keyset"
 
-        org_ids = [
-            org_id
-            for org_id in all_org_ids
-            if posthoganalytics.feature_enabled(
-                "web-analytics-weekly-digest",
-                distinct_id=f"digest-worker-{org_id}",
-                groups={"organization": org_id},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        ]
-        logger.info(
-            "wa digest org query complete",
-            total=len(all_org_ids),
-            after_flag=len(org_ids),
-            active_since_days=input.active_since_days,
-            cutoff=cutoff.isoformat() if cutoff else None,
-        )
-
-        if input.rollout_percentage < 1.0:
-            org_ids = filter_ids_for_rollout(org_ids, input.rollout_percentage)
-            logger.info("after rollout filtering", rollout_pct=input.rollout_percentage, count=len(org_ids))
-
-    batches = [list(b) for b in batched(org_ids, input.batch_size)]
-    logger.info("created wa digest batches", batch_count=len(batches), batch_size=input.batch_size)
-    return batches
+    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size)]
+    logger.info(
+        "wa digest org batch page",
+        source=source,
+        count=len(page_org_ids),
+        batch_count=len(batches),
+        batch_size=workflow_input.batch_size,
+        cursor=input.cursor,
+        next_cursor=next_cursor,
+        active_since_days=workflow_input.active_since_days,
+        cutoff=cutoff.isoformat() if cutoff else None,
+    )
+    return OrgBatchPageResult(batches=batches, cursor=next_cursor)
 
 
-@activity.defn(name="wa-digest-get-org-batches")
-async def get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
-    return await database_sync_to_async(_get_org_id_batches, thread_sensitive=False)(input)
+@activity.defn(name="wa-digest-get-org-batch-page")
+async def get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
+    return await database_sync_to_async(_get_org_batch_page, thread_sensitive=False)(input)
 
 
 def _send_digest_for_user(
@@ -192,6 +207,28 @@ def _send_digest_for_user(
     return DigestOutcome.SENT
 
 
+def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                "web-analytics-weekly-digest",
+                distinct_id=str(user.distinct_id),
+                groups={"organization": org_id},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "wa digest: flag eval failed, treating user as not targeted",
+            user_id=str(user.uuid),
+            org_id=org_id,
+            error=str(e),
+        )
+        capture_exception(e, {"user_id": str(user.uuid), "org_id": org_id})
+        return False
+
+
 def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCounts:
     close_old_connections()
 
@@ -205,17 +242,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     memberships = list(OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id))
-    targeted_memberships = [
-        m
-        for m in memberships
-        if posthoganalytics.feature_enabled(
-            "web-analytics-weekly-digest",
-            distinct_id=str(m.user.distinct_id),
-            groups={"organization": str(org.id)},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    ]
+    targeted_memberships = [m for m in memberships if _is_user_targeted_for_digest(m.user, str(org.id))]
     if not targeted_memberships:
         counts.skipped_reason = "no_targeted_memberships"
         return counts

@@ -322,7 +322,7 @@ export function ClustersView(): JSX.Element {
                                         </div>
                                     }
                                     placement="left"
-                                    docLink="https://posthog.com/docs/llm-analytics/clusters"
+                                    docLink="https://posthog.com/docs/ai-observability/clusters"
                                 >
                                     <span
                                         className="inline-flex items-center gap-1 text-xs text-muted hover:text-default cursor-pointer transition-colors"

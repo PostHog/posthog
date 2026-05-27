@@ -21,8 +21,6 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    FlagValueResponseApi,
-    FlagValueValuesRetrieveParams,
     InvitesListParams,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
@@ -61,6 +59,9 @@ import type {
     SubscriptionsListParams,
     SubscriptionsSummaryQuotaRetrieve200,
     UserApi,
+    UserPushTokenItemApi,
+    UserPushTokenRegisterRequestApi,
+    UserPushTokenUnregisterRequestApi,
     UsersListParams,
 } from './api.schemas'
 
@@ -1247,42 +1248,6 @@ export const fileSystemUnfiledRetrieve = async (projectId: string, options?: Req
     })
 }
 
-export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagValueValuesRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/flag_value/values/?${stringifiedParams}`
-        : `/api/projects/${projectId}/flag_value/values/`
-}
-
-/**
- * Get possible values for a feature flag.
-
-Query parameters:
-- key: The flag ID (required)
-Returns:
-
-- Array of objects with 'name' field containing possible values
- */
-export const flagValueValuesRetrieve = async (
-    projectId: string,
-    params?: FlagValueValuesRetrieveParams,
-    options?: RequestInit
-): Promise<FlagValueResponseApi> => {
-    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getInsightsSharingListUrl = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/`
 }
@@ -1583,6 +1548,14 @@ export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string)
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -1924,6 +1897,20 @@ export const usersDestroy = async (uuid: string, options?: RequestInit): Promise
     })
 }
 
+export const getUsersCredentialsReviewCompleteCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/credentials_review_complete/`
+}
+
+/**
+ * Mark the user as having reviewed their existing credentials. Idempotent. Flips `requires_credential_review` to False so the post-login interstitial isn't shown again. Does not modify any credentials; the user revokes individual Personal API Keys via the existing PAT endpoints from the same screen.
+ */
+export const usersCredentialsReviewCompleteCreate = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersCredentialsReviewCompleteCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getUsersGithubLoginRetrieveUrl = (uuid: string) => {
     return `/api/users/${uuid}/github_login/`
 }
@@ -1986,6 +1973,48 @@ export const usersOnboardingSkipCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(onboardingSkipRequestApi),
+    })
+}
+
+export const getUsersPushTokensCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/push_tokens/`
+}
+
+/**
+ * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * @summary Register a push notification token
+ */
+export const usersPushTokensCreate = async (
+    uuid: string,
+    userPushTokenRegisterRequestApi: UserPushTokenRegisterRequestApi,
+    options?: RequestInit
+): Promise<UserPushTokenItemApi> => {
+    return apiMutator<UserPushTokenItemApi>(getUsersPushTokensCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userPushTokenRegisterRequestApi),
+    })
+}
+
+export const getUsersPushTokensUnregisterCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/push_tokens/unregister/`
+}
+
+/**
+ * Delete the row matching `(user, token)`. Returns 204 even if no row matches so the mobile client can call this unconditionally when the user opts out.
+ * @summary Unregister a push notification token
+ */
+export const usersPushTokensUnregisterCreate = async (
+    uuid: string,
+    userPushTokenUnregisterRequestApi: UserPushTokenUnregisterRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersPushTokensUnregisterCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userPushTokenUnregisterRequestApi),
     })
 }
 

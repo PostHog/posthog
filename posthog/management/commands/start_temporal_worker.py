@@ -84,6 +84,14 @@ from posthog.temporal.llm_analytics import (
     TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
+from posthog.temporal.mcp_analytics.backfill_sessions import (
+    MCP_ANALYTICS_BACKFILL_SESSIONS_ACTIVITIES,
+    MCP_ANALYTICS_BACKFILL_SESSIONS_WORKFLOWS,
+)
+from posthog.temporal.mcp_analytics.summarize_session_intents import (
+    MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_ACTIVITIES,
+    MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_WORKFLOWS,
+)
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
     WORKFLOWS as MESSAGING_WORKFLOWS,
@@ -165,9 +173,17 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.deployments.backend.temporal import (
+    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
+    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+)
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -222,7 +238,9 @@ _task_queue_specs = [
         + EXPERIMENTS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
+        + MCP_ANALYTICS_BACKFILL_SESSIONS_WORKFLOWS
+        + MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
@@ -234,7 +252,9 @@ _task_queue_specs = [
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
+        + MCP_ANALYTICS_BACKFILL_SESSIONS_ACTIVITIES
+        + MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -302,6 +322,11 @@ _task_queue_specs = [
         + SUMMARIZATION_SWEEP_ACTIVITIES,
     ),
     (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
+    ),
+    (
         settings.MESSAGING_TASK_QUEUE,
         MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
         MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
@@ -335,6 +360,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.DEPLOYMENTS_TASK_QUEUE,
+        DEPLOYMENTS_WORKFLOWS,
+        DEPLOYMENTS_ACTIVITIES,
     ),
 ]
 
@@ -501,7 +531,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        # Max AI traces span the Django request and the Temporal activity that runs the agent loop.
+        # Without the OTel plugin on the worker, every span emitted from an activity is a root span
+        # and the conversation trace splits across disconnected pieces. Force-enable for that queue
+        # so investigations don't depend on an operator flipping TEMPORAL_OTEL_PLUGIN_ENABLED.
+        enable_otel = (
+            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True or task_queue == settings.MAX_AI_TASK_QUEUE
+        ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore

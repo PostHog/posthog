@@ -1,20 +1,10 @@
 # Meta Ads Marketing Source Adapter
 
-from dataclasses import dataclass
-
-from posthog.schema import MarketingAnalyticsDrillDownLevel, NativeMarketingSource
+from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
 
-from products.data_warehouse.backend.models import DataWarehouseTable
-
-from ..constants import (
-    INTEGRATION_DEFAULT_SOURCES,
-    INTEGRATION_FIELD_NAMES,
-    INTEGRATION_PRIMARY_SOURCE,
-    META_CONVERSION_ACTION_TYPES,
-    UNSYNCED_HIERARCHY_LABEL,
-)
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_PRIMARY_SOURCE, META_CONVERSION_ACTION_TYPES
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
 # Use centralized conversion action types from constants
@@ -24,18 +14,6 @@ META_FALLBACK_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["fallback"]
 META_SPECIFIC_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["specific"]
 
 
-@dataclass
-class _MetaLevelTables:
-    """Bundle of tables + join column names for a given drill-down level."""
-
-    entity_table: DataWarehouseTable
-    stats_table: DataWarehouseTable
-    entity_id_column: str  # column on entity_table to join with stats
-    stats_entity_id_column: str  # column on stats_table to join with entity
-    entity_name_column: str
-    entity_id_output_column: str  # column on entity_table representing the platform ID
-
-
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     """
     Adapter for Meta Ads native marketing data.
@@ -43,9 +21,29 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     - campaign_table + stats_table: always required
     - adset_table + adset_stats_table: optional; needed for AD_GROUP drill-down
     - ad_table + ad_stats_table: optional; needed for AD drill-down
+
+    All FROM/JOIN/WHERE/GROUP BY plumbing comes from MarketingSourceAdapter — this
+    adapter only customizes the cost/conversion field expressions (Meta encodes
+    conversions as JSON arrays in `actions` / `action_values`).
     """
 
     _source_type = NativeMarketingSource.META_ADS
+
+    # Hierarchy column metadata — Meta uses "id" / "name" on entity tables and
+    # "<entity>_id" on stats tables.
+    _stats_date_column = "date_stop"
+    _campaign_pk_column = "id"
+    _campaign_name_column = "name"
+    _campaign_stats_fk_column = "campaign_id"
+    _adset_pk_column = "id"
+    _adset_name_column = "name"
+    _adset_campaign_fk_column = "campaign_id"
+    _adset_stats_fk_column = "adset_id"
+    _ad_pk_column = "id"
+    _ad_name_column = "name"
+    _ad_adset_fk_column = "adset_id"
+    _ad_campaign_fk_column = "campaign_id"
+    _ad_stats_fk_column = "ad_id"
 
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
@@ -57,13 +55,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
         return "MetaAds"
-
-    def supports_level(self, level: MarketingAnalyticsDrillDownLevel) -> bool:
-        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            return self.config.adset_table is not None and self.config.adset_stats_table is not None
-        if level == MarketingAnalyticsDrillDownLevel.AD:
-            return self.config.ad_table is not None and self.config.ad_stats_table is not None
-        return True
 
     def validate(self) -> ValidationResult:
         """Validate Meta Ads tables and required fields"""
@@ -85,91 +76,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             error_msg = f"Validation error: {str(e)}"
             self.logger.exception("Meta Ads validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
-
-    def _level_tables(self) -> _MetaLevelTables:
-        """Return the entity + stats tables for the current drill-down level.
-
-        Hierarchy levels (AD_GROUP / AD) require their corresponding tables; the factory
-        skips this adapter via `supports_level()` when they're missing, so reaching
-        `_level_tables()` without them is a programming error — raise loudly instead of
-        silently falling back to campaign tables (which would emit semantically wrong SQL).
-        """
-        level = self.context.drill_down_level
-        fields = INTEGRATION_FIELD_NAMES[self._source_type]
-        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            if not (self.config.adset_table and self.config.adset_stats_table):
-                raise ValueError(
-                    "MetaAdsAdapter reached _level_tables at AD_GROUP without adset_table / "
-                    "adset_stats_table — this is a programming error. MarketingSourceFactory "
-                    "must skip this adapter via supports_level(AD_GROUP)."
-                )
-            return _MetaLevelTables(
-                entity_table=self.config.adset_table,
-                stats_table=self.config.adset_stats_table,
-                entity_id_column="id",
-                stats_entity_id_column="adset_id",
-                entity_name_column="name",
-                entity_id_output_column="id",
-            )
-        if level == MarketingAnalyticsDrillDownLevel.AD:
-            if not (self.config.ad_table and self.config.ad_stats_table):
-                raise ValueError(
-                    "MetaAdsAdapter reached _level_tables at AD without ad_table / "
-                    "ad_stats_table — this is a programming error. MarketingSourceFactory "
-                    "must skip this adapter via supports_level(AD)."
-                )
-            return _MetaLevelTables(
-                entity_table=self.config.ad_table,
-                stats_table=self.config.ad_stats_table,
-                entity_id_column="id",
-                stats_entity_id_column="ad_id",
-                entity_name_column="name",
-                entity_id_output_column="id",
-            )
-        return _MetaLevelTables(
-            entity_table=self.config.campaign_table,
-            stats_table=self.config.stats_table,
-            entity_id_column=fields["id_field"],
-            stats_entity_id_column="campaign_id",
-            entity_name_column=fields["name_field"],
-            entity_id_output_column=fields["id_field"],
-        )
-
-    @staticmethod
-    def _string_field_with_orphan_fallback(table_name: str, column: str, fallback: str) -> ast.Expr:
-        """Wrap toString(table.column) with coalesce against `fallback`. Used when the
-        table is reached via LEFT JOIN — orphan rows (e.g. ads.adset_id pointing to a
-        deleted adset) would otherwise produce NULLs that all collapse into a single
-        unlabelled row in GROUP BY."""
-        return ast.Call(
-            name="coalesce",
-            args=[
-                ast.Call(name="toString", args=[ast.Field(chain=[table_name, column])]),
-                ast.Constant(value=fallback),
-            ],
-        )
-
-    def _get_campaign_name_field(self) -> ast.Expr:
-        """At AD_GROUP / AD, return the parent campaign name from the campaigns LEFT JOIN
-        (with fallback for orphans). At CAMPAIGN, the entity (campaign) name directly
-        — never NULL since campaigns IS the FROM table."""
-        level = self.context.drill_down_level
-        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
-            return self._string_field_with_orphan_fallback(self.config.campaign_table.name, "name", "Unknown campaign")
-        tables = self._level_tables()
-        return ast.Call(name="toString", args=[ast.Field(chain=[tables.entity_table.name, tables.entity_name_column])])
-
-    def _get_campaign_id_field(self) -> ast.Expr:
-        """At AD_GROUP / AD, return the parent campaign ID from the LEFT JOIN (with
-        fallback). At CAMPAIGN, the entity ID directly."""
-        level = self.context.drill_down_level
-        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
-            return self._string_field_with_orphan_fallback(self.config.campaign_table.name, "id", "unknown")
-        tables = self._level_tables()
-        return ast.Call(
-            name="toString",
-            args=[ast.Field(chain=[tables.entity_table.name, tables.entity_id_output_column])],
-        )
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self._level_tables().stats_table.name
@@ -318,148 +224,3 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         return self._build_actions_conversion_sum("action_values", apply_currency=True)
-
-    # Levels at which `ads` is the FROM table — its columns are never NULL.
-    # Used by `_get_ad_*_field` to keep those getters as one-liners through the
-    # `_string_field_when_level` helper. Drives the no-coalesce path of the rule
-    # documented on each `_get_ad_group_*` override below.
-    _AD_AS_FROM_LEVELS = (MarketingAnalyticsDrillDownLevel.AD,)
-
-    def _get_ad_group_name_field(self) -> ast.Expr:
-        # Three cases by level:
-        #   AD_GROUP: adsets IS the FROM table → toString(adsets.name), never NULL.
-        #   AD:       adsets reached via LEFT JOIN → coalesce orphans (ads pointing to
-        #             a deleted adset) to "Unknown ad group" so they surface as one
-        #             explicit row instead of collapsing into a silent NULL group.
-        #   AD without adsets synced: supports_level(AD) only requires ad_table, so
-        #             this branch is reachable. Emit "No sync" placeholder so the
-        #             column tells the user *why* it's blank.
-        level = self.context.drill_down_level
-        if not self.config.adset_table:
-            if level == MarketingAnalyticsDrillDownLevel.AD:
-                return ast.Constant(value=UNSYNCED_HIERARCHY_LABEL)
-            return ast.Constant(value=None)
-        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            return ast.Call(name="toString", args=[ast.Field(chain=[self.config.adset_table.name, "name"])])
-        if level == MarketingAnalyticsDrillDownLevel.AD:
-            return self._string_field_with_orphan_fallback(self.config.adset_table.name, "name", "Unknown ad group")
-        return ast.Constant(value=None)
-
-    def _get_ad_group_id_field(self) -> ast.Expr:
-        # Same shape as _get_ad_group_name_field — see comment there for the level rules.
-        level = self.context.drill_down_level
-        if not self.config.adset_table:
-            if level == MarketingAnalyticsDrillDownLevel.AD:
-                return ast.Constant(value=UNSYNCED_HIERARCHY_LABEL)
-            return ast.Constant(value=None)
-        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            return ast.Call(name="toString", args=[ast.Field(chain=[self.config.adset_table.name, "id"])])
-        if level == MarketingAnalyticsDrillDownLevel.AD:
-            return self._string_field_with_orphan_fallback(self.config.adset_table.name, "id", "unknown")
-        return ast.Constant(value=None)
-
-    def _get_ad_name_field(self) -> ast.Expr:
-        return self._string_field_when_level(self._AD_AS_FROM_LEVELS, self.config.ad_table, "name")
-
-    def _get_ad_id_field(self) -> ast.Expr:
-        return self._string_field_when_level(self._AD_AS_FROM_LEVELS, self.config.ad_table, "id")
-
-    def _get_from(self) -> ast.JoinExpr:
-        """Build FROM and JOIN clauses. At AD_GROUP / AD, additional joins to parent
-        entity tables are added so we can show the campaign / ad-group hierarchy."""
-        tables = self._level_tables()
-        entity_table_name = tables.entity_table.name
-        stats_table_name = tables.stats_table.name
-        level = self.context.drill_down_level
-
-        # entity LEFT JOIN stats ON entity.id = stats.<entity_id>
-        stats_join = ast.JoinExpr(
-            table=ast.Field(chain=[stats_table_name]),
-            join_type="LEFT JOIN",
-            constraint=ast.JoinConstraint(
-                expr=ast.CompareOperation(
-                    left=ast.Field(chain=[entity_table_name, tables.entity_id_column]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Field(chain=[stats_table_name, tables.stats_entity_id_column]),
-                ),
-                constraint_type="ON",
-            ),
-        )
-
-        # Build hierarchy joins for parent context columns at AD_GROUP / AD level.
-        parent_joins: list[ast.JoinExpr] = []
-        if level == MarketingAnalyticsDrillDownLevel.AD and self.config.adset_table:
-            # ads.adset_id = adsets.id
-            parent_joins.append(
-                ast.JoinExpr(
-                    table=ast.Field(chain=[self.config.adset_table.name]),
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=[entity_table_name, "adset_id"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[self.config.adset_table.name, "id"]),
-                        ),
-                        constraint_type="ON",
-                    ),
-                )
-            )
-        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
-            # entity.campaign_id = campaigns.id
-            parent_joins.append(
-                ast.JoinExpr(
-                    table=ast.Field(chain=[self.config.campaign_table.name]),
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=[entity_table_name, "campaign_id"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[self.config.campaign_table.name, "id"]),
-                        ),
-                        constraint_type="ON",
-                    ),
-                )
-            )
-
-        # Chain joins: entity → stats → (adsets) → campaigns
-        join_chain = stats_join
-        for join in parent_joins:
-            current = join_chain
-            while current.next_join is not None:
-                current = current.next_join
-            current.next_join = join
-
-        return ast.JoinExpr(
-            table=ast.Field(chain=[entity_table_name]),
-            next_join=join_chain,
-        )
-
-    def _get_where_conditions(self) -> list[ast.Expr]:
-        """Build WHERE conditions against the current level's stats table."""
-        conditions: list[ast.Expr] = []
-
-        if self.context.date_range:
-            stats_table_name = self._level_tables().stats_table.name
-
-            date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, "date_stop"])])
-
-            from_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)])
-            gte_condition = ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.GtEq, right=from_date)
-
-            to_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
-            lte_condition = ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.LtEq, right=to_date)
-
-            conditions.extend([gte_condition, lte_condition])
-
-        return conditions
-
-    def _get_group_by(self) -> list[ast.Expr]:
-        """Group by every non-aggregate column emitted at this level. ClickHouse rejects
-        the query if a SELECT column isn't either grouped or aggregated."""
-        level = self.context.drill_down_level
-        group_by: list[ast.Expr] = [self._get_campaign_name_field(), self._get_campaign_id_field()]
-        if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
-            group_by.extend([self._get_ad_group_name_field(), self._get_ad_group_id_field()])
-        if level == MarketingAnalyticsDrillDownLevel.AD:
-            group_by.extend([self._get_ad_name_field(), self._get_ad_id_field()])
-        return group_by

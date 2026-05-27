@@ -54,14 +54,18 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
+            "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
+            "cascade_posthog_code_repository_activity",
+            "discover_posthog_code_repository_via_agent_activity",
             "select_posthog_code_repository_activity",
             "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
+            "block_posthog_code_task_if_no_personal_github_activity",
             "create_posthog_code_task_for_repo_activity",
             "forward_posthog_code_followup_activity",
             "post_posthog_code_picker_timeout_activity",
@@ -211,6 +215,7 @@ class TestSummarizationSweepModuleIntegrity:
             "list_enabled_teams_activity",
             "list_summarization_schedule_team_ids_activity",
             "upsert_team_schedule_activity",
+            "consume_summary_quota_activity",
         ]
         actual_activity_names = [a.__name__ for a in SUMMARIZATION_SWEEP_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -251,6 +256,7 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "dispatch_inbox_slack_notifications_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",

@@ -29,10 +29,12 @@ import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as replay } from './replay'
+import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as sdk_doctor } from './sdk_doctor'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tracing } from './tracing'
+import { GENERATED_TOOLS as user_interviews } from './user_interviews'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
@@ -66,10 +68,12 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...proxyRecords,
     ...queryWrappers,
     ...replay,
+    ...replay_vision,
     ...sdk_doctor,
     ...signals,
     ...surveys,
     ...tracing,
+    ...user_interviews,
     ...visual_review,
     ...web_analytics,
     ...workflows,

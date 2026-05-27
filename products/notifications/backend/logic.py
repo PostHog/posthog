@@ -13,6 +13,7 @@ from products.notifications.backend.facade.enums import (
     AC_RESOURCE_TYPES,
     NotificationOnlyResourceType,
     NotificationType,
+    TargetType,
 )
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
@@ -63,6 +64,27 @@ def _filter_by_user_preferences(
         return bool(type_map.get(team_key, False))
 
     return [uid for uid, settings in rows if not _is_disabled(settings)]
+
+
+def has_been_dispatched(
+    *,
+    notification_type: NotificationType,
+    target_type: TargetType,
+    target_id: str,
+    resource_id: str,
+    source_id: str | None = None,
+) -> bool:
+    """Idempotency check used by dispatchers whose trigger can fire multiple times for the
+    same logical event (e.g. Celery at-least-once retries, racing workers). Returns True if
+    a matching NotificationEvent already exists, so the caller can skip a duplicate write.
+    """
+    return NotificationEvent.objects.filter(
+        notification_type=notification_type.value,
+        target_type=target_type.value,
+        target_id=target_id,
+        resource_id=resource_id,
+        source_id=source_id,
+    ).exists()
 
 
 def create_notification(data: NotificationData) -> NotificationEvent | None:

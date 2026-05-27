@@ -524,98 +524,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flag_with_super_groups() {
-        let redis_client = setup_redis_client(None).await;
-        let context = TestContext::new(None).await;
-        let team = context
-            .insert_new_team(None)
-            .await
-            .expect("Failed to insert team in pg");
-
-        let flag_with_super_groups = json!({
-            "id": 1,
-            "team_id": team.id,
-            "name": "Flag with Super Groups",
-            "key": "flag_with_super_groups",
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 50
-                    }
-                ],
-                "super_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "country",
-                                "value": "US",
-                                "type": "person",
-                                "operator": "exact"
-                            }
-                        ],
-                        "rollout_percentage": 100
-                    }
-                ]
-            },
-            "active": true,
-            "deleted": false
-        });
-
-        // Insert into Redis
-        insert_flags_for_team_in_redis(
-            redis_client.clone(),
-            team.id,
-            Some(json!([flag_with_super_groups]).to_string()),
-        )
-        .await
-        .expect("Failed to insert flag in Redis");
-
-        // Insert into Postgres
-        context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    id: 1,
-                    team_id: team.id,
-                    name: Some("Flag with Super Groups".to_string()),
-                    key: "flag_with_super_groups".to_string(),
-                    filters: flag_with_super_groups["filters"].clone(),
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                }),
-            )
-            .await
-            .expect("Failed to insert flag in Postgres");
-
-        // Fetch and verify from Redis
-        let redis_flags = get_flags_from_redis(redis_client, team.id)
-            .await
-            .expect("Failed to fetch flags from Redis");
-
-        assert_eq!(redis_flags.flags.len(), 1);
-        let redis_flag = &redis_flags.flags[0];
-        assert_eq!(redis_flag.key, "flag_with_super_groups");
-        assert!(redis_flag.filters.super_groups.is_some());
-        assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
-
-        // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
-            .await
-            .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.len(), 1);
-        let pg_flag = &pg_flags[0];
-        assert_eq!(pg_flag.key, "flag_with_super_groups");
-        assert!(pg_flag.filters.super_groups.is_some());
-        assert_eq!(pg_flag.filters.super_groups.as_ref().unwrap().len(), 1);
-    }
-
-    #[tokio::test]
     async fn test_flags_with_different_property_types() {
         let redis_client = setup_redis_client(None).await;
         let context = TestContext::new(None).await;
@@ -1289,7 +1197,6 @@ mod tests {
         assert!(flag.filters.multivariate.is_none());
         assert!(flag.filters.aggregation_group_type_index.is_none());
         assert!(flag.filters.payloads.is_none());
-        assert!(flag.filters.super_groups.is_none());
         assert!(flag.filters.holdout.is_none());
     }
 

@@ -209,7 +209,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('nextSessionRecording', () => {
-            it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
+            it('returns undefined when autoplay direction is null (autoplay off)', async () => {
                 playerSettingsLogic.mount()
                 playerSettingsLogic.actions.setAutoplayDirection(null)
 
@@ -217,7 +217,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         activeSessionRecording: listOfSessionRecordings[0],
-                        nextSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: undefined,
                     })
             })
 

@@ -14,15 +14,9 @@ from django.conf import settings
 import pyarrow as pa
 import urllib3.exceptions
 from databricks import sql
-from databricks.sdk._base_client import _BaseClient
-from databricks.sdk.core import Config, ConfigAttribute, oauth_service_principal
-from databricks.sdk.oauth import (
-    OidcEndpoints,
-    get_account_endpoints,
-    get_azure_entra_id_workspace_endpoints,
-    get_workspace_endpoints,
-)
-from databricks.sql.client import Connection
+from databricks.sdk.core import Config
+from databricks.sdk.credentials_provider import oauth_service_principal
+from databricks.sql.client import Connection, Cursor
 from databricks.sql.exc import DatabaseError, OperationalError, ServerOperationError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
@@ -83,6 +77,13 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
 ]
 
 DatabricksField = tuple[str, str]
+
+# Common operation timeouts (seconds)
+ONE_MINUTE = 60
+FIVE_MINUTES = 5 * 60
+THIRTY_MINUTES = 30 * 60
+ONE_HOUR = 60 * 60
+SIX_HOURS = 6 * 60 * 60
 
 
 class DatabricksConnectionError(Exception):
@@ -179,48 +180,6 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     use_automatic_schema_evolution: bool = True
 
 
-class DatabricksConfig(Config):
-    """Config for Databricks.
-
-    We need to override the oidc_endpoints method to use a custom client with a custom timeout since the default
-    implementation uses an unconfigurable timeout of 5 minutes. This means our code just hangs if the user provides
-    invalid connection parameters.
-
-    I have opened an issue with Databricks to make this timeout configurable:
-    https://github.com/databricks/databricks-sdk-py/issues/1046
-
-    Subclassing Config has a few issues however:
-
-    The Databricks SDK's attributes() method has bugs with subclassing:
-    1. It only looks at cls.__dict__, not inherited attributes
-    2. It caches results in _attributes, which subclasses inherit
-
-    We work around this by copying parent ConfigAttribute descriptors into our __dict__.
-    """
-
-    locals().update({k: v for k, v in Config.__dict__.items() if isinstance(v, ConfigAttribute)})
-
-    @classmethod
-    def attributes(cls):
-        if "_attributes" not in cls.__dict__:
-            try:
-                delattr(cls, "_attributes")
-            except AttributeError:
-                pass
-        return super().attributes()
-
-    @property
-    def oidc_endpoints(self) -> OidcEndpoints | None:
-        self._fix_host_if_needed()
-        if not self.host:
-            return None
-        if self.is_azure and self.azure_client_id:
-            return get_azure_entra_id_workspace_endpoints(self.host)
-        if self.is_account_client and self.account_id:
-            return get_account_endpoints(self.host, self.account_id)
-        return get_workspace_endpoints(self.host, client=_BaseClient(retry_timeout_seconds=5))
-
-
 class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
@@ -234,6 +193,7 @@ class DatabricksClient:
         client_secret: str,
         catalog: str,
         schema: str,
+        statement_timeout_seconds: float | None = None,
     ):
         self.server_hostname = server_hostname
         self.http_path = http_path
@@ -241,6 +201,10 @@ class DatabricksClient:
         self.client_secret = client_secret
         self.catalog = catalog
         self.schema = schema
+        # Server-side safety net (Databricks ``STATEMENT_TIMEOUT`` SQL Conf). We typically set this
+        # to be longer than the client-side per-call timeouts so the client fires first and the
+        # server only kicks in as a last resort.
+        self.statement_timeout_seconds = statement_timeout_seconds
 
         self._connection: None | Connection = None
 
@@ -248,7 +212,12 @@ class DatabricksClient:
         self.external_logger = EXTERNAL_LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
 
     @classmethod
-    def from_inputs_and_integration(cls, inputs: DatabricksInsertInputs, integration: DatabricksIntegration) -> t.Self:
+    def from_inputs_and_integration(
+        cls,
+        inputs: DatabricksInsertInputs,
+        integration: DatabricksIntegration,
+        statement_timeout_seconds: float | None = None,
+    ) -> t.Self:
         """Initialize a DatabricksClient from `DatabricksInsertInputs` and `DatabricksIntegration`.
 
         The config for Databricks is divided between the inputs and the integration model:
@@ -262,6 +231,7 @@ class DatabricksClient:
             client_secret=integration.client_secret,
             catalog=inputs.catalog,
             schema=inputs.schema,
+            statement_timeout_seconds=statement_timeout_seconds,
         )
 
     @property
@@ -274,10 +244,17 @@ class DatabricksClient:
         return self._connection
 
     async def _connect(self):
-        """Establish a raw Databricks connection in a separate thread."""
+        """Establish a raw Databricks connection in a separate thread.
+
+        Known hang risk: ``oauth_service_principal(config)`` triggers an OIDC endpoint discovery
+        HTTP call inside ``sql.connect``. That call uses the Databricks SDK's own client timeout
+        (~5 minutes, not configurable here), and doesn't respect the ``_socket_timeout`` / ``_retry_stop_after_*``
+        settings. So if the host is unreachable or DNS hangs, this method can block for
+        up to ~5 minutes before raising. See https://github.com/databricks/databricks-sdk-py/issues/1046.
+        """
 
         def get_credential_provider():
-            config = DatabricksConfig(
+            config = Config(
                 host=f"https://{self.server_hostname}",
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -295,9 +272,17 @@ class DatabricksClient:
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
                 enable_telemetry=False,
-                _socket_timeout=300,  # Databricks seems to use this for all timeouts
+                # Per-RPC, not per-query — long queries poll via repeated status RPCs.
+                _socket_timeout=ONE_MINUTE,
                 _retry_stop_after_attempts_count=2,
-                _retry_delay_max=1,
+                # Cap the SDK's synchronous retry loop so a cancelled caller doesn't leave
+                # the worker thread polling for ~15 minutes (the SDK's 900s default).
+                _retry_stop_after_attempts_duration=ONE_MINUTE,
+                session_configuration=(
+                    {"STATEMENT_TIMEOUT": str(int(self.statement_timeout_seconds))}
+                    if self.statement_timeout_seconds is not None
+                    else None
+                ),
             )
         except TimeoutError:
             self.logger.info(
@@ -344,6 +329,10 @@ class DatabricksClient:
         self._connection = await self._connect()
         self.logger.info("Connected to Databricks")
 
+        # Verify the connection is responsive before proceeding
+        await self.ping()
+        self.logger.info("Ping successful")
+
         if set_context is True:
             await self.use_catalog(self.catalog)
             await self.use_schema(self.schema)
@@ -355,12 +344,29 @@ class DatabricksClient:
                 await asyncio.to_thread(self._connection.close)
             self._connection = None
 
+    async def _cancel_cursor(self, cursor: Cursor) -> None:
+        """Issue a server-side CancelOperation so the worker thread running ``cursor.execute``
+        unblocks (raising ``RequestError``) instead of spinning in the SDK's retry loop.
+        """
+        try:
+            await asyncio.wait_for(asyncio.to_thread(cursor.cancel), timeout=10.0)
+        except Exception as err:
+            self.logger.warning("Failed to cancel Databricks cursor on cancellation: %s", err)
+
     async def execute_query(
-        self, query: str, parameters: dict | None = None, query_kwargs: dict | None = None, fetch_results: bool = True
+        self,
+        query: str,
+        parameters: dict | None = None,
+        query_kwargs: dict | None = None,
+        fetch_results: bool = True,
+        timeout: float = ONE_HOUR,
     ) -> list[Row] | None:
         """Execute a query and wait for it to complete.
 
         We run the query in a separate thread to avoid blocking the event loop in the main thread.
+
+        Use ``execute_async_query`` for long-running queries, where we poll for results rather than
+        waiting for completion.
         """
         query_kwargs = query_kwargs or {}
         query_start_time = time.time()
@@ -368,16 +374,23 @@ class DatabricksClient:
 
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(cursor.execute, query, parameters, **query_kwargs)
+                async with asyncio.timeout(timeout):
+                    await asyncio.to_thread(cursor.execute, query, parameters, **query_kwargs)
+
+                    if not fetch_results:
+                        return None
+
+                    return await asyncio.to_thread(cursor.fetchall)
+            except (asyncio.CancelledError, TimeoutError):
+                # Abort server-side so that:
+                #   a) the user's warehouse doesn't keep running work nobody's waiting for
+                #   b) we cancel the running thread (otherwise, we could potentially run into
+                #      threadpool exhaustion)
+                await self._cancel_cursor(cursor)
+                raise
             finally:
                 query_execution_time = time.time() - query_start_time
                 self.logger.debug("Query completed in %.2fs", query_execution_time)
-
-            if not fetch_results:
-                return None
-
-            results = await asyncio.to_thread(cursor.fetchall)
-            return results
 
     async def execute_async_query(
         self,
@@ -385,7 +398,7 @@ class DatabricksClient:
         parameters: dict | None = None,
         poll_interval: float | None = None,
         fetch_results: bool = True,
-        timeout: float = 60 * 60,  # 1 hour
+        timeout: float = ONE_HOUR,
     ) -> list[Row] | None:
         """Execute a query asynchronously and poll for results.
 
@@ -413,50 +426,73 @@ class DatabricksClient:
         self.logger.debug("Executing async query: %s", query)
 
         with self.connection.cursor() as cursor:
-            await asyncio.to_thread(cursor.execute_async, query, parameters)
-
-            self.logger.debug("Waiting for async query to complete")
-
-            while await asyncio.to_thread(cursor.is_query_pending):
-                await asyncio.sleep(poll_interval)
-                if time.time() - query_start_time > timeout:
-                    raise TimeoutError(f"Timed out waiting for query to complete after {timeout} seconds")
-
-            # this should return an exception if the query failed so ensure we log the query time
             try:
-                await asyncio.to_thread(cursor.get_async_execution_result)
-            finally:
-                query_execution_time = time.time() - query_start_time
-                self.logger.debug("Async query completed in %.2fs", query_execution_time)
+                await asyncio.to_thread(cursor.execute_async, query, parameters)
 
-            if fetch_results is False:
-                return None
+                self.logger.debug("Waiting for async query to complete")
 
-            self.logger.debug("Fetching query results")
-            results = await asyncio.to_thread(cursor.fetchall)
-            self.logger.debug("Finished fetching query results")
+                while await asyncio.to_thread(cursor.is_query_pending):
+                    await asyncio.sleep(poll_interval)
+                    if time.time() - query_start_time > timeout:
+                        raise TimeoutError(f"Timed out waiting for query to complete after {timeout} seconds")
 
-            return results
+                # this should return an exception if the query failed so ensure we log the query time
+                try:
+                    await asyncio.to_thread(cursor.get_async_execution_result)
+                finally:
+                    query_execution_time = time.time() - query_start_time
+                    self.logger.debug("Async query completed in %.2fs", query_execution_time)
+
+                if fetch_results is False:
+                    return None
+
+                self.logger.debug("Fetching query results")
+                results = await asyncio.to_thread(cursor.fetchall)
+                self.logger.debug("Finished fetching query results")
+
+                return results
+            except (asyncio.CancelledError, TimeoutError):
+                # Abort server-side so that:
+                #   a) the user's warehouse doesn't keep running work nobody's waiting for
+                #   b) we cancel the running thread (otherwise, we could potentially run into
+                #      threadpool exhaustion)
+                await self._cancel_cursor(cursor)
+                raise
+
+    async def ping(self, timeout: float = FIVE_MINUTES) -> None:
+        """Check that the Databricks warehouse is responsive.
+
+        If this basic query takes too long then it's a sign that the warehouse
+        is either taking too long to resume or is under heavy load.
+        """
+        async with handle_common_errors("PING (SELECT 1)", timeout):
+            await self.execute_query("SELECT 1", timeout=timeout)
 
     async def use_catalog(self, catalog: str):
-        try:
-            await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
-        except ServerOperationError as err:
-            if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
-                raise DatabricksCatalogNotFoundError(catalog)
-            elif _is_warehouse_stopped_error(err):
-                raise DatabricksWarehouseStoppedError("USE CATALOG", err.message)
-            raise
+        timeout = ONE_MINUTE
+        async with handle_common_errors(f"USE CATALOG {catalog}", timeout):
+            try:
+                await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False, timeout=timeout)
+            except ServerOperationError as err:
+                if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
+                    raise DatabricksCatalogNotFoundError(catalog)
+                raise
 
     async def use_schema(self, schema: str):
-        try:
-            await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
-        except ServerOperationError as err:
-            if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
-                raise DatabricksSchemaNotFoundError(schema)
-            elif _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError("USE SCHEMA", err.message)
-            raise
+        timeout = ONE_MINUTE
+        async with handle_common_errors(f"USE SCHEMA {schema}", timeout):
+            try:
+                await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False, timeout=timeout)
+            except ServerOperationError as err:
+                if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
+                    raise DatabricksSchemaNotFoundError(schema)
+                if _is_insufficient_permissions_error(err):
+                    # Use a more descriptive message than the raw err.message
+                    raise DatabricksInsufficientPermissionsError(
+                        "USE SCHEMA",
+                        f"PERMISSION_DENIED: User does not have USE SCHEMA on Schema {schema}",
+                    )
+                raise
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -490,41 +526,33 @@ class DatabricksClient:
 
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
+        timeout = FIVE_MINUTES
         field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
-        try:
-            query = f"""
-                CREATE TABLE IF NOT EXISTS `{table_name}` (
-                    {field_ddl}
-                )
-                USING DELTA
-                COMMENT 'PostHog generated table'
-                """
-            await self.execute_query(query, fetch_results=False)
-        except ServerOperationError as err:
-            if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError("CREATE TABLE", err.message)
-            raise
+        query = f"""
+            CREATE TABLE IF NOT EXISTS `{table_name}` (
+                {field_ddl}
+            )
+            USING DELTA
+            COMMENT 'PostHog generated table'
+            """
+        async with handle_common_errors(f"CREATE TABLE {table_name}", timeout):
+            await self.execute_query(query, fetch_results=False, timeout=timeout)
 
     async def adelete_table(self, table_name: str):
         """Asynchronously delete the Databricks delta table if it exists."""
-        try:
-            await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
-        except ServerOperationError as err:
-            if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError("DROP TABLE", err.message)
-            raise
+        timeout = FIVE_MINUTES
+        async with handle_common_errors(f"DROP TABLE {table_name}", timeout):
+            await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False, timeout=timeout)
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
-        try:
+        timeout = ONE_HOUR
+        async with handle_common_errors(f"PUT INTO '{volume_path}/{file_name}'", timeout):
             await self.execute_query(
                 f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
                 query_kwargs={"input_stream": file},
+                timeout=timeout,
             )
-        except OperationalError as err:
-            if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"PUT INTO '{volume_path}/{file_name}'", err.message)
-            raise
 
     async def acopy_into_table_from_volume(
         self,
@@ -532,21 +560,15 @@ class DatabricksClient:
         volume_path: str,
         fields: list[DatabricksField],
         with_schema_evolution: bool = True,
-        timeout: float = 60 * 60,
+        timeout: float = ONE_HOUR,
     ) -> None:
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
         self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
-        try:
+        async with handle_common_errors(f"COPY INTO {table_name} FROM VOLUME", timeout):
             await self.execute_async_query(query, fetch_results=False, timeout=timeout)
-        except TimeoutError:
-            raise DatabricksOperationTimeoutError(operation=f"COPY INTO {table_name} FROM VOLUME", timeout=timeout)
-        except ServerOperationError as err:
-            if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"COPY INTO {table_name} FROM VOLUME", err.message)
-            raise
 
     def _get_copy_into_table_from_volume_query(
         self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
@@ -606,44 +628,48 @@ class DatabricksClient:
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
-        try:
+        timeout = FIVE_MINUTES
+        async with handle_common_errors(f"CREATE VOLUME {volume}", timeout):
             await self.execute_query(
                 f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
                 fetch_results=False,
+                timeout=timeout,
             )
-        except ServerOperationError as err:
-            if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError("CREATE VOLUME", err.message)
-            raise
 
     async def adelete_volume(self, volume: str):
         """Asynchronously delete a Databricks volume."""
-        try:
+        timeout = FIVE_MINUTES
+        async with handle_common_errors(f"DROP VOLUME {volume}", timeout):
             await self.execute_query(
                 f"DROP VOLUME IF EXISTS `{volume}`",
                 fetch_results=False,
+                timeout=timeout,
             )
-        except ServerOperationError as err:
-            if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError("DELETE VOLUME", err.message)
-            raise
 
-    async def aget_table_columns(self, table_name: str) -> list[str]:
+    async def aget_table_columns(self, table_name: str, timeout: float = FIVE_MINUTES) -> list[str]:
         """Asynchronously get the columns of a Databricks table.
 
         The Databricks connector has dedicated methods for retrieving metadata.
         """
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(
-                    cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
-                )
-                results = await asyncio.to_thread(cursor.fetchall)
-                try:
-                    column_names = [row.name for row in results]
-                except AttributeError:
-                    # depending on the table column mapping mode, this could also be returned via a different attribute
-                    column_names = [row.COLUMN_NAME for row in results]
+                async with asyncio.timeout(timeout):
+                    await asyncio.to_thread(
+                        cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
+                    )
+                    results = await asyncio.to_thread(cursor.fetchall)
+                    try:
+                        column_names = [row.name for row in results]
+                    except AttributeError:
+                        # depending on the table column mapping mode, this could also be returned via a different attribute
+                        column_names = [row.COLUMN_NAME for row in results]
+            except (asyncio.CancelledError, TimeoutError):
+                # Abort server-side so that:
+                #   a) the user's warehouse doesn't keep running work nobody's waiting for
+                #   b) we cancel the running thread (otherwise, we could potentially run into
+                #      threadpool exhaustion)
+                await self._cancel_cursor(cursor)
+                raise
             except DatabaseError as err:
                 if "Expected field named: DataAccessConfigID" in str(err):
                     raise DatabricksInsufficientPermissionsError(
@@ -660,7 +686,7 @@ class DatabricksClient:
         update_key: collections.abc.Iterable[str],
         source_table_fields: collections.abc.Iterable[DatabricksField],
         with_schema_evolution: bool = True,
-        timeout: float = 60 * 60,
+        timeout: float = ONE_HOUR,
     ) -> None:
         """Merge data from source_table into target_table in Databricks.
 
@@ -703,16 +729,8 @@ class DatabricksClient:
             )
 
         try:
-            await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
-        except TimeoutError:
-            self.logger.exception(
-                "Merge timed-out",
-                with_schema_evolution=with_schema_evolution,
-                query="MERGE",
-                query_details=merge_query,
-                timeout=timeout,
-            )
-            raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
+            async with handle_common_errors("Merge into target table", timeout):
+                await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
         except Exception:
             self.logger.exception(
                 "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
@@ -943,11 +961,35 @@ def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
     )
 
 
-def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
-    """Check if the error is a warehouse stopped error."""
-    if err.message is None:
-        return False
-    return "warehouse" in err.message and "stopped" in err.message
+@contextlib.asynccontextmanager
+async def handle_common_errors(operation: str, timeout: float) -> AsyncGenerator[None, None]:
+    """Map common Databricks client errors to non-retryable typed exceptions.
+
+    Operation-specific exceptions (catalog-not-found, schema-not-found, etc.) should be
+    raised by a nested ``except`` inside this context manager — anything not remapped by
+    that inner handler falls through here for the common treatment.
+    """
+    try:
+        yield
+    except TimeoutError:
+        raise DatabricksOperationTimeoutError(operation=operation, timeout=timeout)
+    except ServerOperationError as err:
+        message = err.message or ""
+        message_lower = message.lower()
+        # Databricks currently returns "Statement has timed out after N seconds." but we
+        # also match the SQLSTATE keyword "STATEMENT_TIMEOUT" in case the wording changes.
+        if "statement_timeout" in message_lower or "statement has timed out" in message_lower:
+            raise DatabricksOperationTimeoutError(operation=operation, timeout=timeout)
+        if "warehouse" in message_lower and "stopped" in message_lower:
+            raise DatabricksWarehouseStoppedError(operation, message)
+        if _is_insufficient_permissions_error(err):
+            raise DatabricksInsufficientPermissionsError(operation, message)
+        raise
+    except OperationalError as err:
+        # PUT raises OperationalError on permission failures rather than ServerOperationError.
+        if _is_insufficient_permissions_error(err):
+            raise DatabricksInsufficientPermissionsError(operation, err.message or "")
+        raise
 
 
 def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
@@ -959,8 +1001,8 @@ def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, dat
 
     We can probably reduce this timeout a bit once the beta testing phase is complete.
     """
-    min_timeout_seconds = 30 * 60  # 30 minutes
-    max_timeout_seconds = 6 * 60 * 60  # 6 hours
+    min_timeout_seconds = THIRTY_MINUTES
+    max_timeout_seconds = SIX_HOURS
     if data_interval_start is None:
         return max_timeout_seconds
     interval_seconds = (data_interval_end - data_interval_start).total_seconds()
@@ -1135,7 +1177,12 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         )
 
         async with DatabricksClient.from_inputs_and_integration(
-            inputs, databricks_integration
+            inputs,
+            databricks_integration,
+            # Server-side STATEMENT_TIMEOUT is a backstop just to ensure the
+            # query doesn't hang indefinitely (we should always time out on the
+            # client before it reaches this point)
+            statement_timeout_seconds=long_running_query_timeout + ONE_MINUTE,
         ).connect() as databricks_client:
             async with manage_resources(
                 client=databricks_client,

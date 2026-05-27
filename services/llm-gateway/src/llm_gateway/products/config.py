@@ -16,6 +16,10 @@ class ProductConfig:
     allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
+    # Tag emitted $ai_generation events with $ai_billable=true so the PHAI
+    # daily aggregator (posthog/tasks/usage_report.py) rolls them into the
+    # customer team's AI credits bucket.
+    billable: bool = False
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -28,6 +32,25 @@ TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 
+# Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
+# is the same code regardless of where the task was initiated, so the model
+# allowlist is identical.
+_POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
+    {
+        "claude-opus-4-5",
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.3-codex",
+        "gpt-5.2",
+        "gpt-5-mini",
+    }
+)
+
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
         allowed_application_ids=None,
@@ -36,22 +59,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "posthog_code": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
-        allowed_models=frozenset(
-            {
-                "claude-opus-4-5",
-                "claude-opus-4-6",
-                "claude-opus-4-7",
-                "claude-sonnet-4-5",
-                "claude-sonnet-4-6",
-                "claude-haiku-4-5",
-                "gpt-5.5",
-                "gpt-5.4",
-                "gpt-5.3-codex",
-                "gpt-5.2",
-                "gpt-5-mini",
-            }
-            | BEDROCK_MODELS
-        ),
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
     ),
     "background_agents": ProductConfig(
@@ -72,6 +80,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         ),
         allow_api_keys=False,
     ),
+    "slack_app": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allow_api_keys=False,
+        billable=True,
+    ),
     "wizard": ProductConfig(
         allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
         allowed_models=None,
@@ -87,10 +101,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
-    "slack-posthog-code": ProductConfig(
+    "slack_app_routing": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
+        billable=True,
     ),
     "growth": ProductConfig(
         allowed_application_ids=None,
@@ -139,7 +154,8 @@ ALLOWED_PRODUCTS: Final[frozenset[str]] = frozenset(PRODUCTS.keys())
 PRODUCT_ALIASES: Final[dict[str, str]] = {
     "array": "posthog_code",
     "twig": "posthog_code",
-    "slack-twig": "slack-posthog-code",
+    "slack-posthog-code": "slack_app_routing",
+    "slack-twig": "slack_app_routing",
 }
 
 

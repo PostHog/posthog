@@ -8,7 +8,9 @@ from uuid import UUID, uuid4, uuid5
 import structlog
 from posthoganalytics import Posthog
 
+from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
+from llm_gateway.products.config import get_product_config
 from llm_gateway.request_context import (
     get_auth_user,
     get_posthog_flags,
@@ -52,6 +54,15 @@ _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
 
+
+def _is_product_billable(product: str) -> bool:
+    """Look up the product's billable flag in the central registry. False for
+    unknown products so we never accidentally bill calls we can't attribute.
+    """
+    config = get_product_config(product)
+    return bool(config and config.billable)
+
+
 # Stable namespace for hashing non-UUID trace identifiers (e.g. Claude Code's
 # JSON-encoded session blobs sent via Anthropic's metadata.user_id) into a
 # deterministic UUID. Generated once and frozen so the same input always maps
@@ -62,7 +73,7 @@ _TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 def _normalize_trace_id(raw: Any) -> str:
     """Normalize an incoming trace identifier into a UUID string.
 
-    LLM Analytics renders trace links as `/llm-observability/traces/<id>`, so
+    AI observability renders trace links as `/ai-observability/traces/<id>`, so
     `$ai_trace_id` must be a URL-safe identifier. Anthropic's
     `metadata.user_id` is a free-form string that Claude Code populates with a
     serialized JSON session blob — passing that through verbatim produces
@@ -98,7 +109,7 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
 
 
 class PostHogCallback(InstrumentedCallback):
-    """Custom PostHog callback for LLM analytics."""
+    """Custom PostHog callback for AI observability."""
 
     callback_name = "posthog"
 
@@ -118,10 +129,10 @@ class PostHogCallback(InstrumentedCallback):
         # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
         # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
         trace_id = _normalize_trace_id(metadata.get("user_id"))
-        if auth_user and auth_user.auth_method == "oauth_access_token":
-            distinct_id = auth_user.distinct_id
+        if auth_user is None:
+            distinct_id = end_user_id or str(uuid4())
         else:
-            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+            distinct_id = resolve_distinct_id(auth_user, end_user_id)
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -146,6 +157,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
+            "$ai_billable": _is_product_billable(product),
         }
 
         posthog_properties = get_posthog_properties() or {}
@@ -204,10 +216,10 @@ class PostHogCallback(InstrumentedCallback):
         # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
         # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
         trace_id = _normalize_trace_id(metadata.get("user_id"))
-        if auth_user and auth_user.auth_method == "oauth_access_token":
-            distinct_id = auth_user.distinct_id
+        if auth_user is None:
+            distinct_id = end_user_id or str(uuid4())
         else:
-            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+            distinct_id = resolve_distinct_id(auth_user, end_user_id)
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -225,6 +237,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
             "ai_product": product,
+            "$ai_billable": _is_product_billable(product),
         }
 
         posthog_properties = get_posthog_properties() or {}

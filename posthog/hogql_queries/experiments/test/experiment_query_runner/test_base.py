@@ -23,11 +23,12 @@ from posthog.schema import (
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
 
 
 @override_settings(IN_UNIT_TESTING=True)

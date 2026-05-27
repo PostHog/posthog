@@ -17,6 +17,7 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -326,6 +327,24 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
+                # Slack notifications to suggested reviewers — separate from the Kafka
+                # publish above so a Slack outage doesn't suppress the inbox event,
+                # and a Kafka outage doesn't suppress Slack delivery.
+                try:
+                    await workflow.execute_activity(
+                        dispatch_inbox_slack_notifications_activity,
+                        DispatchInboxSlackNotificationsInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            source_products=source_products,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    workflow.logger.exception(
+                        f"Failed to dispatch inbox Slack notifications for {inputs.report_id}",
+                    )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
@@ -353,7 +372,7 @@ class MarkReportInProgressInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -364,19 +383,28 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.IN_PROGRESS:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as in_progress: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_in_progress:
+        logger.info(
+            f"Report {input.report_id} already in in_progress status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -406,14 +434,19 @@ class MarkReportReadyInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[bool, int]:
+        def do_update() -> tuple[bool, int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.READY:
+                return False, report.run_count, True
+            if report.status == SignalReport.Status.CANDIDATE:
+                # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
+                return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
             has_new_signals = report.signal_count > input.processed_signal_count
@@ -422,15 +455,23 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
-            return has_new_signals, report.run_count
+            return has_new_signals, report.run_count, False
 
-        has_new_signals, run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        has_new_signals, run_count, was_already_done = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_done:
+        logger.info(
+            f"Report {input.report_id} already past ready transition, skipping duplicate",
+            report_id=input.report_id,
+            has_new_signals=has_new_signals,
+        )
+        return has_new_signals
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -463,25 +504,34 @@ class MarkReportFailedInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.FAILED:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as failed: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_failed:
+        logger.info(
+            f"Report {input.report_id} already in failed status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -514,27 +564,36 @@ class MarkReportPendingInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.PENDING_INPUT:
+                return report.run_count, True
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_pending_input = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as pending_input: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_pending_input:
+        logger.info(
+            f"Report {input.report_id} already in pending_input status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -564,25 +623,34 @@ class ResetReportToPotentialInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.POTENTIAL:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True, error=input.reason)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_potential = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_potential:
+        logger.info(
+            f"Report {input.report_id} already in potential status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -603,6 +671,33 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
 
 
 @dataclass
+class DispatchInboxSlackNotificationsInput:
+    team_id: int
+    report_id: str
+    source_products: list[str] = field(default_factory=list)
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def dispatch_inbox_slack_notifications_activity(
+    input: DispatchInboxSlackNotificationsInput,
+) -> int:
+    """Send Slack notifications for a newly-READY report to suggested reviewers
+    who have configured Slack notifications in their signal autonomy config.
+
+    Returns the number of messages dispatched (informational; failures are
+    swallowed inside the dispatcher and logged).
+    """
+    from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
+
+    return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(
+        report_id=input.report_id,
+        team_id=input.team_id,
+        source_products=input.source_products,
+    )
+
+
+@dataclass
 class PublishReportCompletedInput:
     team_id: int
     report_id: str
@@ -610,7 +705,7 @@ class PublishReportCompletedInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def publish_report_completed_activity(input: PublishReportCompletedInput) -> None:
     """Publish a message to Kafka when a report is generated or re-generated."""
     try:

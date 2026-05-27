@@ -81,6 +81,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
             query_type="revenue_example_data_warehouse_tables_query",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             hogql_context=self.hogql_context,

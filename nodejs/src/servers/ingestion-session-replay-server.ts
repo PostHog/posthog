@@ -1,3 +1,4 @@
+import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
@@ -86,6 +87,8 @@ export class IngestionSessionReplayServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 

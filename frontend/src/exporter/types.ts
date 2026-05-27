@@ -17,6 +17,20 @@ export enum ExportType {
     Scene = 'scene',
     Unlock = 'unlock',
     Heatmap = 'heatmap',
+    Interview = 'interview',
+}
+
+export interface InterviewExportPayload {
+    topic_id: string
+    interviewee_identifier: string
+    user_name: string
+    topic: string
+    already_replied: boolean
+    /**
+     * NOTE: `agent_context`, `questions`, and the Vapi credentials are intentionally NOT in
+     * this payload. They live behind `POST /api/user_interviews/share/<token>/start_call/`
+     * so the personalized agent context never lands in the public HTML.
+     */
 }
 
 export interface ExportedData extends SharingConfigurationSettings {
@@ -50,4 +64,6 @@ export interface ExportedData extends SharingConfigurationSettings {
     heatmap_context?: HeatmapExportContext
     /** Cohort id+name inlined for shared views, which can't reach /api/cohorts. */
     cohorts?: Pick<CohortType, 'id' | 'name'>[]
+    /** AI user interview payload — present only for `type === ExportType.Interview`. */
+    interview?: InterviewExportPayload
 }

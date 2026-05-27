@@ -489,6 +489,16 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
     description?: string | null
 }
 
+export interface ErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
+export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
 /**
  * @nullable
  */
@@ -1177,18 +1187,50 @@ export interface ErrorTrackingIssuesListResponseApi {
     nextOffset?: number
 }
 
+/**
+ * * `ready` - Ready
+ * `computing` - Computing
+ */
+export type ErrorTrackingRecommendationStatusEnumApi =
+    (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
+
+export const ErrorTrackingRecommendationStatusEnumApi = {
+    Ready: 'ready',
+    Computing: 'computing',
+} as const
+
+/**
+ * Recommendation payload, shape depends on type.
+ */
 export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
 
 export interface ErrorTrackingRecommendationApi {
+    /** Recommendation UUID. */
     readonly id: string
+    /** Recommendation type identifier (e.g. 'alerts'). */
     readonly type: string
+    /** Recommendation payload, shape depends on type. */
     readonly meta: ErrorTrackingRecommendationApiMeta
+    /** Whether the recommendation's recommended action has been satisfied. */
     readonly completed: boolean
-    /** @nullable */
+    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
+
+  * `ready` - Ready
+  * `computing` - Computing */
+    readonly status: ErrorTrackingRecommendationStatusEnumApi
+    /**
+     * Timestamp meta was last successfully computed.
+     * @nullable
+     */
     readonly computed_at: string | null
-    /** @nullable */
+    /**
+     * Timestamp the user dismissed this recommendation, if any.
+     * @nullable
+     */
     readonly dismissed_at: string | null
+    /** Timestamp the recommendation row was first created. */
     readonly created_at: string
+    /** Timestamp the recommendation row was last updated. */
     readonly updated_at: string
 }
 
@@ -1374,7 +1416,29 @@ export interface ErrorTrackingSuppressionRuleCreateRequestApi {
     /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
     filters?: PropertyGroupFilterValueApi
     /**
-     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface ErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
      * @minimum 0
      * @maximum 1
      */
@@ -1509,6 +1573,8 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
     /** Whether to overwrite uploaded symbol sets whose content hash changed. */
     force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

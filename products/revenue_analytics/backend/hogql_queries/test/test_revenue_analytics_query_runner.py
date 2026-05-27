@@ -12,7 +12,6 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.constants import AvailableFeature
 from posthog.rbac.user_access_control import UserAccessControlError
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 from products.revenue_analytics.backend.views import (
@@ -23,6 +22,8 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsSubscriptionView,
 )
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -342,7 +343,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     def test_validate_query_runner_access_without_access(self):
         """Test that the query runner cannot access the query runner without view access control"""
         AccessControl.objects.create(team=self.team, resource="revenue_analytics", access_level="none")
-        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
+        self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
         self.organization.save()
 
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)

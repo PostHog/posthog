@@ -19,11 +19,10 @@ from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyO
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import Filter, Insight, Team, User
+from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
@@ -34,6 +33,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -72,8 +73,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
 
@@ -509,21 +510,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
 
             baseline = 10
+            # Each dashboard GET that materializes at least one insight runner issues a single
+            # `PropertyAccessControl` lookup, memoized across all runners on the dashboard by
+            # `get_restricted_properties_for_team`'s per-scope cache (so it stays at +1 no
+            # matter how many insights are attached). With zero insights no runner is built and
+            # the lookup is skipped entirely.
+            property_access_control_lookup = 1
 
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             # was baseline + 11 + 12, -1 after dropping duplicate session lookup
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 11):
+        with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -834,7 +841,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard_id)
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
-        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
+        self.assertEqual(response["tiles"][0]["insight"]["query"]["source"]["dateRange"]["date_from"], "-14d")
 
         item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
@@ -1128,7 +1135,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tile = response["tiles"][0]
 
         assert tile["insight"]["id"] == insight_id
-        assert tile["insight"]["filters"]["date_from"] == "-14d"
+        assert tile["insight"]["query"]["source"]["dateRange"]["date_from"] == "-14d"
 
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
@@ -1156,8 +1163,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
         self.assertEqual(
-            response["tiles"][0]["insight"]["filters"]["properties"],
-            [{"key": "prop", "value": "val"}],
+            response["tiles"][0]["insight"]["query"]["source"]["properties"],
+            [
+                {
+                    "key": "prop",
+                    "label": None,
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "val",
+                }
+            ],
         )
 
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
@@ -1171,11 +1186,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         response = self.dashboard_api.get_dashboard(dashboard_id)
-        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
+        self.assertEqual(response["tiles"][0]["insight"]["query"]["source"]["dateRange"]["date_from"], "-14d")
 
         # which doesn't change the insight's filter
         response = self.dashboard_api.get_insight(insight_id)
-        self.assertEqual(response["filters"]["date_from"], "-7d")
+        self.assertEqual(response["query"]["source"]["dateRange"]["date_from"], "-7d")
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
@@ -1282,7 +1297,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": None,
                 "duplicated": False,
                 "from_template": True,
-                "has_description": False,
+                "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
@@ -1845,15 +1860,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(
-            response["tiles"][0]["insight"]["filters"],
-            {
-                "events": [{"id": "$pageview"}],
-                "insight": "TRENDS",
-                "date_from": None,
-                "date_to": None,
-            },
-        )
+        self.assertEqual(response["tiles"][0]["insight"]["filters"], {})
+        query_source = response["tiles"][0]["insight"]["query"]["source"]
+        self.assertEqual(query_source["kind"], "TrendsQuery")
+        self.assertEqual(query_source["series"][0]["event"], "$pageview")
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -2136,7 +2146,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @parameterized.expand([("source",), ("target",)])
     def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -3028,7 +3038,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Verify dashboard was created with unlisted mode
         self.assertEqual(dashboard.creation_mode, "unlisted")
-        self.assertEqual(dashboard.name, "LLM Analytics Default")
+        self.assertEqual(dashboard.name, "AI observability default")
 
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
@@ -3091,6 +3101,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_analyze_refresh_result_with_empty_cache(self):
         # Simulate snapshot creating an empty cache entry (e.g. no cached results)
         # This happens when the dashboard has no data or no cached results before refresh
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         cache_key = "dashboard_refresh_test_empty"
 
@@ -3110,6 +3122,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_analyze_refresh_result_with_missing_cache(self):
         # Simulate cache miss (expired or invalid key)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         cache_key = "dashboard_refresh_test_missing"
 

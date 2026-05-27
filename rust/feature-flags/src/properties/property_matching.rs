@@ -107,13 +107,12 @@ pub fn match_property(
                 }
 
                 if value.is_array() {
+                    let target = to_string_representation(override_value).to_lowercase();
                     return value
                         .as_array()
                         .expect("expected array value")
                         .iter()
-                        .map(|v| to_string_representation(v).to_lowercase())
-                        .collect::<Vec<String>>()
-                        .contains(&to_string_representation(override_value).to_lowercase());
+                        .any(|v| to_string_representation(v).to_lowercase() == target);
                 }
                 to_string_representation(value).to_lowercase()
                     == to_string_representation(override_value).to_lowercase()
@@ -160,21 +159,16 @@ pub fn match_property(
             if let Some(match_value) = match_value {
                 let match_string = to_string_representation(match_value).to_ascii_lowercase();
 
-                // Handle both single values and arrays
-                let search_values: Vec<String> = match value {
-                    Value::Array(arr) => arr
-                        .iter()
-                        .map(|v| to_string_representation(v).to_ascii_lowercase())
-                        .collect(),
-                    single_value => {
-                        vec![to_string_representation(single_value).to_ascii_lowercase()]
-                    }
+                // Check if any of the search values is contained in the match value.
+                // Handle both single values and arrays without materializing an
+                // intermediate Vec — short-circuits the per-element lowercase work too.
+                let any_contained = match value {
+                    Value::Array(arr) => arr.iter().any(|v| {
+                        match_string.contains(&to_string_representation(v).to_ascii_lowercase())
+                    }),
+                    single_value => match_string
+                        .contains(&to_string_representation(single_value).to_ascii_lowercase()),
                 };
-
-                // Check if any of the search values is contained in the match value
-                let any_contained = search_values
-                    .iter()
-                    .any(|search_val| match_string.contains(search_val));
 
                 if operator == OperatorType::IcontainsMulti {
                     Ok(any_contained)
@@ -665,6 +659,59 @@ mod test_match_properties {
             true
         )
         .is_err());
+    }
+
+    #[rstest::rstest]
+    #[case("us", true)]
+    #[case("Us", true)]
+    #[case("US", true)]
+    #[case("ca", true)]
+    #[case("uk", true)]
+    #[case("UK", true)]
+    #[case("de", false)]
+    fn test_match_properties_exact_array_is_case_insensitive(
+        #[case] user_value: &str,
+        #[case] expected: bool,
+    ) {
+        // Array Exact comparisons lowercase both sides, so a mixed-case filter
+        // value must still match a lowercase user property and vice-versa.
+        let property = PropertyFilter {
+            key: "country".to_string(),
+            value: Some(json!(["US", "CA", "Uk"])),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+        };
+
+        let actual = match_property(
+            &property,
+            &HashMap::from([("country".to_string(), json!(user_value))]),
+            true,
+        )
+        .expect("expected match to exist");
+
+        assert_eq!(actual, expected, "user_value = {user_value}");
+    }
+
+    #[test]
+    fn test_match_properties_exact_empty_array_never_matches() {
+        let property = PropertyFilter {
+            key: "country".to_string(),
+            value: Some(json!([])),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+        };
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("country".to_string(), json!("us"))]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]
@@ -2298,6 +2345,30 @@ mod test_match_properties {
         assert!(!match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("01.02.03"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading zero in a single component is also invalid (was the user-visible HogQL bug
+        // where "3.07" silently became [3, 7] and matched a "version >= 3.7" filter).
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.07"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Two-part versions are not valid semver (must be X.Y.Z)
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.7"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.0"))]),
             true
         )
         .expect("expected match to exist"));

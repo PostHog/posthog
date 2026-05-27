@@ -106,13 +106,18 @@ export interface PatchedExperimentHoldoutApi {
  */
 export interface ExperimentSavedMetricApi {
     readonly id: number
-    /** @maxLength 400 */
+    /**
+     * Name of the shared metric. Must be unique within the project (case-insensitive).
+     * @maxLength 400
+     */
     name: string
     /**
+     * Short description of what the metric measures.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query: unknown
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -139,13 +144,18 @@ export interface PaginatedExperimentSavedMetricListApi {
  */
 export interface PatchedExperimentSavedMetricApi {
     readonly id?: number
-    /** @maxLength 400 */
+    /**
+     * Name of the shared metric. Must be unique within the project (case-insensitive).
+     * @maxLength 400
+     */
     name?: string
     /**
+     * Short description of what the metric measures.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query?: unknown
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -266,14 +276,54 @@ export const KindApi = {
     ActionsNode: 'ActionsNode',
 } as const
 
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+
+export const ExperimentMetricMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+
+export const MathGroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
 export interface ExperimentApiEventSourceApi {
     /** Event name, e.g. '$pageview'. Required for EventsNode. */
     event?: string | null
     /** Action ID. Required for ActionsNode. */
     id?: number | null
     kind: KindApi
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathTypeApi | null
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+    math_hogql?: string | null
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string | null
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilterApi[] | null
+}
+
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
 }
 
 export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
@@ -318,14 +368,22 @@ export interface ExperimentApiMetricApi {
     conversion_window?: number | null
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSourceApi | null
+    /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoalApi | null
+    /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+    ignore_zeros?: boolean | null
     kind?: 'ExperimentMetric'
+    /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation. */
+    lower_bound_percentile?: number | null
     metric_type: ExperimentMetricTypeApi
     /** Human-readable metric name. */
     name?: string | null
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSourceApi | null
+    /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     retention_window_end?: number | null
     retention_window_start?: number | null
     retention_window_unit?: FunnelConversionWindowTimeUnitApi | null
@@ -336,6 +394,8 @@ export interface ExperimentApiMetricApi {
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSourceApi | null
     start_handling?: StartHandlingApi | null
+    /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
+    upper_bound_percentile?: number | null
     /** Unique identifier. Auto-generated if omitted. */
     uuid?: string | null
 }
@@ -605,8 +665,46 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** The key of the variant to ship to 100% of users. */
+    /** The key of the variant to ship. */
     variant_key: string
+    /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
+    release_to_everyone?: boolean
+}
+
+/**
+ * * `cost` - cost
+ * `latency` - latency
+ * `eval_pass_rate` - eval_pass_rate
+ */
+export type TemplatesEnumApi = (typeof TemplatesEnumApi)[keyof typeof TemplatesEnumApi]
+
+export const TemplatesEnumApi = {
+    Cost: 'cost',
+    Latency: 'latency',
+    EvalPassRate: 'eval_pass_rate',
+} as const
+
+export interface CreateFromPromptInputApi {
+    /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+    prompt_name: string
+    /**
+     * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+     * @minItems 2
+     * @maxItems 10
+     */
+    versions: number[]
+    /**
+     * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+     * @minItems 1
+     * @maxItems 3
+     */
+    templates: TemplatesEnumApi[]
+    /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+    name?: string
+    /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+    feature_flag_key?: string
+    /** Optional experiment description. */
+    description?: string
 }
 
 export type ExperimentHoldoutsListParams = {
@@ -657,6 +755,10 @@ export type ExperimentsListParams = {
      */
     order?: string
     /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string
+    /**
      * Free-text search applied to the experiment name (case-insensitive).
      */
     search?: string
@@ -686,4 +788,10 @@ export type ExperimentsTimeseriesResultsRetrieveParams = {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string
+}
+
+export type ExperimentsPromptTemplatesRetrieve200Item = {
+    key: string
+    label: string
+    description: string
 }

@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
+from products.llm_analytics.backend.models.provider_keys import LLMProvider
 from products.llm_analytics.backend.models.taggers import Tagger, TaggerType
 
 
@@ -78,6 +79,46 @@ class TestTaggersApi(APIBaseTest):
         assert tagger.team == self.team
         assert tagger.created_by == self.user
         assert tagger.deleted is False
+
+    def test_create_cannot_soft_delete_tagger(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Feature Tagger",
+                "tagger_config": _make_tagger_config(),
+                "deleted": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data == self.validation_error_response(
+            "This field cannot be set when creating a tagger.",
+            attr="deleted",
+        )
+        assert Tagger.objects.count() == 0
+
+    def test_create_rejects_read_only_provider_key_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Feature Tagger",
+                "tagger_config": _make_tagger_config(),
+                "model_configuration": {
+                    "provider": LLMProvider.OPENAI,
+                    "model": "gpt-4o",
+                    "provider_key_name": "Main key",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data == self.validation_error_response(
+            "This field is read-only.",
+            attr="model_configuration__provider_key_name",
+        )
+        assert Tagger.objects.count() == 0
 
     def test_can_retrieve_list_of_taggers(self):
         Tagger.objects.create(
@@ -295,6 +336,22 @@ class TestTaggersApi(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("fractional", 33.3), ("slider_minimum", 0.1), ("whole", 50)])
+    def test_can_save_fractional_rollout_percentage(self, _name: str, rollout_percentage: float):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Feature Tagger",
+                "tagger_config": _make_tagger_config(),
+                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        tagger = Tagger.objects.get(id=response.data["id"])
+        assert tagger.conditions[0]["rollout_percentage"] == rollout_percentage
 
     def test_patch_tagger_type_without_fresh_config_is_rejected(self):
         tagger = Tagger.objects.create(

@@ -17,6 +17,7 @@ import type {
     ElementApi,
     ElementsListParams,
     InsightApi,
+    InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
     InsightsAnalyzeRetrieveParams,
@@ -729,6 +730,14 @@ export const getInsightsBulkUpdateTagsCreateUrl = (projectId: string, params?: I
 /**
  * Bulk update tags on multiple objects.
 
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
+
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
 
@@ -902,12 +911,11 @@ export const getInsightsViewedCreateUrl = (projectId: string, params?: InsightsV
 }
 
 /**
- * Update insight view timestamps.
-Expects: {"insight_ids": [1, 2, 3, ...]}
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreate = async (
     projectId: string,
-    insightApi?: NonReadonly<InsightApi>,
+    insightViewedRequestApi: InsightViewedRequestApi,
     params?: InsightsViewedCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -915,6 +923,6 @@ export const insightsViewedCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightApi),
+        body: JSON.stringify(insightViewedRequestApi),
     })
 }

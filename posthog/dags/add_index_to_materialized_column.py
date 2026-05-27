@@ -9,6 +9,7 @@ from posthog.settings import TEST
 
 from ee.clickhouse.materialized_columns.columns import (
     BloomFilterIndex,
+    BloomFilterLowerIndex,
     MaterializedColumn,
     MinMaxIndex,
     NgramLowerIndex,
@@ -24,6 +25,7 @@ class AddIndexConfig(dagster.Config):
     add_minmax_index: bool = False
     add_bloom_filter_index: bool = False
     add_ngram_lower_index: bool = False
+    add_bloom_filter_lower_index: bool = False
     dry_run: bool = False
 
 
@@ -36,6 +38,7 @@ class AddIndexTask:
         add_minmax: bool,
         add_bloom_filter: bool,
         add_ngram_lower: bool,
+        add_bloom_filter_lower: bool,
         dry_run: bool,
         logger: dagster.DagsterLogManager,
     ):
@@ -45,6 +48,7 @@ class AddIndexTask:
         self.add_minmax = add_minmax
         self.add_bloom_filter = add_bloom_filter
         self.add_ngram_lower = add_ngram_lower
+        self.add_bloom_filter_lower = add_bloom_filter_lower
         self.dry_run = dry_run
         self.logger = logger
 
@@ -72,6 +76,13 @@ class AddIndexTask:
             else:
                 actions.append(ngram_index.as_add_sql())
 
+        if self.add_bloom_filter_lower:
+            bloom_lower_index = BloomFilterLowerIndex(self.column_name, self.is_nullable)
+            if check_index_exists(client, self.table, bloom_lower_index.name):
+                self.logger.info(f"Skipping bloom_filter_lower index {bloom_lower_index.name}, already exists")
+            else:
+                actions.append(bloom_lower_index.as_add_sql())
+
         if not actions:
             self.logger.info(f"No indexes to add for column {self.column_name}")
             return
@@ -98,7 +109,12 @@ def add_indexes_to_columns(
     config: AddIndexConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
-    if not config.add_minmax_index and not config.add_bloom_filter_index and not config.add_ngram_lower_index:
+    if (
+        not config.add_minmax_index
+        and not config.add_bloom_filter_index
+        and not config.add_ngram_lower_index
+        and not config.add_bloom_filter_lower_index
+    ):
         context.log.warning("No index types selected. Nothing to do.")
         return
 
@@ -123,6 +139,7 @@ def add_indexes_to_columns(
             add_minmax=config.add_minmax_index,
             add_bloom_filter=config.add_bloom_filter_index,
             add_ngram_lower=config.add_ngram_lower_index,
+            add_bloom_filter_lower=config.add_bloom_filter_lower_index,
             dry_run=config.dry_run,
             logger=context.log,
         )

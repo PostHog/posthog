@@ -173,14 +173,17 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
 export interface AssistantCohortPropertyFilter {
     /**
      * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
-     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them.
+     * Examples:
+     * - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`
      */
     type: PropertyFilterType.Cohort
     key: 'id'
     /** The cohort ID to filter by. */
     value: integer
     /** @default in */
-    operator: PropertyOperator.In
+    operator: PropertyOperator.In | PropertyOperator.NotIn
 }
 
 export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {
@@ -532,6 +535,12 @@ export interface AssistantTrendsFilter {
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+
     /**
      * Whether to show alert threshold lines on the chart.
      * @default false
@@ -879,7 +888,7 @@ export interface AssistantRetentionFilter {
      * The type of property to aggregate on (event or person). Defaults to event.
      * @default event
      */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {

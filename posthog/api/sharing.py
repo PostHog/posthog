@@ -24,8 +24,6 @@ from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
-from posthog.api.insight import InsightSerializer
-from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -35,10 +33,9 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Cohort, InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
+from posthog.models import Cohort, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
-from posthog.models.insight import Insight
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -52,7 +49,10 @@ from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.util import extract_inline_query_nodes
+from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
+from products.product_analytics.backend.api.insight import InsightSerializer
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
 
@@ -384,9 +384,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         check_can_edit_sharing_configuration(self, request, instance)
 
         if request.data.get("password_required", False):
-            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 return response.Response(
-                    {"error": "Sharing with password requires the Advanced Permissions feature"}, status=403
+                    {"error": "Sharing with password requires the Access Control feature"}, status=403
                 )
 
         if context.get("recording"):
@@ -419,6 +419,28 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         )
                     ],
                     short_id=str(instance.insight.short_id),
+                ),
+            )
+
+        if context.get("dashboard") and "enabled" in request.data:
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=instance.dashboard.pk,
+                scope="Dashboard",
+                activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
+                detail=Detail(
+                    name=instance.dashboard.name,
+                    changes=[
+                        Change(
+                            type="Dashboard",
+                            action="changed",
+                            field="sharing",
+                            after=serializer.data.get("enabled"),
+                        )
+                    ],
                 ),
             )
 
@@ -482,6 +504,18 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 ),
             )
 
+        if context.get("dashboard"):
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=new_instance.dashboard.pk,
+                scope="Dashboard",
+                activity="access token refreshed",
+                detail=Detail(name=new_instance.dashboard.name),
+            )
+
         if context.get("notebook"):
             log_activity(
                 organization_id=None,
@@ -514,9 +548,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
-                {"error": "Password management requires the Advanced Permissions feature"},
+                {"error": "Password management requires the Access Control feature"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -554,9 +588,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
-                {"error": "Password management requires the Advanced Permissions feature"},
+                {"error": "Password management requires the Access Control feature"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -695,7 +729,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if access_token:
             try:
                 sharing_configuration = (
-                    SharingConfiguration.objects.select_related("dashboard", "insight", "recording", "notebook")
+                    SharingConfiguration.objects.select_related(
+                        "dashboard",
+                        "insight",
+                        "recording",
+                        "notebook",
+                        "interviewee_context",
+                        "interviewee_context__topic",
+                    )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
                     .get(access_token=access_token)
                 )
@@ -740,10 +781,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not resource:
             return custom_404_response(self.request)
 
-        # Check if organization allows publicly shared resources
         if (
-            isinstance(resource, SharingConfiguration)
-            and resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
             and not resource.team.organization.allow_publicly_shared_resources
         ):
             return custom_404_response(self.request)
@@ -1006,6 +1045,34 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
+        elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
+            from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
+
+            ic = resource.interviewee_context
+            topic = ic.topic
+            asset_title = topic.topic or "User interview"
+            asset_description = "PostHog AI user interview"
+            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+            already_replied = has_replied(
+                team_id=topic.team_id,
+                topic_id=topic.id,
+                interviewee_identifier=ic.interviewee_identifier,
+            )
+            # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
+            # the recipient would otherwise see their own internal-notes context in view-source.
+            # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
+            exported_data.update(
+                {
+                    "type": "interview",
+                    "interview": {
+                        "topic_id": str(topic.id),
+                        "interviewee_identifier": ic.interviewee_identifier,
+                        "user_name": user_name,
+                        "topic": topic.topic,
+                        "already_replied": already_replied,
+                    },
+                }
+            )
         elif isinstance(resource, SharingConfiguration) and resource.recording:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
@@ -1014,6 +1081,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_title = resource.notebook.title or "Notebook"
             asset_description = ""
             notebook_data = NotebookSerializer(resource.notebook, context=context).data
+            # Strip unsupported `ph-*` widget attrs before the document leaves the server — the
+            # frontend `UnsupportedNodePlaceholder` is UI-only and the raw attrs would otherwise
+            # ship to anonymous viewers.
+            if isinstance(notebook_data.get("content"), dict):
+                notebook_data["content"] = filter_notebook_content_for_sharing(notebook_data["content"])
+            # `text_content` is a search-only plain-text projection that may include fragments of
+            # the now-stripped nodes.
+            notebook_data["text_content"] = None
             exported_data.update({"notebook": notebook_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
 
