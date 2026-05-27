@@ -96,7 +96,7 @@ export interface PaginatedNotebookMinimalListApi {
 }
 
 /**
- * Parent resource this notebook is attached to, or `null` if it has no parent. Account notebooks return `{type: 'account', id: <uuid>}`; the frontend uses this to route breadcrumbs back to the resource's list instead of the global Notebooks list.
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
  * @nullable
  */
 export type NotebookApiParentResource = {
@@ -140,7 +140,7 @@ export interface NotebookApi {
      */
     readonly user_access_level: string | null
     /**
-     * Parent resource this notebook is attached to, or `null` if it has no parent. Account notebooks return `{type: 'account', id: <uuid>}`; the frontend uses this to route breadcrumbs back to the resource's list instead of the global Notebooks list.
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
      * @nullable
      */
     readonly parent_resource: NotebookApiParentResource
@@ -170,7 +170,7 @@ export interface SharingConfigurationApi {
 }
 
 /**
- * Parent resource this notebook is attached to, or `null` if it has no parent. Account notebooks return `{type: 'account', id: <uuid>}`; the frontend uses this to route breadcrumbs back to the resource's list instead of the global Notebooks list.
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
  * @nullable
  */
 export type PatchedNotebookApiParentResource = {
@@ -214,7 +214,7 @@ export interface PatchedNotebookApi {
      */
     readonly user_access_level?: string | null
     /**
-     * Parent resource this notebook is attached to, or `null` if it has no parent. Account notebooks return `{type: 'account', id: <uuid>}`; the frontend uses this to route breadcrumbs back to the resource's list instead of the global Notebooks list.
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
      * @nullable
      */
     readonly parent_resource?: PatchedNotebookApiParentResource

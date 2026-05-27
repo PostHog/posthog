@@ -138,9 +138,9 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 class NotebookSerializer(NotebookMinimalSerializer):
     parent_resource = serializers.SerializerMethodField(
         help_text=(
-            "Parent resource this notebook is attached to, or `null` if it has no parent. "
-            "Account notebooks return `{type: 'account', id: <uuid>}`; the frontend uses this "
-            "to route breadcrumbs back to the resource's list instead of the global Notebooks list."
+            "Parent resource this notebook is attached to, or `null`. Returns "
+            "`{type: 'account', id: <uuid>}` for account-linked notebooks; used by the "
+            "frontend to route breadcrumbs back to the resource's list."
         ),
     )
 
@@ -183,8 +183,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
     @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
     def get_parent_resource(self, obj: Notebook) -> dict | None:
-        # Notebooks today have at most one parent resource link (ResourceNotebook). Future
-        # parent types (e.g. groups) should extend the schema's `type` enum and this lookup.
+        # Group parents are skipped: ResourceNotebook stores group PK but personhog has no get-by-pk RPC.
         link = obj.resources.filter(account_id__isnull=False).only("account_id").first()
         if link is None:
             return None
