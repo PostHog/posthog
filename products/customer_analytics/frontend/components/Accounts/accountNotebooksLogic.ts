@@ -36,7 +36,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                             posthog.captureException(error as Error, {
                                 scope: 'accountNotebooksLogic.loadNotebooks',
                             })
-                            lemonToast.error('Failed to load account notebooks')
+                            lemonToast.error('Failed to load account notes')
                         }
                         throw error
                     }

@@ -34,7 +34,7 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
                 return (
                     <div className="flex flex-col gap-1 py-1 max-w-2xl">
                         <Link to={urls.notebook(notebook.short_id)} className="font-medium">
-                            {notebook.title || 'Untitled notebook'}
+                            {notebook.title || 'Untitled note'}
                         </Link>
                         {preview ? (
                             <span className="text-xs text-muted line-clamp-2">{preview}</span>
@@ -84,9 +84,7 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
                 loading={notebooksLoading}
                 columns={columns}
                 emptyState={
-                    notebooks === null
-                        ? 'Failed to load account notebooks.'
-                        : 'No notebooks linked to this account yet.'
+                    notebooks === null ? 'Failed to load account notes.' : 'No notes linked to this account yet.'
                 }
             />
         </div>

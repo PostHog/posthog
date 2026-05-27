@@ -51,7 +51,7 @@ export function AccountsTable(): JSX.Element {
                 ),
         },
         {
-            title: 'Notebooks',
+            title: 'Notes',
             key: 'notebooks',
             dataIndex: 'notebooks',
             render: (_, account) => {
