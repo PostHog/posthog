@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -14,6 +13,7 @@ from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 
 from ee.api.test.base import APILicensedTest

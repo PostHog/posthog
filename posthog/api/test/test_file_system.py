@@ -20,19 +20,19 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from posthog.models.insight import Insight
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 

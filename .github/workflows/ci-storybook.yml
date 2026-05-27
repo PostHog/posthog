@@ -221,7 +221,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup]
         if: >-
             always()

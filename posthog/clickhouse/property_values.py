@@ -44,14 +44,13 @@ def PROPERTY_VALUES_TABLE_SQL() -> str:
 ORDER BY (team_id, property_type, property_key, property_value)
 TTL last_seen + INTERVAL 30 DAY DELETE
 SETTINGS
-    index_granularity = 8192,
-    enable_full_text_index = 1
+    index_granularity = 8192
 """
     ).format(
         table_name=TABLE_NAME,
         engine=AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
         extra_fields=""",
-    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1""",
+    INDEX idx_property_value_ngrambf lower(property_value) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1""",
     )
 
 
