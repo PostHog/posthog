@@ -1,4 +1,5 @@
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
@@ -66,7 +67,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
         )
 
     const cleanLimiter = async (limiter: PerIssueGuardedRateLimiterService) => {
-        await deleteKeysWithPrefix(redis, limiter.getBucketKeyPrefix())
+        await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
         await deleteKeysWithPrefix(redis, limiter.getCounterKeyPrefix())
         await deleteKeysWithPrefix(redis, limiter.getFallbackKeyPrefix())
     }
@@ -86,9 +87,8 @@ describe('PerIssueGuardedRateLimiterService', () => {
         sig: string,
         cost = 1,
         overrides: Partial<{ bucketSize: number; refillRate: number }> = {}
-    ) => ({
-        teamId,
-        sig,
+    ): KeyedRateLimitRequest => ({
+        id: `${teamId}:exceptions:issue:${sig}`,
         cost,
         bucketSize: overrides.bucketSize ?? 100,
         refillRate: overrides.refillRate ?? 10,
@@ -98,9 +98,9 @@ describe('PerIssueGuardedRateLimiterService', () => {
         const limiter = build('first-event')
         await cleanLimiter(limiter)
 
-        const res = await limiter.rateLimit([req(42, 'sig-a')])
+        const res = await limiter.rateLimitGrouped([req(42, 'sig-a')])
 
-        expect([...res.values()]).toEqual([expect.objectContaining({ status: 'allowed', isRateLimited: false })])
+        expect(res[0][1]).toEqual(expect.objectContaining({ isRateLimited: false }))
         const nowSeconds = Math.round(now / 1000)
         expect(await readCounter(limiter.counterKey(42, nowSeconds))).toBe(1)
         expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(false)
@@ -110,53 +110,35 @@ describe('PerIssueGuardedRateLimiterService', () => {
         const limiter = build('repeat-sig')
         await cleanLimiter(limiter)
 
-        await limiter.rateLimit([req(42, 'sig-a')])
-        await limiter.rateLimit([req(42, 'sig-a')])
-        await limiter.rateLimit([req(42, 'sig-a')])
+        await limiter.rateLimitGrouped([req(42, 'sig-a')])
+        await limiter.rateLimitGrouped([req(42, 'sig-a')])
+        await limiter.rateLimitGrouped([req(42, 'sig-a')])
 
         const nowSeconds = Math.round(now / 1000)
         expect(await readCounter(limiter.counterKey(42, nowSeconds))).toBe(1)
     })
 
-    it('trips the fallback flag when new-key creations exceed threshold', async () => {
-        const limiter = build('trip-threshold', { threshold: 2 })
+    it('does not create the bucket key once tripped, and short-circuits subsequent events', async () => {
+        const limiter = build('trip', { threshold: 1 })
         await cleanLimiter(limiter)
 
-        const r1 = await limiter.rateLimit([req(42, 'a')])
-        const r2 = await limiter.rateLimit([req(42, 'b')])
-        const r3 = await limiter.rateLimit([req(42, 'c')])
+        const r1 = await limiter.rateLimitGrouped([req(42, 'a')]) // allowed (counter=1)
+        const r2 = await limiter.rateLimitGrouped([req(42, 'b')]) // tripped (counter=2 > threshold 1)
+        const r3 = await limiter.rateLimitGrouped([req(42, 'c')]) // fallback (flag set)
 
-        expect([...r1.values()][0].status).toBe('allowed')
-        expect([...r2.values()][0].status).toBe('allowed')
-        // 3rd new sig pushes counter to 3 > threshold 2 → tripped.
-        expect([...r3.values()][0].status).toBe('tripped')
+        // r1 mints a bucket, r2/r3 do not (per-issue defers to team-global → isRateLimited=false).
+        expect(r1[0][1].isRateLimited).toBe(false)
+        expect(r2[0][1].isRateLimited).toBe(false)
+        expect(r3[0][1].isRateLimited).toBe(false)
         expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(true)
-    })
 
-    it('does not create the bucket key when tripped', async () => {
-        const limiter = build('no-bucket-on-trip', { threshold: 1 })
-        await cleanLimiter(limiter)
-
-        await limiter.rateLimit([req(42, 'first')]) // allowed, bucket created
-        const trippedResult = await limiter.rateLimit([req(42, 'second')]) // tripped, bucket NOT created
-        expect([...trippedResult.values()][0].status).toBe('tripped')
-
-        const bucketExists = await redis.useClient({ name: 'check' }, async (client) =>
-            client.exists(limiter.bucketKey(42, 'second'))
+        // Bucket for 'b' was never written.
+        const bExists = await redis.useClient({ name: 'check' }, async (client) =>
+            client.exists(`${limiter.getKeyPrefix()}/42:exceptions:issue:b`)
         )
-        expect(bucketExists).toBe(0)
-    })
+        expect(bExists).toBe(0)
 
-    it('short-circuits subsequent events on fallback', async () => {
-        const limiter = build('short-circuit', { threshold: 1 })
-        await cleanLimiter(limiter)
-
-        await limiter.rateLimit([req(42, 'a')])
-        await limiter.rateLimit([req(42, 'b')]) // trips
-        const after = await limiter.rateLimit([req(42, 'c')])
-
-        expect([...after.values()][0].status).toBe('fallback')
-        // Counter should not have advanced past the trip value (no INCR during fallback).
+        // Counter stayed at 2 — no INCR during fallback.
         const nowSeconds = Math.round(now / 1000)
         expect(await readCounter(limiter.counterKey(42, nowSeconds))).toBe(2)
     })
@@ -165,65 +147,63 @@ describe('PerIssueGuardedRateLimiterService', () => {
         const limiter = build('team-iso', { threshold: 1 })
         await cleanLimiter(limiter)
 
-        // Team 42 trips.
-        await limiter.rateLimit([req(42, 'a')])
-        await limiter.rateLimit([req(42, 'b')])
+        await limiter.rateLimitGrouped([req(42, 'a')])
+        await limiter.rateLimitGrouped([req(42, 'b')])
         expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(true)
 
-        // Team 99 is unaffected.
-        const r = await limiter.rateLimit([req(99, 'a')])
-        expect([...r.values()][0].status).toBe('allowed')
+        const r = await limiter.rateLimitGrouped([req(99, 'a')])
+        expect(r[0][1].isRateLimited).toBe(false)
         expect(await fallbackIsSet(limiter.fallbackKey(99))).toBe(false)
     })
 
-    it('rotates the counter on hour boundary while fallback persists', async () => {
+    it('rotates the counter on hour boundary', async () => {
         const limiter = build('hour-rotate', { threshold: 1, windowTtlSeconds: 3600 })
         await cleanLimiter(limiter)
 
-        await limiter.rateLimit([req(42, 'a')])
-        await limiter.rateLimit([req(42, 'b')]) // trips
+        await limiter.rateLimitGrouped([req(42, 'a')])
 
         const nowSeconds = Math.round(now / 1000)
         const counterH = limiter.counterKey(42, nowSeconds)
-
-        // Roll the clock forward into the next hour bucket.
         advanceTime(3600 * 1000)
         const counterHPlus1 = limiter.counterKey(42, Math.round(now / 1000))
         expect(counterHPlus1).not.toBe(counterH)
 
-        // Still in fallback (5 min TTL not exhausted), so a new-sig event short-circuits.
-        const r = await limiter.rateLimit([req(42, 'c')])
-        expect([...r.values()][0].status).toBe('fallback')
-        // New-hour counter is untouched while in fallback.
-        expect(await readCounter(counterHPlus1)).toBeNull()
+        // After the rollover, the new-hour counter starts fresh on the next new sig.
+        await limiter.rateLimitGrouped([req(42, 'b')])
+        expect(await readCounter(counterHPlus1)).toBe(1)
     })
 
     it('returns to allowed once fallback TTL expires and team stops creating new sigs', async () => {
         const limiter = build('recover', { threshold: 1, fallbackTtlSeconds: 1 })
         await cleanLimiter(limiter)
 
-        await limiter.rateLimit([req(42, 'a')])
-        await limiter.rateLimit([req(42, 'b')]) // trips
+        await limiter.rateLimitGrouped([req(42, 'a')])
+        await limiter.rateLimitGrouped([req(42, 'b')])
         expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(true)
 
-        // Wait for the fallback flag to expire.
         await new Promise((resolve) => setTimeout(resolve, 1100))
         expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(false)
 
-        // Repeat of an existing sig: bucket already exists, no INCR, no re-trip.
-        const r = await limiter.rateLimit([req(42, 'a')])
-        expect([...r.values()][0].status).toBe('allowed')
+        const r = await limiter.rateLimitGrouped([req(42, 'a')])
+        expect(r[0][1].isRateLimited).toBe(false)
     })
 
-    it('rate-limits when a single sig exceeds its own bucket', async () => {
+    it('rate-limits when a single sig drains its own bucket', async () => {
         const limiter = build('bucket-limit')
         await cleanLimiter(limiter)
 
-        // bucketSize=5 — second call of cost=4 will overshoot.
-        await limiter.rateLimit([req(42, 'noisy', 4, { bucketSize: 5, refillRate: 0 })])
-        const r = await limiter.rateLimit([req(42, 'noisy', 4, { bucketSize: 5, refillRate: 0 })])
-        expect([...r.values()][0].status).toBe('limited')
-        expect([...r.values()][0].isRateLimited).toBe(true)
+        await limiter.rateLimitGrouped([req(42, 'noisy', 4, { bucketSize: 5, refillRate: 0 })])
+        const r = await limiter.rateLimitGrouped([req(42, 'noisy', 4, { bucketSize: 5, refillRate: 0 })])
+        expect(r[0][1].isRateLimited).toBe(true)
+    })
+
+    it('throws when the id does not match the expected format', async () => {
+        const limiter = build('bad-id')
+        await cleanLimiter(limiter)
+
+        await expect(
+            limiter.rateLimitGrouped([{ id: 'not-a-valid-id', cost: 1, bucketSize: 100, refillRate: 1 }])
+        ).rejects.toThrow(/does not match the expected/)
     })
 
     it('fails open when the Redis pipeline fails', async () => {
@@ -241,9 +221,9 @@ describe('PerIssueGuardedRateLimiterService', () => {
             } as unknown as RedisV2
         )
 
-        const res = await limiter.rateLimit([req(42, 'a'), req(42, 'b')])
-        for (const r of res.values()) {
-            expect(r).toEqual(expect.objectContaining({ status: 'allowed', isRateLimited: false }))
+        const res = await limiter.rateLimitGrouped([req(42, 'a'), req(42, 'b')])
+        for (const [, r] of res) {
+            expect(r).toEqual(expect.objectContaining({ isRateLimited: false }))
         }
     })
 })

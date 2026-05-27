@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { KeyedRateLimit, KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
 
 const guardOutcomeCounter = new Counter({
     name: 'error_tracking_per_issue_guard_outcome_total',
@@ -11,6 +12,13 @@ const guardOutcomeCounter = new Counter({
 export type GuardedStatus = 'allowed' | 'limited' | 'tripped' | 'fallback'
 
 const STATUS_BY_CODE: GuardedStatus[] = ['allowed', 'limited', 'tripped', 'fallback']
+
+// Per-issue limiter ids are produced by error-tracking-consumer.ts as
+// `{teamId}:exceptions:issue:{sig}`. The format is load-bearing here — the
+// guarded Lua needs the teamId to construct the per-team counter and fallback
+// flag keys. A runtime assert in `rateLimitGrouped` makes a future rename
+// fail loudly instead of silently mis-attributing counters.
+const ID_RE = /^(\d+):exceptions:issue:([^/]+)$/
 
 export interface PerIssueGuardedRateLimiterConfig {
     /** Logical name; produces `@posthog/<name>/tokens|sigcount|sigfb/...` keys (`@posthog-test/...` under NODE_ENV=test). */
@@ -25,23 +33,6 @@ export interface PerIssueGuardedRateLimiterConfig {
     bucketTtlSeconds: number
     /** When false, throw if the Redis pipeline returns null instead of fail-open allowing all. Default: true. */
     failOpen?: boolean
-}
-
-export interface PerIssueGuardedRequest {
-    teamId: number
-    sig: string
-    cost: number
-    bucketSize: number
-    refillRate: number
-    /** Override the request timestamp (seconds). Default: `Math.round(Date.now() / 1000)`. */
-    now?: number
-}
-
-export interface PerIssueGuardedResult {
-    tokensBefore: number
-    tokens: number
-    isRateLimited: boolean
-    status: GuardedStatus
 }
 
 type GuardedPipeline = RedisClientPipeline & {
@@ -79,7 +70,7 @@ export class PerIssueGuardedRateLimiterService {
         this.prefixes = buildPrefixes(config.name)
     }
 
-    public getBucketKeyPrefix(): string {
+    public getKeyPrefix(): string {
         return this.prefixes.bucket
     }
 
@@ -91,10 +82,6 @@ export class PerIssueGuardedRateLimiterService {
         return this.prefixes.fallback
     }
 
-    public bucketKey(teamId: number, sig: string): string {
-        return `${this.prefixes.bucket}/${teamId}:exceptions:issue:${sig}`
-    }
-
     public fallbackKey(teamId: number): string {
         return `${this.prefixes.fallback}/${teamId}`
     }
@@ -104,46 +91,76 @@ export class PerIssueGuardedRateLimiterService {
         return `${this.prefixes.counter}/${teamId}/${window}`
     }
 
-    public async rateLimit(requests: PerIssueGuardedRequest[]): Promise<Map<string, PerIssueGuardedResult>> {
-        const out = new Map<string, PerIssueGuardedResult>()
+    /**
+     * Same shape as `KeyedRateLimiterService.rateLimitGrouped` — drop-in for the
+     * existing keyed-rate-limiter step. Tripped/fallback statuses pass through
+     * as `isRateLimited: false`; the team-global limiter downstream still gets
+     * to enforce. The full 4-state status is exposed only via the service's
+     * Prom counter so operators can attribute trip events to specific teams.
+     */
+    public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
-            return out
+            return []
         }
 
-        // Group by (teamId, sig). Sum costs across inputs that share a key so the
-        // Lua script sees one call per unique sig (matches rateLimitGrouped shape).
-        const grouped = new Map<string, PerIssueGuardedRequest>()
+        const grouped = new Map<string, KeyedRateLimitRequest>()
         for (const req of requests) {
-            const id = this.bucketKey(req.teamId, req.sig)
-            const existing = grouped.get(id)
+            const existing = grouped.get(req.id)
             if (existing) {
                 existing.cost += req.cost
             } else {
-                grouped.set(id, { ...req })
+                grouped.set(req.id, { ...req })
             }
         }
 
-        const items = [...grouped.entries()]
+        const items = [...grouped.values()]
+
+        const teamIds: number[] = items.map((req) => {
+            const m = ID_RE.exec(req.id)
+            if (!m) {
+                throw new Error(
+                    `PerIssueGuardedRateLimiterService(${this.config.name}): id "${req.id}" does not match the expected "{teamId}:exceptions:issue:{sig}" format`
+                )
+            }
+            return Number(m[1])
+        })
+
+        const bucketSizes = items.map((req) => {
+            const bucketSize = req.bucketSize
+            if (bucketSize == null) {
+                throw new Error(
+                    `PerIssueGuardedRateLimiterService(${this.config.name}): missing bucketSize for ${req.id}`
+                )
+            }
+            return bucketSize
+        })
 
         const res = await this.redis.usePipeline(
             { name: `per-issue-guarded:${this.config.name}`, failOpen: true },
             (pipeline) => {
-                for (const [, req] of items) {
+                items.forEach((req, i) => {
+                    const refillRate = req.refillRate
+                    if (refillRate == null) {
+                        throw new Error(
+                            `PerIssueGuardedRateLimiterService(${this.config.name}): missing refillRate for ${req.id}`
+                        )
+                    }
+                    const teamId = teamIds[i]
                     const now = req.now ?? Math.round(Date.now() / 1000)
                     ;(pipeline as GuardedPipeline).checkGuardedRateLimit(
-                        this.fallbackKey(req.teamId),
-                        this.counterKey(req.teamId, now),
-                        this.bucketKey(req.teamId, req.sig),
+                        this.fallbackKey(teamId),
+                        this.counterKey(teamId, now),
+                        `${this.prefixes.bucket}/${req.id}`,
                         now,
                         req.cost,
-                        req.bucketSize,
-                        req.refillRate,
-                        this.config.bucketTtlSeconds,
+                        bucketSizes[i],
+                        refillRate,
+                        req.ttlSeconds ?? this.config.bucketTtlSeconds,
                         this.config.threshold,
                         this.config.windowTtlSeconds,
                         this.config.fallbackTtlSeconds
                     )
-                }
+                })
             }
         )
 
@@ -151,32 +168,42 @@ export class PerIssueGuardedRateLimiterService {
             if (this.config.failOpen === false) {
                 throw new Error(`PerIssueGuardedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
             }
-            for (const [id, req] of items) {
-                out.set(id, {
-                    tokensBefore: req.bucketSize,
-                    tokens: req.bucketSize,
-                    isRateLimited: false,
-                    status: 'allowed',
-                })
-            }
-            guardOutcomeCounter.inc({ outcome: 'allowed' }, items.length)
-            return out
+            guardOutcomeCounter.inc({ outcome: 'allowed' }, requests.length)
+            const bucketSizeById = new Map(items.map((req, i) => [req.id, bucketSizes[i]]))
+            return requests.map((req) => {
+                const bucketSize = bucketSizeById.get(req.id) ?? 0
+                return [req.id, { tokensBefore: bucketSize, tokens: bucketSize, isRateLimited: false }]
+            })
         }
 
-        items.forEach(([id, req], index) => {
+        const budgetById = new Map<string, number>()
+        const statusById = new Map<string, GuardedStatus>()
+        items.forEach((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             const raw = tokenRes?.[1] as [unknown, unknown, unknown] | undefined
-            const tokensBefore = raw ? Number(raw[0]) : req.bucketSize
-            const tokens = raw ? Number(raw[1]) : req.bucketSize
+            const tokensBefore = raw ? Number(raw[0]) : bucketSizes[index]
             const statusCode = raw ? Number(raw[2]) : 0
             const status = STATUS_BY_CODE[statusCode] ?? 'allowed'
-            out.set(id, {
-                tokensBefore,
-                tokens,
-                isRateLimited: status === 'limited',
-                status,
-            })
+            budgetById.set(req.id, tokensBefore)
+            statusById.set(req.id, status)
+        })
+
+        const out: [string, KeyedRateLimit][] = requests.map((req) => {
+            const status = statusById.get(req.id) ?? 'allowed'
+            const tokensBefore = budgetById.get(req.id) ?? 0
             guardOutcomeCounter.inc({ outcome: status }, 1)
+
+            if (status === 'tripped' || status === 'fallback') {
+                // Skip client-side fan-out: per-issue defers to team-global limiter.
+                return [req.id, { tokensBefore: 0, tokens: 0, isRateLimited: false }]
+            }
+            // Same fan-out shape as KeyedRateLimiterService.rateLimitGrouped.
+            if (tokensBefore >= req.cost) {
+                const next = tokensBefore - req.cost
+                budgetById.set(req.id, next)
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
+            }
+            return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]
         })
 
         return out

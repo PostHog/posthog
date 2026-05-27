@@ -35,7 +35,6 @@ import {
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
-import { PerIssueGuardedRateLimiterStepOptions } from './per-issue-guarded-rate-limiter-step'
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
 import { preCymbalGroupKey } from './pre-cymbal-group-key'
 import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
@@ -290,7 +289,6 @@ export class ErrorTrackingConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
-            perIssueGuardedRateLimiter: this.buildPerIssueGuardedRateLimiterSpec(),
             errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
@@ -299,16 +297,46 @@ export class ErrorTrackingConsumer {
     }
 
     /**
-     * Construct the pre-Cymbal rate limiter spec list for caps that don't need the
-     * per-team new-key guard (currently: just the team-global cap). The per-issue
-     * cap lives in the dedicated guarded slot via `buildPerIssueGuardedRateLimiterSpec`.
+     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
+     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
+     *
+     * The per-issue spec points at the guarded service (different Lua: caps the
+     * number of new bucket keys a team can mint per window to defend against
+     * attacker-fuzzed sigs). The team-global spec uses the base v3 service.
      */
     private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
-        if (!this.rateLimiter) {
+        if (!this.rateLimiter || !this.perIssueGuardedRateLimiter) {
             return []
         }
 
         return [
+            // Per-issue cap runs before the team-global cap so a runaway issue
+            // gets dropped against its own bucket instead of draining the
+            // team-global budget on its way out.
+            {
+                rateLimiter: this.perIssueGuardedRateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => {
+                    if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
+                        return null
+                    }
+                    const sig = preCymbalGroupKey(input.event)
+                    return sig ? `${input.team.id}:exceptions:issue:${sig}` : null
+                },
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:per_issue',
+                getBucketConfig: (input) => {
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.perIssueRateLimitValue!
+                    const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: value,
+                        refillRate: value / (minutes * 60),
+                    }
+                },
+            },
             // Team-global cap: every $exception event for a team consumes one token
             // from a per-team bucket.
             {
@@ -338,38 +366,6 @@ export class ErrorTrackingConsumer {
                 },
             },
         ]
-    }
-
-    private buildPerIssueGuardedRateLimiterSpec():
-        | PerIssueGuardedRateLimiterStepOptions<PreCymbalRateLimiterInput>
-        | undefined {
-        if (!this.perIssueGuardedRateLimiter) {
-            return undefined
-        }
-        const rateLimiter = this.perIssueGuardedRateLimiter
-        return {
-            rateLimiter,
-            appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
-            appSource: 'exceptions',
-            getGuardKey: (input) => {
-                if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
-                    return null
-                }
-                const sig = preCymbalGroupKey(input.event)
-                return sig ? { teamId: input.team.id, sig } : null
-            },
-            reportingMode: this.config.rateLimiterReportingMode,
-            dropReason: 'rate_limited:per_issue',
-            getBucketConfig: (input) => {
-                const settings = input.errorTrackingSettings!
-                const value = settings.perIssueRateLimitValue!
-                const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
-                return {
-                    bucketSize: value,
-                    refillRate: value / (minutes * 60),
-                }
-            },
-        }
     }
 
     public async stop(): Promise<void> {
