@@ -309,7 +309,8 @@ def _run_shadow_comparison(
     `capture_exception`, not the logs.
 
     Prod records divergences and shadow crashes without raising. TEST raises on a divergence or a shadow that rejects
-    primary-accepted input; a packaging-class shadow failure (broken wheel, panic) is only counted.
+    primary-accepted input; a packaging-class shadow failure (broken wheel, panic) is only counted. ASTs are compared
+    INCLUDING per-node `start` / `end` positions — divergent spans are flagged "position-only" for triage.
     """
     if random.random() >= _shadow_sample_rate():
         return
@@ -346,19 +347,31 @@ def _run_shadow_comparison(
         _count("shadow_error")
         capture_exception(err, additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"})
         return
-    # Structure-only: clearing locations drops `start`/`end`, which diverge widely between cpp and rust-py on real
-    # queries. Source-position parity is left to the cross-backend parser test suite and a follow-up.
-    primary_cleared = clear_locations(primary_node)
-    shadow_cleared = clear_locations(shadow_node)
-    # Dataclass `==` reports a false mismatch for NaN-bearing ASTs (`float("nan") != float("nan")`); repr is stable for NaN, so treat repr-equal as agreement too.
-    if primary_cleared == shadow_cleared or repr(primary_cleared) == repr(shadow_cleared):
+    # Positions are part of the contract — the printer and planner consume cpp's per-node `start` / `end` spans, so a
+    # span divergence is a real divergence. Compare full nodes; `clear_locations` is only used to classify a mismatch
+    # as position-only vs structural for triage. Dataclass `==` reports a false mismatch for NaN-bearing ASTs
+    # (`float("nan") != float("nan")`); repr is stable for NaN, so treat repr-equal as agreement too.
+    if primary_node == shadow_node or repr(primary_node) == repr(shadow_node):
         _count("agree")
         return
+    primary_cleared = clear_locations(primary_node)
+    shadow_cleared = clear_locations(shadow_node)
+    position_only = primary_cleared == shadow_cleared or repr(primary_cleared) == repr(shadow_cleared)
+    kind = "position-only" if position_only else "structural"
     _count("disagree")
-    mismatch = HogQLParserShadowMismatch(f"{rule} parser AST mismatch: {primary_backend} vs {shadow_backend}")
+    # Include the offending statement so a failing test (or 1%-sample capture) is self-describing — the raised
+    # exception is otherwise just "rule + backends". Truncate to keep the message bounded; the full statement is
+    # also attached as a capture property via `divergence_properties`.
+    excerpt = statement if len(statement) <= 2000 else statement[:2000] + "…(truncated)"
+    mismatch = HogQLParserShadowMismatch(
+        f"{rule} parser AST mismatch ({kind}): {primary_backend} vs {shadow_backend}\nstatement: {excerpt!r}"
+    )
     if test_mode:
         raise mismatch
-    capture_exception(mismatch, additional_properties=divergence_properties)
+    capture_exception(
+        mismatch,
+        additional_properties={**divergence_properties, "hogql_parser_position_only_mismatch": position_only},
+    )
 
 
 # Two caches so a flood of unique user-generated queries can't displace the
