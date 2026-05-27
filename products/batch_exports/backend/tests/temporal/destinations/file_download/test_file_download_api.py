@@ -359,6 +359,45 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
     mock_start.assert_not_called()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_list_returns_run_ids_and_statuses(
+    async_client: AsyncClient,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+):
+    destination = await BatchExportDestination.objects.acreate(
+        type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+    )
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    running_run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.RUNNING,
+    )
+    completed_run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.COMPLETED,
+    )
+
+    await async_client.aforce_login(user)
+
+    response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    data = response.json()
+    assert data["count"] == 2
+    assert data["results"] == [
+        {"id": str(completed_run.id), "status": BatchExportRun.Status.COMPLETED},
+        {"id": str(running_run.id), "status": BatchExportRun.Status.RUNNING},
+    ]
+
+
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_end_to_end(
