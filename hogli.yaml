@@ -900,6 +900,9 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:insights:
+        click: hogli_commands.ci_insights:ci_insights
+        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
 utilities:
     nuke:
         steps:
