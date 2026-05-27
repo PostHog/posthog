@@ -1,13 +1,13 @@
-import React from 'react'
+import type { ReactNode } from 'react'
 
 export interface MetricChange {
     value: number
-    label?: React.ReactNode
+    label?: ReactNode
 }
 
 export interface ResolvedDelta {
     value: number
-    label: React.ReactNode
+    label: ReactNode
 }
 
 export function resolveDelta({
@@ -25,7 +25,7 @@ export function resolveDelta({
         return null
     }
     if (change !== undefined) {
-        if (change === null) {
+        if (change === null || !Number.isFinite(change.value)) {
             return null
         }
         return {

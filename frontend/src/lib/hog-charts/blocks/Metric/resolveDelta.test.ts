@@ -17,6 +17,13 @@ describe('resolveDelta', () => {
         { name: 'no change and no fallback', showChange: true, fallbackChangePercent: null },
         { name: 'no change and fallback is NaN', showChange: true, fallbackChangePercent: NaN },
         { name: 'no change and fallback is Infinity', showChange: true, fallbackChangePercent: Infinity },
+        { name: 'change.value is NaN', showChange: true, change: { value: NaN } },
+        { name: 'change.value is Infinity', showChange: true, change: { value: Infinity } },
+        {
+            name: 'change.value is -Infinity, even with a label',
+            showChange: true,
+            change: { value: -Infinity, label: 'overridden' },
+        },
     ])('returns null when $name', ({ showChange, change, fallbackChangePercent }) => {
         expect(
             resolveDelta({
