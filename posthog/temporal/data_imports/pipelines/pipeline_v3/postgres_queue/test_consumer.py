@@ -224,6 +224,7 @@ class TestRecoverySweep:
             batch_id=stale_batch.id,
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
+            error_response={"error": "executing timed out — pod restart or OOM"},
         )
 
     @pytest.mark.asyncio
