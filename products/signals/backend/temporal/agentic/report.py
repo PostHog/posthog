@@ -203,16 +203,16 @@ def _build_autostart_task_description(result: ReportResearchOutput, repository: 
         if result.priority
         else ""
     )
-    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
+    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}?ref=pr"
     return (
         f"{result.summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
-        "Act on this signal report. Investigate the root cause, implement the fix, "
-        "and open a PR if appropriate.\n\n"
-        f"When opening the PR, include this report deep link in the description footer "
-        f"(next to the 'Created with PostHog Code' line) so the human reviewer can jump "
-        f"straight to the originating report: {report_deep_link}"
+        "Act on this signal report. Investigate the root cause, implement the fix, and open a PR if appropriate.\n\n"
+        "When opening the PR, include this report deep link in the description footer, "
+        "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
+        f"from [an inbox report]({report_deep_link}).' - "
+        "so the human reviewer can jump straight to it."
     )
 
 
