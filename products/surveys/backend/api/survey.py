@@ -42,12 +42,6 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
-from posthog.api.feature_flag import (
-    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
-    FeatureFlagSerializer,
-    MinimalFeatureFlagSerializer,
-    warn_if_missing_feature_flag_write_scope,
-)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -66,7 +60,6 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -76,6 +69,13 @@ from posthog.utils_cors import cors_response
 
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.feature_flags.backend.api.feature_flag import (
+    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    FeatureFlagSerializer,
+    MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
+)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation

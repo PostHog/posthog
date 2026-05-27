@@ -468,6 +468,19 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
+export interface DataWarehouseSyncWarning {
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -482,6 +495,11 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     explain?: string[]
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
+    /**
+     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
+     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     */
+    warnings?: DataWarehouseSyncWarning[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1452,8 +1470,14 @@ export type TrendsFilter = {
 }
 
 export type CalendarHeatmapFilter = {
-    // Reserved for future filter properties
-    dummy?: string
+    /**
+     * When true and the series math is `dau`/`unique_users`, each user contributes to the
+     * (day-of-week, hour) bucket of their session's first event only — matching the web overview
+     * session-start attribution. When false (default), the user contributes to every bucket
+     * they have any event in. No effect on `total` math (event counts are unchanged either way).
+     * @default false
+     */
+    bucketBySessionStart?: boolean
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1525,6 +1549,11 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
+    /**
+     * Properties specific to the calendar heatmap display variant. Only consulted when
+     * `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise.
+     */
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
@@ -2410,6 +2439,8 @@ export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebE
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
     limit?: integer
+    /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2421,6 +2452,10 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -2458,6 +2493,8 @@ export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVi
     // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
     // Values in between the two values are the threshold for needs_improvements
     thresholds: [number, number]
+    /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
@@ -2467,6 +2504,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 

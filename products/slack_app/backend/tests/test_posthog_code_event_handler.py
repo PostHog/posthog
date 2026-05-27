@@ -245,6 +245,35 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         else:
             assert pending_picker is None
 
+    @parameterized.expand(
+        [
+            ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}),
+            ("message_changed_subtype", {"subtype": "message_changed"}),
+        ]
+    )
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_edit_does_not_start_workflow(
+        self,
+        _name,
+        edit_marker: dict,
+        mock_sync_connect,
+        mock_asyncio_run,
+        _mock_flag,
+    ):
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        edited_event = {**self.event, **edit_marker}
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, edited_event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")

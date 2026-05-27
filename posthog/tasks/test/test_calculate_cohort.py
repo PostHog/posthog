@@ -1106,7 +1106,7 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         with (
             patch("posthog.models.cohort.dependencies._on_cohort_changed") as mock_dep_cache,
-            patch("posthog.tasks.feature_flags.update_team_flags_cache") as mock_flags_cache,
+            patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_cache,
             patch("posthog.tasks.hog_functions.refresh_affected_hog_functions") as mock_hog_refresh,
         ):
             cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=None)
