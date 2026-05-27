@@ -11,9 +11,11 @@ import temporalio.activity
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.experiments.models import (
@@ -192,8 +194,12 @@ def _calculate_experiment_regular_metric_sync(
             team=experiment.team,
             workload=Workload.OFFLINE,
         )
-        result = query_runner._calculate()
-        result_dict = result.model_dump()
+        # .run() writes to the response cache. The "warming/*" trigger tells
+        # run() this is a scheduled job, not a user query, so it skips logging
+        # the events as "used by this team."
+        tag_queries(trigger="warming/experiment_timeseries")
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result_dict = result.model_dump(mode="json")
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
@@ -441,8 +447,12 @@ def _calculate_experiment_saved_metric_sync(
             team=experiment.team,
             workload=Workload.OFFLINE,
         )
-        result = query_runner._calculate()
-        result_dict = result.model_dump()
+        # .run() writes to the response cache. The "warming/*" trigger tells
+        # run() this is a scheduled job, not a user query, so it skips logging
+        # the events as "used by this team."
+        tag_queries(trigger="warming/experiment_timeseries")
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result_dict = result.model_dump(mode="json")
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
