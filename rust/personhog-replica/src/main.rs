@@ -308,11 +308,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
-    let gzip_config = AsyncGzipConfig {
-        enabled: config.gzip_response_compression,
-        compression_level: config.gzip_compression_level.clamp(1, 9),
-        min_payload_size: config.gzip_min_payload_size,
-    };
+    let gzip_config = AsyncGzipConfig::new(
+        config.gzip_response_compression,
+        config.gzip_compression_level,
+        config.gzip_min_payload_size,
+    );
 
     if gzip_config.enabled {
         tracing::info!(

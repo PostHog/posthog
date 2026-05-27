@@ -55,15 +55,25 @@ pub struct AsyncGzipConfig {
     /// passthrough regardless of client headers.
     pub enabled: bool,
 
-    /// Gzip compression level (1–9). Lower levels are faster with less
-    /// compression; higher levels compress more but use more CPU. Level 6
-    /// is the flate2/zlib default.
+    /// Gzip compression level (1–9, clamped). Lower levels are faster with
+    /// less compression; higher levels compress more but use more CPU.
+    /// Level 6 is the flate2/zlib default.
     pub compression_level: u32,
 
     /// Minimum payload size (bytes) to bother compressing. Responses smaller
     /// than this pass through uncompressed — the gzip header overhead would
     /// make them larger, and the CPU cost isn't worth it.
     pub min_payload_size: usize,
+}
+
+impl AsyncGzipConfig {
+    pub fn new(enabled: bool, compression_level: u32, min_payload_size: usize) -> Self {
+        Self {
+            enabled,
+            compression_level: compression_level.clamp(1, 9),
+            min_payload_size,
+        }
+    }
 }
 
 impl Default for AsyncGzipConfig {
@@ -184,7 +194,23 @@ where
                         warn!(error = %e, "Failed to read response body for compression");
                         counter!("grpc_gzip_responses_total", "outcome" => "collect_error")
                             .increment(1);
-                        let boxed: ResponseBody = Box::pin(PrecomputedBody::empty());
+                        // Synthesize a grpc-status trailer so the client gets a
+                        // clean error instead of a protocol violation from a
+                        // missing trailer.
+                        let error_trailers = trailers.unwrap_or_else(|| {
+                            let mut map = HeaderMap::new();
+                            map.insert("grpc-status", HeaderValue::from_static("13"));
+                            map.insert(
+                                "grpc-message",
+                                HeaderValue::from_str(&format!("body collection failed: {e}"))
+                                    .unwrap_or_else(|_| {
+                                        HeaderValue::from_static("body collection failed")
+                                    }),
+                            );
+                            map
+                        });
+                        let boxed: ResponseBody =
+                            Box::pin(PrecomputedBody::trailers_only(error_trailers));
                         return Ok(Response::from_parts(parts, boxed));
                     }
                     None => break,
@@ -192,7 +218,7 @@ where
             }
 
             let payload_size = total_size.saturating_sub(GRPC_HEADER_SIZE);
-            let already_compressed = !chunks.is_empty() && chunks[0].first().copied() == Some(1);
+            let already_compressed = chunks.iter().find_map(|c| c.first().copied()) == Some(1);
 
             // Skip compression when there's no data, the payload is below the
             // minimum threshold, or the frame is already compressed by tonic.
@@ -274,17 +300,10 @@ impl PrecomputedBody {
         }
     }
 
-    fn trailers_only(trailers: Option<HeaderMap>) -> Self {
+    fn trailers_only(trailers: impl Into<Option<HeaderMap>>) -> Self {
         Self {
             data: None,
-            trailers,
-        }
-    }
-
-    fn empty() -> Self {
-        Self {
-            data: None,
-            trailers: None,
+            trailers: trailers.into(),
         }
     }
 }
@@ -473,6 +492,54 @@ mod tests {
             let body = MockBody {
                 data: Some(self.body.clone()),
                 trailers: self.trailers.clone(),
+            };
+            Box::pin(async { Ok(Response::new(body)) })
+        }
+    }
+
+    /// A service whose body yields one data frame then errors before trailers,
+    /// simulating a mid-stream failure.
+    #[derive(Clone)]
+    struct MockErrorService;
+
+    /// Body that yields data then an error — no trailers are ever produced.
+    struct ErrorBody {
+        data: Option<Bytes>,
+        errored: bool,
+    }
+
+    impl Body for ErrorBody {
+        type Data = Bytes;
+        type Error = Status;
+
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            if let Some(data) = self.data.take() {
+                return Poll::Ready(Some(Ok(Frame::data(data))));
+            }
+            if !self.errored {
+                self.errored = true;
+                return Poll::Ready(Some(Err(Status::internal("simulated body error"))));
+            }
+            Poll::Ready(None)
+        }
+    }
+
+    impl Service<Request<()>> for MockErrorService {
+        type Response = Response<ErrorBody>;
+        type Error = Infallible;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _request: Request<()>) -> Self::Future {
+            let body = ErrorBody {
+                data: Some(make_grpc_frame(b"partial data")),
+                errored: false,
             };
             Box::pin(async { Ok(Response::new(body)) })
         }
@@ -818,5 +885,55 @@ mod tests {
         let (compressed, compressed_payload) = parse_grpc_frame(&data);
         assert!(compressed);
         assert_eq!(gzip_decompress(&compressed_payload), payload);
+    }
+
+    #[tokio::test]
+    async fn body_error_synthesizes_grpc_status_trailer() {
+        let mut svc = AsyncGzipLayer::new(default_test_config()).layer(MockErrorService);
+        let svc = svc.ready().await.unwrap();
+
+        let mut request = Request::new(());
+        request
+            .headers_mut()
+            .insert(GRPC_ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
+
+        let response = svc.call(request).await.unwrap();
+        let (parts, body) = response.into_parts();
+        let collected = body.collect().await.unwrap();
+        let trailers = collected.trailers().cloned();
+
+        // No grpc-encoding — compression was aborted
+        assert!(parts.headers.get(GRPC_ENCODING).is_none());
+
+        // Body should have no data (empty response on error)
+        let data = collected.to_bytes();
+        assert!(data.is_empty());
+
+        // Should have a synthesized grpc-status: 13 (INTERNAL) trailer
+        let trailers = trailers.expect("error path must produce trailers");
+        assert_eq!(trailers.get("grpc-status").unwrap(), "13");
+        assert!(trailers.get("grpc-message").is_some());
+    }
+
+    #[tokio::test]
+    async fn large_5mb_payload_compresses_correctly() {
+        let payload: Vec<u8> = (0..5_000_000).map(|i| (i % 256) as u8).collect();
+        let service = MockGrpcService::new(&payload);
+        let (parts, data, trailers) =
+            call_layer(service, default_test_config(), Some("gzip")).await;
+
+        assert_eq!(parts.headers.get(GRPC_ENCODING).unwrap(), "gzip");
+        let (compressed, compressed_payload) = parse_grpc_frame(&data);
+        assert!(compressed);
+        assert_eq!(gzip_decompress(&compressed_payload), payload);
+        assert!(
+            compressed_payload.len() < payload.len(),
+            "compressed ({}) should be smaller than original ({})",
+            compressed_payload.len(),
+            payload.len()
+        );
+
+        let trailers = trailers.expect("trailers should be present");
+        assert_eq!(trailers.get("grpc-status").unwrap(), "0");
     }
 }
