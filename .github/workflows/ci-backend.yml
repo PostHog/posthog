@@ -369,6 +369,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -664,6 +665,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1224,6 +1226,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1525,6 +1528,7 @@ jobs:
 
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -2183,6 +2187,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
