@@ -106,6 +106,11 @@ Read that literal path and use it as the prefix for every invocation of
 `upload-evidence.py`. Where this document shows `<skill_dir>`, substitute that
 exact reported path.
 
+In PR mode, before `gh pr checkout`, copy that reported directory to a stable
+temp directory and use the copy as `<skill_dir>` for the rest of the run. This
+keeps references and scripts available when the target PR branch predates this
+skill or does not contain repo-local skill files.
+
 Do **not** use a repo-relative path like
 `.agents/skills/qa-frontend/scripts/...`. The skill may be installed
 user-scoped, and an active `gh pr checkout <N>` typically switches the
@@ -307,6 +312,9 @@ MCP is unavailable.
 PR mode only. Checkout only after preflight passes:
 
 ```bash
+RUN_SKILL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qa-frontend-skill.XXXXXX")"
+cp -R "<skill_dir>/." "$RUN_SKILL_DIR/"
+SKILL_DIR="$RUN_SKILL_DIR"
 gh pr checkout "$PR_REF"
 ```
 
@@ -330,7 +338,7 @@ Local mode - gather diff material from the current checkout:
 git diff "$LOCAL_BASE_REF"...HEAD   # committed-on-branch
 git diff                            # unstaged
 git diff --cached                   # staged
-git status --porcelain
+git ls-files --others --exclude-standard   # untracked paths; read text contents directly
 ```
 
 Classify files using `references/file-classification.md`, then load

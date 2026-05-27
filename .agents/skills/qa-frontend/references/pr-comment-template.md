@@ -355,8 +355,8 @@ Don't pad the comment with side-by-sides for their own sake.
 Target about 10k characters. At about 55k characters:
 
 1. Keep the banner, verdict line, coverage table, and findings table.
-2. Truncate per-finding repro detail and link the run dir for the long
-   form.
+2. Truncate per-finding repro detail in the PR comment and keep the long form
+   in the local report. Do not link local run directories from public comments.
 3. Do not fall back to an external "secret" gist - GitHub secret gists are
    not access-controlled, anyone with the link can view them, and the
    bundle can include unscrubbed local-stack screenshots.

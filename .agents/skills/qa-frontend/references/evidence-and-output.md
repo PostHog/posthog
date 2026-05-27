@@ -132,10 +132,9 @@ PR mode posts one PR comment for every completed run after explicit approval:
 - Unclear expected behavior: NEEDS-INTENT verdict plus visible intent rows.
 - Frontend target gaps: explicit coverage-gap rows.
 
-Before any push, verify the comment path works. Prefer a read-only `gh api`
-reachability check or a tiny stub comment workflow that is immediately cleaned
-up. If comment connectivity fails, skip the push, write the final comment
-markdown to stdout, and stop.
+Before any push, verify the comment path with a read-only `gh api` reachability
+check. Do not create temporary stub comments. If comment connectivity fails,
+skip the push, write the final comment markdown to stdout, and stop.
 
 Local mode writes the rendered report to stdout and to
 `.qa-frontend/runs/<run-id>/report.md`. Use the same template, but:
