@@ -102,14 +102,10 @@ activates this skill, it emits a line at the top of the prompt:
 Base directory for this skill: /some/absolute/path
 ```
 
-Read that literal path and use it as the prefix for every invocation of
-`upload-evidence.py`. Where this document shows `<skill_dir>`, substitute that
-exact reported path.
-
-In PR mode, before `gh pr checkout`, copy that reported directory to a stable
-temp directory and use the copy as `<skill_dir>` for the rest of the run. This
-keeps references and scripts available when the target PR branch predates this
-skill or does not contain repo-local skill files.
+Use the reported base directory as `<skill_dir>` for scripts and references. In
+PR mode, copy it to a stable temp directory before `gh pr checkout` and use
+that copy for the rest of the run, so old target branches cannot remove active
+skill files.
 
 Do **not** use a repo-relative path like
 `.agents/skills/qa-frontend/scripts/...`. The skill may be installed
