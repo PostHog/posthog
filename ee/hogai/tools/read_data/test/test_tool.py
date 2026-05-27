@@ -17,8 +17,6 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight
-
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -29,6 +27,7 @@ from products.llm_analytics.backend.summarization.llm.schema import (
     SummarizationResponse,
     SummaryBullet,
 )
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable

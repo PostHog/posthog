@@ -27,7 +27,7 @@ from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.constants import AvailableFeature
 from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
-from posthog.models import GroupTypeMapping, Insight, TaggedItem, User
+from posthog.models import GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.group.group import Group
@@ -51,6 +51,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagHashKeyOverride,
     get_feature_flags_for_team_in_cache,
 )
+from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
