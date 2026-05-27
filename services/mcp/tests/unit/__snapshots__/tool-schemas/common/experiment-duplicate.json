@@ -284,6 +284,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -457,6 +492,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -586,6 +656,53 @@
                                 "default": null,
                                 "description": "For ratio metrics: denominator source."
                             },
+                            "denominator_outlier_handling": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "ignore_zeros": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "lower_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "upper_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                            },
                             "goal": {
                                 "anyOf": [
                                     {
@@ -599,10 +716,34 @@
                                 "default": null,
                                 "description": "Whether higher or lower values indicate success."
                             },
+                            "ignore_zeros": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds."
+                            },
                             "kind": {
                                 "const": "ExperimentMetric",
                                 "default": "ExperimentMetric",
                                 "type": "string"
+                            },
+                            "lower_bound_percentile": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation."
                             },
                             "metric_type": {
                                 "enum": ["funnel", "mean", "ratio", "retention"],
@@ -651,6 +792,41 @@
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
+                                            },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
                                                 "anyOf": [
@@ -781,6 +957,53 @@
                                 "default": null,
                                 "description": "For ratio metrics: numerator source."
                             },
+                            "numerator_outlier_handling": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "ignore_zeros": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "lower_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "upper_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
+                            },
                             "retention_window_end": {
                                 "anyOf": [
                                     {
@@ -847,6 +1070,41 @@
                                                 "kind": {
                                                     "enum": ["EventsNode", "ActionsNode"],
                                                     "type": "string"
+                                                },
+                                                "math": {
+                                                    "anyOf": [
+                                                        {
+                                                            "enum": [
+                                                                "total",
+                                                                "sum",
+                                                                "unique_session",
+                                                                "min",
+                                                                "max",
+                                                                "avg",
+                                                                "dau",
+                                                                "unique_group",
+                                                                "hogql"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "default": null,
+                                                    "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                },
+                                                "math_property": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "default": null,
+                                                    "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 },
                                                 "properties": {
                                                     "anyOf": [
@@ -1011,6 +1269,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -1172,6 +1465,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -1312,6 +1640,18 @@
                                     }
                                 ],
                                 "default": null
+                            },
+                            "upper_bound_percentile": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation."
                             },
                             "uuid": {
                                 "anyOf": [
@@ -1375,6 +1715,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -1548,6 +1923,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -1677,6 +2087,53 @@
                                 "default": null,
                                 "description": "For ratio metrics: denominator source."
                             },
+                            "denominator_outlier_handling": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "ignore_zeros": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "lower_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "upper_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                            },
                             "goal": {
                                 "anyOf": [
                                     {
@@ -1690,10 +2147,34 @@
                                 "default": null,
                                 "description": "Whether higher or lower values indicate success."
                             },
+                            "ignore_zeros": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds."
+                            },
                             "kind": {
                                 "const": "ExperimentMetric",
                                 "default": "ExperimentMetric",
                                 "type": "string"
+                            },
+                            "lower_bound_percentile": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation."
                             },
                             "metric_type": {
                                 "enum": ["funnel", "mean", "ratio", "retention"],
@@ -1742,6 +2223,41 @@
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
+                                            },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
                                                 "anyOf": [
@@ -1872,6 +2388,53 @@
                                 "default": null,
                                 "description": "For ratio metrics: numerator source."
                             },
+                            "numerator_outlier_handling": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "ignore_zeros": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "lower_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "upper_bound_percentile": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
+                            },
                             "retention_window_end": {
                                 "anyOf": [
                                     {
@@ -1938,6 +2501,41 @@
                                                 "kind": {
                                                     "enum": ["EventsNode", "ActionsNode"],
                                                     "type": "string"
+                                                },
+                                                "math": {
+                                                    "anyOf": [
+                                                        {
+                                                            "enum": [
+                                                                "total",
+                                                                "sum",
+                                                                "unique_session",
+                                                                "min",
+                                                                "max",
+                                                                "avg",
+                                                                "dau",
+                                                                "unique_group",
+                                                                "hogql"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "default": null,
+                                                    "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                },
+                                                "math_property": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "default": null,
+                                                    "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 },
                                                 "properties": {
                                                     "anyOf": [
@@ -2102,6 +2700,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -2263,6 +2896,41 @@
                                                 "enum": ["EventsNode", "ActionsNode"],
                                                 "type": "string"
                                             },
+                                            "math": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "total",
+                                                            "sum",
+                                                            "unique_session",
+                                                            "min",
+                                                            "max",
+                                                            "avg",
+                                                            "dau",
+                                                            "unique_group",
+                                                            "hogql"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            },
+                                            "math_property": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                            },
                                             "properties": {
                                                 "anyOf": [
                                                     {
@@ -2403,6 +3071,18 @@
                                     }
                                 ],
                                 "default": null
+                            },
+                            "upper_bound_percentile": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation."
                             },
                             "uuid": {
                                 "anyOf": [
