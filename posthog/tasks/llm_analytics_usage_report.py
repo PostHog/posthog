@@ -675,7 +675,7 @@ def _get_all_llm_analytics_reports(
     try:
         team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception("[AIO Usage Error] metrics query failed", phase="teams")
+        logger.exception("[AIO Usage Error] teams query failed", phase="teams")
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
 
@@ -710,7 +710,7 @@ def _get_all_llm_analytics_reports(
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] metrics query failed", phase="breakdowns")
+        logger.exception("[AIO Usage Error] breakdowns query failed", phase="breakdowns")
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
@@ -720,7 +720,7 @@ def _get_all_llm_analytics_reports(
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] metrics query failed", phase="surveys")
+        logger.exception("[AIO Usage Error] surveys query failed", phase="surveys")
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
