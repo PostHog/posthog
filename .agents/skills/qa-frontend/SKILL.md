@@ -124,6 +124,12 @@ Parse `$ARGUMENTS` into:
 - `LOCAL_BASE_REF`: value after `--base` or `--base-ref`. Only applies in
   local mode. Default `origin/master`, or the repo default branch if that is
   different.
+- `FIX_MODE`: one of `auto-low-risk`, `ask`, or `report-only`. Parse explicit
+  options like `--fix`, `--ask-before-fix`, `--no-fix`, and matching natural
+  language. If unspecified and the user is present, ask once before the QA loop
+  whether narrow, in-diff fixes should be attempted when found. Recommend
+  `auto-low-risk` for PR mode and `ask` for local mode. If the run cannot get
+  an answer, use `report-only`.
 - `AUTO_PUSH_FIXES`: boolean. True if `$ARGUMENTS` contains `--auto-push` or
   natural-language equivalents like "auto push fixes", "push fixes
   automatically", "no need to ask before pushing". Default false.
@@ -381,11 +387,16 @@ Use filenames like `001-dashboard-load.png`, `002-save-click.png`, and
 When a browser or visual target captures at least two screenshots, create a slow
 animated GIF from the ordered screenshots by default. Prefer `ffmpeg` when it is
 already available locally. Name the output
-`.qa-frontend/runs/<run-id>/frontend-qa.gif`. Aim for about 1.5-2 seconds per
-frame so reviewers can follow the flow without pausing. If no GIF tooling is
-already available, keep the screenshots as the primary evidence and mention the
-skipped GIF in local run notes, not as a PR finding. Do not install packages or
-add project dependencies for GIF creation.
+`.qa-frontend/runs/<run-id>/frontend-qa.gif`. Use the recipe in
+`references/playwright-mcp-patterns.md`: choose 2-5 same-size key frames,
+preserve screenshot width up to 1200px, and use a 256-color palette. Aim for
+about 1.5-2 seconds per frame so reviewers can follow the flow without pausing.
+Before uploading or embedding the GIF, inspect it or an extracted frame. If text
+is fuzzy, color-shifted, heavily dithered, or otherwise less useful than the
+PNGs, skip the GIF and use the still screenshots as primary evidence. If no GIF
+tooling is already available, keep the screenshots as the primary evidence and
+mention the skipped GIF in local run notes, not as a PR finding. Do not install
+packages or add project dependencies for GIF creation.
 
 Candidate issues must pass one reproducibility retry. Re-run the same action
 sequence in the same browser session. If it does not reproduce, mark it
@@ -415,6 +426,13 @@ Severity rubric:
 
 Autonomous fixes are intentionally narrow.
 
+If `FIX_MODE` is `report-only`, do not edit. If `FIX_MODE` is `ask`, ask before
+each fix and include the intended changed files and why the fix is low risk. If
+`FIX_MODE` is `auto-low-risk`, apply only fixes that stay inside every guardrail
+below. When expected behavior is unclear, the likely fix mostly reverts the PR's
+own change, or the fix requires product intent, report the finding instead of
+editing.
+
 Before editing, read the relevant changed file(s) and nearby source. Use
 stack traces, console messages, and route mapping to choose the smallest likely
 fix. Do not browse unrelated areas of the codebase unless the finding requires
@@ -423,9 +441,9 @@ it.
 Do not autonomously edit auth, permissions, SQL/HogQL construction, migrations,
 workflow files, or skill files. Route those findings to comment-only.
 
-Local mode defaults to suggested patches. Edit only after explicit request or
-approval, only inside the changed-file set, and capture pre-edit state for dirty
-files so failed fixes can undo only the agent's own hunk. Never stage or commit.
+Local mode defaults to `ask`. Edit only after explicit request or approval, only
+inside the changed-file set, and capture pre-edit state for dirty files so
+failed fixes can undo only the agent's own hunk. Never stage or commit.
 
 After a fix:
 

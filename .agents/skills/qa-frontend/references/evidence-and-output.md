@@ -23,11 +23,13 @@ render a text-only evidence note instead of exposing local filesystem paths.
 Before upload, show the user the exact upload set and ask for approval. Pick only
 human-facing evidence:
 
-- `frontend-qa.gif` or `frontend-qa-small.gif`, if generated
+- `frontend-qa.gif`, only if generated and inspected as readable
 - 1-3 key screenshots that match the findings or PASS narrative
 
 Do not upload `.md` snapshots, `console.log`, every numbered screenshot, or
-uncompressed video.
+uncompressed video. If the GIF is blurry, color-shifted, heavily dithered, or
+less clear than the still screenshots, omit it from the upload set and use the
+PNGs instead.
 
 Invoke with the active skill directory:
 

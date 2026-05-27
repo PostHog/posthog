@@ -250,24 +250,12 @@ After a browser or visual test captures two or more screenshots, assemble the
 ordered screenshots into `frontend-qa.gif` by default when `ffmpeg` or another
 existing local GIF tool is available. This follows the same evidence pattern as
 the demo-reel browser tier: screenshots stitched into a slow GIF. Use slow
-frames, about 1.5-2 seconds each, and preserve the original PNGs.
+frames, about 1.5-2 seconds each, and preserve the original PNGs. The GIF is
+secondary evidence: if the generated GIF is less readable than the screenshots,
+omit it and upload or reference the PNGs instead.
 
 When using `ffmpeg` from zsh, quote every filtergraph argument so brackets are
-not treated as shell globs. A safe two-pass pattern is:
-
-```bash
-tmp_dir="$RUN_DIR/gif-frames"
-mkdir -p "$tmp_dir"
-# Copy or symlink screenshots as frame-001.png, frame-002.png, ...
-
-ffmpeg -y -framerate 0.5 -i "$tmp_dir/frame-%03d.png" \
-  -vf "scale=900:-1:flags=lanczos,palettegen=max_colors=128" \
-  "$tmp_dir/palette.png"
-
-ffmpeg -y -framerate 0.5 -i "$tmp_dir/frame-%03d.png" -i "$tmp_dir/palette.png" \
-  -lavfi "scale=900:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer" \
-  "$RUN_DIR/frontend-qa.gif"
-```
+not treated as shell globs.
 
 Prefer the PostHog workspace's existing browser tooling for screenshots: capture
 frames through Playwright MCP or the repo's existing `@playwright/test`
@@ -279,22 +267,40 @@ screenshots with different heights can make GIFs look stretched or huge. Copy or
 symlink the selected frames into a temporary frame sequence first:
 
 ```bash
-mkdir -p /tmp/qa-frontend-gif-<run-id>
-ln -sf "$PWD/.qa-frontend/runs/<run-id>/003-state-a.png" /tmp/qa-frontend-gif-<run-id>/frame-001.png
-ln -sf "$PWD/.qa-frontend/runs/<run-id>/011-state-b.png" /tmp/qa-frontend-gif-<run-id>/frame-002.png
-ln -sf "$PWD/.qa-frontend/runs/<run-id>/014-state-c.png" /tmp/qa-frontend-gif-<run-id>/frame-003.png
+RUN_DIR="$PWD/.qa-frontend/runs/<run-id>"
+tmp_dir="/tmp/qa-frontend-gif-<run-id>"
+gif_width=1200
+
+mkdir -p "$tmp_dir"
+ln -sf "$RUN_DIR/003-state-a.png" "$tmp_dir/frame-001.png"
+ln -sf "$RUN_DIR/011-state-b.png" "$tmp_dir/frame-002.png"
+ln -sf "$RUN_DIR/014-state-c.png" "$tmp_dir/frame-003.png"
 
 ffmpeg -y -framerate 0.5 \
-  -i "/tmp/qa-frontend-gif-<run-id>/frame-%03d.png" \
-  -vf "scale=900:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+  -i "$tmp_dir/frame-%03d.png" \
+  -filter_complex "fps=0.5,scale=${gif_width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=full[p];[s1][p]paletteuse=dither=sierra2_4a" \
   -loop 0 \
-  ".qa-frontend/runs/<run-id>/frontend-qa.gif"
+  "$RUN_DIR/frontend-qa.gif"
 ```
 
-This command was verified against real `.qa-frontend` screenshots and produced a
-small readable GIF (about 226 KB for three 1200x942 frames). If `ffmpeg` is not
-available but another local GIF tool is, use that. If no GIF tool is already
-available, skip the GIF and keep the screenshots as the evidence.
+Set `gif_width` to the selected screenshots' native width, capped at 1200. For
+the usual 1200px Playwright screenshots, keep `gif_width=1200`. Do not downscale
+to 900px. Avoid 128-color Bayer-dither recipes because they can make PostHog UI
+screenshots look blurry or yellow-stippled. The command above was checked
+against real 1200x985 `.qa-frontend` screenshots and produced a readable
+three-frame GIF of about 133 KB.
+
+Before uploading or embedding the GIF, inspect it or extract check frames:
+
+```bash
+ffmpeg -y -i "$RUN_DIR/frontend-qa.gif" "$tmp_dir/check-%03d.png" >/dev/null 2>&1
+```
+
+If text is no longer readable, colors shifted noticeably, or large dither bands
+appear, delete or ignore the GIF and keep the PNGs as the evidence. If `ffmpeg`
+is not available but another local GIF tool is, use that with the same quality
+bar. If no GIF tool is already available, skip the GIF and keep the screenshots
+as the evidence.
 
 Keep paths relative in PR comments. If the comment would be too long, summarize
 the evidence and rely on the approved uploaded files or the local report. Do

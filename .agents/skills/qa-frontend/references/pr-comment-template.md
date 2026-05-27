@@ -294,9 +294,9 @@ preserved. The local filename in `public_id` is for traceability only; the
 embeddable URL is always the `url` field.
 
 Embed images and GIFs with markdown image syntax (`![alt](url)`) so they
-render inline. Use one or two key visuals per finding - the GIF for the
-flow and one still per finding. Do not paste the full local screenshot
-inventory.
+render inline. Use one or two key visuals per finding. Prefer the GIF for the
+flow only when it has been inspected and remains readable. Otherwise use still
+screenshots. Do not paste the full local screenshot inventory.
 
 When `upload-manifest.json` reports `skipped_no_env: true` or lists files
 under `failed`, do not include local paths in a PR comment. Use a text-only
