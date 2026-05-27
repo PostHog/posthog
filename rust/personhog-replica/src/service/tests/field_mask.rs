@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    GetGroupsRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, ListGroupsRequest, ReadOptions,
+    GetGroupsBatchRequest, GetGroupsRequest, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier,
+    GroupKey, ListGroupsRequest, ReadOptions, TeamDistinctId,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -242,6 +243,50 @@ async fn get_persons_by_distinct_ids_in_team_with_id_mask_returns_only_id() {
 }
 
 // ============================================================
+// get_persons_by_distinct_ids_cross_team field mask tests
+// ============================================================
+
+#[tokio::test]
+async fn get_persons_by_distinct_ids_cross_team_with_id_mask_returns_only_id() {
+    let service = PersonHogReplicaService::new(Arc::new(PopulatedStorage));
+
+    let response = service
+        .get_persons_by_distinct_ids(Request::new(GetPersonsByDistinctIdsRequest {
+            team_distinct_ids: vec![TeamDistinctId {
+                team_id: 1,
+                distinct_id: "user-1".to_string(),
+            }],
+            read_options: read_options_with_mask(&["id"]),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    let person = response.results[0]
+        .person
+        .as_ref()
+        .expect("person should be present");
+    assert_ne!(person.id, 0, "id should be preserved");
+    assert!(person.uuid.is_empty(), "uuid should be zeroed");
+    assert_eq!(person.team_id, 0, "team_id should be zeroed");
+    assert!(person.properties.is_empty(), "properties should be zeroed");
+    assert!(
+        person.properties_last_updated_at.is_empty(),
+        "properties_last_updated_at should be zeroed"
+    );
+    assert!(
+        person.properties_last_operation.is_empty(),
+        "properties_last_operation should be zeroed"
+    );
+    assert_eq!(person.created_at, 0, "created_at should be zeroed");
+    assert_eq!(person.version, 0, "version should be zeroed");
+    assert!(!person.is_identified, "is_identified should be zeroed");
+    assert!(person.is_user_id.is_none(), "is_user_id should be zeroed");
+    assert!(person.last_seen_at.is_none(), "last_seen_at should be zeroed");
+}
+
+// ============================================================
 // get_groups field mask tests
 // ============================================================
 
@@ -361,6 +406,52 @@ async fn get_groups_with_group_properties_mask_returns_only_group_properties(
     assert_eq!(group.team_id, 0, "team_id should be zeroed");
     assert_eq!(group.group_type_index, 0, "group_type_index should be zeroed");
     assert!(group.group_key.is_empty(), "group_key should be zeroed");
+    assert!(
+        group.properties_last_updated_at.is_empty(),
+        "properties_last_updated_at should be zeroed"
+    );
+    assert!(
+        group.properties_last_operation.is_empty(),
+        "properties_last_operation should be zeroed"
+    );
+    assert_eq!(group.created_at, 0, "created_at should be zeroed");
+    assert_eq!(group.version, 0, "version should be zeroed");
+}
+
+// ============================================================
+// get_groups_batch field mask tests
+// ============================================================
+
+#[tokio::test]
+async fn get_groups_batch_with_id_and_group_key_mask_applies_masking() {
+    let service = PersonHogReplicaService::new(Arc::new(PopulatedStorage));
+
+    let response = service
+        .get_groups_batch(Request::new(GetGroupsBatchRequest {
+            keys: vec![GroupKey {
+                team_id: 1,
+                group_type_index: 0,
+                group_key: "org-1".to_string(),
+            }],
+            read_options: read_options_with_mask(&["id", "group_key"]),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    let group = response.results[0]
+        .group
+        .as_ref()
+        .expect("group should be present");
+    assert_ne!(group.id, 0, "id should be preserved");
+    assert!(!group.group_key.is_empty(), "group_key should be preserved");
+    assert_eq!(group.team_id, 0, "team_id should be zeroed");
+    assert_eq!(group.group_type_index, 0, "group_type_index should be zeroed");
+    assert!(
+        group.group_properties.is_empty(),
+        "group_properties should be zeroed"
+    );
     assert!(
         group.properties_last_updated_at.is_empty(),
         "properties_last_updated_at should be zeroed"
