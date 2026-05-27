@@ -3819,6 +3819,7 @@
       lc_kind LowCardinality(String),
       lc_id String,
       lc_route_id String,
+      lc_source LowCardinality(String),
   
       lc_access_method LowCardinality(String),
       lc_api_key_label String,
@@ -3940,6 +3941,7 @@
       JSONExtractString(log_comment, 'kind') as lc_kind,
       JSONExtractString(log_comment, 'id') as lc_id,
       JSONExtractString(log_comment, 'route_id') as lc_route_id,
+      JSONExtractString(log_comment, 'source') as lc_source,
   
       JSONExtractString(log_comment, 'access_method') as lc_access_method,
       JSONExtractString(log_comment, 'api_key_label') as lc_api_key_label,
@@ -8428,6 +8430,7 @@
       lc_kind LowCardinality(String),
       lc_id String,
       lc_route_id String,
+      lc_source LowCardinality(String),
   
       lc_access_method LowCardinality(String),
       lc_api_key_label String,

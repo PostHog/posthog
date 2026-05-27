@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_kind LowCardinality(String),
     lc_id String,
     lc_route_id String,
+    lc_source LowCardinality(String),
 
     lc_access_method LowCardinality(String),
     lc_api_key_label String,
@@ -314,6 +315,7 @@ SELECT
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
     JSONExtractString(log_comment, 'route_id') as lc_route_id,
+    JSONExtractString(log_comment, 'source') as lc_source,
 
     JSONExtractString(log_comment, 'access_method') as lc_access_method,
     JSONExtractString(log_comment, 'api_key_label') as lc_api_key_label,
@@ -482,6 +484,14 @@ def QUERY_LOG_ARCHIVE_ADD_MODIFIERS_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABL
     return f"""
     ALTER TABLE {table}
         ADD COLUMN IF NOT EXISTS lc_modifiers String AFTER lc_dagster__owner
+    """
+
+
+# V11 - adding lc_source (request provenance: web, api, mcp, posthog_ai, posthog_code, ...)
+def QUERY_LOG_ARCHIVE_ADD_SOURCE_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS lc_source LowCardinality(String) AFTER lc_route_id
     """
 
 
