@@ -80,6 +80,8 @@ PRODUCTS_APPS = [
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
+    "products.product_analytics.backend.apps.ProductAnalyticsConfig",
+    "products.wizard.backend.apps.WizardConfig",
 ]
 
 INSTALLED_APPS = [
@@ -462,9 +464,9 @@ SPECTACULAR_SETTINGS = {
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
-        "LensModelEnum": "products.replay_vision.backend.models.replay_lens.LensModel",
-        "LensTypeEnum": "products.replay_vision.backend.models.replay_lens.LensType",
-        "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
+        "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
+        "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
+        "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",

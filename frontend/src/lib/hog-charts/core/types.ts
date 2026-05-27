@@ -64,6 +64,10 @@ export interface Series<Meta = unknown> {
          *  When set, the area is drawn between `data` (top) and this (bottom) instead of
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
+        /** Fade the fill vertically from the series color at the top of the plot to transparent
+         *  at the baseline. Ignored whenever the area has a bottom edge — stacking, `lowerData`,
+         *  or dashed `stroke.partial` (those branches need a solid fill / hatch). */
+        gradient?: boolean
     }
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.
      *  Excluded from stack computation and from the y-axis baseline calculation, so a
@@ -104,8 +108,9 @@ export interface TooltipContext<Meta = unknown> {
     dataIndex: number
     /** The x-axis label at this index. */
     label: string
-    /** One entry per visible series with its value and color at this index. */
-    seriesData: { series: Series<Meta>; value: number; color: string }[]
+    /** One entry per visible series with its value and color at this index. `fraction` is set
+     *  for radial charts (share of total) so renderers don't need to look the slice back up. */
+    seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
     /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
@@ -159,6 +164,8 @@ export interface ChartConfig {
     hideXAxis?: boolean
     /** Hide the y-axis labels and reduce left margin. */
     hideYAxis?: boolean
+    xAxisLabel?: string
+    yAxisLabel?: string
 
     // — Overlays —
 
@@ -173,6 +180,10 @@ export interface ChartConfig {
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
      *  on layout context so overlays can default to a percent formatter. */
     isPercent?: boolean
+    /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
+     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+    margins?: Partial<ChartMargins>
 }
 
 export interface TooltipConfig {
@@ -191,6 +202,14 @@ export interface BarChartConfig extends ChartConfig {
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
+    /** Draw a faint hatched track behind each bar, spanning the full plot height — for
+     *  funnel-style charts where every bar is a share of a whole. Only honored when
+     *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
+     *  semantics don't apply when bars share a band). Defaults to `false`. */
+    barTrack?: boolean
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack
+     *  below the zero baseline (positives above). Default `false` clamps negatives to 0. */
+    divergingStack?: boolean
 }
 
 export interface LineChartConfig extends ChartConfig {

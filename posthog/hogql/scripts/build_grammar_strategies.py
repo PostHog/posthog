@@ -614,52 +614,26 @@ EXCLUDED_RULES: frozenset[str] = frozenset(
 # are intentionally NOT excluded — the grammar PBT drives Hog-program
 # parity via the generated `program_strategy`.
 
-# Alternatives the cpp-json backend (ANTLR parser + Python visitor)
-# unconditionally rejects. The PBT contract is one-sided — we only
-# assert when cpp accepts — so generating these productions produces
-# zero test signal: every example gets discarded. We hard-exclude them
-# to keep the discard rate sane.
+# Alternatives the cpp-json oracle unconditionally rejects — error-message
+# productions (e.g. ``ColumnExprInvalidFromImplicitAlias``, which exists only
+# to raise on ``SELECT FROM x`` typos) and visitor-NotImplementedError
+# productions the AST builder doesn't support (``ColumnExprDate`` /
+# ``ColumnExprTimestamp`` / ``ColumnExprSubstring`` / ``ColumnTypeExprEnum`` /
+# ``ColumnExprIntervalString``).
 #
-# Two sources of unconditional rejection are excluded here:
-#
-# 1. Error-message productions: the grammar declares an alternative
-#    *intentionally* invalid so the parser can attach a nice error
-#    (e.g. ``ColumnExprInvalidFromImplicitAlias`` catches
-#    ``SELECT FROM x`` typos and exists only to raise).
-#
-# 2. Visitor-NotImplementedError productions: the Python ANTLR visitor
-#    in ``posthog/hogql/parser.py`` raises ``NotImplementedError`` for
-#    productions the grammar accepts but HogQL's Python AST builder
-#    doesn't support. Until the visitor grows support, these are dead
-#    productions from cpp-json's point of view.
-EXCLUDED_ALT_NAMES: frozenset[str] = frozenset(
-    {
-        # Error-message alts (always invalid by grammar author's intent)
-        "ColumnExprInvalidFromImplicitAlias",
-        # Visitor-NotImplementedError alts (Python-side product gap)
-        "ColumnExprDate",
-        "ColumnExprTimestamp",
-        "ColumnExprSubstring",
-        "ColumnTypeExprEnum",
-        # ``INTERVAL 'literal'`` requires the string to be a well-formed
-        # ``<count> <unit>`` — our random STRING_LITERAL strategy never
-        # produces a valid one. The typed form ``INTERVAL <expr> <unit>``
-        # (alt ``ColumnExprInterval``) covers the same surface generically
-        # and gets exercised. Re-enable if we add a context-aware
-        # STRING_LITERAL strategy that produces ``'1 day'`` shapes inside
-        # INTERVAL.
-        "ColumnExprIntervalString",
-    }
-)
+# These were hard-excluded while the diagnostic contract was one-sided (assert
+# only when cpp accepts), since an oracle-rejected production carried zero
+# signal. Under the two-sided contract they're the point: a query the oracle
+# rejects must be rejected by the candidate too, so generating them is exactly
+# how we catch the candidate accepting an invalid query. Empty by default;
+# the hook stays for any future production that genuinely shouldn't generate.
+EXCLUDED_ALT_NAMES: frozenset[str] = frozenset()
 
-# Whole rules the cpp-json visitor rejects unconditionally — same
-# rationale as ``EXCLUDED_ALT_NAMES`` but at rule granularity.
-EXCLUDED_BY_VISITOR_RULES: frozenset[str] = frozenset(
-    {
-        "topClause",
-        "settingsClause",
-    }
-)
+# Whole rules the cpp-json oracle rejects unconditionally (``topClause`` /
+# ``settingsClause``). Same rationale as ``EXCLUDED_ALT_NAMES`` at rule
+# granularity — now generated so the two-sided contract checks the candidate
+# rejects them too.
+EXCLUDED_BY_VISITOR_RULES: frozenset[str] = frozenset()
 
 # Soft-weighting hooks remain (empty by default) for future
 # productions where we want rare-fire coverage without exclusion.

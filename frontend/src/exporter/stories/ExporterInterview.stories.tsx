@@ -10,6 +10,7 @@ const interview: InterviewExportPayload = {
     interviewee_identifier: 'interviewee-abc',
     user_name: 'Sam',
     topic: 'how you use dashboards',
+    already_replied: false,
 }
 
 type Story = StoryObj<ExportedData>

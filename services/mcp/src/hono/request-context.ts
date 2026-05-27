@@ -1,5 +1,7 @@
 import { ApiClient } from '@/api/client'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
+import { hash } from '@/lib/utils'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
@@ -16,7 +18,9 @@ import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl } from './constants'
 
 export class RequestContext {
-    private cacheInstance: RedisCache<State> | undefined
+    private tokenCacheInstance: RedisCache<State> | undefined
+    private sessionCacheInstance: RedisCache<State> | undefined
+    private userCacheInstance: RedisCache<State> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
@@ -30,14 +34,35 @@ export class RequestContext {
         this.props = props
     }
 
-    get cache(): RedisCache<State> {
+    get tokenCache(): RedisCache<State> {
         if (!this.props.userHash) {
-            throw new Error('User hash is required to use the cache')
+            throw new Error('User hash is required to use the token cache')
         }
-        if (!this.cacheInstance) {
-            this.cacheInstance = new RedisCache<State>(this.props.userHash, this.redis)
+        if (!this.tokenCacheInstance) {
+            this.tokenCacheInstance = new RedisCache<State>(this.props.userHash, this.redis, 'token')
         }
-        return this.cacheInstance
+        return this.tokenCacheInstance
+    }
+
+    get sessionCache(): RedisCache<State> {
+        if (!this.props.mcpSessionId) {
+            throw new Error('Session ID is required to use the session cache')
+        }
+        if (!this.sessionCacheInstance) {
+            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
+        }
+        return this.sessionCacheInstance
+    }
+
+    getUserCache(distinctId: string): RedisCache<State> {
+        if (!this.userCacheInstance) {
+            this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
+        }
+        return this.userCacheInstance
+    }
+
+    get cache(): RedisCache<State> {
+        return this.tokenCache
     }
 
     private async api(): Promise<ApiClient> {
@@ -68,13 +93,15 @@ export class RequestContext {
 
     get sessionManager(): SessionManager {
         if (!this.sessionManagerInstance) {
-            this.sessionManagerInstance = new SessionManager(this.cache)
+            this.sessionManagerInstance = new SessionManager(this.tokenCache)
         }
         return this.sessionManagerInstance
     }
 
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
-        if (!sessionId) {return undefined}
+        if (!sessionId) {
+            return undefined
+        }
         return this.sessionManager.getSessionUuid(sessionId)
     }
 
@@ -86,22 +113,25 @@ export class RequestContext {
     }
 
     private async resolveDistinctId(): Promise<string> {
-        const cached = await this.cache.get('distinctId')
-        if (cached) {return cached}
+        const cached = await this.tokenCache.get('distinctId')
+        if (cached) {
+            return cached
+        }
         const userResult = await (await this.api()).users().me()
         if (!userResult.success) {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
-        await this.cache.set('distinctId', userResult.data.distinct_id)
-        return userResult.data.distinct_id as string
+        const distinctId = userResult.data.distinct_id as string
+        await this.tokenCache.set('distinctId', distinctId)
+        return distinctId
     }
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        const stateManager = new StateManager(this.cache, api)
+        const stateManager = new StateManager(this.tokenCache, api)
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
-            cache: this.cache,
+            cache: this.tokenCache,
             env: this.env,
             stateManager,
             sessionManager: this.sessionManager,
@@ -115,9 +145,7 @@ export class RequestContext {
         return { ...partialContext, trackEvent }
     }
 
-    async getAnalyticsContextSafe(
-        context: Pick<Context, 'stateManager'>
-    ): Promise<MCPAnalyticsContext | undefined> {
+    async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -131,7 +159,9 @@ export class RequestContext {
         previousContext: MCPAnalyticsContext | undefined
     ): Promise<void> {
         const resolvedContext = await this.getAnalyticsContextSafe(context)
-        if (!resolvedContext) {return}
+        if (!resolvedContext) {
+            return
+        }
 
         const event =
             toolName === 'switch-project'
@@ -139,7 +169,9 @@ export class RequestContext {
                 : toolName === 'switch-organization'
                   ? AnalyticsEvent.MCP_ORGANIZATION_SWITCHED
                   : undefined
-        if (!event) {return}
+        if (!event) {
+            return
+        }
 
         const distinctId = await this.getDistinctId()
         await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
@@ -148,12 +180,21 @@ export class RequestContext {
     buildClientProperties(props?: RequestProperties): Record<string, unknown> {
         const p = props ?? this.props
         return {
+            $ai_product: 'mcp',
+            $mcp_source: MCP_ANALYTICS_SOURCE,
+            $mcp_server_name: MCP_SERVER_NAME,
+            $mcp_server_version: MCP_SERVER_VERSION,
+            $mcp_client_name: p.mcpClientName,
+            $mcp_client_version: p.mcpClientVersion,
+            $mcp_client_user_agent: p.clientUserAgent,
+            $mcp_protocol_version: p.mcpProtocolVersion,
+            $mcp_transport: p.transport,
+            $mcp_session_id: p.mcpSessionId,
+            $mcp_conversation_id: p.mcpConversationId,
+            $mcp_consumer: p.mcpConsumer,
+            $mcp_mode: p.mode,
+            $mcp_region: p.region,
             mcp_runtime: 'hono',
-            ...(p.mcpClientName ? { mcp_client_name: p.mcpClientName } : {}),
-            ...(p.mcpClientVersion ? { mcp_client_version: p.mcpClientVersion } : {}),
-            ...(p.mcpProtocolVersion ? { mcp_protocol_version: p.mcpProtocolVersion } : {}),
-            ...(p.mcpConsumer ? { mcp_consumer: p.mcpConsumer } : {}),
-            ...(p.transport ? { mcp_transport: p.transport } : {}),
         }
     }
 
@@ -168,7 +209,7 @@ export class RequestContext {
         try {
             const resolvedDistinctId = distinctId ?? (await this.getDistinctId())
             const resolvedProps = props ?? this.props
-            const clientName = await this.cache.get('clientName')
+            const clientName = await this.tokenCache.get('clientName')
             const contextProperties = analyticsContext ? buildMCPContextProperties(analyticsContext) : {}
             const previousContextProperties = previousContext
                 ? buildMCPContextProperties(previousContext, { prefix: 'previous_' })
@@ -184,7 +225,7 @@ export class RequestContext {
                     ...(resolvedProps.sessionId
                         ? { $session_id: await this.getSessionUuid(resolvedProps.sessionId) }
                         : {}),
-                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
+                    ...(clientName ? { $mcp_oauth_client_name: clientName } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
