@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
+import hogWelder from 'public/hedgehog/hog-welder.png'
+import starHog from 'public/hedgehog/star-hog.png'
+import warningHog from 'public/hedgehog/warning-hog.png'
+
+import { type DisplayState, wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
 
 /**
- * Onboarding-scoped floating action button. Renders whenever a wizard session
- * has been observed and the user has navigated away from the install step's
- * full panel. Dismissible only after the run reaches a terminal phase.
- *
- * Mounts `wizardProgressTrackerLogic` at the scene root so SSE stays connected
- * across step navigation.
+ * Onboarding-scoped floating widget. Persists across onboarding step navigation
+ * while a wizard session is in flight, with a hog mascot + labelled status so
+ * users understand what they're looking at. Dismissible only after a terminal phase.
  */
 export function WizardProgressFab(): JSX.Element | null {
     const { displayState, latestSession, elapsedSeconds, dismissed, panelMounted } =
@@ -23,43 +24,41 @@ export function WizardProgressFab(): JSX.Element | null {
     }
 
     const isTerminal = displayState === 'completed' || displayState === 'error'
+    const isRunning = !isTerminal
     const skill = latestSession?.skill_id
-
-    const headline =
-        displayState === 'completed'
-            ? "PostHog's wired in"
-            : displayState === 'error'
-              ? 'Wizard ran into trouble'
-              : displayState === 'connecting'
-                ? 'Reconnecting…'
-                : 'Wizard installing PostHog'
-
-    const sub =
-        displayState === 'completed' || displayState === 'error'
-            ? skill
-                ? `${skill}`
-                : null
-            : skill
-              ? `${skill} · ${formatElapsed(elapsedSeconds)}`
-              : formatElapsed(elapsedSeconds)
+    const headline = headlineFor(displayState)
+    const sub = subFor(displayState, skill, elapsedSeconds)
+    const accent = accentColor(displayState)
+    const mascot = mascotFor(displayState)
 
     return (
-        <div className="fixed bottom-4 right-4 z-[60] font-mono">
+        <div className="fixed bottom-5 right-5 z-[60]">
+            <FabKeyframes />
             <div
                 role="status"
                 aria-live="polite"
-                className={`flex items-center gap-3 pl-3 pr-2 py-2 rounded-full shadow-2xl shadow-black/30 border ${
-                    displayState === 'completed'
-                        ? 'bg-success text-white border-success'
-                        : displayState === 'error'
-                          ? 'bg-brand-red text-white border-brand-red'
-                          : 'bg-neutral-950 text-neutral-100 border-neutral-800'
-                }`}
+                className="flex items-center gap-3 pl-2 pr-4 py-2 rounded-full bg-bg-light shadow-2xl shadow-black/20 border border-border min-w-[300px]"
+                style={{ borderColor: accent }}
             >
-                <FabIcon displayState={displayState} />
-                <div className="flex flex-col leading-tight pr-1 min-w-0">
-                    <span className="text-xs uppercase tracking-wider opacity-80">{headline}</span>
-                    {sub ? <span className="text-[11px] tabular-nums truncate max-w-[180px]">{sub}</span> : null}
+                <span
+                    className={`relative flex-shrink-0 w-16 h-16 rounded-full flex items-center justify-center ${
+                        isRunning ? 'wizard-fab-glow' : ''
+                    }`}
+                    style={{ background: `${accent}1a` }}
+                >
+                    <img
+                        src={mascot}
+                        alt=""
+                        draggable={false}
+                        className={`relative w-12 h-12 object-contain ${isRunning ? 'wizard-fab-mascot-bob' : ''}`}
+                    />
+                </span>
+                <div className="flex flex-col leading-tight min-w-0 flex-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Setup wizard</span>
+                    <span className="text-sm font-semibold text-default truncate" style={{ color: accent }}>
+                        {headline}
+                    </span>
+                    {sub ? <span className="text-xs text-muted tabular-nums truncate">{sub}</span> : null}
                 </div>
                 {isTerminal && (
                     <LemonButton
@@ -68,41 +67,76 @@ export function WizardProgressFab(): JSX.Element | null {
                         onClick={dismiss}
                         aria-label="Dismiss"
                         tooltip="Dismiss"
-                        className="opacity-80 hover:opacity-100"
                     />
                 )}
             </div>
-            <FabKeyframes />
         </div>
     )
 }
 
-function FabIcon({ displayState }: { displayState: string }): JSX.Element {
-    if (displayState === 'completed') {
-        return (
-            <span aria-hidden className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white/20">
-                <IconCheck className="text-white" />
-            </span>
-        )
+function headlineFor(state: DisplayState): string {
+    switch (state) {
+        case 'completed':
+            return "PostHog's wired in"
+        case 'error':
+            return 'Hit a snag'
+        case 'connecting':
+            return 'Reconnecting…'
+        default:
+            return 'Installing PostHog'
     }
-    if (displayState === 'error') {
-        return (
-            <span aria-hidden className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white/20">
-                <IconX className="text-white" />
-            </span>
-        )
+}
+
+function subFor(state: DisplayState, skill: string | undefined, elapsedSeconds: number): string | null {
+    if (state === 'completed') {
+        return skill ? `${skill} · all set` : 'all set'
     }
-    return <span aria-hidden className="inline-block w-3 h-3 rounded-full bg-brand-red wizard-fab-pulse-dot shrink-0" />
+    if (state === 'error') {
+        return skill ? `${skill} · open the panel to retry` : 'open the panel to retry'
+    }
+    const elapsed = formatElapsed(elapsedSeconds)
+    return skill ? `${skill} · ${elapsed}` : elapsed
+}
+
+function mascotFor(state: DisplayState): string {
+    switch (state) {
+        case 'completed':
+            return starHog
+        case 'error':
+            return warningHog
+        default:
+            return hogWelder
+    }
+}
+
+function accentColor(state: DisplayState): string {
+    switch (state) {
+        case 'completed':
+            return 'rgb(16, 185, 129)' // emerald-500
+        case 'error':
+            return 'rgb(245, 78, 0)' // brand-red
+        default:
+            return 'rgb(245, 78, 0)' // brand-red
+    }
 }
 
 function FabKeyframes(): JSX.Element {
     return (
         <style>{`
-            @keyframes wizard-fab-pulse-dot {
-                0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(245, 78, 0, 0.55); }
-                50% { opacity: 0.6; box-shadow: 0 0 0 5px rgba(245, 78, 0, 0); }
+            @keyframes wizard-fab-mascot-bob {
+                0%, 100% { transform: translateY(0) rotate(-2deg); }
+                50%      { transform: translateY(-3px) rotate(2deg); }
             }
-            .wizard-fab-pulse-dot { animation: wizard-fab-pulse-dot 1.6s ease-in-out infinite; }
+            .wizard-fab-mascot-bob {
+                animation: wizard-fab-mascot-bob 1.6s ease-in-out infinite;
+            }
+            @keyframes wizard-fab-glow {
+                0%, 100% { box-shadow: 0 0 0 0 rgba(245, 78, 0, 0.45); }
+                50%      { box-shadow: 0 0 0 8px rgba(245, 78, 0, 0); }
+            }
+            .wizard-fab-glow {
+                animation: wizard-fab-glow 2.2s ease-in-out infinite;
+            }
         `}</style>
     )
 }
