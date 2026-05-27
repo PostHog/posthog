@@ -1,5 +1,5 @@
 const TABLE_DELIMITER_SEGMENT_RE = /^\|(?:\s*:?-{2,}:?\s*\|)+\s*$/
-const FLATTENED_TABLE_ROW_BOUNDARY_RE = /(?<=\|)\s+(?=\|)/g
+const FLATTENED_TABLE_ROW_BOUNDARY_RE = /(?<=\|)\s+(?=\|)/
 
 // Slack, ChatGPT, Notion etc. strip newlines between table rows on plain-text copy.
 // Only splits when a delimiter row (`|---|---|`) is present, so prose with `|` is safe.
