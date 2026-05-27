@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
-# Single source of truth shared with the frontend create gate via generated schema (FREE_LIMIT).
-SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER = SubscriptionFreeTierLimit().root
+# Single source of truth shared with the frontend create gate via generated schema (SubscriptionFreeTierLimit.COUNT).
+SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int = SubscriptionFreeTierLimit.model_fields["root"].default
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
