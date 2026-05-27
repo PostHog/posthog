@@ -50,6 +50,11 @@ procs:
             createdb posthog_e2e_test && \
             echo "DROP DATABASE IF EXISTS posthog_test SYNC" | curl 'http://localhost:8123/' --data-binary @- && \
             echo "CREATE DATABASE posthog_test" | curl 'http://localhost:8123/' --data-binary @- && \
+            echo "=== Detaching conflicting Kafka-engine tables from posthog DB (shared consumer group 'group1') ===" && \
+            for tbl in $(echo "SELECT name FROM system.tables WHERE database='posthog' AND engine='Kafka' FORMAT TabSeparated" | curl -s 'http://localhost:8123/' --data-binary @-); do \
+                echo "  detaching posthog.$tbl"; \
+                echo "DETACH TABLE IF EXISTS posthog.\`$tbl\` PERMANENTLY" | curl -s 'http://localhost:8123/' --data-binary @- || true; \
+            done && \
             echo "=== Running migrations ===" && \
             bin/wait-for-docker && \
             python manage.py migrate && \

@@ -211,6 +211,10 @@ def create_organization_with_team(
     )
     api_key._value = api_key_value  # type: ignore
 
+    # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
+    user.credentials_reviewed_at = timezone.now()
+    user.save(update_fields=["credentials_reviewed_at"])
+
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
         team.onboarding_tasks = {
