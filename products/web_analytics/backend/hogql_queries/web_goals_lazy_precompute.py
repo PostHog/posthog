@@ -203,7 +203,7 @@ def _build_insert_query(actions: Sequence) -> str:
     denominator rows in one expression.
     """
     # Per-session COUNT columns + ORM-known action ids for the arrayJoin.
-    # Every tuple element is wrapped in an explicit `toInt64(...)` so the
+    # Every tuple element is wrapped in an explicit `toInt(...)` so the
     # tuple types unify cleanly across the array. ClickHouse requires
     # uniform element types within an array of tuples; without the explicit
     # cast the denominator's literal `0` (Int32) and the per-action
@@ -212,7 +212,8 @@ def _build_insert_query(actions: Sequence) -> str:
     # precompute paths, and the round-trip parity test is skipped pending
     # the read-after-write CI flake — so a type error would only surface in
     # production through the failure counter and silent fall-through to the
-    # live path.
+    # live path. (HogQL exposes `toInt`, which compiles to ClickHouse's
+    # `toInt64`; `toInt64` itself is not a valid HogQL identifier.)
     # `countIf` is bounded by the per-job time window so events that occur
     # in the SESSION_FORWARD_PAD_MINUTES tail (past `time_window_max`) do
     # NOT contribute to this job's counts. The pad lets `min(start_timestamp)`
@@ -227,11 +228,11 @@ def _build_insert_query(actions: Sequence) -> str:
         for n in range(len(actions))
     )
     array_join_pairs = ",\n            ".join(
-        f"tuple({{action_{n}_id}}, toInt64(count_{n}))" for n in range(len(actions))
+        f"tuple({{action_{n}_id}}, toInt(count_{n}))" for n in range(len(actions))
     )
     # The literal `-1` anchors the per-hour denominator row; `0` is just a
     # placeholder because the denominator row's `count_state` is never read.
-    array_join_literal = f"tuple(toInt64({DENOMINATOR_ACTION_ID}), toInt64(0)), {array_join_pairs}"
+    array_join_literal = f"tuple(toInt({DENOMINATOR_ACTION_ID}), toInt(0)), {array_join_pairs}"
 
     return f"""
 SELECT
