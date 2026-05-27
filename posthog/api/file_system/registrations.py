@@ -357,7 +357,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "feature_flag",
-        "posthog",
+        "feature_flags",
         "FeatureFlag",
         undo_message="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
     )

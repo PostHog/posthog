@@ -1956,6 +1956,10 @@ snapshots:
         hash: v1.k794b7964.d669cc7bd939e7cd9bae4003a228e194a6c383d827feb04baf491a89dfc0b698.eD11DZ4cr8p1GMBdBaTW1doXInEVj9CIhnyMP8RNpFo
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
+    insights-stickinesslinechart--area--dark:
+        hash: v1.k794b7964.2d8f13bdaaffd8ffd4cad37112cae92022ace61ad5761f630a70d4c9fcecc2ae.-oVvCJIPaQGhJ4H0h-HhUv5F2FhogTXDhOTz53oJ6AQ
+    insights-stickinesslinechart--area--light:
+        hash: v1.k794b7964.5d7b49d8f4ebb24543f100ed4014d0f8a5832a5db40525f482fb096eadd7acb4.DMdwu1bhfT1dAJWNVYf72l00l5XMKia53ratuSW3CyE
     insights-stickinesslinechart--default--dark:
         hash: v1.k794b7964.f6ce3c9177a7fa2b7d23d13e7121d089a2617f581baec1eaff9980bd40905199.A5l8DG-UgcNxzLuJwxvElIEzmOGud3QUrquboobhJvM
     insights-stickinesslinechart--default--light:
@@ -4747,7 +4751,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--light:
         hash: v1.k794b7964.c95c5a49f7a20b7fcb1041dd26c73ee87c9a906cb229247a44fd4633bbdc9173.StrJ2VBA5acLqvnsiO2CS_o6qadxeaeO6ST8lxf5UdI
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
-        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
+        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.URrKOLP9uUjbKWcui2yOA7hm_JsXsbkAlOcWJshoQrI
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.KSiw8WpvjWXIDh87ExL4cPnopVJlTXvzU8N8ruh6Hi8
     scenes-app-insights-funnels--funnel-time-to-convert--dark:

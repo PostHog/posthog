@@ -26,7 +26,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
-from posthog.models import Cohort, FeatureFlag, Insight
+from posthog.models import Cohort, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -34,6 +34,7 @@ from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _social_auth_backend() -> BaseAuth:
