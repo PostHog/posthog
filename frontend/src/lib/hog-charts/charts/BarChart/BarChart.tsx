@@ -214,11 +214,28 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
-                // Full band width — keeps the band-edge tooltip anchor aligned to the
-                // step boundary in grouped mode (sub-band width would anchor inside the
-                // step, but `position.x` is the band center so the tooltip would point
-                // at the wrong bar).
-                extent: () => (isHorizontal ? undefined : d3Scales.band.bandwidth()),
+                // Width of the rendered bar content within the band. In grouped mode
+                // the bars are surrounded by group outer padding, so `band.bandwidth()`
+                // overshoots the rightmost bar's right edge — anchoring the tooltip in
+                // empty space. d3.scaleBand is symmetric, so 2 * rightmostBarRight -
+                // band.bandwidth() gives the content extent centered on the band center.
+                extent: () => {
+                    if (isHorizontal) {
+                        return undefined
+                    }
+                    const groupScale = d3Scales.group
+                    if (barLayout === 'grouped' && groupScale) {
+                        const domain = groupScale.domain()
+                        if (domain.length > 0) {
+                            const lastOffset = groupScale(domain[domain.length - 1]) ?? 0
+                            const contentExtent = 2 * (lastOffset + groupScale.bandwidth()) - d3Scales.band.bandwidth()
+                            if (contentExtent > 0) {
+                                return contentExtent
+                            }
+                        }
+                    }
+                    return d3Scales.band.bandwidth()
+                },
                 _private: barChartPrivate,
             }
         },
