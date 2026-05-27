@@ -35,8 +35,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.schema import InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
-from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -57,9 +55,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -80,6 +76,14 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.product_analytics.backend.api.insight import (
+    DashboardTileBasicSerializer,
+    InsightSerializer,
+    InsightViewSet,
+)
+from products.product_analytics.backend.api.insight_suggestions import summarize_insight_result
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -1268,12 +1272,23 @@ class DashboardsViewSet(
         response = Response(data)
         return response
 
+    def _validate_ai_feature_access(self) -> None:
+        """Validate that AI data processing is approved by the organization.
+
+        Mirrors `InsightsViewSet._validate_ai_feature_access`. The dashboard refresh
+        flow is `snapshot` -> `analyze_refresh_result`; both touch the same data the
+        OpenAI call ultimately sees, so both gate on this check.
+        """
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
+
     @action(methods=["POST"], detail=True)
     def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Snapshot the current dashboard state (from cache) for AI analysis.
         Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
         """
+        self._validate_ai_feature_access()
         dashboard = self.get_object()
 
         input_serializer = DashboardSnapshotSerializer(data=request.data)
@@ -1301,6 +1316,8 @@ class DashboardsViewSet(
         Generate AI analysis comparing before/after dashboard refresh.
         Expects cache_key in request body pointing to the stored 'before' state.
         """
+        self._validate_ai_feature_access()
+
         dashboard = self.get_object()
         cache_key = request.data.get("cache_key")
 
@@ -1319,7 +1336,7 @@ class DashboardsViewSet(
         after_results = self._get_cached_results_for_analysis(dashboard, request)
 
         # Generate AI analysis
-        analysis = generate_refresh_analysis(before_results, after_results, self.team.id)
+        analysis = generate_refresh_analysis(before_results, after_results, dashboard)
 
         if not analysis:
             return Response({"result": "No significant changes detected in the dashboard data."})

@@ -4,6 +4,7 @@ use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
 use rand::Rng;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn test_get_person_by_id() {
@@ -159,7 +160,8 @@ async fn test_get_group() {
     let fetched = result.unwrap();
     assert_eq!(fetched.group_key, "company_123");
     assert_eq!(fetched.group_type_index, 0);
-    assert_eq!(fetched.group_properties, properties);
+    let fetched_props: serde_json::Value = serde_json::from_str(&fetched.group_properties).unwrap();
+    assert_eq!(fetched_props, properties);
 
     ctx.cleanup().await.ok();
 }
@@ -244,8 +246,9 @@ async fn test_person_properties() {
 
     assert!(result.is_some());
     let fetched = result.unwrap();
-    assert_eq!(fetched.properties["email"], "props_test@example.com");
-    assert_eq!(fetched.properties["plan"], "enterprise");
+    let props: serde_json::Value = serde_json::from_str(&fetched.properties).unwrap();
+    assert_eq!(props["email"], "props_test@example.com");
+    assert_eq!(props["plan"], "enterprise");
 
     ctx.cleanup().await.ok();
 }
@@ -1046,6 +1049,358 @@ async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
     assert!(ctx
         .storage
         .get_person_by_distinct_id(ctx.team_id, "rollback_user_2")
+        .await
+        .unwrap()
+        .is_some());
+
+    // Cleanup
+    sqlx::query("DELETE FROM _test_person_fk_block WHERE team_id = $1")
+        .bind(ctx.team_id as i32)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete persons by UUID tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_persons_small_batch() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("del_uuid_1", None).await.unwrap();
+    let p2 = ctx.insert_person("del_uuid_2", None).await.unwrap();
+    let p3 = ctx.insert_person("del_uuid_3", None).await.unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
+        .await
+        .expect("Failed to delete persons");
+
+    assert_eq!(deleted, 2);
+
+    // p1 and p2 gone, p3 remains
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p1.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p2.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p3.id)
+        .await
+        .unwrap()
+        .is_some());
+
+    // Distinct IDs for deleted persons should also be gone
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "del_uuid_1")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "del_uuid_2")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "del_uuid_3")
+        .await
+        .unwrap()
+        .is_some());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_empty_uuids() {
+    let ctx = TestContext::new().await;
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[])
+        .await
+        .expect("Failed to delete persons");
+    assert_eq!(deleted, 0);
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_nonexistent_uuids() {
+    let ctx = TestContext::new().await;
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[Uuid::now_v7(), Uuid::now_v7()])
+        .await
+        .expect("Failed to delete persons");
+    assert_eq!(deleted, 0);
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_with_multiple_distinct_ids() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("multi_did_1", None).await.unwrap();
+    ctx.add_distinct_id_to_person(p1.id, "multi_did_1b")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(p1.id, "multi_did_1c")
+        .await
+        .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[p1.uuid])
+        .await
+        .expect("Failed to delete persons");
+
+    assert_eq!(deleted, 1);
+
+    // All three distinct IDs should be gone
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "multi_did_1")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "multi_did_1b")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "multi_did_1c")
+        .await
+        .unwrap()
+        .is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_large_batch_triggers_parallel() {
+    let ctx = TestContext::new().await;
+
+    // Create 150 persons — with chunk_size=50, this triggers 3 parallel chunks
+    let mut uuids = Vec::new();
+    for i in 0..150 {
+        let p = ctx
+            .insert_person(&format!("parallel_del_{i}"), None)
+            .await
+            .unwrap();
+        // Give some persons extra distinct_ids to exercise bin-packing
+        if i % 10 == 0 {
+            for j in 0..5 {
+                ctx.add_distinct_id_to_person(p.id, &format!("parallel_del_{i}_extra_{j}"))
+                    .await
+                    .unwrap();
+            }
+        }
+        uuids.push(p.uuid);
+    }
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &uuids)
+        .await
+        .expect("Failed to delete persons");
+
+    assert_eq!(deleted, 150);
+
+    // Verify all are gone
+    for i in 0..150 {
+        assert!(
+            ctx.storage
+                .get_person_by_distinct_id(ctx.team_id, &format!("parallel_del_{i}"))
+                .await
+                .unwrap()
+                .is_none(),
+            "Person {i} should have been deleted"
+        );
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_large_batch() {
+    let ctx = TestContext::new().await;
+
+    // Create 150 persons. batch_size=100 selects 100, chunk_size=50 means
+    // two parallel chunks per call — exercises the parallel delete path.
+    for i in 0..150 {
+        let p = ctx
+            .insert_person(&format!("batch_team_del_{i}"), None)
+            .await
+            .unwrap();
+        if i % 10 == 0 {
+            for j in 0..5 {
+                ctx.add_distinct_id_to_person(p.id, &format!("batch_team_del_{i}_extra_{j}"))
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    // First call: selects and deletes 100 of 150
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .await
+        .expect("Failed to delete persons batch");
+    assert_eq!(deleted, 100);
+
+    // Second call: deletes the remaining 50
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .await
+        .expect("Failed to delete persons batch");
+    assert_eq!(deleted, 50);
+
+    // Third call: nothing left
+    let remaining = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .await
+        .expect("Failed to delete persons batch");
+    assert_eq!(remaining, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_idempotent() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("idem_1", None).await.unwrap();
+    let p2 = ctx.insert_person("idem_2", None).await.unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
+        .await
+        .expect("Failed to delete persons");
+    assert_eq!(deleted, 2);
+
+    // Second call with the same UUIDs should be a no-op
+    let deleted_again = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
+        .await
+        .expect("Failed to delete persons");
+    assert_eq!(deleted_again, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_cross_team_isolation() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("cross_team_1", None).await.unwrap();
+
+    // Create a person in a different team
+    let other_team_id = ctx.team_id + 1;
+    let other_person_id: i64 =
+        rand::Rng::gen_range(&mut rand::thread_rng(), 1_000_000..100_000_000);
+    let other_uuid = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO posthog_person \
+         (id, uuid, team_id, properties, properties_last_updated_at, \
+          properties_last_operation, created_at, version, is_identified, is_user_id) \
+         VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false, NULL) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(other_person_id)
+    .bind(other_uuid)
+    .bind(other_team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // Delete from ctx.team_id — should not touch the other team's person
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[p1.uuid, other_uuid])
+        .await
+        .expect("Failed to delete persons");
+    assert_eq!(deleted, 1);
+
+    // Other team's person should still exist
+    let still_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM posthog_person WHERE team_id = $1 AND uuid = $2",
+    )
+    .bind(other_team_id as i32)
+    .bind(other_uuid)
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(still_exists, 1);
+
+    // Cleanup
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(other_team_id as i32)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_partial_failure_returns_error() {
+    let ctx = TestContext::new().await;
+
+    // Create a person and block its deletion with a RESTRICT FK.
+    let blocked = ctx.insert_person("blocked_person", None).await.unwrap();
+    let normal = ctx.insert_person("normal_person", None).await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS _test_person_fk_block (
+            id SERIAL PRIMARY KEY,
+            team_id INTEGER NOT NULL,
+            person_id BIGINT NOT NULL,
+            FOREIGN KEY (team_id, person_id)
+                REFERENCES posthog_person(team_id, id) ON DELETE RESTRICT
+        )",
+    )
+    .execute(&ctx.pool)
+    .await
+    .expect("Failed to create blocking FK table");
+
+    sqlx::query("INSERT INTO _test_person_fk_block (team_id, person_id) VALUES ($1, $2)")
+        .bind(ctx.team_id as i32)
+        .bind(blocked.id)
+        .execute(&ctx.pool)
+        .await
+        .expect("Failed to insert blocking reference");
+
+    // The call should return an error because the FK blocks deletion
+    let result = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[blocked.uuid, normal.uuid])
+        .await;
+    assert!(result.is_err(), "Expected error due to blocked FK");
+
+    // The blocked person should still exist
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, blocked.id)
         .await
         .unwrap()
         .is_some());

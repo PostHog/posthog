@@ -71,6 +71,7 @@ class ClickHouseUser(StrEnum):
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
+    BILLING = "billing"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

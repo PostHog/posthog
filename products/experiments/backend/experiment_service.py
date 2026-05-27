@@ -20,14 +20,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
 from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
@@ -44,6 +42,9 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -619,8 +620,17 @@ class ExperimentService:
         creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
-        metrics = self._assign_uuids_to_metrics(metrics)
-        metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary)
+        # Seed the dedup set with uuids the inline metrics must not collide with:
+        # - any saved-metric uuids referenced via saved_metrics_ids (their query.uuid
+        #   appears in the ordering arrays, so any inline copy must be regenerated).
+        # Then share ``seen`` across primary + secondary so a uuid present on one
+        # list can't collide with the other. Regenerated dups don't need an
+        # ordering remap: the kept incumbent still uses the original uuid, so any
+        # ordering reference to it remains valid. The regenerated uuid is appended
+        # to ordering by the loop below as a brand-new entry.
+        seen_metric_uuids: set[str] = self._collect_saved_metric_uuids(saved_metrics_ids)
+        metrics = self._assign_uuids_to_metrics(metrics, seen=seen_metric_uuids)
+        metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
         self.validate_experiment_metrics(metrics)
@@ -865,20 +875,85 @@ class ExperimentService:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
     @staticmethod
-    def _assign_uuids_to_metrics(metrics: list[dict] | None) -> list[dict] | None:
-        """Return a deep copy of ``metrics`` with a ``uuid`` filled in on every entry.
+    def _assign_uuids_to_metrics(
+        metrics: list[dict] | None,
+        *,
+        seen: set[str] | None = None,
+    ) -> list[dict] | None:
+        """Return a deep copy of ``metrics`` with a unique ``uuid`` on every entry.
 
-        Run this before metric validation so the validated dict already carries its
-        final uuid. Callers pass dicts by reference, so we deepcopy to avoid leaking
-        the generated uuid back into their data.
+        Fills missing uuids and regenerates any uuid that collides with one already
+        in ``seen`` (used to share a single uniqueness space across primary +
+        secondary metric lists, plus saved-metric query uuids).
+
+        Ordering arrays don't need a remap from this function: the first occurrence
+        of a duplicated uuid keeps its original value, so existing ordering entries
+        stay valid; regenerated duplicates are handled as new additions by
+        ``_sync_ordering_with_metric_changes`` (update path) or by the append loop
+        in ``create_experiment``.
+
+        Callers pass dicts by reference, so we deepcopy to avoid leaking the
+        generated uuid back into their data.
         """
         if metrics is None:
             return None
         prepared = deepcopy(metrics)
+        seen = seen if seen is not None else set()
         for metric in prepared:
-            if not metric.get("uuid"):
-                metric["uuid"] = str(uuid4())
+            original = metric.get("uuid")
+            if not original or original in seen:
+                new_uuid = str(uuid4())
+                metric["uuid"] = new_uuid
+                seen.add(new_uuid)
+            else:
+                seen.add(original)
         return prepared
+
+    @staticmethod
+    def _remap_ordering(ordering: list[str] | None, remap: dict[str, str]) -> list[str] | None:
+        """Rewrite an ordering array with the old→new uuid mapping from dedup."""
+        if not ordering or not remap:
+            return ordering
+        return [remap.get(uuid, uuid) for uuid in ordering]
+
+    def _collect_saved_metric_uuids(self, saved_metrics_ids: list | None) -> set[str]:
+        """Return the set of saved-metric query uuids referenced by ``saved_metrics_ids``.
+
+        These uuids live in the experiment's ordering arrays alongside inline-metric
+        uuids. Any inline metric in the same write must not collide with one — if
+        the payload reuses a saved-metric uuid for an inline metric, dedup
+        regenerates the inline copy so each ordering entry resolves to one thing.
+        """
+        if not saved_metrics_ids:
+            return set()
+        ids = [sm["id"] for sm in saved_metrics_ids if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return set()
+        seen: set[str] = set()
+        for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query"):
+            if sm.query and (uuid := sm.query.get("uuid")):
+                seen.add(uuid)
+        return seen
+
+    @staticmethod
+    def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
+        """Return a deep copy of ``metrics`` with every uuid regenerated.
+
+        Used by clone flows so a cloned experiment never shares metric uuids with
+        its source. Returns the prepared list plus an old→new mapping the caller
+        threads into the corresponding ordering array.
+        """
+        if metrics is None:
+            return None, {}
+        prepared = deepcopy(metrics)
+        remap: dict[str, str] = {}
+        for metric in prepared:
+            new_uuid = str(uuid4())
+            original = metric.get("uuid")
+            if original:
+                remap[original] = new_uuid
+            metric["uuid"] = new_uuid
+        return prepared, remap
 
     @staticmethod
     def _recompute_fingerprints(
@@ -1607,14 +1682,47 @@ class ExperimentService:
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+
+        # Seed the uniqueness set with uuids that must remain stable in the
+        # ordering arrays — any inline metric reusing one of these gets
+        # regenerated to keep ordering entries unambiguous:
+        # - the stored inline metric list NOT being updated (a primary-only
+        #   update must not collide with the stored secondary, and vice versa).
+        # - saved-metric query uuids (post-update set: the payload's
+        #   saved_metrics_ids if supplied, otherwise the experiment's current
+        #   links).
+        seen_metric_uuids: set[str] = set()
+        if "metrics" in update_data and "metrics_secondary" not in update_data:
+            for metric in experiment.metrics_secondary or []:
+                if uuid := metric.get("uuid"):
+                    seen_metric_uuids.add(uuid)
+        if "metrics_secondary" in update_data and "metrics" not in update_data:
+            for metric in experiment.metrics or []:
+                if uuid := metric.get("uuid"):
+                    seen_metric_uuids.add(uuid)
+        if "saved_metrics_ids" in update_data:
+            seen_metric_uuids |= self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+        else:
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+                if link.saved_metric.query and (uuid := link.saved_metric.query.get("uuid")):
+                    seen_metric_uuids.add(uuid)
+
+        # Regenerated dups don't need an ordering remap: the original uuid is
+        # kept on the incumbent so any ordering reference to it remains valid
+        # (including references to saved-metric uuids that happen to be inlined).
+        # _sync_ordering_with_metric_changes runs later and appends the new
+        # regenerated uuids as additions; _sync_ordering_for_saved_metrics_on_update
+        # handles saved-metric link uuids independently.
         if "metrics" in update_data:
-            update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"])
+            update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
         if "metrics_secondary" in update_data:
-            update_data["metrics_secondary"] = self._assign_uuids_to_metrics(update_data["metrics_secondary"])
+            update_data["metrics_secondary"] = self._assign_uuids_to_metrics(
+                update_data["metrics_secondary"], seen=seen_metric_uuids
+            )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
@@ -1739,9 +1847,12 @@ class ExperimentService:
         if "stats_config" in update_data:
             self.validate_stats_config(update_data["stats_config"])
 
-        updated_primary = update_data.get("metrics", experiment.metrics)
-        updated_secondary = update_data.get("metrics_secondary", experiment.metrics_secondary)
-        self.validate_no_duplicate_metric_uuids(updated_primary, updated_secondary)
+        # Defense-in-depth: only validate the inline metric lists this update
+        # is actually touching. Dedup-on-input has already made these lists
+        # unique; validating the stored arrays would block a soft-delete (or any
+        # other PATCH) on rows that pre-date the dedup logic.
+        if "metrics" in update_data or "metrics_secondary" in update_data:
+            self.validate_no_duplicate_metric_uuids(update_data.get("metrics"), update_data.get("metrics_secondary"))
 
         # --- fingerprint recalculation -------------------------------------
         start_date = update_data.get("start_date", experiment.start_date)
@@ -1921,6 +2032,18 @@ class ExperimentService:
                 for link in source_experiment.experimenttosavedmetric_set.all()
             ] or None
 
+        # Regenerate metric uuids so the clone has its own identity space — sharing
+        # uuids with the source is a foot-gun for any code that uses uuid as a
+        # metric identifier across experiments (recalculations, fingerprints).
+        cloned_metrics, primary_remap = self._regenerate_all_metric_uuids(source_experiment.metrics)
+        cloned_metrics_secondary, secondary_remap = self._regenerate_all_metric_uuids(
+            source_experiment.metrics_secondary
+        )
+        cloned_primary_ordering = self._remap_ordering(source_experiment.primary_metrics_ordered_uuids, primary_remap)
+        cloned_secondary_ordering = self._remap_ordering(
+            source_experiment.secondary_metrics_ordered_uuids, secondary_remap
+        )
+
         service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
         return service.create_experiment(
@@ -1930,14 +2053,14 @@ class ExperimentService:
             type=source_experiment.type or "product",
             parameters=parameters,
             filters=source_experiment.filters,
-            metrics=deepcopy(source_experiment.metrics),
-            metrics_secondary=deepcopy(source_experiment.metrics_secondary),
+            metrics=cloned_metrics,
+            metrics_secondary=cloned_metrics_secondary,
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
             exposure_criteria=source_experiment.exposure_criteria,
             saved_metrics_ids=saved_metrics_data,
-            primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
-            secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
+            primary_metrics_ordered_uuids=cloned_primary_ordering,
+            secondary_metrics_ordered_uuids=cloned_secondary_ordering,
             only_count_matured_users=source_experiment.only_count_matured_users,
             serializer_context=serializer_context,
             # For duplicate we set allow_unknown_events since the goal here is to actually duplicate:
@@ -2561,7 +2684,19 @@ class ExperimentService:
         old_saved_metric_uuids: dict[str, set[str]],
         saved_metrics_data: list[dict] | None,
     ) -> None:
-        """Sync ordering arrays with saved metric changes during update."""
+        """Sync ordering arrays with saved metric changes during update.
+
+        When a saved metric is added or removed, the ordering arrays are kept in
+        sync. The classification rule for the resulting write is:
+
+        - If the user did not supply the ordering field, or supplied a value that
+          equals what auto-sync would have produced, treat the write as bookkeeping
+          and persist it via a muted ``experiment.save(update_fields=...)`` so only
+          the add/remove appears in the activity log.
+        - Otherwise the user layered an explicit reorder on top of the add/remove.
+          Merge their order with the add/remove side effects and let the value flow
+          through the normal ``experiment.save()`` so the reorder is logged.
+        """
         if saved_metrics_data is None:
             return
 
@@ -2591,29 +2726,63 @@ class ExperimentService:
         added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
         removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
 
-        if added_primary or removed_primary:
-            if "primary_metrics_ordered_uuids" in update_data:
-                current_ordering = list(update_data["primary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(experiment.primary_metrics_ordered_uuids or [])
+        # Fields whose new value is purely a side effect of add/remove — save these
+        # via a muted save to avoid logging a spurious "reordered metrics" entry
+        # alongside the add/remove entry.
+        auto_synced_fields: list[str] = []
 
-            current_ordering = [u for u in current_ordering if u not in removed_primary]
-            for uuid in added_primary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-            update_data["primary_metrics_ordered_uuids"] = current_ordering
+        def resolve_ordering(
+            field: str,
+            base_ordering: list[str],
+            added: set[str],
+            removed: set[str],
+        ) -> None:
+            auto_sync_result = [u for u in base_ordering if u not in removed]
+            for uuid in added:
+                if uuid not in auto_sync_result:
+                    auto_sync_result.append(uuid)
+
+            user_supplied = field in update_data
+            supplied_value = list(update_data.get(field) or []) if user_supplied else None
+
+            if user_supplied and supplied_value != auto_sync_result:
+                # Real user reorder layered on top of the add/remove. Fold in the
+                # add/remove side effects so we don't lose newly-added UUIDs or
+                # retain newly-removed ones, but keep the user's chosen order.
+                merged = [u for u in supplied_value or [] if u not in removed]
+                for uuid in added:
+                    if uuid not in merged:
+                        merged.append(uuid)
+                update_data[field] = merged
+                # leave it to flow through the normal save() — logged as reorder
+            else:
+                update_data[field] = auto_sync_result
+                auto_synced_fields.append(field)
+
+        if added_primary or removed_primary:
+            resolve_ordering(
+                "primary_metrics_ordered_uuids",
+                list(experiment.primary_metrics_ordered_uuids or []),
+                added_primary,
+                removed_primary,
+            )
 
         if added_secondary or removed_secondary:
-            if "secondary_metrics_ordered_uuids" in update_data:
-                current_ordering = list(update_data["secondary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
+            resolve_ordering(
+                "secondary_metrics_ordered_uuids",
+                list(experiment.secondary_metrics_ordered_uuids or []),
+                added_secondary,
+                removed_secondary,
+            )
 
-            current_ordering = [u for u in current_ordering if u not in removed_secondary]
-            for uuid in added_secondary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-            update_data["secondary_metrics_ordered_uuids"] = current_ordering
+        # Persist auto-synced ordering via a muted save so the add/remove of the
+        # saved metric is the only activity log entry. The user-initiated reorder
+        # path still flows through the normal save() at the end of update_experiment.
+        if auto_synced_fields:
+            for field in auto_synced_fields:
+                setattr(experiment, field, update_data.pop(field))
+            with mute_selected_signals():
+                experiment.save(update_fields=[*auto_synced_fields, "updated_at"])
 
     def _validate_metric_ordering_on_update(self, experiment: Experiment, update_data: dict) -> None:
         """Validate ordering arrays contain all metric UUIDs (update path)."""

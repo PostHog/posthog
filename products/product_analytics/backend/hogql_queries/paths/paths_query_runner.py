@@ -36,6 +36,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
@@ -54,8 +55,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ) -> None:
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
         if not self.query.pathsFilter:
             self.query.pathsFilter = PathsFilter()
@@ -887,6 +889,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             query_type="PathsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

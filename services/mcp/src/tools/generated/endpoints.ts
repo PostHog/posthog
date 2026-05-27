@@ -49,6 +49,9 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         if (params.is_materialized !== undefined) {
             body['is_materialized'] = params.is_materialized
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/`,
@@ -192,6 +195,9 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         }
         if (params.version !== undefined) {
             body['version'] = params.version
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
