@@ -13,7 +13,7 @@ class LLMModelConfiguration(UUIDTModel):
     provider = models.CharField(max_length=50, choices=LLMProvider)
     model = models.CharField(max_length=100)
     provider_key = models.ForeignKey(
-        "llm_analytics.LLMProviderKey",
+        "ai_observability.LLMProviderKey",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -22,7 +22,7 @@ class LLMModelConfiguration(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        app_label = "llm_analytics"
+        db_table = "llm_analytics_llmmodelconfiguration"
         indexes = [
             models.Index(fields=["team", "provider"]),
         ]

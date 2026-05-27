@@ -36,6 +36,7 @@ class LLMProviderKey(UUIDTModel):
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        db_table = "llm_analytics_llmproviderkey"
         indexes = [
             models.Index(fields=["team", "provider"]),
         ]

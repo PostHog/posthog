@@ -7,6 +7,7 @@ from posthog.models.utils import UUIDModel
 
 class LLMSkill(UUIDModel):
     class Meta:
+        db_table = "llm_analytics_llmskill"
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "name", "version"],
@@ -53,6 +54,7 @@ class LLMSkill(UUIDModel):
 
 class LLMSkillFile(UUIDModel):
     class Meta:
+        db_table = "llm_analytics_llmskillfile"
         constraints = [
             models.UniqueConstraint(
                 fields=["skill", "path"],

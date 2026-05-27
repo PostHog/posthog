@@ -17,7 +17,7 @@ class EvaluationConfig(models.Model):
 
     # Active BYOK key (single source of truth)
     active_provider_key = models.ForeignKey(
-        "llm_analytics.LLMProviderKey",
+        "ai_observability.LLMProviderKey",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -28,7 +28,7 @@ class EvaluationConfig(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "llm_analytics"
+        db_table = "llm_analytics_evaluationconfig"
 
     def __str__(self):
         return f"EvaluationConfig for team {self.team_id}"

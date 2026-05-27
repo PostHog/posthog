@@ -7,6 +7,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 
 class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     class Meta:
+        db_table = "llm_analytics_dataset"
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
@@ -25,6 +26,7 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
 
 class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     class Meta:
+        db_table = "llm_analytics_datasetitem"
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["team", "dataset", "-created_at", "id"]),

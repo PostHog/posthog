@@ -37,6 +37,7 @@ class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     )
 
     class Meta:
+        db_table = "llm_analytics_scoredefinition"
         ordering = ["name", "id"]
         indexes = [models.Index(fields=["team", "kind", "archived"], name="llma_score_def_team_kind_idx")]
 
@@ -78,6 +79,7 @@ class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
     config = models.JSONField(default=dict)
 
     class Meta:
+        db_table = "llm_analytics_scoredefinitionversion"
         ordering = ["-version"]
         constraints = [
             models.UniqueConstraint(

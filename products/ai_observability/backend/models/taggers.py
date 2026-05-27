@@ -104,6 +104,7 @@ def validate_tagger_config(tagger_type: str, tagger_config: dict) -> dict:
 
 class Tagger(UUIDTModel):
     class Meta:
+        db_table = "llm_analytics_tagger"
         ordering = ["-created_at", "id"]
         indexes = [
             # Names must match the explicit names in migration 0032_tagger so
@@ -128,7 +129,7 @@ class Tagger(UUIDTModel):
 
     # Model configuration for the LLM
     model_configuration = models.ForeignKey(
-        "llm_analytics.LLMModelConfiguration",
+        "ai_observability.LLMModelConfiguration",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

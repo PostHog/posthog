@@ -16,6 +16,7 @@ class TraceReview(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
     comment = models.TextField(null=True, blank=True)
 
     class Meta:
+        db_table = "llm_analytics_tracereview"
         ordering = ["-updated_at", "id"]
         indexes = [
             models.Index(fields=["team", "trace_id"], name="llma_tr_rev_trace_idx"),
@@ -42,6 +43,7 @@ class TraceReviewScore(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     boolean_value = models.BooleanField(null=True, blank=True)
 
     class Meta:
+        db_table = "llm_analytics_tracereviewscore"
         ordering = ["definition__name", "id"]
         indexes = [
             models.Index(fields=["team", "definition"], name="llma_tr_score_def_idx"),

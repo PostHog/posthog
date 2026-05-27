@@ -29,7 +29,7 @@ class ClusteringJob(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "llm_analytics"
+        db_table = "llm_analytics_clusteringjob"
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "name"],

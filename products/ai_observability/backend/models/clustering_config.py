@@ -18,7 +18,7 @@ class ClusteringConfig(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "llm_analytics"
+        db_table = "llm_analytics_clusteringconfig"
 
     def __str__(self):
         return f"ClusteringConfig for team {self.team_id}"

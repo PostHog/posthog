@@ -27,6 +27,7 @@ class EvaluationStatusReason(models.TextChoices):
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
     class Meta:
+        db_table = "llm_analytics_evaluation"
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
@@ -54,7 +55,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
     # Model configuration for the LLM judge
     model_configuration = models.ForeignKey(
-        "llm_analytics.LLMModelConfiguration",
+        "ai_observability.LLMModelConfiguration",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

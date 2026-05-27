@@ -30,6 +30,7 @@ class EvaluationReport(UUIDTModel):
     DAILY_RUN_CAP_DEFAULT = 10
 
     class Meta:
+        db_table = "llm_analytics_evaluationreport"
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
@@ -38,7 +39,7 @@ class EvaluationReport(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     evaluation = models.ForeignKey(
-        "llm_analytics.Evaluation",
+        "ai_observability.Evaluation",
         on_delete=models.CASCADE,
         related_name="reports",
     )
@@ -160,6 +161,7 @@ class EvaluationReportRun(UUIDTModel):
         FAILED = "failed"
 
     class Meta:
+        db_table = "llm_analytics_evaluationreportrun"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["report", "-created_at"]),

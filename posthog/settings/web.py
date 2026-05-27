@@ -38,6 +38,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
+    "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
@@ -117,11 +118,6 @@ INSTALLED_APPS = [
     "oauth2_provider",
     "django_admin_inline_paginator",
 ]
-
-MIGRATION_MODULES = {
-    # Keep the historical migration module stable while the app code moves to AI observability.
-    "llm_analytics": "products.llm_analytics.backend.migrations",
-}
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",

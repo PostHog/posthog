@@ -13,6 +13,7 @@ class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
     name = models.CharField(max_length=255)
 
     class Meta:
+        db_table = "llm_analytics_reviewqueue"
         ordering = ["name", "id"]
         indexes = [
             models.Index(fields=["team", "name"], name="llma_rev_queue_name_idx"),
@@ -49,6 +50,7 @@ class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMe
     trace_id = models.CharField(max_length=255)
 
     class Meta:
+        db_table = "llm_analytics_reviewqueueitem"
         ordering = ["created_at", "id"]
         indexes = [
             models.Index(fields=["team", "queue", "created_at", "id"], name="llma_rev_q_item_queue_idx"),
