@@ -50,7 +50,7 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch("products.metrics.backend.has_metrics_query_runner.HasMetricsQueryRunner") as mock_runner,
-            patch("products.metrics.backend.api.report_user_action") as mock_report,
+            patch("products.metrics.backend.presentation.api.report_user_action") as mock_report,
         ):
             mock_runner.return_value.run.return_value = True
 

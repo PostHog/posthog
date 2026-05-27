@@ -28,7 +28,6 @@ from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
-import products.metrics.backend.api as metrics
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
@@ -41,6 +40,7 @@ import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
+import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
 import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
