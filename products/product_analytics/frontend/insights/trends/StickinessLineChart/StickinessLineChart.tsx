@@ -41,6 +41,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
 
     const {
         indexedResults,
+        display,
         interval,
         yAxisScaleType,
         showMultipleYAxes,
@@ -72,11 +73,12 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         () =>
             buildStickinessSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
+                display: display ?? undefined,
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, showMultipleYAxes]
+        [indexedResults, display, getTrendsColor, getTrendsHidden, showMultipleYAxes]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useMemo(

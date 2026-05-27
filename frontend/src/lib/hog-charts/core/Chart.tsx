@@ -125,6 +125,7 @@ export function Chart<Meta = unknown>({
         axisOrientation = 'vertical',
         isPercent = false,
         animateHover,
+        margins: marginsOverride,
     } = config ?? {}
     const hoverAnimationMs = animateHover === true ? 150 : typeof animateHover === 'number' ? animateHover : 0
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
@@ -144,6 +145,7 @@ export function Chart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
+        override: marginsOverride,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
