@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.alerts import EVENT_FIRING, EVENT_RESOLVED, emit_health_check_alert
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
@@ -59,19 +61,31 @@ class TestEmitHealthCheckAlert(SimpleTestCase):
         self.assertEqual(props["title"], "not_in_registry")
         self.assertEqual(props["link"], "/health")
 
-    @patch("posthog.temporal.health_checks.alerts.capture_exception")
-    @patch("posthog.temporal.health_checks.alerts._check_class_for_kind", return_value=_StubCheck)
-    @patch("posthog.temporal.health_checks.alerts.produce_internal_event", side_effect=RuntimeError("kafka down"))
-    def test_produce_failure_is_swallowed_and_captured(self, _produce, _lookup, capture):
-        fired = emit_health_check_alert(_make_issue(), status="firing")
-        self.assertFalse(fired)
-        capture.assert_called_once()
-
-    @patch("posthog.temporal.health_checks.alerts.capture_exception")
-    @patch("posthog.temporal.health_checks.alerts._check_class_for_kind", return_value=_BadCheck)
-    @patch("posthog.temporal.health_checks.alerts.produce_internal_event")
-    def test_render_failure_is_swallowed_and_captured(self, produce, _lookup, capture):
-        fired = emit_health_check_alert(_make_issue(), status="firing")
-        self.assertFalse(fired)
-        produce.assert_not_called()
-        capture.assert_called_once()
+    @parameterized.expand(
+        [
+            ("produce_fails", _StubCheck, RuntimeError("kafka down"), True),
+            ("render_fails", _BadCheck, None, False),
+        ]
+    )
+    def test_failure_is_swallowed_and_captured(
+        self,
+        _name: str,
+        check_cls: type[HealthCheck],
+        produce_side_effect: Exception | None,
+        expects_produce_call: bool,
+    ) -> None:
+        with (
+            patch("posthog.temporal.health_checks.alerts._check_class_for_kind", return_value=check_cls),
+            patch(
+                "posthog.temporal.health_checks.alerts.produce_internal_event",
+                side_effect=produce_side_effect,
+            ) as produce,
+            patch("posthog.temporal.health_checks.alerts.capture_exception") as capture,
+        ):
+            fired = emit_health_check_alert(_make_issue(), status="firing")
+            self.assertFalse(fired)
+            if expects_produce_call:
+                produce.assert_called_once()
+            else:
+                produce.assert_not_called()
+            capture.assert_called_once()
