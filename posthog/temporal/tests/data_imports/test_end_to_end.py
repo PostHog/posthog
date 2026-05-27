@@ -3,6 +3,7 @@ import json
 import uuid
 import functools
 import contextlib
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -678,6 +679,24 @@ _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
     "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
     "stripe_account_id": "acct_id",
 }
+
+
+@contextlib.contextmanager
+def _fast_external_data_job_retry_backoff() -> Iterator[None]:
+    def retry_policy_with_fast_backoff(*args: Any, **kwargs: Any) -> RetryPolicy:
+        maximum_attempts = kwargs.get("maximum_attempts")
+        if isinstance(maximum_attempts, int) and maximum_attempts > 1:
+            kwargs.setdefault("initial_interval", timedelta(milliseconds=1))
+            kwargs.setdefault("maximum_interval", timedelta(milliseconds=1))
+            kwargs.setdefault("backoff_coefficient", 1.0)
+
+        return RetryPolicy(*args, **kwargs)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.external_data_job.RetryPolicy",
+        new=retry_policy_with_fast_backoff,
+    ):
+        yield
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3364,49 +3383,51 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+    # This test asserts retry attempt counts, not Temporal's wall-clock retry cadence.
+    with _fast_external_data_job_retry_backoff():
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+            mock_get_rows.side_effect = Exception("Some error that doesn't retry")
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
 
-    # Resumable source syncs retry up to 15 times
-    assert mock_get_rows.call_count == 15
+        # Resumable source syncs retry up to 15 times
+        assert mock_get_rows.call_count == 15
 
-    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
-    non_retryable_error = next(iter(non_retryable_errors.keys()))
+        source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        non_retryable_error = next(iter(non_retryable_errors.keys()))
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception(non_retryable_error)
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+            mock_get_rows.side_effect = Exception(non_retryable_error)
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
 
-    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
-    assert mock_get_rows.call_count == 4
+        # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
+        assert mock_get_rows.call_count == 4
 
 
 @pytest.mark.django_db(transaction=True)
