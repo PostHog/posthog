@@ -238,20 +238,28 @@ def clear_stale_dependent_edges(saved_query: "DataWarehouseSavedQuery") -> None:
         .exclude(saved_query__deleted=True)
     )
 
+    stale_target_nodes: list[tuple[Node, str]] = []
     for dependent_node in dependent_nodes:
         dependent = dependent_node.saved_query
         if not dependent or _saved_query_references_dependency(dependent, saved_query):
             continue
 
-        Edge.objects.filter(
-            team=saved_query.team,
-            source=source_node,
-            target=dependent_node,
-        ).delete()
+        stale_target_nodes.append((dependent_node, dependent.name))
+
+    if not stale_target_nodes:
+        return
+
+    Edge.objects.filter(
+        team=saved_query.team,
+        source=source_node,
+        target__in=[dependent_node for dependent_node, _ in stale_target_nodes],
+    ).delete()
+
+    for _, dependent_name in stale_target_nodes:
         logger.info(
             "Removed stale saved query dependency edge",
             saved_query_name=saved_query.name,
-            dependent_saved_query_name=dependent.name,
+            dependent_saved_query_name=dependent_name,
         )
 
 

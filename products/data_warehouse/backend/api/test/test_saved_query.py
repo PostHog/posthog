@@ -1524,6 +1524,17 @@ class TestSavedQuery(APIBaseTest):
         child.save(update_fields=["query"])
         self.assertTrue(Edge.objects.filter(source__saved_query_id=parent_id, target__saved_query_id=child_id).exists())
 
+        dependencies_response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}/dependencies",
+        )
+
+        self.assertEqual(dependencies_response.status_code, 200)
+        self.assertEqual(dependencies_response.json()["downstream_count"], 0)
+        self.assertEqual(dependencies_response.json()["downstream_saved_queries"], [])
+        self.assertFalse(
+            Edge.objects.filter(source__saved_query_id=parent_id, target__saved_query_id=child_id).exists()
+        )
+
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}")
 
         self.assertEqual(response.status_code, 204)

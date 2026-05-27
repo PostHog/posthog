@@ -1158,27 +1158,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 parent_id = path.path[-2]
                 upstream_ids.add(parent_id)
 
-        # Count immediate downstream (children) - get unique children that reference this node
-        downstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}.*"
-        )
-        downstream_ids: set[str] = set()
-        for path in downstream_paths:
-            # Find position of current view in path
-            try:
-                idx = path.path.index(saved_query_id)
-                if idx + 1 < len(path.path):
-                    # Get immediate child (next node after current)
-                    child_id = path.path[idx + 1]
-                    downstream_ids.add(child_id)
-            except ValueError:
-                continue
+        downstream_saved_queries = get_dependent_saved_query_summaries(saved_query, refresh_stale_edges=True)
 
         return response.Response(
             {
                 "upstream_count": len(upstream_ids),
-                "downstream_count": len(downstream_ids),
-                "downstream_saved_queries": get_dependent_saved_query_summaries(saved_query),
+                "downstream_count": len(downstream_saved_queries),
+                "downstream_saved_queries": downstream_saved_queries,
             }
         )
 
