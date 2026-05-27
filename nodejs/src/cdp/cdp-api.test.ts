@@ -493,11 +493,6 @@ describe('CDP API', () => {
     })
 
     it('redacts secret input values in mocked async function logs', async () => {
-        // Regression test for a leak in the "Test" panel: when mock_async_functions=true the
-        // mock fetch handler pushes log entries directly to the logs array without running them
-        // through sanitizeLogMessage, so secret-flagged inputs that appear in fetch headers/body
-        // (e.g. Bearer tokens in destinations like WhatsApp/Twilio/Slack) end up in plaintext
-        // in the test logs.
         const SECRET_TOKEN = 'super-secret-bearer-token-xyz'
 
         const hogFunctionWithSecret = await insertHogFunction({

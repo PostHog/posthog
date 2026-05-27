@@ -946,10 +946,6 @@ const buildHogExecutorAsyncOptions = (
         for (const name of getRegisteredAsyncFunctionNames()) {
             const handler = getAsyncFunctionHandler(name)!
             mockFunctions[name] = (...args: any[]) => {
-                // Mock async-function handlers push log entries directly into `logs`, bypassing the
-                // executor's print → sanitizeLogMessage pipeline. Capture how many entries existed
-                // before the handler runs and sanitize anything it appended so any secret-flagged
-                // input values that show up in fetch headers/body etc. don't leak into test logs.
                 const startIndex = logs.length
                 const result = handler.mock(args, logs)
                 if (sensitiveValues?.length) {
