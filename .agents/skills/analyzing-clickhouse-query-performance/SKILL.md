@@ -93,7 +93,10 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
    really one tenant. Attribute by `team_id` + `lc_api_key_label` first.
 6. **Characterize user-facing slowness.** For `lc_kind='request' AND lc_product='product_analytics'`
    with empty `lc_access_method` (logged-in web), break down by `lc_query__kind` and flag
-   `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable bucket.
+   `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable
+   bucket. Always include the **JSON-extracted property breakdown** (`references/query-patterns.md` §7):
+   the top event vs person property names pulled from JSON blobs in the slow set, and which teams use
+   each. These are the materialization candidates and a required report output.
 7. **Root-cause the worst offenders.** For the top findings, do not stop at "team X is slow": pull the
    full query and form a hypothesis for _why_, then test it with EXPLAIN. See
    `references/investigation-playbook.md`. A useful finding includes a why ("scans full history because
@@ -129,7 +132,10 @@ A report should contain, in order:
    straight through to the exact query, plus a **hypothesis for why it is slow** (from
    `references/investigation-playbook.md`). Group findings by what they are: a per-tenant incident, the
    heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
-5. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
+5. A **JSON-extracted property table**: the top event and person property names pulled from JSON blobs
+   in the slow set, with the teams using each (`references/query-patterns.md` §7). These are the
+   materialization candidates.
+6. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
    make pipeline Y incremental, ...).
 
 ## References

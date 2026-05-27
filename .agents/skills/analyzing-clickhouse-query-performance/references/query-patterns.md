@@ -229,3 +229,53 @@ for the executed ClickHouse SQL) if you want more detail in the linked view. Exa
 ```text
 https://metabase.prod-us.posthog.dev/question#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJ...
 ```
+
+## 7. JSON-extracted properties: which names, which teams
+
+A core report output and the input to materialization. Pulls the property names that slow queries
+`JSONExtract` out of a JSON blob, split by which blob (`properties` = event, `person_properties` =
+person, `group_properties` = group), with the teams driving each. `extractAllGroupsVertical` returns
+one `[alias, column, name]` triple per match; `ARRAY JOIN` explodes them.
+
+```sql
+SELECT
+    column,                                 -- properties (event) | person_properties | group_properties
+    property,
+    sum(c) AS slow_queries,
+    uniqExact(team_id) AS teams,
+    sum(failures) AS failures,              -- OOM + timeout among them
+    arraySlice(arrayReverseSort(x -> x.2, groupArray((team_id, c))), 1, 5) AS top_teams_by_count
+FROM (
+    SELECT g[2] AS column, g[3] AS property, team_id,
+        count() AS c,
+        countIf(exception_code IN (159,160,241)) AS failures
+    FROM posthog.query_log_archive
+    ARRAY JOIN extractAllGroupsVertical(query, 'JSONExtract\\w*\\((\\w+)\\.(\\w*properties),\\s*''([^'']+)''') AS g
+    WHERE event_time > now() - INTERVAL 14 DAY
+        AND is_initial_query
+        AND (query_duration_ms > 30000 OR exception_code IN (159,160,241))
+        AND query LIKE '%JSONExtract%'
+    GROUP BY column, property, team_id
+)
+GROUP BY column, property
+ORDER BY slow_queries DESC LIMIT 30
+```
+
+`top_teams_by_count` reads as `[[team_id, query_count], ...]`. Caveat: a query that extracts N
+properties contributes one row per property after the `ARRAY JOIN`, so `slow_queries` counts
+property-occurrences, not distinct queries (which is what you want for ranking materialization
+candidates). The regex captures the first key only, so a nested path `JSONExtract(properties, 'a', 'b')`
+shows as `a`.
+
+To drill one property and list every team using it:
+
+```sql
+SELECT team_id, count() AS slow_queries,
+    countIf(exception_code IN (159,160,241)) AS failures,
+    formatReadableSize(avg(read_bytes)) AS avg_read
+FROM posthog.query_log_archive
+WHERE event_time > now() - INTERVAL 14 DAY AND is_initial_query
+    AND (query_duration_ms > 30000 OR exception_code IN (159,160,241))
+    AND match(query, 'JSONExtract\\w*\\(\\w+\\.\\w*properties,\\s*''<PROPERTY>''')
+GROUP BY team_id ORDER BY slow_queries DESC LIMIT 30
+```

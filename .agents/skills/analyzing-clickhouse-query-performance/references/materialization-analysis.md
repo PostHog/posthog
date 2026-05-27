@@ -10,27 +10,13 @@ to stay under the Metabase response cutoff.
 
 ## Step 1: Candidates to materialize
 
-Properties accessed via `JSONExtract` in slow queries over ~30 days, ranked by how much work they cost.
-Pull `table_alias.column` so you know whether it lives on `events.properties`, `events.person_properties`,
-or `person.properties` (the dagster job needs all three: table, table_column, property).
-
-```sql
-SELECT
-    prop,
-    count() AS slow_queries,
-    uniqExact(team_id) AS teams,
-    countIf(exception_code = 159) AS timeouts,
-    formatReadableSize(avg(read_bytes)) AS avg_read,
-    formatReadableSize(max(read_bytes)) AS max_read
-FROM posthog.query_log_archive
-ARRAY JOIN extractAll(query, 'JSONExtract\\w*\\((?:events|person|e__person)\\.\\w*properties,\\s*''([^'']+)''') AS prop
-WHERE event_time > now() - INTERVAL 30 DAY
-    AND is_initial_query
-    AND (query_duration_ms > 30000 OR exception_code IN (159,160,241))
-    AND query LIKE '%JSONExtract%'
-GROUP BY prop
-ORDER BY slow_queries DESC LIMIT 50
-```
+The candidate list is the JSON-extracted property breakdown from `query-patterns.md` §7: which property
+names slow queries pull out of a JSON blob, split by `column` (event `properties`, `person_properties`,
+or `group_properties`), with the teams driving each. Run that query (widen the window to ~30 days for
+materialization, since a property is worth materializing if it is hit consistently). Rank by
+`slow_queries` and `teams`; a property hit by many slow queries across several teams is the strongest
+candidate. The `column` tells you which blob it lives on, which the dagster job needs (table,
+table_column, property).
 
 To recover the table + column for a specific candidate:
 
