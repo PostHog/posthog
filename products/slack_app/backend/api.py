@@ -1074,6 +1074,29 @@ def _posthog_code_flag_subject(integration: Integration) -> User | None:
     return fallback.user if fallback else None
 
 
+def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
+
+    - "edit": Slack re-fires app_mention with a new event_id when a previously-posted
+      mention is edited. The new event_id bypasses Temporal workflow dedup, so without
+      this guard the edit spawns a duplicate task alongside the original.
+    - "bot_author": the message was authored by another Slack app/bot. Foreign bots
+      that quote `<@PostHog>` in their text (incident bots, alert relays, our own
+      notifications integration) would trigger reply loops on every re-post.
+    """
+    if event.get("edited") or event.get("subtype") == "message_changed":
+        return "edit"
+    if (
+        event.get("bot_id")
+        or event.get("bot_profile")
+        or event.get("app_id")
+        or event.get("subtype") == "bot_message"
+        or event.get("user") == "USLACKBOT"
+    ):
+        return "bot_author"
+    return None
+
+
 def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
     """Runtime gate for the coding agent on app_mention events.
 
@@ -1179,6 +1202,16 @@ def route_posthog_code_event_to_relevant_region(
                     "posthog_code_event_flag_off",
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
+                )
+                return ROUTE_HANDLED_LOCALLY
+            ignore_reason = _app_mention_ignore_reason(event)
+            if ignore_reason:
+                logger.info(
+                    "posthog_code_event_app_mention_ignored",
+                    reason=ignore_reason,
+                    slack_team_id=slack_team_id,
+                    channel=event.get("channel"),
+                    message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
             slack = SlackIntegration(local_match)

@@ -4,7 +4,7 @@
 - `intent`: one sentence about what the user set out to do (their goal).
 - `summary`: 1-2 sentences on the overall arc.
 - `outcome`: one sentence on the final state — do not restate the summary.
-- `friction_points`: list of named blockers, errors, or frustrations the user hit (empty if none).
+- `friction_points`: list of named blockers, errors, or frustrations the user hit (empty if none). Only include things the user would notice — visible error states, dead clicks, rage clicks, abandoned actions, page reloads. Background JS console errors that don't affect the UI (ResizeObserver loops, feature-flag fetch failures, third-party script noise) are not friction.
 - `keywords`: 5-15 distinctive lowercase terms — favor action verbs and specific feature names; skip generic terms ('user', 'session', 'navigation') and the product/team name.
 
 Do not include any event citations or `event_id` hashes anywhere — this output is consumed by a vector-embedding pipeline and hex tokens would be noise.{% endblock %}

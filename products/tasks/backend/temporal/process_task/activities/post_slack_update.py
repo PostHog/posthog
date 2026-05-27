@@ -33,6 +33,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
         task_url = f"{settings.SITE_URL}/project/{task_run.task.team_id}/tasks/{task_run.task_id}?runId={task_run.id}"
+        logs_deeplink = f"posthog-code://task/{task_run.task_id}/run/{task_run.id}"
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
@@ -73,7 +74,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, task_url)
+            handler.post_or_update_progress(stage, logs_deeplink)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 
