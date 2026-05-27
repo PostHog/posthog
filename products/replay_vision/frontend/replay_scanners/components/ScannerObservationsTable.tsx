@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ScannerOverview } from './ScannerOverview'
 
 export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId, tabId })
@@ -99,6 +100,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
 
     return (
         <div className="space-y-4">
+            <ScannerOverview scannerId={scannerId} tabId={tabId} />
             <div className="flex items-start justify-between gap-4">
                 <p className="text-muted text-sm m-0">
                     Past applications of this scanner to session recordings. Each row is one observation.
