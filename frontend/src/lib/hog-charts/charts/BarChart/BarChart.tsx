@@ -196,6 +196,9 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
+                // Bandwidth is uniform across labels in a scaleBand — overlays anchoring at
+                // the band edge (e.g. Tooltip with `placement: 'top'`) read it from here.
+                extent: () => (isHorizontal ? undefined : d3Scales.band.bandwidth()),
                 _private: barChartPrivate,
             }
         },

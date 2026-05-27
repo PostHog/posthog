@@ -107,8 +107,11 @@ export interface TooltipContext<Meta = unknown> {
     /** One entry per visible series with its value and color at this index. `fraction` is set
      *  for radial charts (share of total) so renderers don't need to look the slice back up. */
     seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
-    /** Pixel position (relative to the chart container) for anchoring the tooltip. */
-    position: { x: number; y: number }
+    /** Pixel position (relative to the chart container) for anchoring the tooltip.
+     *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
+     *  populate it with the band width so {@link Tooltip} can anchor at the band edge
+     *  rather than the band center. Point-style charts (lines, scatter) leave it unset. */
+    position: { x: number; y: number; width?: number }
     /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
     hoverPosition: { x: number; y: number } | null
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
@@ -263,6 +266,10 @@ export interface ChartScales {
     /** Per-axis y scales keyed by axis id. Present when dual axes are active.
      *  When absent, all series use `y` / `yTicks`. */
     yAxes?: Record<string, YAxisScale>
+    /** Optional horizontal data-extent at a label — bar charts populate this with the
+     *  band width so {@link TooltipContext.position.width} carries it through to the
+     *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
+    extent?: (label: string) => number | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
      *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.

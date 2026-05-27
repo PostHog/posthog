@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 
-import { useChartLayout } from '../core/chart-context'
+import { useChartHover, useChartLayout } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -26,6 +26,9 @@ const STACK_TOTAL_KEY = '__stack_total__'
 interface Candidate {
     key: string
     seriesIndex: number
+    /** dataIndex within the series — used to match `hoverIndex` so the hovered candidate
+     *  can lift away from its bar. */
+    dataIndex: number
     text: string
     x: number
     y: number
@@ -35,6 +38,9 @@ interface Candidate {
     /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
     centerAnchor: boolean
 }
+
+/** Distance the label lifts away from its bar when the corresponding data point is hovered. */
+const HOVER_LIFT_PX = 6
 
 function defaultLocaleFormatter(v: number): string {
     return v.toLocaleString()
@@ -57,6 +63,7 @@ function pushCandidate(
     isHorizontal: boolean,
     key: string,
     seriesIndex: number,
+    dataIndex: number,
     color: string,
     text: string,
     categoricalCoord: number,
@@ -69,6 +76,7 @@ function pushCandidate(
     out.push({
         key,
         seriesIndex,
+        dataIndex,
         text,
         x: isHorizontal ? valueCoord : categoricalCoord,
         y: isHorizontal ? categoricalCoord : valueCoord,
@@ -140,6 +148,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             isHorizontal,
             `${STACK_TOTAL_KEY}-${dIdx}`,
             -1,
+            dIdx,
             topColor,
             valueFormatter(total, -1, dIdx),
             categoricalCoord,
@@ -208,6 +217,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 isHorizontal,
                 `${s.key}-${dIdx}`,
                 sIdx,
+                dIdx,
                 s.color,
                 valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
@@ -315,16 +325,33 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     borderStyle: 'solid',
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
+    transition: 'transform 150ms ease-out',
+    willChange: 'transform',
 }
 
-function transformFor(c: Candidate, isHorizontal: boolean): string {
+function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
+    // When hovered, lift the label away from its bar — direction depends on which side of
+    // the value-axis coord it sits on, so above-labels go further up and below-labels go
+    // further down. Center-anchored labels (percent layout) lift up by default.
+    let liftX = 0
+    let liftY = 0
+    if (hovered) {
+        if (c.centerAnchor) {
+            liftY = -HOVER_LIFT_PX
+        } else if (isHorizontal) {
+            liftX = c.above ? HOVER_LIFT_PX : -HOVER_LIFT_PX
+        } else {
+            liftY = c.above ? -HOVER_LIFT_PX : HOVER_LIFT_PX
+        }
+    }
+    const lift = liftX === 0 && liftY === 0 ? '' : ` translate(${liftX}px, ${liftY}px)`
     if (c.centerAnchor) {
-        return 'translate(-50%, -50%)'
+        return `translate(-50%, -50%)${lift}`
     }
     if (isHorizontal) {
-        return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
+        return (c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)') + lift
     }
-    return c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+    return (c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)') + lift
 }
 
 export function ValueLabels({
@@ -333,6 +360,7 @@ export function ValueLabels({
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
+    const { hoverIndex } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -375,7 +403,7 @@ export function ValueLabels({
                         borderColor,
                         left: Math.round(c.x),
                         top: Math.round(c.y),
-                        transform: transformFor(c, isHorizontal),
+                        transform: transformFor(c, isHorizontal, c.dataIndex === hoverIndex),
                     }}
                 >
                     {c.text}

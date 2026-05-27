@@ -25,23 +25,30 @@ export function Tooltip<Meta = unknown>({
     // mousemove rebuilds the virtual reference and triggers a Floating-UI reposition pass
     // for nothing.
     const y = placement === 'top' ? context.canvasBounds.top : context.canvasBounds.top + context.position.y
+    // `position.width` is the horizontal data-extent (bar band width) centered on `x`.
+    // We honour it only in `top` placement so the tooltip's left edge anchors at the
+    // band's right edge (via `right-start`) instead of overlapping the hovered bar.
+    // `flip()` swaps to the left edge when the right side would overflow.
+    const referenceWidth = placement === 'top' ? (context.position.width ?? 0) : 0
     const virtualReference = useMemo<VirtualElement>(
         () => ({
             getBoundingClientRect() {
-                const x = context.canvasBounds.left + context.position.x
+                const centerX = context.canvasBounds.left + context.position.x
+                const left = centerX - referenceWidth / 2
+                const right = centerX + referenceWidth / 2
                 return {
-                    x,
+                    x: left,
                     y,
-                    width: 0,
+                    width: referenceWidth,
                     height: 0,
                     top: y,
-                    right: x,
+                    right,
                     bottom: y,
-                    left: x,
+                    left,
                 }
             },
         }),
-        [context.position.x, y, context.canvasBounds]
+        [context.position.x, y, referenceWidth, context.canvasBounds]
     )
 
     const { refs, floatingStyles } = useFloating({

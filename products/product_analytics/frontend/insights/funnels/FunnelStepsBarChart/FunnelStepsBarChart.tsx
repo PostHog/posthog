@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart } from 'lib/hog-charts'
+import { BarChart, DEFAULT_MARGINS } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -17,16 +17,16 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
-// Both axes are hidden: steps are identified by the legend row below, and the per-step
-// conversion rate is shown there too. This lets the bars span the full width so the
-// legend columns line up with them without measuring the chart's plot area.
+// X-axis is hidden — steps are identified by the legend row below the chart. The y-axis
+// shows the conversion rate from the basis step (0–100%) so the bar heights are readable
+// without hovering. Bar widths are aligned with the legend columns via the parent flex layout.
 const CHART_CONFIG: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
     barCornerRadius: 6,
     barTrack: true,
     hideXAxis: true,
-    hideYAxis: true,
+    yTickFormatter: (value) => `${Math.round(value)}%`,
     tooltip: { placement: 'top' },
 }
 
@@ -119,7 +119,14 @@ export function FunnelStepsBarChart({
                         onError={handleChartError}
                     />
                 </div>
-                <div className="flex">
+                <div
+                    className="flex"
+                    // Pad the legend so its columns line up with the bar groups above —
+                    // the y-axis pushes the plot area in by ~`DEFAULT_MARGINS.left`px
+                    // on the left, and the chart reserves `DEFAULT_MARGINS.right`px on the right.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ paddingLeft: DEFAULT_MARGINS.left, paddingRight: DEFAULT_MARGINS.right }}
+                >
                     {steps.map((step, stepIndex) => (
                         <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
                             <StepLegend
