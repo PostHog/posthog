@@ -8,7 +8,8 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
-import { addTrackingToEmail } from './email-tracking.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
@@ -51,6 +52,7 @@ export class EmailService {
     constructor(
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
+        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
         siteUrl: string
     ) {
@@ -126,6 +128,21 @@ export class EmailService {
             count: 1,
         })
 
+        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        if (distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))) {
+            result.capturedPostHogEvents.push({
+                team_id: invocation.teamId,
+                timestamp: new Date().toISOString(),
+                distinct_id: distinctId,
+                event: success ? '$messaging_email_sent' : '$messaging_email_failed',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $email_to: params.to.email,
+                    $email_subject: params.subject,
+                },
+            })
+        }
+
         return result
     }
 
@@ -187,7 +204,8 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        const trackingCode = generateEmailTrackingCode({ ...result.invocation, distinctId })
 
         const htmlBody = params.html
             ? {

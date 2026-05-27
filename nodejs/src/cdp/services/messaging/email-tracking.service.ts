@@ -4,12 +4,15 @@ import express from 'ultimate-express'
 import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
+import { isDevEnv, isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../../utils/logger'
+import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
 import {
@@ -34,10 +37,36 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
+// Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
+// Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
+// internal metric can't silently leak into customers' event streams.
+export const METRIC_NAME_TO_EVENT_NAME: Partial<Record<MinimalAppMetric['metric_name'], string>> = {
+    email_sent: '$messaging_email_sent',
+    email_failed: '$messaging_email_failed',
+    email_delivered: '$messaging_email_delivered',
+    email_opened: '$messaging_email_opened',
+    email_link_clicked: '$messaging_email_link_clicked',
+    email_bounced: '$messaging_email_bounced',
+    email_blocked: '$messaging_email_blocked',
+}
+
+/**
+ * Resolve the identifier to attribute engagement events to. Event-triggered workflows carry
+ * `event.distinct_id`; batch/scheduled workflows synthesize an event with an empty `distinct_id`
+ * and put the recipient on `globals.person`. Returns undefined if neither is present, in which
+ * case we skip capture rather than emit an unattributable event.
+ */
+export const resolveEmailEngagementDistinctId = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state'>
+): string | undefined => {
+    return invocation.state?.globals?.event?.distinct_id || invocation.state?.globals?.person?.id || undefined
+}
+
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
         parentRunId?: string | null
         state?: { actionId?: string }
+        distinctId?: string
     },
     targetUrl: string
 ): string => {
@@ -45,11 +74,13 @@ export const generateTrackingRedirectUrl = (
 }
 
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
-    const trackingUrl = generateEmailTrackingPixelUrl(invocation)
+    const distinctId = resolveEmailEngagementDistinctId(invocation)
+    const trackingInvocation = { ...invocation, distinctId }
+    const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = d || s || u || ''
-        const tracked = generateTrackingRedirectUrl(invocation, href)
+        const tracked = generateTrackingRedirectUrl(trackingInvocation, href)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
@@ -67,6 +98,8 @@ export class EmailTrackingService {
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
+        private capturedEventsService: CapturedEventsService,
+        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private recipientsManager: RecipientsManagerService
     ) {
         this.sesWebhookHandler = new SesWebhookHandler()
@@ -77,15 +110,21 @@ export class EmailTrackingService {
         invocationId,
         actionId,
         parentRunId,
+        distinctId,
         metricName,
         source,
+        properties,
+        timestamp,
     }: {
         functionId?: string
         invocationId?: string
         actionId?: string
         parentRunId?: string
+        distinctId?: string
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
+        properties?: Record<string, unknown>
+        timestamp?: string
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -130,6 +169,22 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
+        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
+        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
+            await this.capturedEventsService.queueEvent({
+                team_id: teamId,
+                event: eventName,
+                distinct_id: distinctId,
+                timestamp,
+                properties: {
+                    $workflow_id: appSourceId,
+                    $messaging_source: source,
+                    ...properties,
+                },
+            })
+            await this.capturedEventsService.flush()
+        }
+
         await this.hogFunctionMonitoringService.flush()
 
         trackingEventsCounter.inc({ event_type: metricName, source })
@@ -158,8 +213,11 @@ export class EmailTrackingService {
                     invocationId: metric.invocationId,
                     actionId: metric.actionId,
                     parentRunId: metric.parentRunId,
+                    distinctId: metric.distinctId,
                     metricName: metric.metricName,
                     source: 'ses',
+                    properties: metric.properties,
+                    timestamp: metric.timestamp,
                 })
             }
 
@@ -208,6 +266,7 @@ export class EmailTrackingService {
         invocationId?: string
         actionId?: string
         parentRunId?: string
+        distinctId?: string
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -217,6 +276,7 @@ export class EmailTrackingService {
                 invocationId: parsed?.invocationId,
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
+                distinctId: parsed?.distinctId,
             }
         }
         return {
@@ -226,16 +286,22 @@ export class EmailTrackingService {
     }
 
     // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
-    // Metrics are not recorded here because SES webhooks already track opens.
-    // Recording here would double-count. The pixel is still served so email
-    // clients that load it get a valid response.
-    public handleEmailTrackingPixel(_req: ModifiedRequest, res: express.Response): void {
+    // In production, opens are tracked via SES webhooks — recording here would double-count.
+    // In dev/test (where maildev replaces SES and no webhooks come back), we fire the
+    // engagement event from the pixel handler so local testing produces real events.
+    public handleEmailTrackingPixel(req: ModifiedRequest, res: express.Response): void {
         res.status(200).set('Content-Type', 'image/gif').send(PIXEL_GIF)
+
+        if (isDevEnv() || isTestEnv()) {
+            const params = this.parseTrackingParams(req.query as Record<string, any>)
+            void this.trackMetric({ ...params, metricName: 'email_opened', source: 'direct' }).catch((error) => {
+                logger.error('[EmailTrackingService] handleEmailTrackingPixel: trackMetric failed', { error })
+            })
+        }
     }
 
-    // Metrics are not recorded here because SES webhooks already track clicks.
-    // Recording here would double-count. The redirect still works so users
-    // reach their destination.
+    // Same rationale as handleEmailTrackingPixel: skip in production (SES webhooks own
+    // click tracking), but emit in dev/test where maildev never produces webhooks.
     public handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): void {
         const { target } = req.query
 
@@ -245,5 +311,12 @@ export class EmailTrackingService {
         }
 
         res.redirect(target as string)
+
+        if (isDevEnv() || isTestEnv()) {
+            const params = this.parseTrackingParams(req.query as Record<string, any>)
+            void this.trackMetric({ ...params, metricName: 'email_link_clicked', source: 'direct' }).catch((error) => {
+                logger.error('[EmailTrackingService] handleEmailTrackingRedirect: trackMetric failed', { error })
+            })
+        }
     }
 }

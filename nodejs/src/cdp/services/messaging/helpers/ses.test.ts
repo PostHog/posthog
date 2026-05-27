@@ -18,9 +18,8 @@ describe('SesWebhookHandler', () => {
                     functionId: 'abc123',
                     id: 'inv456',
                     teamId: 1,
-                    state: {
-                        actionId: 'act789',
-                    },
+                    state: { actionId: 'act789' },
+                    distinctId: 'user-123',
                 }),
             ],
         },
@@ -46,12 +45,15 @@ describe('SesWebhookHandler', () => {
                 functionId: 'abc123',
                 invocationId: 'inv456',
                 actionId: 'act789',
+                distinctId: 'user-123',
                 metricName: 'email_opened',
+                properties: { $email_to: 'to@example.com' },
+                timestamp: '2025-10-03T12:01:00Z',
             },
         ])
     })
 
-    it('parses a raw Click event', async () => {
+    it('parses a raw Click event with link URL', async () => {
         const body = [
             {
                 eventType: 'Click',
@@ -67,6 +69,44 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_link_clicked')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
+        expect(result.metrics?.[0].properties).toEqual({
+            $email_to: 'to@example.com',
+            $link_url: 'https://example.com',
+        })
+        expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
+    })
+
+    it('parses tracking code without distinct_id for backwards compatibility', async () => {
+        const legacyMail = {
+            ...baseMail,
+            tags: {
+                ph_id: [
+                    generateEmailTrackingCode({
+                        functionId: 'abc123',
+                        id: 'inv456',
+                        teamId: 1,
+                        state: { actionId: 'act789' },
+                    }),
+                ],
+            },
+        }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: legacyMail,
+                open: {
+                    ipAddress: '1.2.3.4',
+                    userAgent: 'UA',
+                    timestamp: '2025-10-03T12:01:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0].functionId).toBe('abc123')
+        expect(result.metrics?.[0].invocationId).toBe('inv456')
+        expect(result.metrics?.[0].distinctId).toBeUndefined()
     })
 
     it('skips Send events (email_sent is recorded synchronously, not from webhooks)', async () => {
@@ -91,7 +131,10 @@ describe('SesWebhookHandler', () => {
                 functionId: 'abc123',
                 invocationId: 'inv456',
                 actionId: 'act789',
+                distinctId: 'user-123',
                 metricName: 'email_delivered',
+                properties: { $email_to: 'to@example.com' },
+                timestamp: '2025-10-03T12:03:00Z',
             },
         ])
     })
@@ -114,6 +157,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
     })
 
@@ -135,6 +179,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.optOutRecipients).toEqual([])
     })
 
@@ -152,6 +197,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_blocked')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
     })
 
     it('returns 200 and no metrics if tracking code is missing', async () => {
@@ -260,6 +306,8 @@ describe('SesWebhookHandler', () => {
                 actionId: 'email-action',
                 parentRunId: 'batch-run-id',
                 metricName: 'email_opened',
+                properties: { $email_to: 'to@example.com' },
+                timestamp: '2025-10-03T12:01:00Z',
             },
         ])
     })

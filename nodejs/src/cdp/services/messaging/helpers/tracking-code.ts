@@ -21,31 +21,37 @@ function fromBase64UrlSafe(b64url: string) {
 type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
     parentRunId?: string | null
     state?: { actionId?: string }
+    distinctId?: string
 }
 
-export const parseEmailTrackingCode = (
-    encodedTrackingCode: string
-): {
+export type ParsedTrackingCode = {
     functionId: string
     invocationId: string
     teamId: string
     actionId?: string
     parentRunId?: string
-} | null => {
+    distinctId?: string
+}
+
+export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrackingCode | null => {
     const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
     try {
-        // Tracking codes emitted before the parentRunId field was added are 4 segments;
-        // newer codes append parentRunId as a 5th segment. Missing segment = undefined.
-        const [functionId, invocationId, teamId, actionId, parentRunId] = decodedTrackingCode.split(':')
+        // Tracking codes evolved over time. Older codes may have fewer segments;
+        // missing segments resolve to undefined. distinctId is the trailing segment
+        // and may itself contain colons, so anything past the 5th segment is rejoined.
+        const segments = decodedTrackingCode.split(':')
+        const [functionId, invocationId, teamId, actionId, parentRunId, ...distinctIdParts] = segments
         if (!functionId || !invocationId) {
             return null
         }
+        const distinctId = distinctIdParts.length > 0 ? distinctIdParts.join(':') : undefined
         return {
             functionId,
             invocationId,
             teamId,
             actionId: actionId || undefined,
             parentRunId: parentRunId || undefined,
+            distinctId: distinctId || undefined,
         }
     } catch {
         return null
@@ -56,7 +62,10 @@ export const generateEmailTrackingCode = (invocation: TrackingInvocation): strin
     // Generate a base64 encoded string free of equal signs
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
-    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`)
+    const distinctId = invocation.distinctId ?? ''
+    return toBase64UrlSafe(
+        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${distinctId}`
+    )
 }
 
 export const generateEmailTrackingPixelUrl = (invocation: TrackingInvocation): string => {
