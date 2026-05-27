@@ -784,6 +784,9 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:lint:owners:
+        click: hogli_commands.product.cli:cmd_lint_owners
+        description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
         description: Score product maturity across isolation dimensions
