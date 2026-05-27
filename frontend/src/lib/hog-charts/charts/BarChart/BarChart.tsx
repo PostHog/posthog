@@ -73,9 +73,7 @@ export interface BarChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-// Negative offsetY casts the shadow upward from the bar's top edge onto the visible
-// track region above the bar — reads as the bar sitting on top of the track instead
-// of being haloed.
+// Negative offsetY casts the shadow upward onto the visible track above the bar.
 const DEFAULT_BAR_SHADOW: BarShadow = { color: 'rgba(0,0,0,0.30)', blur: 12, offsetY: -4 }
 
 function resolveBarShadow(barShadow: BarChartConfig['barShadow']): BarShadow | undefined {
@@ -216,11 +214,8 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
-                // Width of the actual bar at a label — `group.bandwidth()` in grouped
-                // layouts (which is narrower than the band, after sub-band padding),
-                // band width otherwise. Overlays anchoring at the data column's edge
-                // (e.g. Tooltip with `placement: 'top'`) read it from here so they land
-                // beside the bar instead of beside the band's gap.
+                // Width of the bar (narrower than the band in grouped mode after sub-band
+                // padding) so band-edge-anchored overlays land beside the bar, not the gap.
                 extent: () =>
                     isHorizontal
                         ? undefined
@@ -300,9 +295,7 @@ function BarChartInner<Meta = unknown>({
             }
 
             const resolvedShadow = resolveBarShadow(barShadow)
-            // Clip the shadow pass to the plot area so a 100% bar's upward shadow can't
-            // bleed past the chart's top edge as a stray dark band. Set shadow state once on
-            // the outer save so per-series `drawBars` calls don't re-apply it.
+            // Clip to plot area so a 100% bar's upward shadow doesn't bleed past the chart edge.
             if (resolvedShadow) {
                 ctx.save()
                 ctx.beginPath()
@@ -333,8 +326,7 @@ function BarChartInner<Meta = unknown>({
         ]
     )
 
-    // Tracks the last drawn highlight key so we can restart the fade when the visual state
-    // changes at the same hoverIndex (e.g. cursor moves from a bar's fill into its track).
+    // Restart the fade on bar → track moves (same hoverIndex, different visible state).
     const lastHoverKeyRef = useRef<string | null>(null)
 
     const drawHover = useCallback(
@@ -374,9 +366,8 @@ function BarChartInner<Meta = unknown>({
                 }
                 hitKeys = hits
             }
-            // The hover key has to distinguish bar-fill highlights from track highlights —
-            // they share a hoverIndex band, so without per-series state in the key, moving
-            // the cursor from a bar into its track wouldn't trigger a fade restart.
+            // Key includes bar-vs-track per series so bar → track moves at the same
+            // hoverIndex still trigger a fade restart.
             type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
             const items: DrawItem[] = []
             let composition = ''
@@ -415,8 +406,6 @@ function BarChartInner<Meta = unknown>({
                 lastHoverKeyRef.current = null
                 return false
             }
-            // If the visual state changed since the last drawn frame, restart the fade so
-            // the new highlight eases in from 0 instead of popping in at full alpha.
             const currentKey = `${hoverIndex}:${composition}`
             let alpha = hoverProgress
             if (currentKey !== lastHoverKeyRef.current) {
@@ -428,8 +417,8 @@ function BarChartInner<Meta = unknown>({
             for (const { series: s, bar, isTrackHighlight } of items) {
                 if (isTrackHighlight) {
                     const parsed = d3.color(s.color)
-                    // Always translucent — falling back to `s.color` directly would paint
-                    // an opaque full-plot-height block if d3 can't parse the series color.
+                    // Always translucent — `s.color` direct would paint an opaque full-height
+                    // block if d3 can't parse the color.
                     let trackColor: string
                     if (parsed) {
                         parsed.opacity = BAR_TRACK_HOVER_ALPHA

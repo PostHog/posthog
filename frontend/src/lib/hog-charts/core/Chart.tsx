@@ -80,9 +80,8 @@ export interface ChartProps<Meta = unknown> {
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
-    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. Return
-     *  `false` to signal "drew nothing visible" — the hover-fade timer pauses while invisible
-     *  so the fade always starts at progress 0 when the highlight first appears. */
+    /** Hover overlay — highlight rings only. Return `false` if nothing was drawn (the
+     *  hover-fade timer pauses while invisible). */
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void

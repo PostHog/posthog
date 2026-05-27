@@ -20,15 +20,10 @@ export function Tooltip<Meta = unknown>({
 }: TooltipProps<Meta>): React.ReactElement {
     const { theme } = useChartLayout()
     const zIndex = theme.tooltipZIndex ?? DEFAULT_TOOLTIP_Z_INDEX
-    // In `top` placement the y position is anchored to the canvas top and `position.y` is
-    // unused, so we depend on the resolved y rather than `position.y` directly — otherwise
-    // mousemove rebuilds the virtual reference and triggers a Floating-UI reposition pass
-    // for nothing.
+    // `top` placement pins y to the canvas top, ignoring position.y (no per-mousemove reposition).
     const y = placement === 'top' ? context.canvasBounds.top : context.canvasBounds.top + context.position.y
-    // `position.width` is the horizontal data-extent (bar band width) centered on `x`.
-    // We honour it only in `top` placement so the tooltip's left edge anchors at the
-    // band's right edge (via `right-start`) instead of overlapping the hovered bar.
-    // `flip()` swaps to the left edge when the right side would overflow.
+    // Anchor at band's right edge via `right-start` so the tooltip lands beside the bar,
+    // not over it. Only used for `top` placement; `flip()` handles overflow.
     const referenceWidth = placement === 'top' ? (context.position.width ?? 0) : 0
     const virtualReference = useMemo<VirtualElement>(
         () => ({

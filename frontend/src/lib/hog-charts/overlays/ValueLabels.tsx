@@ -26,8 +26,7 @@ const STACK_TOTAL_KEY = '__stack_total__'
 interface Candidate {
     key: string
     seriesIndex: number
-    /** dataIndex within the series — used to match `hoverIndex` so the hovered candidate
-     *  can lift away from its bar. */
+    /** Matched against `hoverIndex` so the hovered candidate can lift. */
     dataIndex: number
     text: string
     x: number
@@ -39,7 +38,6 @@ interface Candidate {
     centerAnchor: boolean
 }
 
-/** Distance the label lifts away from its bar when the corresponding data point is hovered. */
 const HOVER_LIFT_PX = 6
 
 function defaultLocaleFormatter(v: number): string {
@@ -329,9 +327,7 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
 }
 
 function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
-    // When hovered, lift the label away from its bar — direction depends on which side of
-    // the value-axis coord it sits on, so above-labels go further up and below-labels go
-    // further down. Center-anchored labels (percent layout) lift up by default.
+    // Lift direction depends on which side of the value-axis the label sits on.
     let liftX = 0
     let liftY = 0
     if (hovered) {
@@ -404,8 +400,6 @@ export function ValueLabels({
                             left: Math.round(c.x),
                             top: Math.round(c.y),
                             transform: transformFor(c, isHorizontal, isHovered),
-                            // Promote to a compositor layer only while the lift animation is
-                            // about to play, not permanently on every label.
                             willChange: isHovered ? 'transform' : undefined,
                         }}
                     >

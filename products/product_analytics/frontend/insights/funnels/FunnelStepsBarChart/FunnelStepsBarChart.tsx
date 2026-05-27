@@ -17,15 +17,10 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
-// Per-step width — without a cap, few-step funnels stretch each bar across half the chart
-// with huge gaps. The bar layer clusters at the start of the plot; gridlines still span
-// the full width so the chart doesn't look truncated. Also doubles as the legend column
-// width so the two stay aligned, and as the floor for horizontal-scroll on narrow viewports.
+// Per-step width — caps bars and legend column width together so few-step funnels don't
+// stretch across the whole chart with huge gaps. Gridlines still span the full width.
 const STEP_WIDTH_PX = 320
 
-// X-axis is hidden — steps are identified by the legend row below the chart. The y-axis
-// shows the conversion rate from the basis step (0–100%) so the bar heights are readable
-// without hovering. Bar widths are aligned with the legend columns via the parent flex layout.
 const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
@@ -122,9 +117,8 @@ export function FunnelStepsBarChart({
                         onError={handleChartError}
                     />
                 </div>
-                {/* Pad the legend so its columns line up with the bar groups above — the
-                    y-axis pushes the bar layer in by ~`DEFAULT_MARGINS.left`px on the left.
-                    Bars cluster within `barsWidth`px so the legend matches that width. */}
+                {/* Legend padding matches the chart's left margin and bars-width so
+                    legend columns align with the bars above. */}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div className="flex" style={{ paddingLeft: DEFAULT_MARGINS.left }}>
                     <div className="flex" style={{ width: barsWidth }}>

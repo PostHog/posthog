@@ -17,9 +17,7 @@ interface UseChartDrawOptions {
     theme: ChartTheme
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
-    /** Duration (ms) of the fade-in animation on the hover overlay when the hovered data
-     *  point changes. `0` disables. The animation is owned by the RAF loop here — not by
-     *  React state — so it's robust against rapid mousemove events. */
+    /** Duration (ms) of the hover-overlay fade-in. `0` disables. */
     hoverAnimationMs?: number
 }
 
@@ -44,30 +42,23 @@ export function useChartDraw({
     drawHover,
     hoverAnimationMs = 0,
 }: UseChartDrawOptions): void {
-    // Track the in-flight RAF id in a ref so each new effect run can cancel the previous
-    // RAF before scheduling its own. Relying on the React cleanup ordering alone leaves
-    // a window where a stale RAF from render N-1 can paint after render N's setup runs.
+    // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
+    // window where a stale RAF can paint after the new setup runs.
     const staticRafRef = useRef<number | null>(null)
     const hoverRafRef = useRef<number | null>(null)
-    // Hover-fade animation state lives in a ref so the RAF loop can read/write it without
-    // dragging React's render cycle into the per-frame path.
     const hoverAnimRef = useRef<{ idx: number; startTime: number }>({ idx: -1, startTime: 0 })
-    // Tracks whether the previous frame drew a visible highlight. Used to freeze the fade
-    // timer while invisible (cursor in a band gap, etc.) so the animation always starts at
-    // progress 0 the moment something visible appears under the cursor.
+    // Freezes the fade timer while invisible (cursor in a band gap) so the fade always
+    // starts at progress 0 when something visible first appears.
     const drewVisibleRef = useRef(false)
-    // Mirror inputs that change on every mousemove into refs so the hover effect only
-    // re-arms its RAF on changes that actually require it (canvas / dimensions / scales /
-    // hoverIndex / animation duration). Without this, `hoverPosition` — a fresh `{x,y}` per
-    // mousemove — tears down and reschedules the RAF on every pixel of mouse motion.
+    // Mirror everything that changes per-mousemove so the hover effect's dep array stays
+    // small — otherwise we'd tear down and re-arm the RAF every mouse pixel.
     const drawHoverRef = useLatest(drawHover)
     const hoverPositionRef = useLatest(hoverPosition)
     const seriesRef = useLatest(series)
     const labelsRef = useLatest(labels)
     const themeRef = useLatest(theme)
 
-    // Static layer — redraws only when chart inputs change. Excluded `hoverIndex` from deps
-    // on purpose so a hover sweep doesn't repaint every line/area/point per move.
+    // hoverIndex is deliberately not a dep — a hover sweep shouldn't repaint the static layer.
     useEffect(() => {
         if (staticRafRef.current != null) {
             cancelAnimationFrame(staticRafRef.current)
@@ -99,14 +90,11 @@ export function useChartDraw({
                 staticRafRef.current = null
             }
         }
-        // hoverIndex deliberately omitted — see comment above.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
 
-    // Hover overlay — when `hoverAnimationMs > 0` and the hovered index just changed, the
-    // RAF loop ticks every frame until `hoverProgress` reaches 1. Once it does, the loop
-    // exits and we only redraw on the next dep change. The animation is timer-driven from
-    // a ref so cancelled-and-restarted RAFs resume the fade seamlessly.
+    // The RAF loop ticks until hoverProgress reaches 1, then exits and waits for the next
+    // dep change. Timer is held in a ref so cancel/restart cycles resume the fade smoothly.
     useEffect(() => {
         if (hoverRafRef.current != null) {
             cancelAnimationFrame(hoverRafRef.current)
@@ -115,9 +103,8 @@ export function useChartDraw({
         if (!overlayCtx || !dimensions || !scales) {
             return
         }
-        // Reset the fade timer when the hovered index changes. Also force-invalidate the
-        // visibility flag so the next visible frame restarts the fade at progress 0 even if
-        // the previous bar's highlight was still visible.
+        // Restart the fade on hoverIndex change — invalidate drewVisible too so the next
+        // visible frame starts at progress 0, not where the previous bar's fade left off.
         if (hoverIndex !== hoverAnimRef.current.idx) {
             hoverAnimRef.current.idx = hoverIndex
             hoverAnimRef.current.startTime = performance.now()
@@ -128,8 +115,7 @@ export function useChartDraw({
             return 0
         }
         const tick = (): void => {
-            // If last frame drew nothing visible, the animation hasn't really "started" yet —
-            // push startTime forward so progress stays at 0 until something visible appears.
+            // Pin progress to 0 while invisible — see drewVisibleRef comment above.
             if (!drewVisibleRef.current) {
                 hoverAnimRef.current.startTime = performance.now()
             }
@@ -150,9 +136,8 @@ export function useChartDraw({
             })
             overlayCtx.restore()
             drewVisibleRef.current = drewVisible
-            // Recompute progress in case the chart type called resetHoverFade mid-draw — the
-            // local `hoverProgress` above could have been 1 (animation thought complete) but
-            // the chart type just restarted it, so we need to keep the loop alive.
+            // Recompute after the draw — the chart type may have called resetHoverFade
+            // mid-draw, which would leave the cached hoverProgress stale.
             const liveElapsed = performance.now() - hoverAnimRef.current.startTime
             const liveProgress = hoverAnimationMs > 0 ? Math.min(1, liveElapsed / hoverAnimationMs) : 1
             if (drewVisible && liveProgress < 1 && hoverIndex >= 0) {
@@ -168,8 +153,7 @@ export function useChartDraw({
                 hoverRafRef.current = null
             }
         }
-        // series / labels / theme / hoverPosition / drawHover are read from refs above so
-        // mousemove and re-memoization don't tear down the RAF loop on every change.
+        // series/labels/theme/hoverPosition/drawHover are read via refs — see top of hook.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [overlayCtx, dimensions, scales, hoverIndex, hoverAnimationMs])
 }

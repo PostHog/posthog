@@ -485,9 +485,8 @@ export interface BarShadow {
     offsetY?: number
 }
 
-/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
- *  pre-filter `bars` without shifting the hatch boundary. Any shadow / clip / globalAlpha
- *  is the caller's responsibility — set it once around a batch of `drawBars` calls. */
+/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`. Any ctx
+ *  state (shadow / clip / globalAlpha) is the caller's responsibility. */
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,

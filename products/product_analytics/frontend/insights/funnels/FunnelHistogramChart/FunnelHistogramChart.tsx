@@ -18,8 +18,7 @@ const CHART_CONFIG: BarChartConfig = {
     showGrid: true,
     barCornerRadius: 4,
     yTickFormatter: (value) => humanFriendlyNumber(value),
-    // The value labels (bucket counts) already sit on top of every bar, so hover/tooltip
-    // would only duplicate information already on screen.
+    // Value labels already show bucket counts; tooltip would just duplicate them.
     tooltip: { enabled: false },
 }
 
