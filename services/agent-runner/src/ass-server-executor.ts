@@ -1,5 +1,8 @@
 import { loadCompiledAgent } from '@repo/ass-server/load-compiled-agent'
 import { runSession } from '@repo/ass-server/session-runner'
+import { mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
     ApplicationsRepository,
@@ -119,8 +122,27 @@ export class AssServerExecutor implements SessionExecutor {
         // generic boundary that the workspace re-exports don't carry.
         const { project, agent } = await loadCompiledAgent(bundleDir)
 
+        // The SDK persists each session's conversation to
+        // `<CLAUDE_CONFIG_DIR>/projects/<hash-of-cwd>/<sessionId>.jsonl`.
+        // If `cwd` changes between turns of the same session, the
+        // hash changes and `resume:` can't find the prior history.
+        // The default bundle dir is fresh per turn (we re-extract on
+        // every dequeue), so we pin cwd to a stable per-session path
+        // under tmp instead. The SDK's child claude CLI only uses
+        // cwd for session storage + its own scratch — our MCP tools
+        // do their own path handling and don't care.
+        const sessionCwd = await ensureSessionCwd(input.job.sessionId)
+
         const triggerPayload = input.state.initialInput ?? null
         const sessionId = input.job.sessionId
+        const isFirstTurn = input.state.turnCount === 0
+        // Latest user message — the worker pushed initialInput and any
+        // drained `/send` messages onto state.messages BEFORE calling
+        // runTurn, so the last user-role entry is what the model should
+        // respond to this turn. Fall back to the trigger payload as a
+        // string if nothing was pushed (defensive: shouldn't happen in
+        // normal flows).
+        const userPrompt = lastUserMessage(input.state.messages) ?? safeJsonStringify(triggerPayload)
         const sessionLogger = createSessionLogger({
             teamId: input.job.teamId,
             applicationId: input.job.applicationId,
@@ -175,41 +197,56 @@ export class AssServerExecutor implements SessionExecutor {
             // Threaded so the sandbox container is labelled `ass.revision=<id>`,
             // making it attributable to a deploy in `docker ps` / orphan reaping.
             revisionId: revision.revisionId,
+            // Stable per-session cwd so the SDK's session store key
+            // (`<CLAUDE_CONFIG_DIR>/projects/<cwd-hash>/<sessionId>.jsonl`)
+            // matches across turns. The bundle dir is fresh per turn,
+            // so the default cwd would invalidate `resume:`.
+            cwd: sessionCwd,
+            // Turn-by-turn mode: ask_for_input ends the SDK turn via
+            // q.interrupt() and the worker parks the queue row, instead
+            // of suspending on an in-process Promise that handle.send
+            // would resolve. The whole-session model only fits ass run.
+            turnByTurn: true,
+            // First turn: pass `opts.sessionId` to the SDK as the new
+            // session UUID (matching `agent_sessions.id`). Subsequent
+            // turns: pass `resume: <same id>` so the SDK rehydrates the
+            // conversation from its session store. ~/.claude on the
+            // host disk today; pluggable SessionStore lands later.
+            previousSessionId: isFirstTurn ? undefined : sessionId,
+            // The new user message for THIS turn — the worker stamped
+            // it into state.messages from the trigger payload (turn 0)
+            // or the drained `/send` (turn N+1).
+            userPrompt,
             onLog: (line: string) => {
                 logger.debug({ sessionId, line }, 'runSession')
                 sessionLogger.appendLog({ level: 'INFO', message: line })
             },
         })
 
-        // Watch the session's input channel for a `/cancel/:id` request. The
-        // deployed runner drives the whole session inside this one call, so a
-        // single subscription covers the run's entire lifetime.
+        // /cancel arrives via the bus and fires the SDK's abort
+        // controller — same path on a running turn. `user_message`
+        // delivery via the bus is gone: in turn-by-turn mode there's
+        // never an `ask_for_input` waiter to resolve, the durable
+        // pending_inputs column is the path. The bus subscription
+        // here is now just for cancel.
         let cancelled = false
         const unsubscribe = await this.options.bus.subscribeInput(sessionId, (msg) => {
             if (msg.type === 'cancel') {
                 cancelled = true
-                logger.info({ sessionId }, 'cancel received — aborting run')
+                logger.info({ sessionId }, 'cancel received — aborting turn')
                 handle.abort()
                 return
             }
-            if (msg.type === 'user_message') {
-                // A `/send/:id` arrived. If the agent is currently
-                // suspended inside an `ask_for_input` call, this resolves
-                // it; otherwise (no waiter yet) `send` returns false and
-                // the message is dropped — same semantics as the dev
-                // ass-server harness.
-                const delivered = handle.send(msg.content)
-                if (!delivered) {
-                    logger.warn({ sessionId }, 'user_message dropped — agent had no pending ask_for_input waiter')
-                }
-            }
+            // `user_message` arrivals during a running turn just get
+            // queued in pending_inputs by the ingress and drained on
+            // the NEXT runTurn call. Nothing to do here.
         })
         try {
-            // The `await handle.done` IS the whole agent loop — every
-            // model call, every tool dispatch, every ask_for_input
-            // suspension lives inside it. Timing this single boundary
-            // tells us how much of a session is LLM-bound vs. infra.
-            await withTiming({ op: 'runtime.session', sessionId, agent: agent.slug }, () => handle.done)
+            // `handle.done` resolves when the SDK turn ends — either
+            // the model produced its final assistant message + no more
+            // tool calls, the agent called ask_for_input (interrupted
+            // in turnByTurn mode), or end_session fired.
+            await withTiming({ op: 'runtime.turn', sessionId, agent: agent.slug }, () => handle.done)
         } finally {
             await unsubscribe().catch((err) => {
                 logger.error('cancel-subscription cleanup failed', { sessionId, error: String(err) })
@@ -222,14 +259,66 @@ export class AssServerExecutor implements SessionExecutor {
         if (bridge.lastError) {
             return { kind: 'failed', error: bridge.lastError }
         }
-        return {
-            kind: 'completed',
-            message: {
-                role: 'assistant',
-                content: bridge.lastResult?.text ?? '',
-                at: new Date().toISOString(),
-            },
-            output: bridge.lastResult ?? { ok: true },
+        // Built the per-turn assistant message from the bridge's last
+        // captured text result. Empty string is valid (a turn that's
+        // pure tool calls with no assistant text — unusual but legal).
+        const message = {
+            role: 'assistant' as const,
+            content: bridge.lastResult?.text ?? '',
+            at: new Date().toISOString(),
         }
+        // `end_session` was the agent's explicit signal to terminate.
+        // Without it, the SDK turn ended naturally and we have more
+        // turns to come — park awaiting the next `/send`.
+        if (bridge.endRequested) {
+            return {
+                kind: 'completed',
+                message,
+                output: bridge.lastResult ?? { ok: true },
+            }
+        }
+        return {
+            kind: 'awaiting_input',
+            message,
+            reason: null,
+        }
+    }
+}
+
+/**
+ * Make sure a stable working directory exists for the SDK's session
+ * store. The path is deterministic per `agent_sessions.id` so all
+ * turns of the same session resolve to the same SDK session file —
+ * `resume:` finds prior conversation, no matter which worker picked
+ * the row up. Lives under `AGENT_RUNNER_SESSION_CWD_ROOT` (env) or
+ * `<os.tmpdir()>/agent-runtime-sessions/` by default.
+ *
+ * Today this is host-local — workers on different machines (or pods
+ * with ephemeral disks) lose conversation. A pluggable SessionStore
+ * adapter (writing to Postgres or S3) is the next layer.
+ */
+async function ensureSessionCwd(sessionId: string): Promise<string> {
+    const root = process.env.AGENT_RUNNER_SESSION_CWD_ROOT ?? join(tmpdir(), 'agent-runtime-sessions')
+    const dir = join(root, sessionId)
+    await mkdir(dir, { recursive: true })
+    return dir
+}
+
+/** Walk `state.messages` tail-first; return the latest user-role content or null. */
+function lastUserMessage(messages: ReadonlyArray<{ role: string; content: string }>): string | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+            return messages[i].content
+        }
+    }
+    return null
+}
+
+/** JSON-stringify, but return a safe fallback on circular / non-serialisable inputs. */
+function safeJsonStringify(value: unknown): string {
+    try {
+        return JSON.stringify(value ?? null) ?? 'null'
+    } catch {
+        return 'null'
     }
 }

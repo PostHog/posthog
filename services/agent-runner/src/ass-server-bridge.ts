@@ -28,6 +28,14 @@ export interface CapturedResult {
 export class BusBridgingRegistry extends SessionRegistry {
     lastError: string | null = null
     lastResult: CapturedResult | null = null
+    /**
+     * Set true when the agent calls the `end_session` meta-tool. Used
+     * by the turn-by-turn AssServerExecutor to distinguish "this turn
+     * ended naturally / via ask_for_input" (awaiting_input outcome)
+     * from "the agent explicitly closed the session" (completed
+     * outcome).
+     */
+    endRequested = false
 
     constructor(
         private readonly bus: SessionBus,
@@ -56,6 +64,8 @@ export class BusBridgingRegistry extends SessionRegistry {
             this.lastError = d?.message ?? 'unknown error'
         } else if (event === 'result') {
             this.lastResult = data as CapturedResult
+        } else if (event === 'session_end') {
+            this.endRequested = true
         }
     }
 
