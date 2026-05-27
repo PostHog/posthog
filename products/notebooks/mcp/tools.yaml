@@ -9,6 +9,18 @@ feature: notebooks
 url_prefix: /notebooks
 ui_apps: {}
 tools:
+    accounts-notebooks-create:
+        operation: accounts_notebooks_create
+        enabled: false
+    accounts-notebooks-destroy:
+        operation: accounts_notebooks_destroy
+        enabled: false
+    accounts-notebooks-list:
+        operation: accounts_notebooks_list
+        enabled: false
+    accounts-notebooks-retrieve:
+        operation: accounts_notebooks_retrieve
+        enabled: false
     notebooks-activity-retrieve:
         operation: notebooks_activity_retrieve
         enabled: false

@@ -34,13 +34,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -66,6 +66,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -4380,13 +4381,17 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         # First call should use the first half of the time range
         first_call_args = mock_sync_execute.call_args_list[0][0]
+        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
         self.assertEqual(first_call_args[1]["begin"], self.begin)
+        self.assertEqual(first_call_kwargs["ch_user"], ClickHouseUser.BILLING)
         mid_point = self.begin + (self.end - self.begin) / 2
         self.assertEqual(first_call_args[1]["end"], mid_point)
 
         # Second call should use the second half of the time range
         second_call_args = mock_sync_execute.call_args_list[1][0]
+        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
         self.assertEqual(second_call_args[1]["begin"], mid_point)
+        self.assertEqual(second_call_kwargs["ch_user"], ClickHouseUser.BILLING)
         self.assertEqual(second_call_args[1]["end"], self.end)
 
         # Result should combine both splits (5 + 5 = 10)

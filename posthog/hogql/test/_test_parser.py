@@ -3,14 +3,19 @@
 # every assertion. Each test runs against all 3 backends; a runtime AttributeError surfaces as
 # a test failure anyway. Relax the narrowing checks here only so the rest of the codebase
 # keeps its strictness.
-# mypy: disable-error-code="arg-type, union-attr, attr-defined, assignment"
+# mypy: disable-error-code="arg-type, union-attr, attr-defined, assignment, operator"
 
+import re
 import math
-from typing import Optional, cast
+import hashlib
+from typing import Any, Optional, cast
 
-from posthog.test.base import BaseTest, MemoryLeakTestMixin, no_memory_leak_check
+import pytest
+from posthog.test.base import BaseTest, MemoryLeakTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
+from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import ast
 from posthog.hogql.ast import (
@@ -37,9 +42,48 @@ from posthog.hogql.ast import (
     WhileStatement,
 )
 from posthog.hogql.constants import HogQLParserBackend
-from posthog.hogql.errors import ExposedHogQLError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
+from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clear_locations
+
+
+class _SharedParserSnapshotExtension(AmberSnapshotExtension):
+    """One shared `.ambr` across all backend subclasses, keyed by test-method name only.
+
+    Every backend (cpp-json / python / rust-json / rust-py) must construct the identical
+    AST — including source positions — so there is exactly one expected snapshot per
+    assertion, recorded once and asserted by all four. Default syrupy would key by class
+    (`TestParserCppJson` vs `TestParserRustJson`) and write a `.ambr` per test file.
+    """
+
+    @classmethod
+    def _get_file_basename(cls, *, test_location: Any, index: Any) -> str:
+        return "parser_ast"
+
+    @classmethod
+    def get_snapshot_name(cls, *, test_location: Any, index: Any = 0) -> str:
+        if isinstance(index, str):
+            index_suffix = f"[{index}]"
+        elif index:
+            index_suffix = f".{index}"
+        else:
+            index_suffix = ""
+        return f"{test_location.methodname}{index_suffix}"
+
+
+def _snapshot_key(src: str) -> str:
+    """Stable, readable, ambr-safe snapshot key for a source string.
+
+    Keyed purely on `src`, so it is independent of call order: the leak mixin re-runs each
+    test 102x, and a source-derived (rather than auto-incrementing) key means every rerun
+    re-compares the one stable entry instead of accumulating 102 copies. The short hash keeps
+    distinct sources that sanitise to the same prefix from colliding.
+    """
+    collapsed = re.sub(r"\s+", " ", src.strip())
+    safe = re.sub(r"[^0-9A-Za-z]+", "_", collapsed).strip("_")[:60]
+    digest = hashlib.sha1(src.encode("utf-8")).hexdigest()[:8]
+    return f"{safe}-{digest}" if safe else digest
 
 
 def parser_test_factory(backend: HogQLParserBackend):
@@ -52,6 +96,44 @@ def parser_test_factory(backend: HogQLParserBackend):
         MEMORY_LEAK_CHECK_RUNS_N = 100
 
         maxDiff = None
+
+        # syrupy snapshot, injected per test by the `unittest_snapshot` fixture below.
+        snapshot: Any
+        pytestmark = pytest.mark.usefixtures("unittest_snapshot")
+
+        def _assert_ast(
+            self, src: str, rule: str = "select", placeholders: Optional[dict[str, ast.Expr]] = None
+        ) -> None:
+            # Parse `src` on this backend and check it against the shared cross-backend snapshot.
+            # cpp-json / rust-json / rust-py assert the FULL positioned AST (one recorded `.ambr`
+            # entry per source — positions verified, cpp regressions caught, no live self-compare).
+            # python is the legacy backend and not a position-parity target, so it only verifies
+            # STRUCTURE against the live cpp parse (clear_locations) — no position-divergence noise.
+            parse_fn = {
+                "expr": parse_expr,
+                "select": parse_select,
+                "program": parse_program,
+                "order": parse_order_expr,
+                "template": parse_string_template,
+            }[rule]
+            kwargs: dict[str, Any] = {"backend": backend}
+            if placeholders is not None:
+                kwargs["placeholders"] = placeholders
+            # Parse on every rerun so the leak mixin still exercises the parser 102x and a real
+            # per-parse leak is caught. Only COMPARE on the first run: syrupy / pretty_dataclasses
+            # / the cpp oracle parse allocate per call, so comparing on every rerun would trip the
+            # leak check with test-machinery growth that isn't a parser leak.
+            parsed = parse_fn(src, **kwargs)
+            # python has no leak mixin (runs once), so the attr is absent → treat as run 0.
+            if getattr(self, "_memory_leak_run_index", 0) != 0:
+                return
+            if backend == "python":
+                oracle_kwargs = {**kwargs, "backend": "cpp-json"}
+                assert clear_locations(parsed) == clear_locations(parse_fn(src, **oracle_kwargs))
+                return
+            if not hasattr(self, "_shared_ast_snapshot"):
+                self._shared_ast_snapshot = self.snapshot.use_extension(_SharedParserSnapshotExtension)
+            assert pretty_dataclasses(parsed) == self._shared_ast_snapshot(name=_snapshot_key(src))
 
         def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
@@ -2647,6 +2729,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand(
+            [
+                ("using_sample_before_group_by", "select 1 from events using sample 0.1"),
+                ("bare_sample_statement_level", "select 1 from events where 1 sample 0.1 group by 1"),
+                ("using_sample_after_qualify", "select 1 from events qualify 1 using sample 0.1"),
+                ("sample_after_unpivot", "select 1 from (a positional join b) unpivot (m for n in (o)) sample 0.5"),
+                ("table_and_statement_sample", "select 1 from events sample 0.1 using sample 0.2"),
+            ]
+        )
+        def test_statement_level_sample_rejected(self, _name: str, query: str):
+            # `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for; every backend rejects rather than silently dropping it.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
         def test_select_with_columns(self):
             self.assertEqual(
                 self._select("with event as boo select boo from events"),
@@ -2717,20 +2813,36 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
-            # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`. Every backend must reject via `JoinExpr.__post_init__`; the rust-py path covers this via `PyEmitter::set_field` re-firing `__post_init__` because `join_type` is written post-construction by `chain_join`.
+            # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`, so `JoinExpr.__post_init__` raises `ValueError` on every backend. rust-py writes `join_type` post-construction (via `chain_join`), so `PyEmitter::set_field` re-fires `__post_init__` and restores the original exception — surfacing the same `ValueError` the json backends raise from `cls(**kwargs)`.
             q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
-            with self.assertRaises((ValueError, ExposedHogQLError)) as cm:
+            with self.assertRaises(ValueError) as cm:
                 self._select(q)
             self.assertIn("Invalid join type", str(cm.exception))
 
-        def test_deeply_nested_expression_does_not_stack_overflow(self):
-            # Deep paren input must surface a clean `SyntaxError`, not stack-OOM in the recursive-descent loop. Cap lives at `MAX_EXPR_RECURSION_DEPTH = 1000`, mirrors ClickHouse's `max_parser_depth`. cpp / python paths have their own stack characteristics so the assertion is rust-specific.
+        def test_dataclass_post_init_failure_surfaces_original_exception(self):
+            # A dataclass `__post_init__` raising mid-build must surface the ORIGINAL exception on every backend. The json backends raise it straight from `deserialize_ast`; rust-py constructs dataclasses during the parse, so `PyEmitter` restores the exception across its panic/`catch_unwind` boundary instead of wrapping it in an envelope (or leaking a `PanicException`).
+            def always_reject(_self: ast.JoinExpr) -> None:
+                raise ValueError("synthetic post_init failure for test")
+
+            with patch.object(ast.JoinExpr, "__post_init__", always_reject):
+                with self.assertRaises(ValueError) as caught:
+                    parse_select("SELECT 1 FROM a JOIN b ON a.x = b.x", backend=backend)
+            self.assertIn("synthetic post_init failure", str(caught.exception))
+
+        def test_deeply_nested_input_does_not_stack_overflow(self):
+            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp / python have their own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
             if backend not in ("rust-json", "rust-py"):
                 self.skipTest("rust-specific recursion cap")
-            deep = "(" * 1500 + "1" + ")" * 1500
-            with self.assertRaises(SyntaxError) as cm:
-                self._expr(deep)
-            self.assertIn("too deeply nested", str(cm.exception).lower())
+            parse_fns = {"expr": parse_expr, "select": parse_select, "program": parse_program}
+            cases = (
+                ("expr", "(" * 1500 + "1" + ")" * 1500),
+                ("select", "(" * 1500 + "select 1" + ")" * 1500),
+                ("program", "{" * 1500 + "}" * 1500),
+            )
+            for rule, src in cases:
+                with self.assertRaises(SyntaxError, msg=rule) as cm:
+                    parse_fns[rule](src, backend=backend)
+                self.assertIn("too deeply nested", str(cm.exception).lower(), msg=rule)
 
         def test_ctes_inject_into_paren_wrapped_inner_with(self):
             # An outer WITH attached to a paren-wrapped inner that already has its own WITH must surface both CTEs, with the outer's appended after the inner's (matches cpp's `VISIT(SelectStmtWithParens)` ordering).
@@ -3217,6 +3329,25 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             # A self-closing element has no “children” attribute at all.
             self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
+
+        def test_return_hogqlx_tag_value(self):
+            # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp and python accept it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
+            prog = cast(ast.Program, self._program("return <Sparkline />"))
+            stmt = cast(ast.ReturnStatement, prog.declarations[0])
+            self.assertIsInstance(stmt, ast.ReturnStatement)
+            self.assertEqual(stmt.expr, ast.HogQLXTag(kind="Sparkline", attributes=[]))
+            nested = cast(ast.ReturnStatement, cast(ast.Program, self._program("return <a>x</a>")).declarations[0])
+            self.assertEqual(
+                nested.expr,
+                ast.HogQLXTag(
+                    kind="a",
+                    attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="x")])],
+                ),
+            )
+            self.assertIsInstance(self._program("fn f() { return <em /> }"), ast.Program)
+            # The `<`-tag exception must not over-fire: `return < 5` is still a less-than expression statement, not a returnStmt.
+            lt = cast(ast.Program, self._program("return < 5"))
+            self.assertNotIsInstance(lt.declarations[0], ast.ReturnStatement)
 
         # 3. <strong>{event} <em>asd</em></strong>
         def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
@@ -4601,14 +4732,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        @no_memory_leak_check
         def test_statement_keywords_rejected_as_expressions(self):
             # Hog statement keywords (`fn`, `let`, `while`, …) aren't in the `keyword` rule, unlike `if` / `for` / `return`.
             for kw in ("fn", "fun", "let", "while", "throw", "try", "catch", "finally"):
                 with self.assertRaises(ExposedHogQLError, msg=f"{backend}: {kw!r} should reject"):
                     parse_expr(kw, backend=backend)
 
-        @no_memory_leak_check
         def test_exponent_float_without_fractional_digits(self):
             # FLOATING_LITERAL's fractional digits are optional: `1.e5` is one token, not `1` then ArrayAccess on `e5`.
             cases = {
@@ -4623,7 +4752,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_clause_keyword_after_comma_in_select_columns(self):
             # `select a, where b` is one column + WHERE clause; `select a, where` (no body) is two columns.
             # `where * columns('x')` could also be multiplication, but cpp prefers the clause.
@@ -4650,7 +4778,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 node = parse_select(src, backend=backend)
                 self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_limit_percent_marker_with_compound_body(self):
             # `%` is overloaded (modulo + LIMIT PERCENT); compound LIMIT bodies must bind it as the PERCENT marker.
             cases = (
@@ -4662,11 +4789,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 LIMIT 1+1 % OFFSET 3",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_assignment_lhs_is_any_expression(self):
             # `exprStmt: expression (COLONEQUALS expression)?` — `:=` LHS has no place-expression restriction.
             cases = (
@@ -4678,11 +4802,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "for (let m in 488614) 1 := 1",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_call_as_assignment_target(self):
             # `f() := 1` is `Call(f) := 1`; a statement's leading expr folds its postfix `(…)` even with `:=` after.
             cases = (
@@ -4693,11 +4814,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(a) := (b) (c) := (d)",  # the postfix-stop guard's real RHS scenario must still hold
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_assignment_statement_consumes_trailing_semicolon(self):
             # `exprStmt: expression (COLONEQUALS expression)? SEMICOLON?` — `:=`-form consumes its trailing `;`.
             # (`varDecl`'s `LET …` form has no `SEMICOLON?` and must not consume it.)
@@ -4707,11 +4825,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "if (c) a := b ;; else d",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_trailing_limit_offset_compound_body(self):
             # `LIMIT`/`OFFSET` after `LIMIT BY` takes a full `columnExpr` body — lower-precedence tails must bind.
             cases = (
@@ -4720,11 +4835,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select x limit a by c limit 1 + 1",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_zero_arg_lambda_as_clause_body(self):
             # After `,`, a clause-keyword + `()->` is a lambda clause body; bare `()` makes the keyword a column.
             cases = (
@@ -4734,11 +4846,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1, limit ()",  # bare () — keyword is a column
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_set_level_offset_compound_body(self):
             # `offsetOnlyClause: OFFSET columnExpr` at selectSetStmt level takes a full columnExpr (lower-precedence tails bind).
             cases = (
@@ -4747,11 +4856,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(select 1) offset a ?? b",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_pivot_tuple_or_single_parenthesised_operand(self):
             # Per `columnExprTupleOrSingle`, a parenthesised PIVOT/UNPIVOT operand is always a `Tuple`, even for one element.
             cases = (
@@ -4759,11 +4865,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a pivot (s for (c) in (1))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_pivot_binds_to_last_joined_table(self):
             # `joinExpr PIVOT` binds to the immediately-preceding `joinExpr`; after a constraint or explicit parens it wraps the whole chain.
             cases = (
@@ -4773,11 +4876,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from (a join b) pivot (x for y in (z))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.
             cases = (
@@ -4791,11 +4891,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "columns('re')",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_columns_replace_item_name_is_the_as_keyword(self):
             # `columnsReplace: columnExpr AS identifier` — the replacement name can itself be the keyword `as`.
             cases = (
@@ -4806,11 +4903,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(* replace(a as b))",  # guard: ordinary name
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_clause_keyword_then_postfix_op_is_a_column(self):
             # Clause body can't start with a postfix op, so `qualify?.q` / `prewhere::q` keep the keyword as a column.
             for src in (
@@ -4825,7 +4919,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             node = parse_select("select q, having y", backend=backend)
             self.assertEqual(len(node.select), 1, msg=f"{backend}: having y")
 
-        @no_memory_leak_check
         def test_from_after_comma_needs_a_table_reference(self):
             # FROM's body is a `joinExpr`, not a `columnExpr` — `from` after a comma stays a Field unless a table-ref starter follows.
             for src in ("select q, from", "select q, from + 1", "select q, from()"):
@@ -4837,7 +4930,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(len(node.select), 1, msg=f"{backend}: from t")
             self.assertIsNotNone(node.select_from, msg=f"{backend}: from t")
 
-        @no_memory_leak_check
         def test_clause_keyword_asterisk_then_postfix_is_a_clause(self):
             # `<clause-kw> * <postfix-op>` is the clause with `*` spread + postfix; `*` mult RHS can't begin with a postfix op.
             for src in (
@@ -4852,7 +4944,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             node = parse_select("select q, where * r", backend=backend)
             self.assertEqual(len(node.select), 2, msg=f"{backend}: where * r")
 
-        @no_memory_leak_check
         def test_pivot_tuple_or_single_operand_with_postfix(self):
             # PIVOT operand is `Tuple` only when `)` is followed by `FOR`/`IN`; `(n)()` takes the columnExpr branch (paren-expr + postfix call).
             cases = (
@@ -4861,11 +4952,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a unpivot (m for (n) in (p))",  # guard: bare paren stays a Tuple
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_window_frame_between_falls_back_to_field(self):
             # After ROWS/RANGE, `between` is ambiguous: `frameBetween` alt OR `frameStart` whose columnExpr is the `between` Field.
             cases = (
@@ -4873,11 +4961,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a window w as (range between 1 preceding and 2 following)",  # guard: real BETWEEN frame
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_pivot_operand_containing_in(self):
             # PIVOT operand is full `columnExpr`, so `for n in p in (r)` → operand `n in p` + structural `IN (r)`.
             cases = (
@@ -4887,11 +4972,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from a pivot (m for n in (r))",  # guard: simple form
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_decoration_after_pivot(self):
             # `tableExpr PIVOT (…)` is itself a `tableExpr` — it can chain into alias, FINAL/SAMPLE, further PIVOT, or JOIN.
             cases = (
@@ -4905,11 +4987,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM t PIVOT (a FOR b IN (c)) JOIN u ON x",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_clause_keyword_as_last_group_by_key(self):
             # The last GROUP BY key can be a clause-keyword Field (e.g. `window`); the next clause then opens normally.
             for kw in ("window", "having", "qualify"):
@@ -4921,7 +5000,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(len(node.group_by or []), 2, msg=f"{backend}: {kw}")
                 self.assertIsNotNone(node.having, msg=f"{backend}: {kw}")
 
-        @no_memory_leak_check
         def test_integer_literal_above_i64_max(self):
             # Above-i64 ints are kept lossless via the `value_type: "number"` string envelope (orjson rejects >64-bit number tokens).
             cases = {
@@ -4939,7 +5017,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
                 self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_string_escape_nul_bel_vtab(self):
             # cpp drops `\0` (NUL ignored), decodes `\a`→0x07, `\v`→0x0B; `\0` also affects quoted identifiers.
             cases = (
@@ -4950,11 +5027,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 r'"a\0b"',
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_reserved_keyword_alias_rejected(self):
             # `assertValidAlias` fires at all four alias sites (AS-infix, alias-before, implicit, table); quoted forms opt out.
             for src in (
@@ -4974,7 +5048,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             ):
                 parse_select(src, backend=backend)
 
-        @no_memory_leak_check
         def test_settings_and_top_clause_error_class(self):
             # SETTINGS/TOP parse but the visitor rejects them — `NotImplementedError` is `InternalHogQLError` and is rewritten to `ExposedHogQLError` at the parser boundary.
             for src in ("SELECT 1 SETTINGS x = 1", "SELECT TOP 5 x FROM t"):
@@ -4985,7 +5058,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIs(type(backend_cm.exception), type(cpp_cm.exception), msg=f"{backend}: {src!r}")
                 self.assertNotIsInstance(backend_cm.exception, SyntaxError, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_window_frame_non_int_bound_keeps_constant(self):
             # Unwrap a frame-bound Constant to a bare number only when integer; floats / strings keep the Constant.
             cases = (
@@ -4994,25 +5066,19 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT count() OVER (ROWS 2 PRECEDING) FROM t",  # guard: int still bare
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_boolean_keyword_as_call_name(self):
             # `true`/`false` are identifiers in the grammar (Bool Constants only as a bare columnIdentifier); as a call name they're `Call(name=...)`.
             # `null` differs — `NULL` is a real lexer keyword, so `null(1)` stays an `ExprCall` on Null Constant.
             for src in ("true(1)", "false(1)", "null(1)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # guard: bare true/false/null are still Constants
             for src, val in (("true", True), ("false", False), ("null", None)):
-                node = parse_expr(src, backend="rust-json")
+                node = parse_expr(src, backend=backend)
                 self.assertIsInstance(node, ast.Constant, msg=src)
                 self.assertEqual(node.value, val, msg=src)
 
-        @no_memory_leak_check
         def test_hex_integer_literal_baseline(self):
             # Pins plain `0x…` parsing against hex-float-lexer regressions; `e`/`E` are hex digits here, not exponent markers.
             cases = {
@@ -5044,7 +5110,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
                 self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_float_literal_c99(self):
             # Hex-float `FLOATING_LITERAL` is strict C99 — `p`/`P` is the only exponent marker; `e`/`E` always lexes as a hex digit.
             cases = {
@@ -5076,7 +5141,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertIsInstance(node.value, float, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_e_is_hex_digit_not_exponent_marker(self):
             # `0x1e+4` is `0x1e` (=30) + `4`, not a hex-float — only `p`/`P` marks the exponent (strict C99, matches ClickHouse).
             for src, op, lhs, rhs in (
@@ -5092,7 +5156,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_float_in_expression_context(self):
             # Pins that the lexer recognises a whole hex-float as one token usable inside arithmetic.
             for src, op, lhs, rhs in (
@@ -5108,13 +5171,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
                 self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_hex_float_no_integer_part_rejected(self):
             # `0x.8p3` lacks HEX_DIGIT+ before the dot — invalid per both FLOATING_LITERAL and HEXADECIMAL_LITERAL.
             with self.assertRaises(ExposedHogQLError, msg=f"{backend}: '0x.8p3'"):
                 parse_expr("0x.8p3", backend=backend)
 
-        @no_memory_leak_check
         def test_cast_type_arg_with_parenthesized_expr(self):
             # `CAST(x AS name(args))` — the `ColumnTypeExprParam` arglist admits arbitrary columnExprs including ones with their own `(…)`.
             cases = (
@@ -5123,11 +5184,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as a(if((c), d, e)))",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_subquery_arg_call_then_second_call(self):
             # `f(select 1)()` — `(select 1)` is `ColumnExprCallSelect`, the trailing `()` is a separate `ColumnExprCall` postfix nesting on top.
             cases = (
@@ -5136,11 +5194,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "f(select 1)(x)(y)",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_between_not_lambda_lower_bound(self):
             # `BETWEEN <low>`'s AND-reservation must propagate through a `NOT`-wrapped lambda low bound so the lambda doesn't over-consume `…and c`.
             cases = (
@@ -5148,11 +5203,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a between not x -> y and z",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_chained_between_inner_end_position(self):
             # Left-recursive `between`: `a between L1 and H1 between L2 and H2` parses as `BetweenExpr(BetweenExpr(a, L1, H1), L2, H2)`.
             # The inner BetweenExpr's `.end` must stop at H1 (offset of `2` here), not extend through H2.
@@ -5167,7 +5219,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
             self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
 
-        @no_memory_leak_check
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
             cases = (
@@ -5180,11 +5231,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select a, qualify * limit 1",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_placeholder_statement_then_postfix_call_or_property(self):
             # `{expr}` at statement start is a placeholder; trailing `(…)` or `.x` is a postfix on it (not a `block` statement).
             cases = (
@@ -5194,11 +5242,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "{ {1}() }",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_placeholder_as_alias_inside_call_args(self):
             # `f({placeholder} AS alias, …)` — the placeholder is a columnExpr admitting a trailing `AS alias`, just like any other expression.
             # Caught by the retention query builder emitting `has({start_event_timestamps} as _start_event_timestamps, {min_timestamp})`.
@@ -5209,11 +5254,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "if(has({x} as _x, {y}), _x, [])",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_is_only_consumes_known_tails(self):
             # `IS` is only `IS [NOT] NULL` / `IS [NOT] DISTINCT FROM y` per cpp's grammar; in Hog program mode anything else falls back to per-token ExprStatements (e.g. `this is a string` parses as four bare identifier statements).
             # Caught by `test_metadata.py::test_string_template` parsing `"this is a {event} string"` as `HogLanguage.HOG`.
@@ -5227,11 +5269,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "x is not distinct from y",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_window_frame_bound_low_precedence_value(self):
             # Window frame bound is a full `columnExpr` — admits comparison / AND / OR (BETWEEN still splits on its own AND).
             cases = (
@@ -5240,14 +5279,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT count() OVER (ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t",  # guard: real BETWEEN
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_join_op_modifier_arity_validation(self):
             # Each `joinOp` alt allows at most one ALL/ANY/ASOF; ANTI/SEMI combine only with ASOF as `ASOF (ANTI|SEMI)`.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT 1 FROM a ANTI ASOF JOIN b ON 1",
@@ -5268,11 +5303,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM a ASOF LEFT JOIN b ON 1",
                 "SELECT 1 FROM a SEMI LEFT JOIN b ON 1",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_group_by_all_falls_back_to_columns_on_postfix(self):
             # `ALL` is also in the `keyword` rule — any postfix after `ALL` makes it a `Field('ALL')` columnExpr, not the all-mode marker.
             for src in (
@@ -5282,18 +5314,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a FROM t GROUP BY ALL[1]",
                 "SELECT a FROM t GROUP BY ALL()",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guard: bare `ALL` (clause terminator follows) still hits the all-mode marker.
-            oracle = parse_select("SELECT a FROM t GROUP BY ALL", backend="cpp-json")
-            got = parse_select("SELECT a FROM t GROUP BY ALL", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast("SELECT a FROM t GROUP BY ALL", "select")
 
-        @no_memory_leak_check
         def test_with_rollup_cube_totals_chain_grammar(self):
             # `groupByClause … (WITH (CUBE|ROLLUP))? (WITH TOTALS)?` — at most one CUBE/ROLLUP, then optional TOTALS, in order.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT a FROM t GROUP BY a WITH ROLLUP WITH CUBE",
@@ -5312,29 +5338,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a FROM t GROUP BY a WITH ROLLUP WITH TOTALS",
                 "SELECT a FROM t GROUP BY a WITH CUBE WITH TOTALS",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_pivot_in_list_must_be_non_empty(self):
             # `pivotColumn`'s `IN ( columnExprList )` is non-empty.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError)):
-                parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="rust-json")
+                parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend=backend)
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="cpp-json")
             # Guard: populated list still parses.
             src = "SELECT 1 FROM t PIVOT (sum(x) FOR y IN (1, 2))"
-            oracle = parse_select(src, backend="cpp-json")
-            got = parse_select(src, backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_trim_substring_must_be_string_literal(self):
             # `TRIM (LEADING|TRAILING|BOTH string FROM columnExpr)` — `string` is `STRING_LITERAL | templateString` only.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "TRIM(BOTH x FROM y)",
@@ -5347,11 +5365,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
             # Guards: string literal + template string still parse.
             for src in ("TRIM(BOTH 'x' FROM y)", "TRIM(LEADING f'x' FROM y)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_cte_list_paren_after_non_paren_cte(self):
             # `, (` after a CTE continues the list — paren-subquery or paren-expr as next CTE, not a SELECT-start under trailing-comma tolerance.
             for src in (
@@ -5362,11 +5377,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "WITH 1 AS a, (x -> x + 1) AS f SELECT f(a)",
                 "WITH count() AS c, (x -> x + 1) AS f SELECT f(c)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_group_by_cube_rollup_continues_list(self):
             # `CUBE(...)` / `ROLLUP(...)` followed by `, <more>` is a regular function call; the specialised mode commits only when no list continuation follows.
             for src in (
@@ -5375,19 +5387,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t GROUP BY ROLLUP(a), b",
                 "SELECT * FROM t GROUP BY a, CUBE(b)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Bare `GROUP BY CUBE(...)` (no trailing keys) still uses the mode.
             for src in (
                 "SELECT * FROM t GROUP BY CUBE(a)",
                 "SELECT * FROM t GROUP BY ROLLUP(a)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_trailing_comma_after_joined_table_chain(self):
             # A stray trailing comma after a constrained JOIN chain (`FROM a JOIN b ON 1,`) falls off the joinExpr without requiring a next table atom.
             for src in (
@@ -5395,34 +5402,24 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b USING (x),",
                 "SELECT * FROM a JOIN b ON 1 JOIN c ON 1,",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_unterminated_block_comment_lexes_as_div_asterisk(self):
             # `/* … */` only matches with a closing `*/`; unterminated `/*` falls back to `/ *` tokens that the grammar then evaluates normally.
             for src in ("1 /*", "1 /* "):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
             # Unterminated `/*` + ident lexes as `1 / * ident`; expression parse fails on the extraneous tokens.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in ("1 /* unclosed", "a /* unclosed"):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_expr(src, backend=backend)
 
             # Guard: closed `/* … */` is still trivia.
-            oracle = parse_expr("1 /* ok */ + 2", backend="cpp-json")
-            got = parse_expr("1 /* ok */ + 2", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast("1 /* ok */ + 2", "expr")
 
-        @no_memory_leak_check
         def test_interpolate_no_trailing_comma(self):
             # `INTERPOLATE (…)` body is `interpolateExpr (COMMA interpolateExpr)*` — no trailing comma.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError), msg=backend):
                 parse_select(
@@ -5430,49 +5427,34 @@ def parser_test_factory(backend: HogQLParserBackend):
                     backend=backend,
                 )
 
-        @no_memory_leak_check
         def test_boolean_dot_chain_is_field_not_array_access(self):
             # `true.x` is `Field(['true','x'])` — bools act as identifiers in `columnIdentifier` chain position, not Bool Constant + `.x` postfix.
             cases = ("true.x", "false.x", "TRUE.x", "true.x.y", "false.foo.bar")
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guards: bare `true`/`false` stay Bool Constants; `true(1)` is an ident-path Call.
             for src in ("true", "false", "true(1)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_using_empty_parens_rejected(self):
             # `joinConstraintClause` requires a non-empty `columnExprList` in both `USING (…)` and `USING …` forms.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError)):
-                parse_select("SELECT * FROM a JOIN b USING ()", backend="rust-json")
+                parse_select("SELECT * FROM a JOIN b USING ()", backend=backend)
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_select("SELECT * FROM a JOIN b USING ()", backend="cpp-json")
             # Populated USING still parses.
             src = "SELECT * FROM a JOIN b USING (x)"
-            oracle = parse_select(src, backend="cpp-json")
-            got = parse_select(src, backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_group_by_cube_rollup_empty_is_function_call(self):
             # Empty `CUBE()`/`ROLLUP()` are ordinary Calls in the GROUP BY position, not mode markers.
             for src in ("SELECT 1 GROUP BY CUBE()", "SELECT 1 GROUP BY ROLLUP()"):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Populated CUBE / ROLLUP still uses the mode marker.
             src = "SELECT 1 GROUP BY CUBE(a, b)"
-            oracle = parse_select(src, backend="cpp-json")
-            got = parse_select(src, backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+            self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_quoted_identifier_backslash_escapes(self):
             # `QUOTED_IDENTIFIER` admits `\"`, `\\`, and `""` escapes inside `"…"`.
             cases = (
@@ -5482,14 +5464,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 '"a"',
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_reserved_keywords_rejected_as_identifiers(self):
             # `identifier` excludes NULL_SQL/INF/NAN_SQL/EXCEPT/INTERSECT and Hog-statement keywords (FN/FUN/LET/WHILE/THROW/TRY/CATCH/FINALLY).
-            from posthog.hogql.errors import BaseHogQLError
 
             expr_invalid = (
                 # Postfix DOT
@@ -5554,17 +5532,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 else:
                     self.assertIsNotNone(parse_expr(src, backend=backend), msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_bare_asterisk_replace_only_inside_parens(self):
             # `ColumnExprAsterisk` only admits trailing EXCLUDE; `REPLACE` after `*` is valid only inside `(*…)` or `COLUMNS(*…)`.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid_select = ("SELECT * REPLACE (b AS a) FROM t",)
             for src in invalid_select:
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend=backend)
             with self.assertRaises((BaseHogQLError, SyntaxError)):
-                parse_expr("* REPLACE (a AS b)", backend="rust-json")
+                parse_expr("* REPLACE (a AS b)", backend=backend)
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_expr("* REPLACE (a AS b)", backend="cpp-json")
             # Guard: paren-wrapped REPLACE and bare-`*` EXCLUDE still parse.
@@ -5573,14 +5549,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(* EXCLUDE (a) REPLACE (b AS c))",
                 "* EXCLUDE (a)",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_filter_clause_invalid_before_within_group(self):
             # `ColumnExprFunctionWithinGroup` has no FILTER slot.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in (
                 "median(x) FILTER (WHERE z) WITHIN GROUP (ORDER BY y)",
@@ -5589,14 +5561,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_expr(src, backend=backend)
             # WITHIN GROUP alone still parses.
-            oracle = parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend="cpp-json")
-            got = parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=backend)
+            self._assert_ast("median(x) WITHIN GROUP (ORDER BY y)", "expr")
 
-        @no_memory_leak_check
         def test_window_function_args_no_distinct_no_inline_order_by(self):
             # `ColumnExprWinFunction` takes a plain `columnExprList` — no DISTINCT, no in-args ORDER BY.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in (
                 "foo(a ORDER BY b) OVER ()",
@@ -5607,31 +5575,22 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend=backend)
             # Plain forms still parse.
             for src in ("foo(a) OVER ()", "foo(DISTINCT a)", "foo(a ORDER BY b)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_unary_plus_only_on_numeric_literal(self):
             # `numberLiteral`'s `+` is a sign prefix on number/INF/NAN, not a general unary op.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = ("+a", "+(a)", "+(+a)", "+f(x)")
             for src in invalid:
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_expr(src, backend=backend)
-            # Guards: numeric / INF / NAN parse (NaN can't be equality-compared; pin parse success + node type).
-            for src in ("+1", "+1.5", "+inf", "+nan"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertIsNotNone(got, msg=f"{backend}: {src!r}")
-                if src not in ("+nan",):
-                    self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+            # Guards: numeric / INF parse and pin the AST. NaN can't be equality-compared, so just assert it parses.
+            for src in ("+1", "+1.5", "+inf"):
+                self._assert_ast(src, "expr")
+            self.assertIsNotNone(parse_expr("+nan", backend=backend))
 
-        @no_memory_leak_check
         def test_column_cte_requires_identifier_after_as(self):
             # `withExpr: columnExpr AS identifier` — post-AS must be a real identifier, not a number / string / paren group.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "WITH a AS 1 SELECT a",
@@ -5642,18 +5601,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend=backend)
             # Identifier names continue to work.
-            oracle = parse_select("WITH a AS b SELECT b", backend="cpp-json")
-            got = parse_select("WITH a AS b SELECT b", backend=backend)
-            self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}")
+            self._assert_ast("WITH a AS b SELECT b", "select")
 
-        @no_memory_leak_check
         def test_limit_offset_with_ties_must_precede_offset(self):
             # `limitAndOffsetClause` is either `LIMIT n PERCENT? (COMMA n)? (WITH TIES)?` (compact) or `LIMIT n PERCENT? (WITH TIES)? OFFSET n` (verbose);
             # `LIMIT n OFFSET m WITH TIES` matches neither — WITH TIES must precede OFFSET in the verbose form.
-            from posthog.hogql.errors import BaseHogQLError
 
             with self.assertRaises((BaseHogQLError, SyntaxError)):
-                parse_select("SELECT a FROM t LIMIT 1 OFFSET 2 WITH TIES", backend="rust-json")
+                parse_select("SELECT a FROM t LIMIT 1 OFFSET 2 WITH TIES", backend=backend)
             with self.assertRaises((BaseHogQLError, SyntaxError)):
                 parse_select("SELECT a FROM t LIMIT 1 OFFSET 2 WITH TIES", backend="cpp-json")
             # Both valid forms still parse.
@@ -5662,11 +5617,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a FROM t LIMIT 1, 2 WITH TIES",
                 "SELECT a FROM t LIMIT 1 WITH TIES",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_pivot_in_separator_extends_via_postfix_call(self):
             # `pivotColumn`'s LHS extends past any `IN (…) (` (postfix-call on LHS); only the LAST `IN (…)` not followed by `(` is structural.
             cases = (
@@ -5676,11 +5628,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM t PIVOT (sum(x) FOR (y, z) IN ((a, b), (c, d)))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_return_expr_prefix_shortened_when_assignment_follows(self):
             # `return <expr>? <stmt>` where stmt starts with `:=` — cpp backtracks the expr to the shortest prefix that leaves `:=` parseable as the next stmt.
             cases = (
@@ -5695,11 +5644,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "fn f() { return *columns('a') }",  # no `:=`; full SpreadExpr
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_interpolate_as_lambda_value(self):
             # `interpolateExpr: columnExpr (AS columnExpr)?` — AS RHS is a full columnExpr, so a lambda body is valid.
             cases = (
@@ -5707,23 +5653,17 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 ORDER BY x INTERPOLATE (a AS y -> y+1)",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guards: AS with a non-lambda RHS still folds as a normal column alias.
             for src in (
                 "SELECT a AS my_alias FROM t",
                 'SELECT a AS "my alias" FROM t',
                 "SELECT 1 ORDER BY x INTERPOLATE (a AS 5)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_hogqlx_tag_in_from_paren_decorations(self):
             # `(<Tag/>)` is `LPAREN joinExpr RPAREN`: alias / FINAL / SAMPLE bind to the tag inside the parens (tableExpr) but not outside (JoinExprParens isn't a tableExpr).
-            from posthog.hogql.errors import BaseHogQLError
 
             accept = (
                 "SELECT 1 FROM (<Tag /> AS y)",
@@ -5731,9 +5671,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM (<Tag /> FINAL)",
             )
             for src in accept:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
             reject = (
                 "SELECT 1 FROM (<Tag />) AS x",
@@ -5744,7 +5682,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend=backend)
 
-        @no_memory_leak_check
         def test_hogqlx_tag_text_accepts_arbitrary_non_brace_non_lt(self):
             # `HOGQLX_TEXT_TEXT: ~[<{]+` — any byte except `<` and `{` is valid tag-body text.
             cases = (
@@ -5756,11 +5693,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<outer><inner>foo!bar</inner>baz&qux</outer>",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_hogqlx_tag_identifier_allows_hyphens(self):
             # `HOGQLX_TAG_OPEN`/`_CLOSE` modes admit `[a-zA-Z_][a-zA-Z0-9_-]*` for tag and attribute names — hyphens are part of the ident.
             cases = (
@@ -5772,14 +5706,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a-b>{1}</a-b>",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_join_expr_parens_does_not_take_outer_alias(self):
             # `JoinExprParens` isn't a `tableExpr`, so alias / FINAL / SAMPLE can't bind to a `(joinExpr)` from outside.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT 1 FROM (t) AS x",
@@ -5799,14 +5729,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM (SELECT 1) AS x",
             )
             for src in valid:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_string_literal_unknown_backslash_escapes_rejected(self):
             # `ESCAPE_CHAR_COMMON` is closed: `\b \f \r \n \t \0 \a \v \\ \xNN` plus `\'`; anything else is a lexer error.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 r"'\x'",  # \x without two hex digits
@@ -5829,11 +5755,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 r"'\xFF'",
             )
             for src in valid:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_sample_clause_leading_dot_float_value(self):
             # Leading-dot floats `.5` lex as `Dot` + `Number`, so SAMPLE's ratio gate must admit `Dot` when followed by a Number.
             cases = (
@@ -5843,14 +5766,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM t SAMPLE 1 / .04",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_sample_clause_only_accepts_number_literals(self):
             # `ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?` — each side is a `numberLiteral` only, not a general columnExpr.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT * FROM t SAMPLE a",
@@ -5870,19 +5789,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t SAMPLE 1 OFFSET 2",
             )
             for src in valid:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_join_op_grammar_alts_validation(self):
-            # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
+            # `joinOp` has three disjoint alts:
             # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
             # at most once per alt, and the three alts don't share INNER /
             # LEFT / RIGHT / FULL. Rust's source-order loop set booleans
             # without de-duplicating or cross-validating, so it accepted
             # `INNER LEFT`, `LEFT OUTER LEFT`, `FULL INNER`, etc.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid = (
                 "SELECT 1 FROM a INNER LEFT JOIN b ON 1",
@@ -5909,28 +5824,20 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 FROM a ASOF LEFT JOIN b ON 1",
             )
             for src in valid:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_capital_F_template_string_only_in_full_template_context(self):
             # `f'…'` is reachable from `templateString` (a `columnExpr`); `F'…'` only from the `fullTemplateString` entry rule.
-            from posthog.hogql.errors import BaseHogQLError
 
             for src in ("F'hello'", "F''", "F'{1+2}'"):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_expr(src, backend=backend)
             # Guard: lowercase form remains a valid column expression.
             for src in ("f'hello'", "f'{1+2}'"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_empty_paren_only_clauses_rejected(self):
             # `columnAliases`, `interpolateClause`'s paren body, and `columnsReplaceList` each require ≥ 1 element when parens are present.
-            from posthog.hogql.errors import BaseHogQLError
 
             invalid_select = (
                 "SELECT * FROM t AS x ()",
@@ -5955,21 +5862,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT 1 ORDER BY x INTERPOLATE (a AS b)",
                 "SELECT 1 ORDER BY x INTERPOLATE",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             for src in (
                 "COLUMNS(* REPLACE (a AS b, c AS d))",
                 "COLUMNS(* REPLACE (a AS b))",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_bare_zero_x_prefix_lexes_as_zero_plus_ident(self):
             # `HEXADECIMAL_LITERAL` requires ≥ 1 hex digit after `0x`; otherwise the lexer falls back to `0` then ident `x`.
-            from posthog.hogql.errors import BaseHogQLError
 
             cases = (
                 "SELECT 0x AS y",
@@ -5979,16 +5880,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=src):
-                    parse_select(src, backend="rust-json")
-                with self.assertRaises((BaseHogQLError, SyntaxError), msg=src):
-                    parse_select(src, backend="python")
+                    parse_select(src, backend=backend)
             # Valid hex literals (≥ 1 hex digit) must keep working.
             for src in ("SELECT 0x1", "SELECT 0xFF", "SELECT 0xaB"):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_cast_type_param_group_mode_classification(self):
             # `IDENT(...)` type expr commits per-group: Param renders via raw text (case-preserved, spaceless), Complex / Nested lowercase + `, `-join.
             # Any depth-0 expr-shaped sibling forces Param mode for the entire group.
@@ -6013,11 +5909,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as Foo(case when (c) then d end))",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_hogqlx_comments_skipped_between_attributes(self):
             # `HOGQLX_TAG_OPEN`/`_CLOSE` modes skip block + line comments and route unknown bytes to UNEXPECTED_CHARACTER.
             cases = (
@@ -6028,17 +5921,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a /*c*/ />",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guard: unknown bytes (`#`, `@`) inside a tag now reject via UNEXPECTED_CHARACTER.
             for src in ("<a # comment\n />", "<a @x b={1}/>"):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
 
-        @no_memory_leak_check
         def test_float_subnormal_preserved_not_flattened_to_infinity(self):
             # Subnormal floats keep their value (cpp's `strtod`+errno distinguishes underflow from overflow); below the smallest subnormal → 0.0; true overflow → ±Infinity.
             cases_subnormal = (
@@ -6056,7 +5946,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 got = parse_expr(src, backend=backend)
                 self.assertEqual(got.value, expected, msg=f"{backend}: {src!r}")
 
-        @no_memory_leak_check
         def test_stmt_rhs_pratt_recovers_on_infix_rhs_failure(self):
             # cpp splits `let x := {} * ()` into two stmts when the `*` infix RHS rejects — the stranded operator + operand become the next stmt.
             cases = (
@@ -6067,20 +5956,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := f() * ()",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guard: a valid full expression still parses greedily — recovery only fires when RHS rejects.
             for src in (
                 "let x := {} * (1)",
                 "let x := 1 + 2",
                 "let x := 1",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_unpivot_emits_include_nulls_false_by_default(self):
             # `JoinExprUnpivot` always emits `include_nulls` — `false` by default, `true` when `INCLUDE NULLS` is present.
             cases = (
@@ -6088,11 +5972,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t UNPIVOT INCLUDE NULLS (val FOR month IN (a, b))",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_not_with_keyword_infix_treats_not_as_field(self):
             # `NOT <kw-infix> <rhs>` is `Field([not]) <kw-infix> <rhs>` when the infix RHS is valid; otherwise `Not(Field(kw))`.
             cases = (
@@ -6103,9 +5984,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "NOT IS NOT NULL",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guards: unary-NOT shapes work when the rhs is a complete columnExpr (no kw-infix gap).
             for src in (
                 "NOT x",
@@ -6113,11 +5992,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "not in (1,2)",  # IN takes a paren-list, parses as Not(Call(in))
                 "NOT IN (1)",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_multi_join_with_stacked_on_using_clauses(self):
             # Multi-JOIN with stacked constraints binds right-associatively: in `a JOIN b JOIN c ON1 ON2`, ON1 attaches to `c`, ON2 to `b`.
             cases = (
@@ -6128,9 +6004,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
             )
             for src in cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guards: the interleaved / single-constraint shapes still
             # parse the same way.
             for src in (
@@ -6138,11 +6012,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b ON 1",
                 "SELECT * FROM a JOIN b USING (x)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_enum_cast_rejected_as_unsupported(self):
             # `ColumnTypeExprEnum` (`ident(enumValue,…)` where `enumValue: STRING = number`) is explicitly unsupported by the visitor.
             for src in (
@@ -6154,11 +6025,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src) as rust_cm:
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
                 self.assertIn("ColumnTypeExprEnum", str(cpp_cm.exception), msg=src)
                 self.assertIn("ColumnTypeExprEnum", str(rust_cm.exception), msg=src)
 
-        @no_memory_leak_check
         def test_raw_type_param_text_rejects_null_inf_nan_keywords(self):
             # cpp's `columnTypeExpr` Param alt routes identifier-shaped
             # tokens through the `identifier` rule, which omits NULL /
@@ -6182,7 +6052,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
             # Guards: legitimate parametric type casts still parse.
             for src in (
                 "cast(x as Tuple(Int, String))",
@@ -6192,11 +6062,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as FixedString(16))",
                 "cast(x as Decimal(10, 2))",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_stmt_expression_pratt_recovers_at_statement_level(self):
             # `x *= 2` has no `*=` token: splits into two stmts (`x` and `* = 2` → Compare(Field('*'), '==', 2)).
             cases = (
@@ -6205,16 +6072,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := 1; x *= 2;",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: `* = 2` is a Compare; `* 2` is two ExprStatements; `x * y` is a single multiplication.
             for src in ("* = 2", "* 2", "x * y", "x = 2"):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_let_decl_shortens_rhs_when_trailing_colon_equals(self):
             # `LET ident := <expr>` has no slot for a trailing `:=`; cpp shortens the expr to its leading primary so the trailing `:=` opens a new stmt.
             cases = (
@@ -6223,9 +6085,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := (1) * (2) := 3",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: ident-chain RHS keeps the full expression via the NamedArgument path.
             for src in (
                 "let x := y",
@@ -6234,11 +6094,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "let x := y * z := 1",
                 "let x := y * z := 1;",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_bare_assignment_lead_chains_through_second_colon_equals(self):
             # `IDENT := <rhs> := <outer>` — the *second* `:=` is the stmt-level varAssignment; the leading `IDENT := <rhs>` becomes a NamedArgument lvalue.
             cases = (
@@ -6249,9 +6106,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a := 'str' := 2",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: existing single- and ident-chain forms.
             for src in (
                 "a := 1",
@@ -6262,11 +6117,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "if (c) a := b",
                 "if (c) a := b ; else d",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_pivot_column_lhs_extends_past_in_via_infix_operators(self):
             # `pivotColumn`'s LHS extends through ANY infix operator after an `IN(…)`; the structural IN is the LAST one not followed by an extender.
             same_ast = (
@@ -6291,14 +6143,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t PIVOT(1 FOR a IN (b))",
             )
             for src in same_ast:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_parse_order_expr_silently_drops_trailing_tokens(self):
             # `parse_order_expr_json` parses one OrderExpr and silently drops anything trailing (incl. INTERPOLATE, which is one level up).
-            from posthog.hogql.parser import parse_order_expr
 
             for src in (
                 "a ASC extra",
@@ -6306,11 +6154,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a WITH FILL INTERPOLATE (b)",
                 "a WITH FILL FROM 1 TO 10 INTERPOLATE (b)",
             ):
-                oracle = parse_order_expr(src, backend="cpp-json")
-                got = parse_order_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "order")
 
-        @no_memory_leak_check
         def test_pivot_group_by_with_empty_list_rejected(self):
             # `GROUP BY` (PIVOT-level included) requires a non-empty `columnExprList`.
             for src in (
@@ -6320,7 +6165,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_select(src, backend="rust-json")
+                    parse_select(src, backend=backend)
             # Guard: the non-empty and trailing-comma forms still parse.
             for src in (
                 "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY a)",
@@ -6328,11 +6173,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY a,)",
                 "SELECT * FROM t PIVOT(sum(a) FOR b IN (1))",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_return_expr_prefix_shortening_admits_keyword_head(self):
             # A leading keyword (`return return *(...) := X`) is a valid shortening head: expr = Field(['return']), `* (...) := X` is the next stmt.
             cases = (
@@ -6340,9 +6182,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "return return * ( 'e' ) := ( 'e' )",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
             # Guards: existing shortening shapes still work.
             for src in (
                 "return * columns('a') := 1",
@@ -6353,11 +6193,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "return x",
                 "return 1 + 2",
             ):
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
-        @no_memory_leak_check
         def test_hogqlx_drops_whitespace_only_children_containing_newline(self):
             # `HogqlxTagElementNested` drops child text runs that are all-whitespace AND contain a newline (so pretty-printed HOGQLX has no spurious Constant children).
             for src in (
@@ -6366,9 +6203,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a>{x}\n</a>",
                 "<a>\n  <b/>\n</a>",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guards: pure-space/tab (no newline) and mixed-content runs are kept.
             for src in (
                 "<a> </a>",
@@ -6378,11 +6213,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a></a>",
                 "<a/>",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
             cases = (
@@ -6397,22 +6229,17 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src) as rust_cm:
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
                 self.assertIn(expected_msg, str(cpp_cm.exception), msg=src)
                 self.assertIn(expected_msg, str(rust_cm.exception), msg=src)
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
             for src in ("a IN COHORT", "a NOT IN COHORT", "a IN cohort"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             for src in (
                 "SELECT a IN COHORT, b FROM t",
                 "SELECT * FROM t WHERE x IN cohort",
@@ -6420,16 +6247,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM t WHERE x IN cohort ORDER BY y",
                 "SELECT a IN cohort LIMIT 1",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guard: when an expression-starter follows, COHORT remains the marker.
             for src in ("a IN COHORT 1", "a IN COHORT t.id", "a NOT IN COHORT 1", "a IN cohort + 1"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_tuple_access_rejects_leading_zero_index(self):
             # Postfix `.<index>` requires `DECIMAL_LITERAL`; leading-zero numbers lex as `OCTAL_PREFIX_LITERAL` and are rejected.
             for src in (
@@ -6442,30 +6264,24 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
             # Guards: single-zero, multi-digit, and float-style chains.
             for src in ("a.0", "a.1", "a.999", "a.1.5", "a.0.5", "a?.0", "a?.1"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_with_cte_admits_primary_form_keywords_as_name(self):
             # CTE names can be any keyword in `identifier` — including primary-form heads (CASE / CAST / SELECT / NOT).
             for kw in ("select", "case", "cast", "not"):
                 src = f"WITH {kw} AS (SELECT 1) SELECT * FROM {kw}"
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
             # Guard: NULL / INF / NAN / INTERSECT stay rejected — omitted from `keyword`.
             for kw in ("null", "inf", "nan", "intersect"):
                 src = f"WITH {kw} AS (SELECT 1) SELECT * FROM {kw}"
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_select(src, backend="rust-json")
+                    parse_select(src, backend=backend)
 
-        @no_memory_leak_check
         def test_join_on_with_comma_separated_exprs_rejected(self):
             # ON takes a comma-separated `columnExprList` per the grammar; the visitor then rejects multi-expr ON as unsupported.
             for src in (
@@ -6475,7 +6291,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_select(src, backend="rust-json")
+                    parse_select(src, backend=backend)
             # Guards: single-expr ON, USING, CROSS JOIN, and comma-cross-join.
             for src in (
                 "SELECT * FROM a JOIN b ON x",
@@ -6484,11 +6300,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a CROSS JOIN b",
                 "SELECT * FROM a, b",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_cast_type_compound_loop_stops_at_non_identifier_keyword(self):
             # `columnTypeExpr`'s compound alt is `identifier identifier+`; NULL / INF / NAN aren't in `identifier`, so `cast(x as Int NULL)` rejects.
             # `Array(Int NULL)` is intentionally omitted — that routes through ColumnTypeExprParam's raw-text fallback (separate problem).
@@ -6502,7 +6315,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
             # Guards: valid compound and nested forms.
             for src in (
                 "cast(x as Int)",
@@ -6512,11 +6325,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(x as Foo Bar Baz)",
                 "cast(x as Foo Not Bar)",
             ):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_call_arg_select_releases_when_followed_by_keyword_infix(self):
             # `f((SELECT 1) IN [1,2])` — the first call arg is the full Compare; keyword-led infixes (IN/LIKE/IS/BETWEEN + NOT-variants) must release the SELECT-as-arg arm.
             cases = (
@@ -6532,16 +6342,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "f((SELECT 1) NOT BETWEEN 1 AND 2)",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guard: bare-SELECT call argument.
             for src in ("f((SELECT 1))", "f(SELECT 1)"):
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
 
-        @no_memory_leak_check
         def test_named_argument_admits_identifier_shaped_keywords(self):
             # `ColumnExprNamedArg: identifier COLONEQUALS columnExpr` — `true`/`false` are plain IDENTIFIERs in the lexer; soft keywords pass via `keyword`.
             cases = (
@@ -6554,17 +6359,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "f(x := 1)",
             )
             for src in cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             # Guard: NULL / INF / NAN aren't in `identifier`, so they stay rejected.
             for src in ("f(null := 1)", "f(inf := 1)", "f(nan := 1)"):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_expr(src, backend="rust-json")
+                    parse_expr(src, backend=backend)
 
-        @no_memory_leak_check
         def test_null_inf_nan_rejected_in_hog_identifier_slots(self):
             # `varDecl`, `funcStmt`, `catchBlock`, `forInStmt`, and lambda heads all route through `identifier`, which omits NULL / INF / NAN / Hog-stmt keywords.
             program_cases = (
@@ -6593,7 +6395,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_program(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_program(src, backend="rust-json")
+                    parse_program(src, backend=backend)
             # Guards: identifier-shaped slots still parse.
             valid_cases = (
                 ("let true := 1", "program"),
@@ -6607,30 +6409,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("lambda x: x", "expr"),
             )
             for src, kind in valid_cases:
-                parse_fn = parse_program if kind == "program" else parse_expr
-                oracle = parse_fn(src, backend="cpp-json")
-                got = parse_fn(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, kind)
 
-        @no_memory_leak_check
         def test_true_false_admitted_as_identifier_in_chain_and_table_positions(self):
             # `true`/`false` are plain IDENTIFIERs in the lexer; they lift to Bool Constants only in the bare-Field branch.
             expr_cases = ("x.true", "x.false", "x.true.false")
             for src in expr_cases:
-                oracle = parse_expr(src, backend="cpp-json")
-                got = parse_expr(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "expr")
             select_cases = (
                 "SELECT * FROM x.true",
                 "SELECT * FROM x.false",
                 "WITH x(true, false) AS (SELECT 1, 2) SELECT * FROM x",
             )
             for src in select_cases:
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_join_constraint_rejected_on_lead_table_and_cross_join(self):
             # `joinConstraintClause` attaches to `JoinExprOp` / `JoinExprPositional` only — not to the lead `JoinExprTable` or `JoinExprCrossOp`.
             for src in (
@@ -6653,12 +6446,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3 ON 4",
                 # Mixed CROSS in chain: constraint can't fall through.
                 "SELECT * FROM a JOIN b ON 1 CROSS JOIN c ON 2",
+                # Statement-level `USING SAMPLE` (the peel loop must not treat the `USING` as a join constraint): it's DuckDB's statement-level sample, which HogQL doesn't implement, so it's rejected rather than silently dropped.
+                "SELECT * FROM t USING SAMPLE 0.5",
+                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
             ):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_select(src, backend="rust-json")
-            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN, and statement-level `USING SAMPLE` (peel loop must not intercept).
+                    parse_select(src, backend=backend)
+            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN.
             for src in (
                 "SELECT * FROM a JOIN b ON 1",
                 "SELECT * FROM a JOIN b USING (x)",
@@ -6666,19 +6462,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a CROSS JOIN b",
                 "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
-                "SELECT * FROM t USING SAMPLE 0.5",
-                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
                 # Outer JOIN around a parens-wrapped inner JoinExpr still attaches one constraint at the outer level.
                 "SELECT * FROM (a JOIN b) JOIN c ON 1",
                 "SELECT * FROM a JOIN (b JOIN c ON 1) ON 2",
                 # `sample` as an ident inside USING(…) — the `(` follow-token defers to the constraint parser, not the USING-SAMPLE guard.
                 "SELECT * FROM a JOIN b USING (sample)",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
 
-        @no_memory_leak_check
         def test_columns_exclude_replace_reject_reserved_keywords(self):
             # `columnsExcludeItem` and `columnsReplaceItem` use the strict `identifier` rule (excludes NULL/INF/NAN/EXCEPT/INTERSECT + Hog-stmt keywords).
             for src in (
@@ -6693,15 +6484,1367 @@ def parser_test_factory(backend: HogQLParserBackend):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
-                    parse_select(src, backend="rust-json")
+                    parse_select(src, backend=backend)
             # Guards: identifier-shaped EXCLUDE / REPLACE with admissible alias.
             for src in (
                 "SELECT * EXCLUDE (a) FROM t",
                 "SELECT * EXCLUDE (a.b) FROM t",
                 "SELECT COLUMNS(* REPLACE (a AS b)) FROM t",
             ):
-                oracle = parse_select(src, backend="cpp-json")
-                got = parse_select(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "select")
+
+        def test_invalid_interval_in_block_body_rejected(self):
+            # Once `interval` is followed by a primary value it commits to the INTERVAL
+            # form: a missing / bad unit is a hard error, never a fall-back to
+            # `interval`-as-Field. Inside a Hog `{ … }` block body the fall-back would
+            # strand the string as a second statement, so `x -> { interval 'ln' }` would
+            # parse as `interval; 'ln'` — accepting input the cpp oracle rejects.
+            with self.assertRaises(BaseHogQLError):
+                parse_expr("x -> { interval 'ln' }", backend=backend)
+
+        def test_date_timestamp_literal_in_block_body_rejected(self):
+            # `DATE STRING` / `TIMESTAMP STRING` (the date/timestamp literal forms) are
+            # rejected — cpp parses them but its visitor has no literal node for them.
+            # rust must commit to the literal form, not treat `date` / `timestamp` as an
+            # identifier and strand the string; otherwise inside a Hog `{ … }` block body
+            # `{ date 'x' }` parses as the two statements `date; 'x'` and accepts input
+            # the cpp oracle rejects.
+            for query in ("x -> { date 'ddg' }", "x -> { timestamp 'x' }"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+
+        def test_from_table_implicit_alias_rejected(self):
+            # `from <implicit-alias>` in table position is the grammar's
+            # ColumnExprInvalidFromImplicitAlias footgun — cpp rejects it. rust
+            # parsed `select a, from b, from c` as a comma-join whose second table
+            # is `from` aliased `c`, accepting input cpp rejects. `from AS c` (explicit
+            # alias) and a plain comma-join (`select a, from b, c`) stay valid.
+            with self.assertRaises(BaseHogQLError):
+                parse_select("select a, from b, from c", backend=backend)
+            parse_select("select a, from b, c", backend=backend)
+            parse_select("select a, from b as c", backend=backend)
+
+        def test_invalid_cast_type_param_rejected(self):
+            # A parametric type's params are `columnExpr`s. rust's raw-text Param
+            # path concatenated tokens verbatim without checking the item parsed as
+            # an expression, so `cast(1 as d(()))` (empty group), `d(a() b)`
+            # (juxtaposition), and friends were accepted where cpp rejects. Each
+            # param must now validate as a columnExpr.
+            invalid = [
+                "cast(1 as d(()))",
+                "cast(1 as d(a() b))",
+                "cast(1 as d((),1))",
+                "cast(1 as Tuple(()))",
+            ]
+            for query in invalid:
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            # Valid parametric-type params still parse on both backends.
+            for query in ("cast(1 as d())", "cast(1 as d(#1))", "cast(1 as d([1]))", "cast(1 as Array(Int))"):
+                parse_expr(query, backend="cpp-json")
+                parse_expr(query, backend=backend)
+
+        def test_brace_placeholder_only_positions_reject_dict(self):
+            # `tableExpr`, `ratioExpr` (SAMPLE) and the `selectStmtWithParens`
+            # placeholder arm all admit only a placeholder `{ columnExpr }`, never
+            # a Dict. rust shared one brace parser across these slots and the expr
+            # position, so it built a Dict for `{}` / `{k: v}` and accepted input
+            # cpp rejects. Each placeholder-only slot must reject the Dict while
+            # still accepting the `{x}` placeholder.
+            dict_in_placeholder_slot = [
+                "select 1 from {}",
+                "select 1 from {1: 2}",
+                "select 1 from t sample {}",
+                "select 1 from t sample {1: 2}",
+                "{}",
+                "{1: 2}",
+                "({})",
+            ]
+            valid_placeholder = [
+                "select 1 from {x}",
+                "select 1 from t sample {x}",
+                "{x}",
+                "({x})",
+            ]
+            for query in dict_in_placeholder_slot:
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+            for query in valid_placeholder:
+                parse_select(query, backend=backend)
+
+        def test_empty_columns_call_and_star_spread_rejected(self):
+            # Empty `columns()` matches no `ColumnExprColumns*` production. rust
+            # built an empty-list ColumnsExpr and accepted it; it must instead let
+            # bare `columns()` fall back to a function call (cpp's behaviour). The
+            # `* columns()` spread is then invalid as a single expression — a
+            # for-in iterable / if / while condition — where cpp rejects it too.
+            invalid_single_expr = [
+                "for (let y in * columns()) {}",
+                "while (* columns()) {}",
+                "if (* columns()) {}",
+            ]
+            for query in invalid_single_expr:
+                with self.assertRaises(BaseHogQLError):
+                    parse_program(query, backend=backend)
+            # `* columns()` as two statements (`*` then a `columns()` call), bare
+            # `columns()` / regex / list, and a non-empty `* columns('re')` spread
+            # all still parse on both backends.
+            valid = [
+                "* columns()",
+                "columns()",
+                "columns('re')",
+                "columns(a, b)",
+                "for (let y in * columns('re')) {}",
+            ]
+            for query in valid:
+                parse_program(query, backend=backend)
+
+        def test_window_name_rejects_hog_statement_keywords(self):
+            # A window name is an `identifier`, which admits only the keywords in
+            # cpp's `keyword` rule; the Hog-statement keywords are excluded, so they
+            # are not valid window names. rust accepted any keyword there. Both
+            # window-name positions are the same `identifier` rule: the `OVER <name>`
+            # target and the `WINDOW <name> AS (...)` clause. Both must reject the
+            # excluded keywords while still accepting an ordinary keyword/identifier.
+            excluded = ("finally", "try", "catch", "while", "let", "fn", "fun", "throw")
+            valid = ("select", "from", "with", "where", "w")
+            for name in excluded:
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(f"f() over {name}", backend=backend)
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(f"select 1 from t window {name} as (order by x)", backend=backend)
+            for name in valid:
+                parse_expr(f"f() over {name}", backend=backend)
+                parse_select(f"select 1 from t window {name} as (order by x)", backend=backend)
+
+        def test_materialized_keyword_rejected_as_identifier(self):
+            # MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED
+            # (...)`; the grammar's `keyword` rule omits it, so it is not a valid
+            # identifier. rust admitted it via `kw_valid_as_identifier` /
+            # `kw_acts_as_ident_in_primary`, accepting `x.materialized`,
+            # `select materialized`, `exclude(materialized)` etc. where cpp rejects.
+            for query in ("x.materialized", "materialized", "columns(* exclude(materialized))"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            for query in ("select 1 as materialized", "select x from t as materialized", "select materialized from t"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+            # The legitimate MATERIALIZED keyword usage (CTE materialization) still parses.
+            for query in (
+                "with x as materialized (select 1) select 1 from x",
+                "with x as not materialized (select 1) select 1 from x",
+            ):
+                parse_select(query, backend=backend)
+
+        def test_bare_star_replace_rejected_outside_wrapper(self):
+            # `* REPLACE(...)` is a columnExpr only inside the paren forms
+            # `(* REPLACE(...))` / `(* EXCLUDE(...) REPLACE(...))` or `COLUMNS(* REPLACE(...))`.
+            # rust accepted a bare `* replace(...)` whenever a `)` followed (e.g. as a
+            # function argument or tuple element), since its guard couldn't tell a wrapper
+            # paren from a borrowed function-call one. Both must reject the bare form.
+            for query in ("full(* replace(a as b))", "* replace(a as b)", "(a, * replace(b as c))"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            with self.assertRaises(BaseHogQLError):
+                parse_select("select * replace(a as b) from t", backend=backend)
+            # Wrapped REPLACE forms (including nested) and a bare `* EXCLUDE` still parse.
+            valid = [
+                "(* replace(a as b))",
+                "(* exclude(x) replace(a as b))",
+                "columns(* replace(a as b))",
+                "((* replace(a as b)))",
+                "* exclude(a)",
+            ]
+            for query in valid:
+                parse_expr(query, backend=backend)
+
+        def test_wrapped_columns_replace_span_excludes_outer_parens(self):
+            # Only the BARE `(* [exclude] replace(...))` form has its wrapping parens
+            # in the ColumnsExpr ctx. When the ColumnsExpr instead comes from a
+            # `columns(...)` call or sits inside an EXTRA wrapping paren, cpp treats
+            # those parens as a separate `ColumnExprParens` (stripped) — the
+            # ColumnsExpr span stays inner. rust used to over-extend the span to the
+            # outer parens for every REPLACE-bearing ColumnsExpr; assert full AST
+            # parity (positions included) on both the bare and wrapped shapes.
+            for query in (
+                "(* replace(a as b))",
+                "(* exclude(x) replace(a as b))",
+                "columns(* replace(a as b))",
+                "((* replace(a as b)))",
+                "(((* replace(a as b))))",
+                "(columns(* replace(a as b)))",
+                "((columns(* replace(a as b))))",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_between_hoist_inner_wrapper_spans(self):
+            # When 2+ wrappers stack outside a BETWEEN (`1 between 2 and 3 as l :: Int`),
+            # the hoist-apply loop built each position-less and only the OUTERMOST got
+            # the outer pratt `wrap_pos` — the inner wrappers (here the Alias) stayed
+            # position-less. cpp spans each at `[lhs_start, end-of-its-own-token]`.
+            # The split now records each hoist's end and the apply loop stamps it.
+            for query in (
+                "1 between 2 and 3 as l :: Int",
+                "1 between 2 and 3 as l :: Int :: Float",
+                "1 between 2 and 3 as l [ 1 ]",
+                "1 between 2 and 3 as l . 1",
+                "1 between 2 and 3 as l ( x )",
+                "1 between 2 and 3 as l is null",
+                "1 between 2 and 3 as l or w",
+                "1 between 2 and 3 as l ? x : y",
+                "1 between 2 and 3 as l + 5",
+                "1 between 2 and 3 as l is distinct from w",
+                "1 between 2 and 3 as l",
+                "1 between 2 and 3 :: Int",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_arrow_lambda_block_body_span_with_trailing_postfix(self):
+            # An arrow lambda with a Hog BLOCK body (`x -> { … }`) ends at `}`, so a
+            # trailing postfix (`. 1`, `[1]`, `:: Int`) cannot fold into the body and
+            # binds OUTSIDE the lambda. The Lambda was then an intermediate pratt-loop
+            # lhs that the outer wrap never reached, leaving it position-less; cpp
+            # spans the Lambda over `args -> { … }`. The builder now stamps the span.
+            # (An expression body absorbs the postfix, so it never hit this.)
+            for query in (
+                "x -> { throw 0 } . 1",
+                "x, y -> { throw 0 } . 2",
+                "(a, b) -> { let z := 1 return z } . 1",
+                "x -> { throw 0 } [ 1 ]",
+                "x -> { throw 0 } :: Int",
+                "x -> { throw 0 }",
+                "x -> 1",
+                "f(x -> { throw 0 })",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_statement_leading_brace_block_vs_call(self):
+            # A statement-leading `{...}` is a Block, except when a postfix that
+            # cannot itself begin a statement follows the matching `}`: a `.` or an
+            # EMPTY `()` make the whole thing one called / accessed expression
+            # (`{1}.x`, `{1}()`). A non-empty `(expr)` IS a valid next statement, so
+            # the brace stays a Block and the `(expr)` is parsed separately
+            # (`{1} (a)` -> Block + ExprStatement). rust merged `{block} (expr)` into
+            # a single call. Both accept here, so assert full AST parity (positions
+            # included, no clear_locations) rather than just accept/reject.
+            for query in (
+                "{1} (a)",
+                "{} ('b')",
+                "{x} ('b')",
+                "{1}(a, b)",
+                "{1} ('b') ('c')",
+                "{1}(a).b",
+                "{1}()",
+                "{}()",
+                "{1}.x",
+                "{1:2} ('b')",
+                "{1}[1]",
+                # `.x` property access forces the call parse, but a leading-dot
+                # number `.5` is a valid next statement, so the brace stays a Block.
+                "{} .x",
+                "{ } .5",
+                "{ } .5.5",
+            ):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_columns_qualifier_rejects_invalid_identifier_keywords(self):
+            # The qualifier before `.*` inside `COLUMNS(...)` is the grammar's
+            # `identifier` (`COLUMNS LPAREN identifier DOT ASTERISK ...`), so only
+            # keywords admitted by `kw_valid_as_identifier` qualify. rust admitted any
+            # keyword there, accepting `columns(try.*)` where cpp rejects. The chain
+            # links (`columns(a.try.*)`) are `identifier` too and need the same gate.
+            excluded = (
+                "try",
+                "catch",
+                "finally",
+                "null",
+                "inf",
+                "nan",
+                "intersect",
+                "except",
+                "fn",
+                "fun",
+                "let",
+                "while",
+                "throw",
+                "materialized",
+            )
+            for name in excluded:
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(f"columns({name}.*)", backend=backend)
+            for query in ("columns(a.try.*)", "columns(a.b.catch.*)"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            # `kw_valid_as_identifier` keywords (and `true`/`false`, plain
+            # idents, and multi-level chains) remain valid qualifiers.
+            for query in (
+                "columns(week.*)",
+                "columns(select.*)",
+                "columns(interval.*)",
+                "columns(true.*)",
+                "columns(false.*)",
+                "columns(x.*)",
+                "columns(a.b.*)",
+                "columns(a.b.c.*)",
+            ):
+                parse_expr(query, backend=backend)
+
+        def test_bare_qualified_star_replace_rejected(self):
+            # A bare (unwrapped) `ColumnExprAsterisk` (grammar line 289) admits an
+            # optional trailing EXCLUDE but never REPLACE — REPLACE is a columnExpr
+            # only inside `columns(...)` / `(*...)`. rust consumed a trailing REPLACE
+            # in the bare qualified-asterisk postfix path and silently dropped it,
+            # accepting `a.* exclude(z) replace(1 as b)` where cpp rejects.
+            for query in (
+                "a.* replace(1 as b)",
+                "a.* exclude(z) replace(1 as b)",
+                "a.b.* exclude(z) replace(1 as b)",
+            ):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            # Exclude-only bare forms and the wrapped REPLACE forms still parse.
+            for query in (
+                "a.* exclude(z)",
+                "a.b.* exclude(z)",
+                "a.*",
+                "columns(a.* replace(1 as b))",
+                "columns(a.* exclude(z) replace(1 as b))",
+                "(* exclude(z) replace(1 as b))",
+            ):
+                parse_expr(query, backend=backend)
+
+        def test_columns_qualified_asterisk_continuation_positions(self):
+            # When a qualified asterisk (`a.*`) is the LHS of a postfix call or infix
+            # op inside `COLUMNS(...)`, the continuation node's span must start at the
+            # qualifier's start, not at the token after the asterisk. rust stamped the
+            # call/arith node start at the `(` / operator instead of at `a`, so both
+            # accepted but `columns[0].start` diverged. Assert full AST parity
+            # (positions included) rather than just accept/reject.
+            for query in (
+                "columns(a.*(b))",
+                "columns(a.b.*(c))",
+                "columns(a.* + 1)",
+                'columns("iei".*(a.b, c.d))',
+                "columns(a.* exclude(z) + 1)",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_within_keyword_rejected_as_identifier(self):
+            # WITHIN is a lexer keyword used only in the `within group (...)` clause;
+            # the grammar's `keyword` rule omits it, so it is not a valid identifier.
+            # rust admitted it via `kw_valid_as_identifier` / `kw_acts_as_ident_in_primary`,
+            # accepting `within`, `x.within`, `columns(within.*)` as Fields and, at
+            # statement level, `f() within ()` as `f(); within()`. All must reject.
+            for query in ("within", "within()", "within + 1", "x.within", "1 as within", "columns(within.*)"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            for query in ("select within from t", "select 1 as within from t", "select x from t as within"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+            for query in ("f() within ()", "within ()", "within"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_program(query, backend=backend)
+            # The legitimate `within group (...)` clause still parses.
+            parse_expr("f() within group (order by x)", backend=backend)
+            parse_select("select f() within group (order by x) from t", backend=backend)
+
+        def test_positional_and_tuple_index_decimal_literal_parity(self):
+            # `#N` (positional ref) and `a.N` / `a?.N` (tuple access) all take a
+            # grammar DECIMAL_LITERAL index. rust's lexer folds hex / octal / float
+            # into one Number kind, so it diverged two ways: `#N` OVER-ACCEPTED
+            # hex/octal/float (`#0x6`, `#017`, `#1e3` became PositionalRef(0) via
+            # `parse().unwrap_or(0)`), while `.N` / `?.N` OVER-REJECTED leading-zero
+            # decimals (`a.08`, `a.019`) that cpp accepts because 8 and 9 are not
+            # octal digits, so the lexer reads them as DECIMAL not OCTAL. All three
+            # now share one `is_decimal_literal()` gate.
+            rejected = (
+                "#0x6",
+                "#0X6",
+                "#00",
+                "#06",
+                "#017",
+                "#007",
+                "#1e3",
+                "a.0x6",
+                "a.00",
+                "a.06",
+                "a.017",
+                "a.1e3",
+                "a?.06",
+                "a?.00",
+            )
+            for query in rejected:
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            # Decimal indices parse on both, including leading-zero forms whose digits
+            # escape the octal range (`08`, `019`). Assert full AST parity (positions
+            # included) rather than just accept/reject.
+            accepted = (
+                "#0",
+                "#6",
+                "#08",
+                "#019",
+                "#10",
+                "a.0",
+                "a.8",
+                "a.08",
+                "a.019",
+                "a.10",
+                "a?.0",
+                "a?.08",
+                "a?.019",
+            )
+            for query in accepted:
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_nested_interval_reserves_unit_for_outer(self):
+            # `INTERVAL <value> <unit>`: cpp's ALL(*) reserves the trailing unit for
+            # the OUTER interval, so a nested INTERVAL in value position never takes
+            # the unit-consuming form — it is string-only (`interval '5 day'`) or a
+            # Field / call. rust used to let the inner interval eat the unit, which
+            # over-rejected `interval interval '5 day' month` / `interval interval -
+            # x second` (expr) and over-accepted `interval interval 'jihi' month`
+            # (program, split into `interval` + `interval 'jihi' month`). The
+            # parenthesised forms were already self-contained. Both accept here, so
+            # assert full AST parity (positions included).
+            for query in (
+                "interval interval second",
+                "interval interval - x second",
+                "interval interval '5 day' month",
+                "interval interval (1) second",
+                "interval (interval '5 day') month",
+                "interval (interval '5 day' month) second",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # A nested bad-string interval rejects on both: the inner
+            # ColumnExprIntervalString can't split into `<count> <unit>`. This must
+            # also reject at program level (rust no longer splits it into two
+            # statements once the inner string interval errors fatally).
+            for query in ("interval interval 'jihi' month", "interval interval x second"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            with self.assertRaises(BaseHogQLError):
+                parse_program("interval interval 'jihi' month", backend=backend)
+
+        def test_select_from_keyword_table_vs_invalid_from_column(self):
+            # `FROM implicitAlias # ColumnExprInvalidFromImplicitAlias` is a
+            # SELECT-COLUMN footgun only: a bare `from <ident>` in TABLE position is
+            # valid (`from b, from c` is table `from` aliased `c`). rust used to (1)
+            # over-reject explicit-FROM from-as-table cases via a misdiagnosed
+            # join.rs check, and (2) over-accept the trailing-comma `select a, from
+            # b, from (c)` because it broke the column list at the FIRST from. cpp's
+            # `selectColumnExprListBeforeFrom` makes every `from X` before the LAST
+            # one a column; only the final `from` opens the clause. Accepting cases
+            # assert full AST parity (positions included).
+            accept = (
+                # from-as-table in the FROM / join clause (explicit FROM):
+                "select a from b, from c",
+                "select * from from x",
+                "select 1 from a, from b, from(c)",
+                "select 1 from a join from b on 1",
+                "select 1 from from c",
+                "select x from t1, from t2, from t3",
+                "select 1 from b as from",
+                # the LAST `from` opens the clause; an earlier `from(...)` is a call column:
+                "select a, from (b), from (c)",
+                # single from / cross-join / subquery / union unaffected:
+                "select a, from b",
+                "select a, from b, c",
+                "select a, from (b), c",
+                "select a from b, c",
+                "select a, from (select 1 from t), c",
+                "select a, from b union all select c from d",
+            )
+            for query in accept:
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # Two+ top-level `from`s: every `from` before the last is a SELECT
+            # column, and a bare `from <ident>` column is the rejected footgun.
+            reject = (
+                "select from x",
+                "select a, from b, from c",
+                "select a, from b, from (c)",
+                "select a, from b, x, from (c)",
+                "select a, from b, from c, from d",
+            )
+            for query in reject:
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+
+        def test_from_trailing_comma_only_after_join_constraint(self):
+            # A trailing comma in the FROM clause is valid ONLY as the ON / USING
+            # `columnExprList`'s optional `COMMA?` (`a JOIN b ON 1,`); cpp's
+            # JoinConstraint span includes it. After a cross / plain / positional
+            # join the trailing comma is rejected. rust used to discard any
+            # post-join trailing comma (over-accepting `a, b,` / `a join b,`) and
+            # ended the constraint span before the comma (a position mismatch on the
+            # constrained cases). Accepting cases assert full AST parity (positions).
+            accept = (
+                "select x from a join b on 1,",
+                "select x from a left join b on 1,",
+                "select x from a join b using c,",
+                "select x from a join b using (c),",
+                "select x from (a join b on 1,)",
+                "select x from a join b using a, b,",
+                # controls (no trailing comma):
+                "select x from a, b",
+                "select x from a join b on 1",
+                "select x from a join b",
+                "select x from a, b, c",
+            )
+            for query in accept:
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # Trailing comma after a cross / plain / positional join (no constraint
+            # to own it) rejects on both.
+            reject = (
+                "select x from a, b,",
+                "select x from a cross join b,",
+                "select x from a join b,",
+                "select x from a positional join b,",
+                "select x from a join b on 1, c,",
+                "select x from a, from b,",
+            )
+            for query in reject:
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+
+        def test_interval_without_unit_does_not_over_commit(self):
+            # cpp commits to the INTERVAL form only for a STRING_LITERAL (the
+            # ColumnExprIntervalString alt). `interval <number|ident|quoted-ident>`
+            # with NO trailing unit is NOT an interval: cpp backtracks to `interval`
+            # as a Field. So at expr level it rejects (trailing tokens) on both, but
+            # at PROGRAM level it splits into two statements (`interval` + value).
+            # rust used to commit fatally for number/ident/quoted-ident too, which
+            # over-rejected the program split.
+            for query in ("interval 1", "interval x", 'interval "a"'):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            # A STRING value still commits (a bad single-token string rejects at both
+            # expr and program level — no two-statement split).
+            with self.assertRaises(BaseHogQLError):
+                parse_program("interval 'a'", backend=backend)
+            # A trailing unit still makes it a real interval Call on both backends.
+            for query in ("interval 1 day", 'interval "a" day', "interval x day"):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_statement_boundary_splits_incomplete_special_infix_and_postfix(self):
+            # At a statement boundary, an INCOMPLETE special-infix (LIKE / BETWEEN /
+            # IN / IS) or postfix (`[`) is cpp's "end this statement, start the next"
+            # shape, not an error: `week like` -> two Field statements, `"_" between
+            # "_"` -> three, `[ ] [ ]` -> two empty-array statements. rust's Pratt
+            # loop used to apply the operator greedily and error. These all parse on
+            # both backends with identical ASTs (positions included).
+            for query in (
+                "week like",
+                '"_" between "_"',
+                "[ ] [ ]",
+                "[ ] [ ] [ ]",
+                "week and",
+                "a in",
+                "a is",
+            ):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            # At EXPRESSION level there is no next statement, so the same incomplete
+            # forms stay hard errors on both backends (recovery is statement-only).
+            for query in ("week like", "[ ] [ ]", "a between b", '"_" between "_"'):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+            # COMPLETE forms are unaffected — still parse identically on both.
+            for query in ("a like b", "a between b and c", "a[b]", "a in (1, 2)", "a is null", "a not like b"):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_not_and_modulo_accept_hogqlx_tag_operand(self):
+            # `<` begins a HogQLX tag as well as the less-than operator. In bounded
+            # lookahead rust used to always read `<` as less-than, so `not <a/>`
+            # stranded the tag (NOT became a Field) and `1 % <a/>` abandoned the
+            # modulo. cpp reads the tag operand. Both parse identically here.
+            for query in (
+                "not <a/>",
+                "not <a></a>",
+                "[not <a/>]",
+                "1 and not <a/>",
+                "f(not <a/>)",
+                "1 % <a/>",
+                "[1 % <a/>]",
+                "(1 % <a/>)",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # Genuine less-than / modulo (no tag following) are unchanged.
+            for query in ("not < 2", "1 % 2", "1 % x"):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_boolean_literal_numeric_tuple_access_keeps_constant(self):
+            # `true.1` / `false.0` are tuple access on the boolean Constant, not a
+            # Field chain — cpp keeps Constant(true) as the tuple base. rust used to
+            # route every `true.`/`false.` through ident-lead, making the base a
+            # Field. `true.x` (chain), `true(1)` (call) and `null.1` are unaffected.
+            for query in ("true.1", "false.0", "true.1.2", "true.x", "true(1)", "true", "null.1"):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_return_keyword_as_identifier_before_infix_postfix(self):
+            # `return` is also a keyword-rule identifier. When it is followed by a
+            # pure infix / postfix operator, that operator binds `return` as its
+            # LHS, so the line is one exprStmt (`return :: t`, `return.x`, `return
+            # -> y`, `return = 1`, `return / 2`), not a bare return that strands the
+            # operator. A value-starter keeps the return statement (`return 1`,
+            # `return + 1`); a keyword-infix keeps the bare-return split (`return
+            # like x` is `return` + `like x`).
+            for query in (
+                "return -> y",
+                "return :: date",
+                "return . x",
+                "return ?. x",
+                "return = 1",
+                "return / 2",
+                "return || x",
+                "return < 2",
+                "return != 1",
+                "return ?? x",
+            ):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            for query in ("return 1", "return + 1", "return [1]", "return", "return like x", "return * 2"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            # `.` is special: a leading-dot float (`return .5` -> value 0.5,
+            # `return .5.5` -> tuple-access on 0.5) is a return VALUE, while a
+            # `.`-chain-link (`return .x`) makes `return` an identifier (tuple /
+            # field). Both must match cpp (regression guard for the #16 dispatch).
+            for query in ("return .5", "return .5.5", "return . 5", "return .x"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_not_before_statement_keyword_falls_back_to_field(self):
+            # At a statement boundary, `not` followed by a statement keyword that is
+            # not a valid expression operand (`let`, `throw`) is `not` as a bare
+            # Field statement followed by the keyword's statement — not a NOT whose
+            # operand fails. rust used to commit NOT to the operator and reject.
+            for query in ("not let x", "not throw x"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            # An incomplete `not let` (no value) or a keyword that is neither a
+            # valid operand nor a complete statement still rejects on both.
+            for query in ("not let", "not while x", "not fn x"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_program(query, backend=backend)
+
+        def test_block_then_empty_param_lambda_is_two_statements(self):
+            # `{…} ()` is a dict / placeholder called with empty args (one
+            # exprStmt), but `{…} () -> body` is a Block followed by an empty-param
+            # lambda statement (two statements). rust used to force the empty-call
+            # interpretation and then reject when the block body was not a dict.
+            for query in ("{ } () -> 1", "{ let q := 1; } () -> 1;", "{ if (1) {} } () -> 1"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            # Unchanged: empty call (no arrow), non-empty params, dict, plain block.
+            for query in ("{ } ()", "{ 1 } ()", "{ } (a) -> 1", "{ } () + 1", "{1: 2}", "{ let x := 1; }"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_hogqlx_tag_name_rejects_non_identifier_keywords(self):
+            # A HogQLX tag/attr name is a grammar `identifier`, so a keyword head is
+            # valid only when the grammar's `keyword` rule admits it. The Hog-statement
+            # keywords (fn/fun/let/while/throw/try/catch/finally), set-op keywords
+            # (intersect/except), literal keywords (null/inf/nan) and within/materialized
+            # are omitted from that rule, so cpp rejects `<fn/>`; rust used to accept
+            # them as tag/attr names (over-accept).
+            for kw in (
+                "fn",
+                "fun",
+                "let",
+                "while",
+                "throw",
+                "try",
+                "catch",
+                "finally",
+                "intersect",
+                "except",
+                "null",
+                "inf",
+                "nan",
+                "within",
+                "materialized",
+            ):
+                for query in (f"< {kw} />", f"< a {kw} />"):
+                    with self.assertRaises(BaseHogQLError):
+                        parse_expr(query, backend=backend)
+            # Keywords that the grammar's `keyword` rule admits stay valid tag names.
+            for kw in ("and", "select", "from", "by", "group", "order", "day", "sample"):
+                self.assertEqual(
+                    parse_expr(f"< {kw} />", backend="cpp-json"),
+                    parse_expr(f"< {kw} />", backend=backend),
+                    msg=kw,
+                )
+
+        def test_not_falls_back_to_field_when_operand_invalid(self):
+            # In EXPRESSION context cpp's single-expression parse reads a leading NOT
+            # as a Field when its operand can't parse, so a following infix binds to
+            # it: `not < a` -> `(Field not) < a`, `not + a` -> `(Field not) + a`,
+            # `not in a` -> `(Field not) in a`, `not as x` -> `Field(not) AS x`. A bare
+            # `not as` keeps `Not(Field('as'))` (the operand parses). rust used to
+            # commit NOT to the unary operator and reject. `not in (1,2)` stays the
+            # unary `Not(Call(in, …))`.
+            for query in (
+                "not < a",
+                "not + a",
+                "not in a",
+                "not as",
+                "not as x",
+                "not as date",
+                "not like 'a'",
+                "not in (1,2)",
+                "not x",
+                "a not in b",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # At a STATEMENT boundary cpp takes the shortest leading statement, so
+            # `not <op-keyword> <rhs>` is `Not(Field(<kw>))` (statement 1) and `<rhs>`
+            # opens the next statement (two declarations), not the greedy single
+            # expression. rust used to glue it into one statement.
+            for query in (
+                "not in a",
+                "not like 'a'",
+                "not and a",
+                "not is null",
+                "not * a",
+                "not ignore nulls",
+            ):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_in_cohort_marker_only_before_a_complete_value(self):
+            # `IN COHORT? columnExpr`: cpp takes the COHORT marker only when a complete
+            # value follows it. When COHORT is followed by an operator it is the IN rhs
+            # Field (or part of the rhs expression): `a in cohort < b` ->
+            # `(a in cohort) < b`, `a in cohort like b` -> `(a in cohort) like b`,
+            # `a in cohort * b` -> `a in (cohort * b)`. rust used to greedily eat COHORT
+            # and choke on the empty / dangling value.
+            for query in (
+                "a in cohort < b",
+                "a in cohort + b",
+                "a in cohort * b",
+                "a in cohort like b",
+                "a in cohort is null",
+                "a not in cohort < b",
+                "a not in cohort * b",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # COHORT stays a marker before a complete value (a bare `*`, a negative
+            # number, a tag, a parenthesised/array value, or a plain primary), and a
+            # value followed by an outer infix (`cohort 1 < b`) still works.
+            for query in (
+                "a in cohort 1",
+                "a in cohort x",
+                "a in cohort *",
+                "a in cohort -1",
+                "a in cohort <foo/>",
+                "a in cohort (1)",
+                "a in cohort [1]",
+                "a in cohort 1 < b",
+                "a not in cohort 1",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_select_distinct_reread_as_column_when_no_value_follows(self):
+            # `SELECT DISTINCT? columnExprList`: DISTINCT is the modifier only when a
+            # column follows. When the next token ends the column list (comma / EOF)
+            # or opens a clause, cpp re-reads DISTINCT as the sole column Field:
+            # `SELECT DISTINCT` -> `[Field(distinct)]`, `SELECT DISTINCT ORDER BY 1` ->
+            # `[Field(distinct)]` + ORDER BY. rust used to keep DISTINCT a modifier and
+            # then reject on the empty / clause-keyword column slot.
+            for query in (
+                "SELECT DISTINCT",
+                "SELECT DISTINCT, a",
+                "SELECT DISTINCT ORDER BY 1",
+                "SELECT DISTINCT GROUP BY 1",
+                "SELECT DISTINCT WHERE 1",
+                "SELECT DISTINCT HAVING 1",
+                "SELECT DISTINCT LIMIT 1",
+                "SELECT DISTINCT group by 1",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # DISTINCT stays the modifier before a real column (incl. a bare keyword
+            # column like `group` with no `BY`).
+            for query in (
+                "SELECT DISTINCT a",
+                "SELECT DISTINCT a, b",
+                "SELECT DISTINCT *",
+                "SELECT DISTINCT day",
+                "SELECT DISTINCT group",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects on both
+            # via the FROM-implicit-alias footgun (DISTINCT is NOT re-read here).
+            with self.assertRaises(BaseHogQLError):
+                parse_select("SELECT DISTINCT FROM x", backend=backend)
+
+        def test_hogqlx_attribute_and_text_child_positions_match(self):
+            # cpp positions each HogQLXAttribute (name start -> value end, or name end
+            # for a bare attribute), the string value Constant over the string token,
+            # and each text-child Constant over its raw byte span. rust left these
+            # inner nodes position-less. The shared suite strips positions, so this
+            # asserts exact-position parity (the comparison keeps positions).
+            for query in (
+                "<a b='1' />",
+                "<a b='1' c='2' />",
+                "< a and />",
+                "<a>x</a>",
+                "<a>hello world</a>",
+                "<a b='1'>text</a>",
+                "<a b={1} />",
+                "<outer><inner k='v'>t</inner></outer>",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_lambda_keyword_is_a_plain_alias_after_as(self):
+            # The grammar's explicit `AS identifier` admits every keyword, so `AS
+            # lambda` is a plain alias `Alias(expr, 'lambda')` in expression context.
+            # rust blanket-refused `AS lambda` (it only ever heads a lambda value in
+            # `INTERPOLATE (expr AS columnExpr)`), so it rejected the alias. Refuse
+            # only when a lambda BODY (`lambda [params] :`) actually follows.
+            for query in (
+                "1 as lambda",
+                "x as lambda",
+                "(1) as lambda",
+                "1 + 1 as lambda",
+                "[1 as lambda]",
+                "f(1 as lambda)",
+                "1 as lambda()",
+                "1 as lambda + 2",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            for query in ("select 1 as lambda", "select 1 as lambda, 2", "select 1 as lambda from t"):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # A real lambda body after `AS` is not a valid alias and rejects on both
+            # in plain expression context (the alias absorbs `lambda`, the `:` trails).
+            for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+
+        def test_empty_fstring_constant_spans_whole_token(self):
+            # An empty f-string `f''` has no interior text, so cpp spans its Constant
+            # over the whole `f''` token, not the zero-width gap between the quotes.
+            # rust positioned it at the interior; the comparison keeps positions.
+            for query in ("f''", "f'a'", "f'ab'", "f'  '", "[f'']", "f'' || f''"):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_template_unknown_escape_with_multibyte_char(self):
+            # An unknown f-string escape `\X` drops the backslash and the escaped char (cpp's `STRING_TEXT` lexer behaviour). When `X` is a multibyte codepoint (`\é`, `\😀`) the rust body splitter must step past the whole codepoint — a fixed 2-byte step landed mid-char and panicked the body slice, an uncatchable `PanicException` on the json path that also escaped `except Exception`. cpp accepts all of these, so matching it (value + positions) is a parity requirement.
+            self.assertEqual(self._expr(r"f'\é'"), ast.Constant(value=""))
+            self.assertEqual(self._expr(r"f'\😀z'"), ast.Constant(value="z"))
+            self.assertEqual(self._expr(r"f'\éxyz'"), ast.Constant(value="xyz"))
+            # Full position parity against cpp for the position-carrying backends; python spans f-strings over the whole token, so it only checks structure.
+            for src in (r"f'\é'", r"f'\éxyz'", r"f'\😀z'", r"f'ab\écd'", r"f'\é{1}\😀'"):
+                expected = parse_expr(src, backend="cpp-json")
+                actual = parse_expr(src, backend=backend)
+                if backend == "python":
+                    self.assertEqual(clear_locations(actual), clear_locations(expected), msg=src)
+                else:
+                    self.assertEqual(actual, expected, msg=src)
+
+        def test_interpolate_expr_carries_positions(self):
+            # The INTERPOLATE item node (InterpolateExpr) was built without a position
+            # wrap, so it came back position-less; cpp spans it from the expr start to
+            # the value end (or the expr end when there is no `AS value`).
+            for query in (
+                "select 1 order by a with fill interpolate (b)",
+                "select 1 order by a with fill interpolate (b as 5)",
+                "select 1 order by a with fill interpolate (b, c)",
+                "select 1 order by a with fill interpolate (b as c, d)",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_between_span_includes_parenthesized_high_closing_paren(self):
+            # A simple BETWEEN spans through the high operand's last consumed token,
+            # so a parenthesized `high` (`1 between 2 and (3)`) must include the
+            # trailing `)`. rust used `high.end` (the inner expr, parens stripped),
+            # leaving the BetweenExpr end one byte short. The comparison keeps
+            # positions.
+            for query in (
+                "1 between (2) and (3)",
+                "1 between 2 and (3)",
+                "1 between (2) and 3",
+                "1 not between 2 and (3)",
+                "a between (b) and (c)",
+                "1 between (2+3) and (4)",
+                "1 between (2) and (3) + 4",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_leading_comma_from_implicit_alias_dangling_clause(self):
+            # Under a leading/trailing comma, cpp's greedy `selectColumnExprListBeforeFrom`
+            # consumes `from <implicitAlias>` (+ any following cross-join tables) as
+            # columns up to a trailing comma when a two-token clause introducer
+            # (`USING SAMPLE` / `ARRAY JOIN`) follows it — then its visitor rejects the
+            # `ColumnExprInvalidFromImplicitAlias` column. rust used to open the FROM
+            # clause at `from f` and consume `using`/`array` as a cross-join table.
+            # A depth-0 dangling-clause forward-scan now matches cpp: both reject.
+            for query in (
+                "select 1, from f, using sample 1",
+                "select 1, from f, array join x",
+                "select 1, from f, g, using sample 1",
+                "select 1, from f, g, array join x",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    parse_select(query, backend=backend)
+            # A bare keyword cross-join table (no SAMPLE/JOIN completing the clause),
+            # and the no-leading-comma form, keep `using`/`array` as real tables — both
+            # accept, so the suppression stays scoped to the dangling-comma case.
+            for query in (
+                "select 1, from f, using",
+                "select 1, from f, array",
+                "select 1, from f, using x",
+                "select 1, from f, array x",
+                "select 1 from f, using sample 1",
+                "select 1 from f, array join x",
+                "select 1, from f, g",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_date_literal_tolerated_in_discarded_set_decorators(self):
+            # A `selectSetStmt`'s trailing `orderByClause?` is always grammar-parsed
+            # but never emitted by cpp's `VISIT(SelectSetStmt)`, and its trailing
+            # LIMIT / OFFSET are dropped when the body is a `{placeholder}` (which
+            # can't carry them). cpp never visits those discarded subtrees, so an
+            # unsupported `date`/`timestamp` literal anywhere inside (incl. nested
+            # selects / calls) is tolerated. rust used to commit to the date literal
+            # and fatally reject; the suppression now leaks into the whole discarded
+            # subtree, matching cpp.
+            for query in (
+                "( {x} order by date 'z' )",
+                "( {x} order by (select 1 order by date 'z') )",
+                "( {x} order by f(date 'z') )",
+                "( {x} order by date 'z' + 1 )",
+                "( (select 1) order by (select date 'z') )",  # ORDER BY discarded even for a real subquery
+                "( {x} order by date 'z' limit 1 )",
+                "( {x} limit date 'z' )",  # placeholder LIMIT dropped -> tolerated
+                "( {x} offset date 'z' )",
+                "( {x} limit date 'z' with ties )",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            program = "range := ( { ( 'nlhonme ' ) } order by 'e' , date 'fa' collate 'a' ) "
+            self.assertEqual(
+                parse_program(program, backend="cpp-json"),
+                parse_program(program, backend=backend),
+            )
+            # Still strict where cpp DOES visit: a real SelectQuery's kept order by /
+            # limit / offset, and a bare / placeholder-block date literal. All must
+            # reject on both backends (the placeholder LIMIT suppression must not
+            # leak to a real `(select …)` body). A set op (UNION / EXCEPT) wraps the
+            # result in a decorator-carrying SelectSetQuery, so its LIMIT is KEPT and
+            # visited even when the operands are placeholders — the suppression must
+            # not fire there either.
+            for query, fn in (
+                ("select 1 order by date 'x'", parse_select),
+                ("select 1 order by (select date 'z')", parse_select),
+                ("select 1 limit date 'x'", parse_select),
+                ("(select 1) limit date 'x'", parse_select),
+                ("(select 1) offset date 'x'", parse_select),
+                ("{1} except {2} limit date 'x'", parse_select),
+                ("({1}) union all ({2}) limit date 'x'", parse_select),
+                ("({1}) except {2} limit interval 'p'", parse_select),
+                ("date 'x'", parse_expr),
+                ("{ date 'x' }", parse_program),
+            ):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    fn(query, backend=backend)
+
+        def test_interval_string_without_unit_tolerated_in_unvisited_clause(self):
+            # `INTERVAL <string>` with no `<count> <unit>` content is cpp's
+            # `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
+            # rejects — so it's tolerated in the same clauses cpp grammar-parses but
+            # never visits (discarded ORDER BY, a placeholder body's LIMIT). rust
+            # used to fatally require a unit keyword.
+            for query in (
+                "{x} order by interval 'pk'",
+                "{x} order by interval 'pk' collate ''",
+                "{x} order by 1 with fill to interval 'g'",
+                "{x} limit interval 'p'",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # Still strict elsewhere: a KEPT clause visits it, a bare / block form
+            # rejects, and a non-string interval value with no unit is a grammar
+            # error even when discarded (so the suppression is string-gated).
+            strict: list[tuple[str, object]] = [
+                ("select 1 order by interval 'pk'", parse_select),
+                ("select 1 limit interval 'pk'", parse_select),
+                ("interval 'pk'", parse_expr),
+                ("{ interval 'ln' }", parse_program),
+                ("{x} order by interval 1", parse_select),
+                ("{x} order by interval x", parse_select),
+            ]
+            for query, fn in strict:
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    fn(query, backend=backend)
+
+        def test_interval_value_pending_flag_does_not_leak(self):
+            # `parse_interval_expr` flags the value's leading primary as a nested
+            # interval (one-shot, consumed by `parse_primary`). When the value parse
+            # errors BEFORE reaching `parse_primary` (a bare `interval` as an
+            # arithmetic operand: `interval + …`), the flag must not leak past the
+            # enclosing `try_alt` rollback and corrupt the FOLLOWING interval — which
+            # caused `interval + interval '5 day' month` to wrong-reject and
+            # `interval - interval '5 day' month` to build a mangled AST.
+            for query in (
+                "interval + interval '5 day' month",
+                "interval - interval '5 day' month",
+                "interval * interval '2 hour' day",
+                "x + interval '5 day' month",
+                "1 + interval '5 day' month",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_stacked_table_alias_span_ends_at_first_alias(self):
+            # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
+            # the JoinExpr span at the INNERMOST (first) alias, while each outer
+            # alias only overwrites `alias` / `column_aliases`. rust extended the
+            # span to the last alias. Covers the `t format JSON` FORMAT-as-alias
+            # chain and column-alias stacks. (Single / no alias are unchanged.)
+            for query in (
+                "select 1 from x t",
+                "select 1 from x a b",
+                "select 1 from x a b c",
+                "select 1 from x t format JSON",
+                "select 1 from x (c1, c2)",
+                "select 1 from x a (c1) b (c2)",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_between_split_synthetic_node_positions(self):
+            # When the greedy BETWEEN-body parse is split at the rightmost AND, the
+            # rebuilt And/Or (and the wrappers it descends through) must carry cpp's
+            # ctx-derived span, not the children's inner (paren-stripped) span. cpp
+            # positions a boolean node from its FIRST operand's `(` and LAST operand's
+            # `)`, and a stay-in-place wrapper (Lambda / Not / arith.right / the
+            # if-call else-branch) ends where its now-shorter child ends. A no_pos
+            # NamedArgument operand still contributes its `value`'s end.
+            for query in (
+                "x between (1) and (2) or y",  # synthetic Or start = `(` of `(2)`
+                "1 between 2 and (3) and 4",  # synthetic And end = `)` of `(3)`
+                "x between (1) and lambda z: (2) and (3)",  # Lambda body end shrinks
+                "a between not lambda x: (b) and (c) and d",  # Not + Lambda descent
+                "x between 1 and (2) * (3) and 4",  # arith.right end shrinks
+                "a between b ? c : (d) and (e) and f",  # if-call else-branch end
+                "1 between 2 between 3 and (4) and 5",  # nested BETWEEN low peel
+                "x between y between z and (w) and v",
+                "p between (q) and r := (s) and (t)",  # no_pos NamedArgument last operand
+                "m between (n) and o := (p) and q := (r) and (s)",
+                "x between (1) and ((2) or (3)) and (4)",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_between_parenthesized_group_high(self):
+            # `a and (b and c)` flattens to `And([a,b,c])` (cpp does too for a standalone
+            # expr), but in a BETWEEN body cpp keeps `(b and c)` as one high operand: the
+            # rightmost AND at paren-depth 0 is the one BEFORE the parens, so
+            # `1 between a and (b and c)` is `low=a, high=And(b,c)`. rust used to descend
+            # into the flattened inner AND and mis-split to `low=And(a,b), high=c`. The
+            # split now skips ANDs inside parens (paren-depth-0 rule).
+            for query in (
+                "1 between a and (b and c)",
+                "1 between a and ((b) and (c))",
+                "1 between a and (b and c and d)",
+                "1 between x and y and (b and c)",
+                "1 between a and (b or c)",
+                "1 between (a and b) and c",
+                "1 between a and (b and c) or d",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_return_empty_parens_is_a_call(self):
+            # `return ()` — empty parens are not a valid return value, so cpp re-reads
+            # `return` as a Field and `()` as an empty call: `Call(return, [])`. rust
+            # used to commit to the return statement and reject the empty parens. A
+            # `return (expr)` (incl. empty `[]` / `{}` which ARE valid values) keeps
+            # the returnStmt.
+            for query in ("return ()", "return ( )", "return () + 1", "x := return ()", "return () ()"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            for query in ("return (1)", "return (1, 2)", "return []", "return {}", "return"):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_bare_star_decorator_splits_at_statement_boundary(self):
+            # A bare `*` admits only a valid `EXCLUDE (<identifiers>)` (no REPLACE, no
+            # string/empty list). At a statement boundary an invalid decorator is cpp's
+            # `*` (or `* EXCLUDE(...)`) statement followed by `exclude(...)` / `replace(...)`
+            # as the NEXT statement's call: `* exclude ('j')` -> `*` ; `exclude('j')`,
+            # `* replace (1 as b)` -> `*` ; `replace(1 as b)`, `* exclude (a) replace (b as c)`
+            # -> `ColumnsExpr(exclude=[a])` ; `replace(b as c)`. rust used to reject.
+            for query in (
+                "* exclude ('j')",
+                "* exclude ()",
+                "x := * exclude ('j')",
+                "osl := * exclude ()",
+                "* replace (1 as b)",
+                "* exclude (a) replace (1 as b)",
+                "x := * replace (1 as b)",
+            ):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            # A valid `* EXCLUDE (<idents>)` stays one columns-expr; outside a statement
+            # boundary (a SELECT column) an invalid / REPLACE decorator rejects on both,
+            # and the paren-wrapped `(* REPLACE …)` form stays valid.
+            for query in (
+                "select * exclude (a) from t",
+                "select (* replace (1 as b)) from t",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            for query in ("select * exclude ('j') from t", "select * replace (1 as b) from t"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+
+        def test_invalid_filter_clause_splits_at_statement_boundary(self):
+            # The aggregate FILTER clause requires `(WHERE <expr>)`. An invalid FILTER
+            # (`filter ()`, no WHERE) is, at a statement boundary, cpp's completed
+            # `<call>()` statement followed by a `filter(...)` call as the NEXT
+            # statement: `l() filter ()` -> `l()` ; `filter()` (also for parametric
+            # `quantile(0.5)(x) filter ()`). rust used to commit to the clause and
+            # reject. A valid `filter (where …)` stays one expression (the clause is
+            # consumed and dropped).
+            for query in (
+                "l() filter ()",
+                "count() filter ()",
+                "x := l() filter ()",
+                "l() filter filter ()",
+                "quantile(0.5)(x) filter ()",
+            ):
+                self.assertEqual(
+                    parse_program(query, backend="cpp-json"),
+                    parse_program(query, backend=backend),
+                    msg=query,
+                )
+            for query in ("count() filter (where 1)", "sum(x) filter (where y > 1) over ()", "count() over ()"):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # Outside a statement boundary (a SELECT column) the invalid FILTER rejects.
+            with self.assertRaises(BaseHogQLError):
+                parse_expr("count() filter ()", backend=backend)
+
+        def test_cast_type_enum_vs_param_fallback(self):
+            # A cast type `q(...)` is `ColumnTypeExprEnum` only when every entry is a
+            # `string '=' numberLiteral` (the visitor then rejects it as unsupported).
+            # If any value isn't a numberLiteral (`''`, an ident, `1 + 2`) or the
+            # separator is `==`, ANTLR falls back to `ColumnTypeExprParam` (a
+            # columnExpr param), which cpp accepts. rust used to commit to the enum
+            # path on a `string =` head and reject these.
+            for query in (
+                "cast(1 as q('a' = ''))",
+                "cast(1 as q('a' = 'b'))",
+                "cast(1 as q('a' = x))",
+                "cast(1 as q('a' = 1 + 2))",
+                "cast(1 as q('a' == 1))",
+                "cast(1 as q('a' = 1, 'b' = ''))",
+                "try_cast(1 as q('a' = ''))",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # A real enumValue list (string '=' numberLiteral, incl. floats / inf /
+            # signed / trailing comma) stays ColumnTypeExprEnum and rejects on both.
+            for value in ("1", "-1", "1.5", "1.5e3", "2447.9157e+17", "inf", "nan", "0x1f", ".5"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(f"cast(1 as q('a' = {value}))", backend=backend)
+            # A NESTED enum (an enum type sitting in another type's parens, e.g.
+            # `q(w('k' = 1))`) is a `ColumnTypeExprEnum` cpp also rejects. rust used
+            # to mask the nested enum's (fatal) rejection with the raw-text Param
+            # fallback and over-accept; the type-param parser now propagates fatal
+            # errors instead.
+            for value in ("1", "inf", "nan", "0x1f"):
+                for query in (f"cast(1 as q(w('k' = {value})))", f"cast(1 as q(w('a' = 1, 'b' = {value})))"):
+                    with self.assertRaises(BaseHogQLError, msg=query):
+                        parse_expr(query, backend=backend)
+            # A nested NON-enum (string / ident value) falls back to Param and is
+            # accepted on both — the fatal propagation must not over-reject these.
+            for query in (
+                "cast(1 as q(w('k' = '')))",
+                "cast(1 as q(w('k' = x)))",
+                # Non-enum parametric / nested / complex types are unaffected.
+                "cast(1 as Decimal(10, 2))",
+                "cast(1 as FixedString(5))",
+                "cast(1 as Array(Int))",
+                "cast(1 as Tuple(UInt8, String))",
+                "cast(1 as Array(Tuple(UInt8, String)))",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
 
     return TestParser

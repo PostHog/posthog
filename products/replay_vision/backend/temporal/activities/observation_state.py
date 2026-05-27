@@ -5,6 +5,7 @@ from temporalio import activity
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.temporal.types import (
     MarkObservationFailedInputs,
+    MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
 )
@@ -30,6 +31,19 @@ def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> Non
         status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
     ).update(
         status=ObservationStatus.FAILED,
+        error_reason=inputs.error_reason,
+        completed_at=timezone.now(),
+    )
+
+
+@activity.defn
+def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs) -> None:
+    """Flip pending/running → ineligible. Idempotent: INELIGIBLE is not in the source filter."""
+    ReplayObservation.objects.filter(
+        pk=inputs.observation_id,
+        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
+    ).update(
+        status=ObservationStatus.INELIGIBLE,
         error_reason=inputs.error_reason,
         completed_at=timezone.now(),
     )

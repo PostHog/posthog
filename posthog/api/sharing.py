@@ -24,8 +24,6 @@ from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
-from posthog.api.insight import InsightSerializer
-from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -35,10 +33,9 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Cohort, InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
+from posthog.models import Cohort, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
-from posthog.models.insight import Insight
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -53,6 +50,9 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
+from products.product_analytics.backend.api.insight import InsightSerializer
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
 
@@ -1046,13 +1046,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import parse_interviewee_identifier
+            from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
             user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+            already_replied = has_replied(
+                team_id=topic.team_id,
+                topic_id=topic.id,
+                interviewee_identifier=ic.interviewee_identifier,
+            )
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1064,6 +1069,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "interviewee_identifier": ic.interviewee_identifier,
                         "user_name": user_name,
                         "topic": topic.topic,
+                        "already_replied": already_replied,
                     },
                 }
             )

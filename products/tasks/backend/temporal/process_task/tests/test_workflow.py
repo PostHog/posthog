@@ -296,15 +296,19 @@ class TestProcessTaskWorkflowUnit:
         deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)
         logger.info.assert_any_call(
             "send_followup_signal_received",
-            run_id=None,
-            message_length=5,
-            artifact_count=1,
+            extra={
+                "run_id": None,
+                "message_length": 5,
+                "artifact_count": 1,
+            },
         )
         logger.info.assert_any_call(
             "send_followup_signal_received",
-            run_id=None,
-            message_length=6,
-            artifact_count=1,
+            extra={
+                "run_id": None,
+                "message_length": 6,
+                "artifact_count": 1,
+            },
         )
         assert logger.info.call_count == 2
 

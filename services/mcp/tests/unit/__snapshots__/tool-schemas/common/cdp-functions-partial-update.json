@@ -159,6 +159,9 @@
                         "default": false,
                         "type": "boolean"
                     },
+                    "searchable": {
+                        "type": "boolean"
+                    },
                     "secret": {
                         "default": false,
                         "type": "boolean"
@@ -312,6 +315,9 @@
                                         },
                                         "required": {
                                             "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "searchable": {
                                             "type": "boolean"
                                         },
                                         "secret": {

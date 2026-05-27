@@ -99,6 +99,79 @@ describe('LineChart', () => {
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
         })
 
+        it('renders custom axis titles', () => {
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
+                />
+            )
+            expect(chart.xAxisLabel()).toBe('Signup date')
+            expect(chart.yAxisLabel()).toBe('Unique users')
+        })
+
+        it('includes custom axis titles in the canvas accessible label', () => {
+            const { getByRole } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
+                />
+            )
+            expect(getByRole('img').getAttribute('aria-label')).toBe(
+                'Chart with 2 data series. X-axis: Signup date. Y-axis: Unique users'
+            )
+        })
+
+        it('ignores whitespace-only axis titles', () => {
+            const { chart, getByRole } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxisLabel: '   ', yAxisLabel: '   ' }}
+                />
+            )
+
+            expect(chart.xAxisLabel()).toBeNull()
+            expect(chart.yAxisLabel()).toBeNull()
+            expect(getByRole('img').getAttribute('aria-label')).toBe('Chart with 2 data series')
+        })
+
+        it('truncates long axis titles without losing the full label metadata', () => {
+            const xAxisLabel = 'Signup date for a very long customer lifecycle analysis '.repeat(30).trim()
+            const yAxisLabel = 'Unique users with a very long aggregation description '.repeat(30).trim()
+            const { chart } = renderHogChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ xAxisLabel, yAxisLabel }} />
+            )
+
+            const xTitle = chart.xAxisLabelElement()
+            const yTitle = chart.yAxisLabelElement()
+            expect(xTitle?.textContent).toMatch(/\u2026$/)
+            expect(yTitle?.textContent).toMatch(/\u2026$/)
+            expect(xTitle?.textContent).not.toBe(xAxisLabel)
+            expect(yTitle?.textContent).not.toBe(yAxisLabel)
+            expect(xTitle?.getAttribute('data-full-label')).toBe(xAxisLabel)
+            expect(yTitle?.getAttribute('data-full-label')).toBe(yAxisLabel)
+            expect(yTitle?.getAttribute('transform')).toContain('rotate(-90')
+        })
+
+        it('hides an axis title when that axis is hidden', () => {
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users', hideXAxis: true }}
+                />
+            )
+            expect(chart.xAxisLabel()).toBeNull()
+            expect(chart.yAxisLabel()).toBe('Unique users')
+        })
+
         it('renders a right axis when a series sets yAxisId: right', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },

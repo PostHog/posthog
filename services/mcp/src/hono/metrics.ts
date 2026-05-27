@@ -69,6 +69,48 @@ export const authFailuresTotal = new Counter({
     labelNames: ['reason'] as const,
 })
 
+export const rateLimitChecksTotal = new Counter({
+    name: 'mcp_rate_limit_checks_total',
+    help: 'Rate limit checks on /mcp requests, by scope and outcome.',
+    labelNames: ['scope', 'result'] as const,
+})
+
+export const rateLimitErrorsTotal = new Counter({
+    name: 'mcp_rate_limit_errors_total',
+    help: 'Rate limit Redis op failures (request still served — fail-open).',
+    labelNames: ['scope'] as const,
+})
+
+export const contextMillRevalidationsTotal = new Counter({
+    name: 'mcp_context_mill_revalidations_total',
+    help: 'Context-mill resource revalidation attempts by caller and result.',
+    labelNames: ['source', 'status', 'result'] as const,
+})
+
+export const contextMillRevalidationDurationSeconds = new Histogram({
+    name: 'mcp_context_mill_revalidation_duration_seconds',
+    help: 'Context-mill resource revalidation duration.',
+    labelNames: ['source', 'status'] as const,
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+})
+
+export const contextMillCacheEventsTotal = new Counter({
+    name: 'mcp_context_mill_cache_events_total',
+    help: 'Context-mill resource cache events.',
+    labelNames: ['event'] as const,
+})
+
+export const contextMillManifestEntries = new Gauge({
+    name: 'mcp_context_mill_manifest_entries',
+    help: 'Latest successfully loaded context-mill slim manifest entry count.',
+})
+
+export const contextMillBodyReadsTotal = new Counter({
+    name: 'mcp_context_mill_body_reads_total',
+    help: 'Context-mill resource body reads by outcome.',
+    labelNames: ['status'] as const,
+})
+
 export function routeLabel(pathname: string): string {
     if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         return '/mcp'

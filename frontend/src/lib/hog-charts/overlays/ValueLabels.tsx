@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 
-import { useChartLayout } from '../core/chart-context'
+import { useChart } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -26,13 +26,19 @@ const STACK_TOTAL_KEY = '__stack_total__'
 interface Candidate {
     key: string
     seriesIndex: number
+    /** Matched against `hoverIndex` so the hovered candidate can lift. */
+    dataIndex: number
     text: string
     x: number
     y: number
     width: number
     color: string
     above: boolean
+    /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
+    centerAnchor: boolean
 }
+
+const HOVER_LIFT_PX = 6
 
 function defaultLocaleFormatter(v: number): string {
     return v.toLocaleString()
@@ -55,23 +61,27 @@ function pushCandidate(
     isHorizontal: boolean,
     key: string,
     seriesIndex: number,
+    dataIndex: number,
     color: string,
     text: string,
     categoricalCoord: number,
     valueCoord: number,
-    above: boolean
+    above: boolean,
+    centerAnchor: boolean = false
 ): void {
     const textWidth = ctx ? ctx.measureText(text).width : text.length * 6
     const width = textWidth + LABEL_HORIZONTAL_CHROME
     out.push({
         key,
         seriesIndex,
+        dataIndex,
         text,
         x: isHorizontal ? valueCoord : categoricalCoord,
         y: isHorizontal ? categoricalCoord : valueCoord,
         width,
         color,
         above,
+        centerAnchor,
     })
 }
 
@@ -136,6 +146,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             isHorizontal,
             `${STACK_TOTAL_KEY}-${dIdx}`,
             -1,
+            dIdx,
             topColor,
             valueFormatter(total, -1, dIdx),
             categoricalCoord,
@@ -147,8 +158,16 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
+
+    // In percent layout each band sums to 1, so we need the band total to convert each segment's
+    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
+    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
+    // since those still contribute to the visual stack height.
+    const visibleForTotal = isPercent
+        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+        : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -165,6 +184,23 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
+
+            let displayValue = rawValue
+            // In percent layout we center the label across the segment's stacked top (see
+            // `centerAnchor` below), so `above` is unused — keep it false to be explicit.
+            let above = isPercent ? false : yValue >= 0
+
+            if (isPercent) {
+                const total = bandTotal(visibleForTotal, dIdx)
+                if (total == null || total === 0) {
+                    continue
+                }
+                // Pass the fraction (0..1) so consumers can use the same percentage formatter
+                // (`percentage_scaled`, BarChart's default tick formatter, etc.) they already use
+                // for the value axis.
+                displayValue = rawValue / total
+            }
+
             // Pass `s.key` so grouped bar charts (compare-against-previous) anchor each
             // label on its own bar rather than the band center between bars. Other chart
             // types ignore the second arg and fall back to the band/point center.
@@ -179,11 +215,13 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 isHorizontal,
                 `${s.key}-${dIdx}`,
                 sIdx,
+                dIdx,
                 s.color,
-                valueFormatter(rawValue, sIdx, dIdx),
+                valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
                 valueCoord,
-                yValue >= 0
+                above,
+                isPercent
             )
         }
     }
@@ -200,11 +238,21 @@ interface Rect {
 function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     if (isHorizontal) {
         const halfH = LABEL_HEIGHT / 2
-        const left = c.above ? c.x : c.x - c.width
+        let left: number
+        if (c.centerAnchor) {
+            left = c.x - c.width / 2
+        } else {
+            left = c.above ? c.x : c.x - c.width
+        }
         return { left, right: left + c.width, top: c.y - halfH, bottom: c.y + halfH }
     }
     const halfW = c.width / 2
-    const top = c.above ? c.y - LABEL_HEIGHT : c.y
+    let top: number
+    if (c.centerAnchor) {
+        top = c.y - LABEL_HEIGHT / 2
+    } else {
+        top = c.above ? c.y - LABEL_HEIGHT : c.y
+    }
     return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
 }
 
@@ -275,13 +323,30 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     borderStyle: 'solid',
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
+    transition: 'transform 150ms ease-out',
 }
 
-function transformFor(c: Candidate, isHorizontal: boolean): string {
-    if (isHorizontal) {
-        return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
+function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
+    // Lift direction depends on which side of the value-axis the label sits on.
+    let liftX = 0
+    let liftY = 0
+    if (hovered) {
+        if (c.centerAnchor) {
+            liftY = -HOVER_LIFT_PX
+        } else if (isHorizontal) {
+            liftX = c.above ? HOVER_LIFT_PX : -HOVER_LIFT_PX
+        } else {
+            liftY = c.above ? -HOVER_LIFT_PX : HOVER_LIFT_PX
+        }
     }
-    return c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+    const lift = liftX === 0 && liftY === 0 ? '' : ` translate(${liftX}px, ${liftY}px)`
+    if (c.centerAnchor) {
+        return `translate(-50%, -50%)${lift}`
+    }
+    if (isHorizontal) {
+        return (c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)') + lift
+    }
+    return (c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)') + lift
 }
 
 export function ValueLabels({
@@ -289,7 +354,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis, hoverIndex } = useChart()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -322,22 +387,26 @@ export function ValueLabels({
 
     return (
         <>
-            {visible.map((c) => (
-                <div
-                    key={c.key}
-                    data-attr="hog-chart-value-label"
-                    style={{
-                        ...LABEL_STYLE_BASE,
-                        backgroundColor: c.color,
-                        borderColor,
-                        left: Math.round(c.x),
-                        top: Math.round(c.y),
-                        transform: transformFor(c, isHorizontal),
-                    }}
-                >
-                    {c.text}
-                </div>
-            ))}
+            {visible.map((c) => {
+                const isHovered = c.dataIndex === hoverIndex
+                return (
+                    <div
+                        key={c.key}
+                        data-attr="hog-chart-value-label"
+                        style={{
+                            ...LABEL_STYLE_BASE,
+                            backgroundColor: c.color,
+                            borderColor,
+                            left: Math.round(c.x),
+                            top: Math.round(c.y),
+                            transform: transformFor(c, isHorizontal, isHovered),
+                            willChange: isHovered ? 'transform' : undefined,
+                        }}
+                    >
+                        {c.text}
+                    </div>
+                )
+            })}
         </>
     )
 }

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -277,3 +278,229 @@ class TestDataDeletionRequestAdminChangeView(BaseTest):
     def test_can_retry_false_for_non_failed_status(self, _name, status):
         request = self._make_request(status)
         self.assertFalse(self._can_retry(request, in_clickhouse_team=True))
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminSubmitView(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _property_removal_request(self, properties=None, person_properties=None):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=properties or [],
+            person_properties=person_properties or [],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+
+    def _call_submit(self, request: DataDeletionRequest, method: str = "POST"):
+        path = f"/admin/posthog/datadeletionrequest/{request.pk}/submit/"
+        http_request = self.factory.post(path) if method == "POST" else self.factory.get(path)
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            return self.admin.submit_view(http_request, str(request.pk))
+
+    def test_submit_with_properties_only_succeeds(self):
+        request = self._property_removal_request(properties=["$ip"])
+        response = self._call_submit(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+
+    def test_submit_with_person_properties_only_succeeds(self):
+        request = self._property_removal_request(person_properties=["email"])
+        response = self._call_submit(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+
+    def test_submit_with_both_properties_succeeds(self):
+        request = self._property_removal_request(properties=["$ip"], person_properties=["email"])
+        response = self._call_submit(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+
+    def test_submit_with_both_empty_is_rejected(self):
+        request = self._property_removal_request(properties=[], person_properties=[])
+        response = self._call_submit(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.DRAFT)
+
+    def test_submit_get_exposes_can_submit_flag(self):
+        ok = self._property_removal_request(properties=["$ip"])
+        empty = self._property_removal_request(properties=[], person_properties=[])
+
+        path_ok = f"/admin/posthog/datadeletionrequest/{ok.pk}/submit/"
+        http_req_ok = self.factory.get(path_ok)
+        http_req_ok.user = self.user
+        _attach_messages(http_req_ok)
+
+        path_empty = f"/admin/posthog/datadeletionrequest/{empty.pk}/submit/"
+        http_req_empty = self.factory.get(path_empty)
+        http_req_empty.user = self.user
+        _attach_messages(http_req_empty)
+
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            resp_ok = self.admin.submit_view(http_req_ok, str(ok.pk))
+            resp_empty = self.admin.submit_view(http_req_empty, str(empty.pk))
+
+        self.assertTrue(resp_ok.context_data["can_submit"])
+        self.assertFalse(resp_empty.context_data["can_submit"])
+        self.assertTrue(resp_empty.context_data["missing_properties"])
+
+
+@freeze_time("2025-01-15 12:00:00")
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminSaveModel(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _call_save(self, obj: DataDeletionRequest, changed_data: list[str] | None = None):
+        path = f"/admin/posthog/datadeletionrequest/{obj.pk}/change/"
+        http_request = self.factory.post(path)
+        http_request.user = self.user
+        _attach_messages(http_request)
+
+        class _FakeForm:
+            changed_data: list[str] = []
+
+        form = _FakeForm()
+        if changed_data is not None:
+            form.changed_data = changed_data
+        self.admin.save_model(http_request, obj, form, change=True)
+
+    def test_event_removal_clears_properties_on_save(self):
+        obj = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+        self._call_save(obj)
+        obj.refresh_from_db()
+        self.assertEqual(obj.properties, [])
+
+    def test_event_removal_clears_person_properties_on_save(self):
+        obj = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            person_properties=["email"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+        self._call_save(obj)
+        obj.refresh_from_db()
+        self.assertEqual(obj.person_properties, [])
+
+    def test_event_removal_clears_both_on_save(self):
+        obj = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            person_properties=["email"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+        self._call_save(obj)
+        obj.refresh_from_db()
+        self.assertEqual(obj.properties, [])
+        self.assertEqual(obj.person_properties, [])
+
+    def test_property_removal_preserves_both_fields_on_save(self):
+        obj = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            person_properties=["email"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+        self._call_save(obj)
+        obj.refresh_from_db()
+        self.assertEqual(obj.properties, ["$ip"])
+        self.assertEqual(obj.person_properties, ["email"])
+
+
+@freeze_time("2025-01-15 12:00:00")
+class TestDataDeletionRequestModelValidation(BaseTest):
+    def test_person_removal_rejects_person_properties_field(self):
+        from django.core.exceptions import ValidationError
+
+        obj = DataDeletionRequest(
+            team_id=self.team.id,
+            request_type=RequestType.PERSON_REMOVAL,
+            person_uuids=["00000000-0000-0000-0000-000000000001"],
+            person_drop_profiles=True,
+            person_properties=["email"],
+        )
+        with self.assertRaises(ValidationError) as cm:
+            obj.clean()
+        self.assertIn("person_properties", cm.exception.message_dict)
+
+    def test_person_removal_without_person_properties_is_valid(self):
+        from django.core.exceptions import ValidationError
+
+        obj = DataDeletionRequest(
+            team_id=self.team.id,
+            request_type=RequestType.PERSON_REMOVAL,
+            person_uuids=["00000000-0000-0000-0000-000000000001"],
+            person_drop_profiles=True,
+            person_properties=[],
+        )
+        try:
+            obj.clean()
+        except ValidationError as exc:
+            if "person_properties" in (exc.message_dict if hasattr(exc, "message_dict") else {}):
+                self.fail(f"clean() raised unexpected ValidationError for person_properties: {exc}")
+
+    @parameterized.expand(
+        [
+            ("properties_only", ["$ip"], []),
+            ("person_properties_only", [], ["email"]),
+            ("both", ["$ip"], ["email"]),
+        ]
+    )
+    def test_property_removal_does_not_validate_field_presence_at_model_level(
+        self, _name, properties, person_properties
+    ):
+        obj = DataDeletionRequest(
+            team_id=self.team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=properties,
+            person_properties=person_properties,
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+        )
+        from django.core.exceptions import ValidationError
+
+        try:
+            obj.clean()
+        except ValidationError as exc:
+            msg_dict = exc.message_dict if hasattr(exc, "message_dict") else {}
+            self.assertNotIn("properties", msg_dict)
+            self.assertNotIn("person_properties", msg_dict)

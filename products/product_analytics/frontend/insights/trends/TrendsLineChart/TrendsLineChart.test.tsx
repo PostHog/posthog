@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
@@ -18,6 +18,10 @@ import {
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
+// The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
+// the default 1s waitFor / findBy timeout is too tight and flakes randomly.
+configure({ asyncUtilTimeout: 5000 })
+
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
 
@@ -33,7 +37,7 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true }
+const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true }
 
 describe('TrendsLineChart', () => {
     describe('tooltips', () => {
@@ -64,6 +68,34 @@ describe('TrendsLineChart', () => {
 
             const glyphs = tooltip.element.querySelectorAll('.graph-series-glyph')
             expect(glyphs.length).toBe(2)
+        })
+
+        it('sorts tooltip rows by descending value regardless of series order', async () => {
+            // At index 2: Pageview=134, Napped=5, Minimal=1, NoActivity=0.
+            // Input order, alphabetic, and value order all differ.
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Minimal', name: 'Minimal' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' },
+                    ],
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            const rows = tooltip.rows()
+            expect(rows[0]).toContain('Pageview')
+            expect(rows[1]).toContain('Napped')
+            expect(rows[2]).toContain('Minimal')
+            expect(rows[3]).toContain('NoActivity')
+            expect(tooltip.row('Pageview')).toContain('134')
+            expect(tooltip.row('Napped')).toContain('5')
+            expect(tooltip.row('Minimal')).toContain('1')
+            expect(tooltip.row('NoActivity')).toContain('0')
         })
 
         it('shows breakdown values in the tooltip', async () => {
@@ -441,6 +473,32 @@ describe('TrendsLineChart', () => {
             expect(labels).not.toContain('8')
             // Pageview labels should still be there.
             expect(labels).toContain('210')
+        })
+    })
+
+    describe('axis labels', () => {
+        it.each([
+            {
+                name: 'renders custom axis titles from the trends filter',
+                trendsFilter: { xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' },
+                expectedX: 'Signup date',
+                expectedY: 'Unique users',
+            },
+            {
+                name: 'renders no axis titles when the trends filter omits them',
+                trendsFilter: undefined,
+                expectedX: null,
+                expectedY: null,
+            },
+        ])('$name', async ({ trendsFilter, expectedX, expectedY }) => {
+            renderInsight({
+                query: buildTrendsQuery({ trendsFilter }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(getHogChart().xAxisLabel()).toBe(expectedX)
+            expect(getHogChart().yAxisLabel()).toBe(expectedY)
         })
     })
 

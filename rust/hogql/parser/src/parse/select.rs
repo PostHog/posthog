@@ -11,7 +11,7 @@
 use super::expr::is_bare_field;
 use super::{
     check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
-    kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_MULT,
+    kw_allowed_as_implicit_alias, kw_valid_as_identifier, merge_select_decorators, Parser, BP_MULT,
 };
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -19,6 +19,11 @@ use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_select_set_stmt(&mut self) -> Result<E::Value, ParseError> {
+        // Guard the subquery / set recursion (`parse_select_set_stmt` ↔ `parse_select_stmt_with_parens` on each `(` / `WITH (`) so `(select (select …))` nested past the cap rejects cleanly instead of overflowing the host stack (uncatchable SIGSEGV). Shares the counter with expression + statement nesting.
+        self.with_recursion_guard(Self::parse_select_set_stmt_inner)
+    }
+
+    fn parse_select_set_stmt_inner(&mut self) -> Result<E::Value, ParseError> {
         let stmt_start = self.peek0.start;
         let first = self.parse_select_stmt_with_parens()?;
         let mut subsequent: Vec<E::Value> = Vec::new();
@@ -44,7 +49,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 | TokenKind::Keyword(Kw::Limit)
                 | TokenKind::Keyword(Kw::Offset)
         );
-        let trailing = self.parse_trailing_set_decorators()?;
+        // A lone `{placeholder}` body can't carry set-level LIMIT / OFFSET (only
+        // SelectQuery / SelectSetQuery do), so cpp drops them and never visits
+        // the subtree — see the `body_takes_decorators` drop below, which only
+        // fires when `subsequent.is_empty()`. Tell the decorator parser so it
+        // tolerates an unsupported date literal in that discarded LIMIT /
+        // OFFSET, the same way the always-discarded ORDER BY does. A real
+        // `(select …)` body keeps them, AND a set op (UNION / EXCEPT / …) wraps
+        // the result in a decorator-carrying SelectSetQuery — so both stay
+        // strict; only the lone-placeholder case is suppressed.
+        let body_is_placeholder = subsequent.is_empty()
+            && !matches!(
+                self.emit.node_kind(&first).as_deref(),
+                Some("SelectQuery") | Some("SelectSetQuery")
+            );
+        let trailing = self.parse_trailing_set_decorators(body_is_placeholder)?;
 
         if subsequent.is_empty() {
             // cpp's `VISIT(SelectSetStmt)` only writes `limit_percent`
@@ -202,7 +221,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(Some(op))
     }
 
-    fn parse_trailing_set_decorators(&mut self) -> Result<Vec<(String, E::Value)>, ParseError> {
+    fn parse_trailing_set_decorators(
+        &mut self,
+        body_is_placeholder: bool,
+    ) -> Result<Vec<(String, E::Value)>, ParseError> {
         let mut out: Vec<(String, E::Value)> = Vec::new();
         // `selectSetStmt`'s `orderByClause?` slot at this level is
         // parsed by ANTLR but cpp's `VISIT(SelectSetStmt)` never emits
@@ -224,7 +246,17 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         {
             self.bump()?;
             self.bump()?;
-            self.parse_order_expr_list()?;
+            // cpp never visits this discarded orderByClause, so an
+            // unsupported `date`/`timestamp` literal anywhere in its
+            // (also unvisited) subtree is tolerated. Suppress the fatal
+            // date-literal check for the duration of this parse; it
+            // intentionally leaks into nested selects/calls here, since
+            // cpp visits none of that subtree either.
+            let prev_date = self.suppress_unvisited_clause_checks;
+            self.suppress_unvisited_clause_checks = true;
+            let order_by_result = self.parse_order_expr_list();
+            self.suppress_unvisited_clause_checks = prev_date;
+            order_by_result?;
             // Optional trailing `INTERPOLATE [(...)]` is part of the
             // orderByClause grammar; consume-and-drop alongside the
             // order_by we're discarding here.
@@ -241,11 +273,35 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
             }
         }
-        // Trailing LIMIT/OFFSET on the set. Mirrors
-        // `limitAndOffsetClauseOptional` in the grammar:
-        //   `LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?`
-        //   `LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr`
-        //   `OFFSET columnExpr`
+        // Trailing LIMIT / OFFSET. For a `{placeholder}` body these are
+        // dropped (the body can't carry them) and cpp never visits them, so —
+        // exactly like the ORDER BY above — tolerate an unsupported date
+        // literal inside. Gate on `body_is_placeholder` so a real `(select …)`
+        // body, whose LIMIT / OFFSET ARE kept and visited, stays strict.
+        // Restore the flag on every exit (incl. errors an outer `try_alt` may
+        // roll back) before propagating.
+        let prev_date = self.suppress_unvisited_clause_checks;
+        if body_is_placeholder {
+            self.suppress_unvisited_clause_checks = true;
+        }
+        let limit_offset_result = self.parse_set_trailing_limit_offset(&mut out);
+        self.suppress_unvisited_clause_checks = prev_date;
+        limit_offset_result?;
+        Ok(out)
+    }
+
+    /// Parse the trailing `limitAndOffsetClauseOptional` of a `selectSetStmt`,
+    /// pushing any `limit` / `offset` / `limit_percent` / `limit_with_ties`
+    /// decorators onto `out`. Split out of `parse_trailing_set_decorators` so
+    /// the caller can scope the date-literal-check suppression around it.
+    /// Mirrors the grammar:
+    ///   `LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?`
+    ///   `LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr`
+    ///   `OFFSET columnExpr`
+    fn parse_set_trailing_limit_offset(
+        &mut self,
+        out: &mut Vec<(String, E::Value)>,
+    ) -> Result<(), ParseError> {
         if self.eat_kw(Kw::Limit)? {
             // The initial parse stops at BP_MULT+1 so `limit_resolve_percent`
             // sees `%` undigested and can decide PERCENT-marker vs modulo.
@@ -305,7 +361,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let off = self.parse_expr_bp(0)?;
             out.push(("offset".into(), off));
         }
-        Ok(out)
+        Ok(())
     }
 
     fn parse_select_stmt_with_parens(&mut self) -> Result<E::Value, ParseError> {
@@ -355,7 +411,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // the bare-placeholder select body carries that position.
         if self.peek() == TokenKind::LBrace {
             let placeholder_start = self.peek0.start;
-            let placeholder = self.parse_brace_dict_or_placeholder()?;
+            let placeholder = self.parse_brace_placeholder_only()?;
             return Ok(self.wrap_pos(placeholder, placeholder_start));
         }
         self.parse_select_stmt()
@@ -424,10 +480,28 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             ));
         }
         self.bump()?;
+        let cp_after_select = self.checkpoint();
         let distinct = self.eat_kw(Kw::Distinct)?;
         if distinct {
-            self.emit
-                .set_field(&mut obj, "distinct", self.emit.bool(true));
+            // `SELECT DISTINCT` is the modifier only when a column follows it.
+            // When the next token ends the column list (comma / EOF / `)` / `;`)
+            // or opens a clause (`ORDER BY` / `WHERE` / `GROUP BY` / `LIMIT` /
+            // …), cpp's ALL(*) re-reads DISTINCT as the sole column Field instead
+            // (`SELECT DISTINCT` -> `[Field(distinct)]`, `SELECT DISTINCT ORDER BY
+            // 1` -> `[Field(distinct)]` + ORDER BY). FROM is the exception:
+            // `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects via
+            // the FROM-implicit-alias footgun, matching cpp.
+            let distinct_is_column = matches!(
+                self.peek(),
+                TokenKind::Comma | TokenKind::Eof | TokenKind::RParen | TokenKind::Semicolon
+            ) || (self.peek_is_clause_terminator()
+                && self.peek() != TokenKind::Keyword(Kw::From));
+            if distinct_is_column {
+                self.restore(cp_after_select)?;
+            } else {
+                self.emit
+                    .set_field(&mut obj, "distinct", self.emit.bool(true));
+            }
         }
         // `topClause: TOP DECIMAL_LITERAL (WITH TIES)?` — accepted by
         // the grammar, rejected by the cpp visitor as unsupported. A
@@ -549,12 +623,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "where", _v);
         }
-        // `(USING? SAMPLE …)?` — the grammar allows a SAMPLE clause at
-        // SELECT level (before GROUP BY *and* after QUALIFY). Both
-        // positions attach to the FROM table's existing JoinExpr.sample
-        // slot. The leading USING is optional in the first position
-        // and required in the second; we just accept either.
-        self.try_attach_select_level_sample(&mut obj)?;
+        // `selectStmt`-level `(USING? sampleClause)?` (before GROUP BY): DuckDB's `USING SAMPLE`, rejected not dropped.
+        self.reject_select_level_sample()?;
         if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
@@ -673,9 +743,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _v = self.parse_expr_bp(0)?;
             self.emit.set_field(&mut obj, "qualify", _v);
         }
-        // Second `USING SAMPLE` opportunity per the grammar (after
-        // QUALIFY, before WINDOW). Same attach-to-FROM-table logic.
-        self.try_attach_select_level_sample(&mut obj)?;
+        // Second `selectStmt`-level `(USING sampleClause)?` slot (after QUALIFY): same DuckDB `USING SAMPLE`, rejected not dropped.
+        self.reject_select_level_sample()?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
             let mut windows: std::collections::BTreeMap<String, E::Value> =
@@ -683,7 +752,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             loop {
                 let name_tok = self.bump()?;
                 let name = match name_tok.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(name_tok), name_tok.kind)
+                    }
+                    // A WINDOW-clause name is an `identifier`, so only `kw_valid_as_identifier` keywords qualify — the Hog-statement keywords (try / catch / finally / …) do not.
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(name_tok), name_tok.kind)
                     }
                     _ => {
@@ -735,14 +808,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         // `(AS columnExpr)?` separator.
                         // `interpolate(a AS 5)` keeps AS for the
                         // outer because `5` isn't an alias target.
+                        let interp_start = self.peek0.start;
                         let expr = self.parse_expr_bp(0)?;
                         let value = if self.eat_kw(Kw::As)? {
                             Some(self.parse_expr_bp(0)?)
                         } else {
                             None
                         };
+                        // cpp spans the InterpolateExpr from the expr start to the
+                        // value end (or the expr end when there is no `AS value`).
+                        let interp_end = self.last_consumed_end;
                         let interp = self.emit.interpolate_expr(expr, value);
-                        items.push(interp);
+                        items.push(self.wrap_pos_to(interp, interp_start, interp_end));
                         if !self.eat(TokenKind::Comma)? {
                             break;
                         }
@@ -1138,7 +1215,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let trial = (|p: &mut Self| -> Result<Option<E::Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
-            let combined = p.emit.arith(lhs.clone(), "%", rhs);
+            // Stamp the modulo node's span before folding any lower-precedence tail, mirroring the Pratt loop's wrap-the-lhs step. Without this the inner `a % b` stays position-less when an outer op (`% 2 + 3` → the `+` node) wraps it (cpp positions the modulo sub-node).
+            let combined = p.wrap_pos(p.emit.arith(lhs.clone(), "%", rhs), lhs_start);
             // Extend the whole columnExpr (BP=0) — cpp parses the
             // LIMIT body greedily, so a lower-precedence tail
             // (`% 2 + 3`, `% 2 AND 3`) stays part of the modulo body.
@@ -1268,26 +1346,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    /// Consume an optional `[USING] SAMPLE …` clause at SELECT level
-    /// and discard it — the grammar's `selectStmt` rule allows this
-    /// clause in two positions, but the cpp visitor's `VISIT(SelectStmt)`
-    /// doesn't read the `sampleClause` from either slot. Only the
-    /// table-level form (consumed inside `parse_table_atom` while
-    /// building the JoinExpr) ends up on `JoinExpr.sample`. We mirror
-    /// the silent-drop behaviour here so the parser accepts the syntax
-    /// without diverging from cpp.
-    fn try_attach_select_level_sample(&mut self, _obj: &mut E::Value) -> Result<(), ParseError> {
-        let saw_sample = if self.peek_kw2(Kw::Using, Kw::Sample) {
-            self.bump()?; // USING
-            true
-        } else {
-            matches!(self.peek(), TokenKind::Keyword(Kw::Sample))
-        };
+    /// Reject `selectStmt`-level `[USING] SAMPLE`: DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` lands on `JoinExpr.sample`), so reject rather than silently drop. Matches the python + cpp visitors' `NotImplementedError`.
+    fn reject_select_level_sample(&mut self) -> Result<(), ParseError> {
+        let saw_sample = self.peek_kw2(Kw::Using, Kw::Sample)
+            || matches!(self.peek(), TokenKind::Keyword(Kw::Sample));
         if !saw_sample {
             return Ok(());
         }
-        drop(self.try_consume_sample()?);
-        Ok(())
+        Err(ParseError::not_implemented(
+            "Unsupported: SelectStmt.sampleClause()",
+            self.peek0.start,
+            self.peek0.end,
+        ))
     }
 
     /// LIMIT BY columnExprList: comma-separated columnExprs. Two
@@ -1565,9 +1635,27 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // `WINDOW <name> AS (` and arith-`*` carve-outs. The `:`
             // guard keeps the alias-before form (`select a, where : 1`)
             // out of this path.
+            // A `from` here normally opens the FROM clause and ends the column
+            // list. But cpp's `selectColumnExprListBeforeFrom` makes every
+            // `from X` BEFORE the last one a SELECT column (the
+            // `ColumnExprInvalidFromImplicitAlias` footgun for bare `from
+            // <ident>`, or a `from(...)` call); only the FINAL `from` opens the
+            // clause. So when a later `from` exists, don't break — fall through
+            // and parse this `from X` as a column (`from b` then rejects via
+            // `is_bare_from_field`; `from(b)` stays a valid call column).
+            // A `from <implicitAlias>` whose FROM region dangles a `, USING SAMPLE`
+            // / `, ARRAY JOIN` is, per cpp's greedy `selectColumnExprListBeforeFrom`,
+            // a `ColumnExprInvalidFromImplicitAlias` column (not the FROM clause) —
+            // so don't break; fall through to parse `from X` as a column, which
+            // rejects via `is_bare_from_field`. Mirrors the second-`from` carve-out.
             if !cols.is_empty()
                 && self.peek_next() != TokenKind::Colon
                 && self.peek_is_clause_terminator()
+                && !(self.peek() == TokenKind::Keyword(Kw::From)
+                    && self.from_clause_followed_by_another_from())
+                && !(self.peek() == TokenKind::Keyword(Kw::From)
+                    && self.peek_next_is_implicit_alias()
+                    && self.from_region_has_dangling_clause_comma())
             {
                 break;
             }
@@ -1627,6 +1715,105 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(cols)
     }
 
+    /// Probe forward from the current `from` (`peek0 == Keyword(From)`) for a
+    /// SECOND depth-0 `from` within the same FROM-clause region. A valid single
+    /// `joinExpr` never has two depth-0 `from` keywords, so a second one means
+    /// the current `from` is a SELECT column (not the clause) per cpp's
+    /// `selectColumnExprListBeforeFrom`. Stops at the from-region's end (a
+    /// depth-0 clause keyword / set-op, a closing bracket below the start depth,
+    /// `;`, or EOF) so a `from` in a later clause or UNIONed select doesn't
+    /// count.
+    fn from_clause_followed_by_another_from(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 0;
+        loop {
+            let kind = match probe.next_token() {
+                Ok(t) => t.kind,
+                Err(_) => return false,
+            };
+            match kind {
+                TokenKind::Eof | TokenKind::Semicolon => return false,
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return false;
+                    }
+                }
+                TokenKind::Keyword(Kw::From) if depth == 0 => return true,
+                TokenKind::Keyword(kw) if depth == 0 && from_region_terminator(kw) => return false,
+                _ => {}
+            }
+        }
+    }
+
+    /// Probe forward from the current `from` (`peek0 == Keyword(From)`) for a
+    /// depth-0 `COMMA` immediately followed by a two-token clause introducer —
+    /// `USING SAMPLE` or `ARRAY JOIN`. Consulted only in the leading/trailing-
+    /// comma column context (the column-loop break is unreachable otherwise), so
+    /// a hit means cpp's greedy `selectColumnExprListBeforeFrom` consumes this
+    /// `from <implicitAlias>` (and any following cross-join tables) as columns up
+    /// to that trailing comma, leaving the introducer as a select-level clause —
+    /// then its visitor rejects the `ColumnExprInvalidFromImplicitAlias`. cpp:
+    /// `select 1, from f, using sample 1` and `… , array join x` reject, while
+    /// `select 1, from f, using` / `… , array` (a bare keyword cross-join table,
+    /// no SAMPLE/JOIN) and the no-leading-comma `select 1 from f, using sample 1`
+    /// stay valid — hence the two-token check and the comma-context gate. Stops
+    /// at the from-region's end (depth-0 terminator, closing bracket below the
+    /// start depth, `;`, or EOF).
+    fn from_region_has_dangling_clause_comma(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 0;
+        let mut prev_was_comma = false;
+        loop {
+            let kind = match probe.next_token() {
+                Ok(t) => t.kind,
+                Err(_) => return false,
+            };
+            match kind {
+                TokenKind::Eof | TokenKind::Semicolon => return false,
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    depth += 1;
+                    prev_was_comma = false;
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return false;
+                    }
+                    prev_was_comma = false;
+                }
+                TokenKind::Comma if depth == 0 => prev_was_comma = true,
+                TokenKind::Keyword(Kw::Using) if depth == 0 && prev_was_comma => {
+                    return matches!(
+                        probe.next_token().map(|t| t.kind),
+                        Ok(TokenKind::Keyword(Kw::Sample))
+                    );
+                }
+                TokenKind::Keyword(Kw::Array) if depth == 0 && prev_was_comma => {
+                    return matches!(
+                        probe.next_token().map(|t| t.kind),
+                        Ok(TokenKind::Keyword(Kw::Join))
+                    );
+                }
+                TokenKind::Keyword(kw) if depth == 0 && from_region_terminator(kw) => return false,
+                _ => {
+                    if depth == 0 {
+                        prev_was_comma = false;
+                    }
+                }
+            }
+        }
+    }
+
+    /// True when the token after `peek0` can be an `implicitAlias`
+    /// (`IDENTIFIER | QUOTED_IDENTIFIER | keywordForImplicitAlias`) — i.e. a bare
+    /// `from <here>` could be the grammar's `FROM implicitAlias` column form.
+    fn peek_next_is_implicit_alias(&self) -> bool {
+        matches!(self.peek_next(), TokenKind::Ident | TokenKind::QuotedIdent)
+            || matches!(self.peek_next(), TokenKind::Keyword(kw) if kw_allowed_as_implicit_alias(kw))
+    }
+
     fn try_consume_implicit_alias(&mut self) -> Result<Option<String>, ParseError> {
         match self.peek() {
             TokenKind::Ident => {
@@ -1650,10 +1837,36 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 }
 
+/// Keywords whose appearance at depth 0 ends the FROM-clause region: the
+/// post-FROM clauses and the set-operation joiners. Used by
+/// `from_clause_followed_by_another_from` to bound its look-ahead so a `from`
+/// in a later clause or UNIONed select isn't mistaken for a second FROM.
+fn from_region_terminator(kw: Kw) -> bool {
+    matches!(
+        kw,
+        Kw::Where
+            | Kw::Prewhere
+            | Kw::Group
+            | Kw::Having
+            | Kw::Qualify
+            | Kw::Window
+            | Kw::Order
+            | Kw::Limit
+            | Kw::Offset
+            | Kw::Settings
+            | Kw::Union
+            | Kw::Intersect
+            | Kw::Except
+            | Kw::Array
+    )
+}
+
 /// True when `expr` is a bare `from` Field — a `Field` whose chain is
-/// the single element `from` (any case). Used to flag the grammar's
-/// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`).
-fn is_bare_from_field<E: Emitter>(emit: &E, expr: &E::Value) -> bool {
+/// the single element `from` (any case). Flags the grammar's
+/// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`) in the SELECT
+/// column list. (A bare `from` in *table* position is valid — `from b, from c`
+/// is table `from` aliased `c` — so the FROM/join path does not use this.)
+pub(crate) fn is_bare_from_field<E: Emitter>(emit: &E, expr: &E::Value) -> bool {
     if emit.node_kind(expr).as_deref() != Some("Field") {
         return false;
     }
