@@ -1360,6 +1360,23 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
+class DataWarehouseSyncWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: str = Field(..., description="Human-readable warning shown to the user")
+    schema_name: str = Field(
+        ...,
+        description="Name of the ExternalDataSchema responsible for syncing the table",
+    )
+    source_type: str = Field(..., description='Source type, e.g. "Stripe", "Hubspot"')
+    status: str = Field(
+        ...,
+        description=('Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached"'),
+    )
+    table_name: str = Field(..., description="Name of the warehouse table the warning refers to")
+
+
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -15259,6 +15276,14 @@ class HogQLQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class IQRDetectorConfig(BaseModel):
@@ -16124,6 +16149,14 @@ class QueryResponseAlternative8(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class QueryResponseAlternative11(BaseModel):
@@ -16845,6 +16878,14 @@ class QueryResponseAlternative42(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class QueryResponseAlternative43(BaseModel):
@@ -19430,6 +19471,14 @@ class CachedHogQLQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class CachedInsightActorsQueryOptionsResponse(BaseModel):
@@ -19639,6 +19688,14 @@ class Response3(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class Response21(BaseModel):
