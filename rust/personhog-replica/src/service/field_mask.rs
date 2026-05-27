@@ -31,14 +31,23 @@ pub fn group_needs_properties(read_options: &Option<ReadOptions>) -> bool {
     needs_properties(read_options, GROUP_PROPERTIES_FIELDS)
 }
 
+/// Build a field mask set from read options. Returns None if all fields should be kept.
+pub fn build_field_mask(read_options: &Option<ReadOptions>) -> Option<HashSet<String>> {
+    match read_options.as_ref() {
+        Some(opts) if !opts.field_mask.is_empty() => {
+            Some(opts.field_mask.iter().cloned().collect())
+        }
+        _ => None,
+    }
+}
+
 /// Apply the field mask to a Person proto, zeroing out fields not in the mask.
-/// If the mask is empty, all fields are kept.
-pub fn apply_person_field_mask(person: &mut Person, read_options: &Option<ReadOptions>) {
-    let mask = match read_options.as_ref() {
-        Some(opts) if !opts.field_mask.is_empty() => &opts.field_mask,
-        _ => return,
+/// If the mask is None, all fields are kept.
+pub fn apply_person_field_mask(person: &mut Person, fields: &Option<HashSet<String>>) {
+    let fields = match fields {
+        Some(f) => f,
+        None => return,
     };
-    let fields: HashSet<&str> = mask.iter().map(|s| s.as_str()).collect();
 
     if !fields.contains("id") {
         person.id = 0;
@@ -76,13 +85,12 @@ pub fn apply_person_field_mask(person: &mut Person, read_options: &Option<ReadOp
 }
 
 /// Apply the field mask to a Group proto, zeroing out fields not in the mask.
-/// If the mask is empty, all fields are kept.
-pub fn apply_group_field_mask(group: &mut Group, read_options: &Option<ReadOptions>) {
-    let mask = match read_options.as_ref() {
-        Some(opts) if !opts.field_mask.is_empty() => &opts.field_mask,
-        _ => return,
+/// If the mask is None, all fields are kept.
+pub fn apply_group_field_mask(group: &mut Group, fields: &Option<HashSet<String>>) {
+    let fields = match fields {
+        Some(f) => f,
+        None => return,
     };
-    let fields: HashSet<&str> = mask.iter().map(|s| s.as_str()).collect();
 
     if !fields.contains("id") {
         group.id = 0;

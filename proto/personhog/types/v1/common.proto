@@ -18,7 +18,9 @@ message ReadOptions {
   // Unknown field names are silently ignored.
   // When the properties-related fields ("properties"/"group_properties",
   // "properties_last_updated_at", "properties_last_operation") are all excluded,
-  // the server skips reading them from the database entirely.
+  // the server skips fetching them in SELECT clauses. Note: ListGroups with a
+  // non-empty `search` still reads group_properties in the WHERE filter even
+  // when these fields are excluded from the mask.
   repeated string field_mask = 2;
 }
 

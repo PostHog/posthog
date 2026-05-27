@@ -51,7 +51,7 @@ const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
 use field_mask::{
-    apply_group_field_mask, apply_person_field_mask, group_needs_properties,
+    apply_group_field_mask, apply_person_field_mask, build_field_mask, group_needs_properties,
     person_needs_properties,
 };
 
@@ -110,9 +110,10 @@ impl PersonHogReplica for PersonHogReplicaService {
             .filter(|id| !found_ids.contains(id))
             .collect();
 
+        let mask = build_field_mask(&req.read_options);
         let mut proto_persons: Vec<_> = persons.into_iter().map(Into::into).collect();
         for p in &mut proto_persons {
-            apply_person_field_mask(p, &req.read_options);
+            apply_person_field_mask(p, &mask);
         }
 
         Ok(Response::new(PersonsResponse {
@@ -163,9 +164,10 @@ impl PersonHogReplica for PersonHogReplicaService {
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_uuids"))?;
 
+        let mask = build_field_mask(&req.read_options);
         let mut proto_persons: Vec<_> = persons.into_iter().map(Into::into).collect();
         for p in &mut proto_persons {
-            apply_person_field_mask(p, &req.read_options);
+            apply_person_field_mask(p, &mask);
         }
 
         Ok(Response::new(PersonsResponse {
@@ -210,13 +212,14 @@ impl PersonHogReplica for PersonHogReplicaService {
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_distinct_ids_in_team"))?;
 
+        let mask = build_field_mask(&req.read_options);
         Ok(Response::new(PersonsByDistinctIdsInTeamResponse {
             results: results
                 .into_iter()
                 .map(|(distinct_id, person)| {
                     let mut p: Option<_> = person.map(Into::into);
                     if let Some(ref mut person) = p {
-                        apply_person_field_mask(person, &req.read_options);
+                        apply_person_field_mask(person, &mask);
                     }
                     PersonWithDistinctIds {
                         distinct_id,
@@ -247,13 +250,14 @@ impl PersonHogReplica for PersonHogReplicaService {
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_distinct_ids"))?;
 
+        let mask = build_field_mask(&req.read_options);
         Ok(Response::new(PersonsByDistinctIdsResponse {
             results: results
                 .into_iter()
                 .map(|((team_id, distinct_id), person)| {
                     let mut p: Option<_> = person.map(Into::into);
                     if let Some(ref mut person) = p {
-                        apply_person_field_mask(person, &req.read_options);
+                        apply_person_field_mask(person, &mask);
                     }
                     PersonWithTeamDistinctId {
                         key: Some(TeamDistinctId {
@@ -698,9 +702,10 @@ impl PersonHogReplica for PersonHogReplicaService {
             .filter(|gi| !found_keys.contains(&(gi.group_type_index, gi.group_key.clone())))
             .collect();
 
+        let mask = build_field_mask(&req.read_options);
         let mut proto_groups: Vec<_> = groups.into_iter().map(Into::into).collect();
         for g in &mut proto_groups {
-            apply_group_field_mask(g, &req.read_options);
+            apply_group_field_mask(g, &mask);
         }
 
         Ok(Response::new(GroupsResponse {
@@ -740,6 +745,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         // Return results for all requested keys
+        let mask = build_field_mask(&req.read_options);
         let results = req
             .keys
             .into_iter()
@@ -747,7 +753,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 let key = (k.team_id, k.group_type_index, k.group_key.clone());
                 let mut group: Option<_> = found.remove(&key).map(Into::into);
                 if let Some(ref mut g) = group {
-                    apply_group_field_mask(g, &req.read_options);
+                    apply_group_field_mask(g, &mask);
                 }
                 GroupWithKey {
                     key: Some(GroupKey {
@@ -799,9 +805,10 @@ impl PersonHogReplica for PersonHogReplicaService {
             .await
             .map_err(|e| log_and_convert_error(e, "list_groups"))?;
 
+        let mask = build_field_mask(&req.read_options);
         let mut proto_groups: Vec<_> = groups.into_iter().map(Into::into).collect();
         for g in &mut proto_groups {
-            apply_group_field_mask(g, &req.read_options);
+            apply_group_field_mask(g, &mask);
         }
 
         Ok(Response::new(ListGroupsResponse {
