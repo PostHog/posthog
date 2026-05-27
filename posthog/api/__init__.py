@@ -1375,9 +1375,7 @@ register_grandfathered_environment_nested_viewset(
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
 # Metrics endpoints
-register_grandfathered_environment_nested_viewset(
-    r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"]
-)
+environments_router.register(r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"])
 
 environments_router.register(
     r"logs/explainLogWithAI",

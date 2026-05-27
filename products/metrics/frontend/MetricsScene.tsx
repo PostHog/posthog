@@ -46,7 +46,6 @@ const MetricsSceneContent = (): JSX.Element => {
             {teamHasMetricsCheckFailed && (
                 <LemonBanner
                     type="info"
-                    dismissKey="metrics-setup-hint-banner"
                     action={{
                         to: 'https://posthog.com/docs/metrics',
                         targetBlank: true,
