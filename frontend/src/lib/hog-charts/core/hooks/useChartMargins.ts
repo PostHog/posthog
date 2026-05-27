@@ -27,6 +27,8 @@ interface UseChartMarginsOptions {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
+    /** Per-side overrides applied on top of the computed margins. */
+    override?: Partial<ChartMargins>
 }
 
 function widestCategoryLabelWidth(
@@ -73,6 +75,7 @@ export function useChartMargins({
     xTickFormatter,
     yTickFormatter,
     axisOrientation = 'vertical',
+    override,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
@@ -122,7 +125,8 @@ export function useChartMargins({
               ) + (normalizedYAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const right = Math.max(rightFloor, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
-        return { top: DEFAULT_MARGINS.top, right, bottom, left }
+        const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
+        return override ? { ...computed, ...override } : computed
     }, [
         hideXAxis,
         hideYAxis,
@@ -131,5 +135,6 @@ export function useChartMargins({
         xLabelHalfWidth,
         normalizedXAxisLabel,
         normalizedYAxisLabel,
+        override,
     ])
 }

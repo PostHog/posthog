@@ -1,0 +1,726 @@
+import json
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.db import DatabaseError, models, transaction
+from django.db.models import Q, QuerySet
+from django.db.models.signals import post_delete, post_save
+from django.http import HttpRequest
+from django.utils import timezone
+
+import structlog
+from django_deprecate_fields import deprecate_field
+
+from posthog.caching.flags_redis_cache import write_flags_to_cache
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.property import GroupTypeIndex
+from posthog.models.property.property import Property, PropertyGroup
+from posthog.models.signals import mutable_receiver
+from posthog.models.utils import RootTeamManager, RootTeamMixin
+
+FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
+
+logger = structlog.get_logger(__name__)
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+
+def default_filters() -> dict:
+    return {"groups": []}
+
+
+class FeatureFlagManager(RootTeamManager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
+class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+    # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
+    key = models.CharField(max_length=400)
+    name = models.TextField(
+        blank=True
+    )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
+
+    filters = models.JSONField(default=default_filters)
+    # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
+    rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(null=True, auto_now=True)
+    deleted = models.BooleanField(default=False)
+    active = models.BooleanField(default=True)
+
+    version = models.IntegerField(default=1, null=True)
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_feature_flags",
+        db_index=False,
+    )
+
+    rollback_conditions = models.JSONField(null=True, blank=True)
+    performed_rollback = models.BooleanField(null=True, blank=True)
+
+    ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
+    usage_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
+        "dashboards.Dashboard",
+        through="FeatureFlagDashboards",
+        related_name="analytics_dashboards",
+        related_query_name="analytics_dashboard",
+    )
+    # whether a feature is sending us rich analytics, like views & interactions.
+    has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
+
+    is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
+    has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
+
+    EVALUATION_RUNTIME_CHOICES = [
+        ("server", "Server"),
+        ("client", "Client"),
+        ("all", "All"),
+    ]
+    evaluation_runtime = models.CharField(
+        max_length=10,
+        choices=EVALUATION_RUNTIME_CHOICES,
+        default="all",
+        null=True,
+        blank=True,
+        help_text="Specifies where this feature flag should be evaluated",
+    )
+
+    BUCKETING_IDENTIFIER_CHOICES = [
+        ("distinct_id", "User ID (default)"),
+        ("device_id", "Device ID"),
+    ]
+    bucketing_identifier = models.CharField(
+        max_length=50,
+        choices=BUCKETING_IDENTIFIER_CHOICES,
+        default="distinct_id",
+        null=True,
+        blank=True,
+        help_text="Identifier used for bucketing users into rollout and variants",
+    )
+
+    # Cache projection: stored in Redis but not a DB field. Avoids N+1 queries
+    # when accessing evaluation context names for many flags at once.
+    _evaluation_tag_names: Optional[list[str]] = None
+
+    last_called_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this feature flag was called (from $feature_flag_called events)",
+    )
+
+    objects = FeatureFlagManager()  # type: ignore
+    objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
+        db_table = "posthog_featureflag"
+
+    def __str__(self):
+        return f"{self.key} ({self.pk})"
+
+    def clean(self) -> None:
+        """Reject encrypted payloads on non-remote-config flags.
+
+        Django does not invoke clean() from save(), so this fires only from
+        admin and explicit full_clean() callers. The HTTP path is gated by
+        FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config.
+        """
+        super().clean()
+        if self.has_encrypted_payloads and not self.is_remote_configuration:
+            raise ValidationError("Encrypted payloads require the flag to be a remote configuration.")
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["FeatureFlag"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="feature_flag", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Feature Flags"),
+            type="feature_flag",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.key or "Untitled",
+            href=f"/feature_flags/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
+
+    def get_analytics_metadata(self) -> dict:
+        filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
+        variants_count = len(self.variants)
+        payload_count = len(self._payloads)
+
+        return {
+            "groups_count": len(self.conditions),
+            "has_variants": variants_count > 0,
+            "variants_count": variants_count,
+            "has_filters": filter_count > 0,
+            "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
+            "filter_count": filter_count,
+            "created_at": self.created_at,
+            "aggregating_by_groups": self.aggregation_group_type_index is not None,
+            "payload_count": payload_count,
+        }
+
+    @property
+    def conditions(self):
+        "Each feature flag can have multiple conditions to match, they are OR-ed together."
+        return self.get_filters().get("groups", []) or []
+
+    @property
+    def super_conditions(self):
+        "Each feature flag can have multiple super conditions to match, they are OR-ed together."
+        return self.get_filters().get("super_groups", []) or []
+
+    @property
+    def has_feature_enrollment(self) -> bool:
+        return bool(self.get_filters().get("feature_enrollment", False))
+
+    @property
+    def holdout(self):
+        return self.get_filters().get("holdout", None)
+
+    @property
+    def _payloads(self):
+        return self.get_filters().get("payloads", {}) or {}
+
+    def get_payload(self, match_val: str) -> Optional[object]:
+        return self._payloads.get(match_val, None)
+
+    @property
+    def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
+        "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
+        return self.get_filters().get("aggregation_group_type_index", None)
+
+    @property
+    def variants(self):
+        # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
+        multivariate = self.get_filters().get("multivariate", None)
+        if isinstance(multivariate, dict):
+            variants = multivariate.get("variants", None)
+            if isinstance(variants, list):
+                return variants
+        return []
+
+    @property
+    def usage_dashboard_has_enriched_insights(self) -> bool:
+        if not self.usage_dashboard:
+            return False
+
+        return any(
+            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in (tile.insight.name or "")
+            for tile in self.usage_dashboard.tiles.all()
+            if tile.insight
+        )
+
+    @property
+    def evaluation_tag_names(self) -> list[str] | None:
+        """
+        Returns evaluation context names for this flag.
+
+        Preferred source is the cache-populated list from Redis (set on instances
+        as `_evaluation_tag_names`). If not present, falls back to the DB relation
+        via `flag_evaluation_contexts` → `EvaluationContext.name`.
+        """
+        cached = getattr(self, "_evaluation_tag_names", None)
+        if cached is not None:
+            return cached
+
+        try:
+            return [
+                ec.evaluation_context.name
+                for ec in self.flag_evaluation_contexts.select_related("evaluation_context").all()
+            ]
+        except (AttributeError, DatabaseError):
+            return None
+
+    def get_filters(self) -> dict:
+        if not self.filters:
+            return {"groups": []}
+        if "groups" not in self.filters:
+            return {**self.filters, "groups": []}
+        return self.filters
+
+    def transform_cohort_filters_for_easy_evaluation(
+        self,
+        using_database: str = "default",
+        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    ):
+        """
+        Expands cohort filters into person property filters when possible.
+        This allows for easy local flag evaluation.
+        """
+        # Expansion depends on number of conditions on the flag.
+        # If flag has only the cohort condition, we get more freedom to maneuver in the cohort expansion.
+        # If flag has multiple conditions, we can only expand the cohort condition if it's a single property group.
+        # Also support only a single cohort expansion. i.e. a flag with multiple cohort conditions will not be expanded.
+        # Few more edge cases are possible here, where expansion is possible, but it doesn't seem
+        # worth it trying to catch all of these.
+
+        if seen_cohorts_cache is None:
+            seen_cohorts_cache = {}
+
+        if len(self.get_cohort_ids(using_database=using_database, seen_cohorts_cache=seen_cohorts_cache)) != 1:
+            return self.conditions
+
+        cohort_group_rollout = None
+        cohort: CohortOrEmpty = None
+
+        parsed_conditions = []
+        for condition in self.conditions:
+            if condition.get("variant"):
+                # variant overrides are not supported for cohort expansion.
+                return self.conditions
+
+            cohort_condition = False
+            props = condition.get("properties", [])
+            cohort_group_rollout = condition.get("rollout_percentage")
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    cohort_condition = True
+                    cohort_id = int(prop.get("value"))
+                    if cohort_id:
+                        if len(props) > 1:
+                            # We cannot expand this cohort condition if it's not the only property in its group.
+                            return self.conditions
+                        try:
+                            if cohort_id in seen_cohorts_cache:
+                                cohort = seen_cohorts_cache[cohort_id]
+                                if not cohort:
+                                    return self.conditions
+                            else:
+                                cohort = Cohort.objects.db_manager(using_database).get(
+                                    pk=cohort_id,
+                                    team__project_id=self.team.project_id,
+                                    deleted=False,
+                                )
+                                seen_cohorts_cache[cohort_id] = cohort
+                        except Cohort.DoesNotExist:
+                            seen_cohorts_cache[cohort_id] = ""
+                            return self.conditions
+            if not cohort_condition:
+                # flag group without a cohort filter, let it be as is.
+                parsed_conditions.append(condition)
+
+        if not cohort or len(cohort.properties.flat) == 0:
+            return self.conditions
+
+        if not all(property.type == "person" for property in cohort.properties.flat):
+            return self.conditions
+
+        if any(property.negation for property in cohort.properties.flat):
+            # Local evaluation doesn't support negation.
+            return self.conditions
+
+        # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
+
+        # If there's only one effective property group, we can always express this as feature flag groups.
+        # A single ff group, if cohort properties are AND'ed together.
+        # Multiple ff groups, if cohort properties are OR'ed together.
+        from posthog.models.property.util import clear_excess_levels
+
+        target_properties = clear_excess_levels(cohort.properties)
+
+        if isinstance(target_properties, Property):
+            # cohort was effectively a single property.
+            parsed_conditions.append(
+                {
+                    "properties": [target_properties.to_dict()],
+                    "rollout_percentage": cohort_group_rollout,
+                }
+            )
+
+        elif isinstance(target_properties.values[0], Property):
+            # Property Group of properties
+            if target_properties.type == PropertyOperatorType.AND:
+                parsed_conditions.append(
+                    {
+                        "properties": [prop.to_dict() for prop in target_properties.values],
+                        "rollout_percentage": cohort_group_rollout,
+                    }
+                )
+            else:
+                # cohort OR requires multiple ff group
+                for prop in target_properties.values:
+                    parsed_conditions.append(
+                        {
+                            "properties": [prop.to_dict()],
+                            "rollout_percentage": cohort_group_rollout,
+                        }
+                    )
+        else:
+            # If there's nested property groups, we need to express that as OR of ANDs.
+            # Being a bit dumb here, and not trying to apply De Morgan's law to coerce AND of ORs into OR of ANDs.
+            if target_properties.type == PropertyOperatorType.AND:
+                return self.conditions
+
+            for prop_group in cast(list[PropertyGroup], target_properties.values):
+                if (
+                    len(prop_group.values) == 0
+                    or not isinstance(prop_group.values[0], Property)
+                    or (prop_group.type == PropertyOperatorType.OR and len(prop_group.values) > 1)
+                ):
+                    # too nested or invalid, bail out
+                    return self.conditions
+
+                parsed_conditions.append(
+                    {
+                        "properties": [prop.to_dict() for prop in prop_group.values],
+                        "rollout_percentage": cohort_group_rollout,
+                    }
+                )
+
+        return parsed_conditions
+
+    def get_cohort_ids(
+        self,
+        using_database: str = "default",
+        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+        sort_by_topological_order=False,
+    ) -> list[int]:
+        from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
+
+        if seen_cohorts_cache is None:
+            seen_cohorts_cache = {}
+
+        cohort_ids = set()
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    cohort_id = int(prop.get("value"))
+                    try:
+                        if cohort_id in seen_cohorts_cache:
+                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
+                            if not cohort:
+                                continue
+                        else:
+                            cohort = Cohort.objects.db_manager(using_database).get(
+                                pk=cohort_id,
+                                team__project_id=self.team.project_id,
+                                deleted=False,
+                            )
+                            seen_cohorts_cache[cohort_id] = cohort
+
+                        cohort_ids.add(cohort.pk)
+                        cohort_ids.update(
+                            [
+                                dependency_cohort.pk
+                                for dependency_cohort in get_all_cohort_dependencies(
+                                    cohort,
+                                    using_database=using_database,
+                                    seen_cohorts_cache=seen_cohorts_cache,
+                                )
+                            ]
+                        )
+                    except Cohort.DoesNotExist:
+                        seen_cohorts_cache[cohort_id] = ""
+                        continue
+        if sort_by_topological_order:
+            return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
+
+        return list(cohort_ids)
+
+    def scheduled_changes_dispatcher(
+        self,
+        payload,
+        user: Optional[AbstractBaseUser] = None,
+        scheduled_change_id: Optional[int] = None,
+    ):
+        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+
+        if "operation" not in payload or "value" not in payload:
+            raise Exception("Invalid payload")
+
+        # Store scheduled change context on the instance for activity logging
+        if scheduled_change_id is not None:
+            self._scheduled_change_context = {"scheduled_change_id": scheduled_change_id}
+
+        http_request = HttpRequest()
+        # We kind of cheat here set the request user to the user who created the scheduled change
+        # It's not the correct type, but it matches enough to get the job done
+        http_request.user = user or self.created_by  # type: ignore
+        http_request.method = "PATCH"  # This is a partial update, not a new creation
+        context = {
+            "request": http_request,
+            "team_id": self.team_id,
+            "project_id": self.team.project_id,
+        }
+
+        serializer_data = {}
+
+        if payload["operation"] == "add_release_condition":
+            current_filters = self.get_filters()
+            current_groups = current_filters.get("groups", [])
+            new_groups = payload["value"].get("groups", [])
+
+            serializer_data["filters"] = {
+                **current_filters,
+                "groups": current_groups + new_groups,
+            }
+        elif payload["operation"] == "update_status":
+            serializer_data["active"] = payload["value"]
+        elif payload["operation"] == "update_variants":
+            current_filters = self.get_filters()
+            variant_data = payload["value"]
+
+            new_variants = variant_data.get("variants", [])
+            new_payloads = variant_data.get("payloads", {})
+
+            # Validate variant rollout percentages before proceeding
+            if new_variants:
+                total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
+                if total_rollout != 100:
+                    raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
+
+            # Validate payload keys match variant keys
+            variant_keys = {v.get("key") for v in new_variants}
+            payload_keys = set(new_payloads.keys()) if new_payloads else set()
+
+            # Only validate payload-variant key matching if both exist and are non-empty
+            # Allow no payloads (for variants without payloads) or empty variants
+            if payload_keys and variant_keys and not payload_keys.issubset(variant_keys):
+                invalid_keys = payload_keys - variant_keys
+                raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
+
+            updated_multivariate = current_filters.get("multivariate", {})
+            updated_multivariate["variants"] = new_variants
+
+            serializer_data["filters"] = {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
+        else:
+            raise Exception(f"Unrecognized operation: {payload['operation']}")
+
+        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+
+    @property
+    def uses_cohorts(self) -> bool:
+        for condition in self.conditions:
+            props = condition.get("properties") or []
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    return True
+        return False
+
+
+@mutable_receiver([post_save, post_delete], sender=FeatureFlag)
+def refresh_flag_cache_on_updates(sender, instance, **kwargs):
+    # Defer cache update until after the transaction commits
+    # This ensures the database has the new data before we query it
+    transaction.on_commit(lambda: set_feature_flags_for_team_in_cache(instance.team.project_id))
+
+
+class FeatureFlagHashKeyOverride(models.Model):
+    # Can't use a foreign key to feature_flag_key directly, since
+    # the unique constraint is on (team_id+key), and not just key.
+    # A standard id foreign key leads to INNER JOINs every time we want to get the key
+    # and we only ever want to get the key.
+    feature_flag_key = models.CharField(max_length=400)
+    # DO_NOTHING: Person/Team deletion handled manually via FeatureFlagHashKeyOverride.objects.filter(...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - FeatureFlagHashKeyOverride may live in separate database
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING, db_constraint=False)
+    hash_key = models.CharField(max_length=400)
+
+    class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "person", "feature_flag_key"],
+                name="Unique hash_key for a user/team/feature_flag combo",
+            )
+        ]
+        db_table = "posthog_featureflaghashkeyoverride"
+
+
+# DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime
+class FeatureFlagOverride(models.Model):
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    override_value = models.JSONField()
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "feature_flag", "team"],
+                name="unique feature flag for a user/team combo",
+            )
+        ]
+        db_table = "posthog_featureflagoverride"
+
+
+def get_feature_flags(
+    team: Optional["Team"] = None,
+    project_id: Optional[int] = None,
+    exclude_encrypted_payloads: bool = False,
+) -> list[FeatureFlag]:
+    """
+    Fetch FeatureFlag objects for a team or project.
+
+    Evaluation tags are always aggregated using ArrayAgg for performance.
+    This avoids N+1 queries when serializing flags with evaluation tags.
+
+    Args:
+        team: Team to get flags for (mutually exclusive with project_id)
+        project_id: Project ID to get flags for (mutually exclusive with team)
+        exclude_encrypted_payloads: If True, exclude flags with
+            has_encrypted_payloads=True. These flags can only be accessed
+            via the /remote_config endpoint, which handles decryption.
+            The model invariant guarantees has_encrypted_payloads implies
+            is_remote_configuration, so this filter covers all encrypted flags.
+
+    Returns:
+        List of FeatureFlag model instances with evaluation tags pre-loaded
+    """
+    # Build query filter
+    filter_kwargs: dict[str, Any]
+    if team is not None:
+        filter_kwargs = {"team": team}
+    elif project_id is not None:
+        filter_kwargs = {"team__project_id": project_id}
+    else:
+        raise ValueError("Either team or project_id must be provided")
+
+    # Include disabled flags (active=False) so flag dependencies can reference them
+    # and evaluate them as false, rather than raising DependencyNotFound errors.
+
+    # Aggregate evaluation context names into a string array per flag in one query,
+    # avoiding N+1 queries when serializing many flags.
+    qs = FeatureFlag.objects.filter(**filter_kwargs)
+
+    # Use .exclude() (not .filter(=False)) so legacy rows with NULL
+    # has_encrypted_payloads remain included, matching prior behavior.
+    if exclude_encrypted_payloads:
+        qs = qs.exclude(has_encrypted_payloads=True)
+
+    qs = qs.annotate(
+        evaluation_tag_names_agg=ArrayAgg(
+            "flag_evaluation_contexts__evaluation_context__name",
+            filter=Q(flag_evaluation_contexts__isnull=False),
+            distinct=True,
+        )
+    )
+
+    all_feature_flags = list(qs)
+
+    # Transfer the aggregated tag names to the _evaluation_tag_names attribute
+    # so the serializer can access them without additional queries. This is a
+    # cache projection pattern - we're storing derived data on the model instance
+    # that will be serialized to cache.
+    for _flag in all_feature_flags:
+        try:
+            _flag._evaluation_tag_names = getattr(_flag, "evaluation_tag_names_agg", None)
+        except AttributeError:
+            # evaluation_tag_names_agg field missing from aggregation query
+            _flag._evaluation_tag_names = None
+
+    return all_feature_flags
+
+
+def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
+    """
+    Serialize FeatureFlag objects to dictionary format.
+
+    Args:
+        flags: List of FeatureFlag instances to serialize
+
+    Returns:
+        List of serialized flag dictionaries
+    """
+    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+
+    serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
+    return list(serialized_data)
+
+
+def set_feature_flags_for_team_in_cache(
+    project_id: int,
+) -> list[FeatureFlag]:
+    # Fetch flags once (with evaluation contexts pre-loaded)
+    all_feature_flags = get_feature_flags(project_id=project_id)
+
+    # Serialize for cache storage
+    serialized_flags = serialize_feature_flags(all_feature_flags)
+
+    # Write to Redis cache
+    write_flags_to_cache(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
+
+    return all_feature_flags
+
+
+def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[FeatureFlag]]:
+    try:
+        flag_data = cache.get(f"team_feature_flags_{project_id}")
+    except Exception:
+        logger.exception("Redis is unavailable")
+        return None
+
+    if flag_data is not None:
+        try:
+            parsed_data = json.loads(flag_data)
+            flags = []
+            for flag_data in parsed_data:
+                # Extract evaluation contexts before creating the model instance since
+                # it's not a DB field. Accept both old and new key names for cache
+                # entries written before or after the rename.
+                contexts_list = flag_data.pop("evaluation_contexts", None)
+                if contexts_list is None:
+                    contexts_list = flag_data.pop("evaluation_tags", None)
+                else:
+                    flag_data.pop("evaluation_tags", None)  # discard legacy key if present
+                flag = FeatureFlag(**flag_data)
+                flag._evaluation_tag_names = contexts_list
+                flags.append(flag)
+            # Filter to only return active flags. The cache includes inactive flags
+            # for dependency resolution (used by the Rust service), but Python callers
+            # expect only active flags for backward compatibility.
+            return [f for f in flags if f.active]
+        except Exception as e:
+            logger.exception("Error parsing flags from cache")
+            capture_exception(e)
+            return None
+
+    return None
+
+
+class FeatureFlagDashboards(models.Model):
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["feature_flag", "dashboard"],
+                name="unique feature flag for a dashboard",
+            )
+        ]
+        db_table = "posthog_featureflagdashboards"
