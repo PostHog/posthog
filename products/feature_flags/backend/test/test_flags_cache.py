@@ -3475,6 +3475,33 @@ class TestStripNullValues(unittest.TestCase):
                     ],
                 },
             ),
+            (
+                # filters-level ``aggregation_group_type_index: null`` is stripped because
+                # the Rust ``FlagFilters`` field is plain ``Option<i32>`` with no
+                # ``skip_serializing_if`` — the warmer always emits ``null`` here for
+                # both PG-null and PG-absent, so preserving it would flag every
+                # PG-absent team as drifted.
+                "filters_level_aggregation_group_type_index_null_stripped",
+                {"groups": [], "aggregation_group_type_index": None},
+                {"groups": []},
+            ),
+            (
+                # group-level ``aggregation_group_type_index: null`` is preserved because
+                # the Rust ``FlagPropertyGroup`` field is ``Option<Option<i32>>`` with
+                # ``skip_serializing_if`` — null and absent are semantically distinct
+                # (null forces person-level aggregation; absent falls back to the
+                # flag-level group type).
+                "group_level_aggregation_group_type_index_null_preserved",
+                {"groups": [{"properties": [], "aggregation_group_type_index": None}]},
+                {"groups": [{"properties": [], "aggregation_group_type_index": None}]},
+            ),
+            (
+                # Same rule applies inside ``super_groups``: they hold the same
+                # ``FlagPropertyGroup`` shape so the same group-level distinction holds.
+                "super_groups_aggregation_group_type_index_null_preserved",
+                {"super_groups": [{"properties": [], "aggregation_group_type_index": None}]},
+                {"super_groups": [{"properties": [], "aggregation_group_type_index": None}]},
+            ),
         ]
     )
     def test_strip_null_values(self, _name, value, expected):
@@ -3512,6 +3539,24 @@ class TestCompareFlagFieldsLooseness(unittest.TestCase):
                 "aggregation_group_type_index_null_on_both_sides",
                 _flag(filters={"groups": [], "aggregation_group_type_index": None}),
                 _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+            ),
+            (
+                # Filters-level ``aggregation_group_type_index`` lacks
+                # ``skip_serializing_if`` in the Rust ``FlagFilters`` struct, so the
+                # warmer emits ``null`` whether the PG value was null or absent. The
+                # verifier must tolerate PG-absent vs cache-null at this level so it
+                # doesn't flag every PG-absent team as drifted.
+                "filters_level_agg_index_absent_vs_null",
+                _flag(filters={"groups": []}),
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+            ),
+            (
+                # Symmetry check: PG-null vs cache-absent at the filters level (rarely
+                # reachable today since the warmer always emits the key, but the
+                # normalization should still be symmetric).
+                "filters_level_agg_index_null_vs_absent",
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+                _flag(filters={"groups": []}),
             ),
             (
                 # Rust's ``#[serde(flatten)]`` round-trips unknown keys, so both
@@ -3601,6 +3646,18 @@ class TestCompareFlagFieldsLooseness(unittest.TestCase):
                 "filters",
                 _flag(filters={"groups": [], "aggregation_group_type_index": 0}),
                 _flag(filters={"groups": []}),
+            ),
+            (
+                # Group-level absent-vs-null is the semantic distinction the Rust
+                # matcher actually cares about (``Option<Option<i32>>`` +
+                # ``skip_serializing_if`` on ``FlagPropertyGroup.aggregation_group_type_index``):
+                # absent falls back to the flag-level group type, explicit null
+                # forces person-level aggregation. The verifier must keep flagging
+                # this as a real diff.
+                "group_level_agg_index_absent_vs_null",
+                "filters",
+                _flag(filters={"groups": [{"properties": []}]}),
+                _flag(filters={"groups": [{"properties": [], "aggregation_group_type_index": None}]}),
             ),
             (
                 # Top-level scalar mismatch is reported as such.

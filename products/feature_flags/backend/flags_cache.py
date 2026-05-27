@@ -673,15 +673,21 @@ def verify_team_flags(
 
 
 # Keys whose ``null`` is semantically distinct from "absent" and must be preserved
-# during loose comparison. The Rust matcher tracks this distinction via the double-
-# ``Option<Option<i32>>`` on ``FlagPropertyGroup.aggregation_group_type_index``:
-# absent falls back to the flag-level group type, while explicit ``null`` forces
-# person-level aggregation. Stripping ``null`` here would hide real cache drift
-# between those two states.
+# during loose comparison — but only at the group level (``filters.groups[*]`` /
+# ``filters.super_groups[*]``), where the Rust matcher uses
+# ``Option<Option<i32>>`` with ``skip_serializing_if`` on
+# ``FlagPropertyGroup.aggregation_group_type_index`` to distinguish "absent
+# (fall back to flag-level group type)" from "explicit null (force person-level
+# aggregation)". At the filters level the Rust ``FlagFilters`` field is plain
+# ``Option<i32>`` with no ``skip_serializing_if``, so the warmer always emits
+# ``null`` for both PG-null and PG-absent; preserving null there would flag
+# every PG-absent team as drifted. The list keys below mark the path into
+# group-level dicts so preservation only kicks in for those nested entries.
 _PRESERVE_NULL_KEYS = frozenset({"aggregation_group_type_index"})
+_GROUP_LEVEL_LIST_KEYS = frozenset({"groups", "super_groups"})
 
 
-def _strip_null_values(value: Any) -> Any:
+def _strip_null_values(value: Any, in_group_level_list: bool = False) -> Any:
     """Recursively drop ``None`` values from dicts; recurse into lists without dropping ``None`` elements.
 
     Used to normalize structural divergence between the Django serializer (which
@@ -694,8 +700,10 @@ def _strip_null_values(value: Any) -> Any:
 
     Rules:
     - Dicts: drop entries whose value is ``None``, except for keys in
-      ``_PRESERVE_NULL_KEYS`` where ``null`` is semantically distinct from
-      absent; recurse into remaining values.
+      ``_PRESERVE_NULL_KEYS`` when this dict is a group-level item (sits inside
+      ``filters.groups[*]`` or ``filters.super_groups[*]``), where ``null`` is
+      semantically distinct from absent; recurse into remaining values, marking
+      group-level list values so their dict elements know they're at group level.
     - Lists: recurse into each element, but preserve ``None`` elements (dropping
       them would shift indices and change semantics). The Rust typed
       serialization will not emit ``null`` list elements in current data, so
@@ -705,9 +713,13 @@ def _strip_null_values(value: Any) -> Any:
     See plans/verify-flags-cache-loose-comparison.md for the full rationale.
     """
     if isinstance(value, dict):
-        return {k: _strip_null_values(v) for k, v in value.items() if v is not None or k in _PRESERVE_NULL_KEYS}
+        return {
+            k: _strip_null_values(v, in_group_level_list=(k in _GROUP_LEVEL_LIST_KEYS))
+            for k, v in value.items()
+            if v is not None or (in_group_level_list and k in _PRESERVE_NULL_KEYS)
+        }
     if isinstance(value, list):
-        return [_strip_null_values(item) for item in value]
+        return [_strip_null_values(item, in_group_level_list=in_group_level_list) for item in value]
     return value
 
 

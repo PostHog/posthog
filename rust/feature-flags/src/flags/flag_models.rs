@@ -190,7 +190,14 @@ pub struct FlagFilters {
     /// - 2 → "instance"
     /// - 3 → "customer"
     /// - 4 → "team"
-    #[serde(default)]
+    ///
+    /// `skip_serializing_if = "Option::is_none"` so absent JSONB stays absent on
+    /// cache-write round-trip. Unlike `FlagPropertyGroup.aggregation_group_type_index`
+    /// (which is `Option<Option<i32>>`), the filters-level field does not preserve
+    /// the absent/null distinction on deserialize — but Rust still shouldn't fabricate
+    /// a `null` key when the source had no key, since the Python verifier compares
+    /// against Django's JSONB passthrough and a fabricated null shows up as drift.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregation_group_type_index: Option<i32>,
     #[serde(default)]
     pub payloads: Option<serde_json::Value>,
@@ -719,5 +726,48 @@ mod unknown_key_passthrough_tests {
             !map.contains_key("aggregation_group_type_index"),
             "absent field must survive the round-trip as absent, not be promoted to null"
         );
+    }
+
+    #[test]
+    fn flag_filters_aggregation_group_type_index_absent_stays_absent() {
+        // The filters-level field is plain `Option<i32>` (not the group-level
+        // `Option<Option<i32>>`), so we cannot recover an explicit-null marker on
+        // deserialize. But we can still avoid fabricating one on serialize:
+        // `skip_serializing_if = "Option::is_none"` keeps the cache-write shape
+        // aligned with the Django JSONB passthrough when the source has no key.
+        // Without this, the Python verifier reports spurious FIELD_MISMATCH for
+        // every team whose flag has the field absent in Postgres.
+        let input = serde_json::json!({"groups": []});
+
+        let filters: FlagFilters =
+            serde_json::from_value(input).expect("FlagFilters should deserialize cleanly");
+
+        assert_eq!(
+            filters.aggregation_group_type_index, None,
+            "absent field must deserialize as None"
+        );
+
+        let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
+
+        let map = output
+            .as_object()
+            .expect("serialized FlagFilters should be a JSON object");
+        assert!(
+            !map.contains_key("aggregation_group_type_index"),
+            "absent field must survive the round-trip as absent, not be promoted to null"
+        );
+    }
+
+    #[test]
+    fn flag_filters_aggregation_group_type_index_value_round_trips() {
+        // Sanity check: real integer values still serialize, only `None` is skipped.
+        let input = serde_json::json!({"groups": [], "aggregation_group_type_index": 2});
+
+        let filters: FlagFilters =
+            serde_json::from_value(input).expect("FlagFilters should deserialize cleanly");
+        assert_eq!(filters.aggregation_group_type_index, Some(2));
+
+        let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
+        assert_eq!(output["aggregation_group_type_index"], 2);
     }
 }
