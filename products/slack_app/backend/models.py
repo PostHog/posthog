@@ -105,3 +105,7 @@ class SlackSettings(UUIDModel):
                 condition=Q(slack_user_id__isnull=True),
             ),
         ]
+
+    def __str__(self) -> str:
+        who = self.slack_user_id or "(workspace default)"
+        return f"{self.slack_workspace_id} / {who} → integration {self.default_integration_id}"
