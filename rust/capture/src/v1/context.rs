@@ -25,7 +25,7 @@ pub struct Context {
     pub client_ip: IpAddr,
     pub query: Query,
     pub method: Method,
-    pub path: String,
+    pub path: &'static str,
     pub server_received_at: DateTime<Utc>,
     pub created_at: Option<String>,
     pub capture_internal: bool,
@@ -53,7 +53,7 @@ impl Context {
         ip: &InsecureClientIp,
         query: &AxumQuery<Query>,
         method: Method,
-        path: &str,
+        path: &'static str,
     ) -> Result<Self, Error> {
         // Authorization checked first — missing auth is 401, not 400
         if headers.get(header::AUTHORIZATION).is_none() {
@@ -154,7 +154,7 @@ impl Context {
             client_ip: ip.0,
             query: query.0.clone(),
             method,
-            path: path.to_string(),
+            path,
             server_received_at: Utc::now(),
             created_at: None,
             capture_internal: false,

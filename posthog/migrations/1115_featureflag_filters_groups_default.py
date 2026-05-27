@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-import posthog.models.feature_flag.feature_flag
+import products.feature_flags.backend.models.feature_flag
 
 
 class Migration(migrations.Migration):
@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
                 migrations.AlterField(
                     model_name="featureflag",
                     name="filters",
-                    field=models.JSONField(default=posthog.models.feature_flag.feature_flag.default_filters),
+                    field=models.JSONField(default=products.feature_flags.backend.models.feature_flag.default_filters),
                 ),
             ],
             database_operations=[],

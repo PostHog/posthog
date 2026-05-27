@@ -37,6 +37,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
+    PostgresImplementation,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
@@ -89,6 +90,18 @@ class TestSafeDateLoader:
     )
     def test_load_dates(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
+
+
+class TestPostgresImplementationWiring:
+    def test_source_exposes_postgres_implementation_singleton(self):
+        source = PostgresSource()
+        assert isinstance(source.get_implementation, PostgresImplementation)
+        # Same instance across two PostgresSource constructions — module-level singleton.
+        assert source.get_implementation is PostgresSource().get_implementation
+
+    def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
+        impl = PostgresSource().get_implementation
+        assert impl.get_incremental_filter() is filter_postgres_incremental_fields
 
 
 class TestPostgresSourceNonRetryableErrors:
@@ -428,6 +441,64 @@ class TestPostgresSchemaDiscovery:
         assert schemas["public.users"].source_table_name == "users"
         assert schemas["analytics.events"].source_schema == "analytics"
         assert schemas["analytics.events"].source_table_name == "events"
+
+    @pytest.mark.parametrize(
+        "selected_schema,requested_name,fetchall_results,expected_keys",
+        [
+            # Qualified lookup against a schema that's keyed unqualified (config.schema set).
+            # This is the multi-schema migration scenario: row name was rewritten to
+            # `public.tracking_link` while the source still has `schema="public"` configured.
+            (
+                "public",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+            # Unqualified lookup against an unqualified keyspace — the legacy path.
+            (
+                "public",
+                "tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"tracking_link"},
+            ),
+            # Qualified lookup against a qualified keyspace (no config.schema, multi-schema mode).
+            (
+                "",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+        ],
+    )
+    def test_get_schemas_accepts_qualified_and_unqualified_names(
+        self, selected_schema, requested_name, fetchall_results, expected_keys
+    ):
+        connection = self._mock_connection(*fetchall_results)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema=selected_schema,
+                names=[requested_name],
+            )
+
+        assert set(schemas.keys()) == expected_keys
 
     def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(

@@ -16,7 +16,6 @@ from prometheus_client import Counter
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
-from posthog.api.insight_suggestions import get_query_specific_instructions
 from posthog.exceptions_capture import capture_exception
 from posthog.models.llm_prompt import normalize_prompt_to_string
 from posthog.temporal.subscriptions.prompt_sanitization import (
@@ -27,6 +26,8 @@ from posthog.temporal.subscriptions.prompt_sanitization import (
     sanitize_user_text,
 )
 from posthog.utils import get_instance_region
+
+from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
 

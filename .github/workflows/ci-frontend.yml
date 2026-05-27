@@ -274,7 +274,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        # Kea typegen invalidates on changes to any logic plus everything that depends on it.
+        # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
+        # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -342,6 +345,10 @@ jobs:
               run: pnpm --filter=@posthog/frontend typescript:check
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Run tsgo (shadow, non-blocking)
+              run: pnpm --filter=@posthog/frontend typescript:check:tsgo
+              continue-on-error: true
 
             - name: Check if schema.json and validators.js are up to date
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code

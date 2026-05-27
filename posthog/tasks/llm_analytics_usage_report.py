@@ -31,13 +31,23 @@ def get_ph_client() -> PostHogClient:
     return PostHogClient("sTMFPsFhdP1Ssg", sync_mode=True)
 
 
-# AI events dynamically generated from AIEventType enum
 AI_EVENTS = [event.value for event in AIEventType]
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 
-# Events that should make a team eligible for an AI observability usage report.
-# Keep this list broader than AI_EVENTS when a non-AI event should still trigger reporting.
 LLM_ANALYTICS_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
+
+# Restricted to customer-emitted events that produce data downstream LLM analytics workflows can act on:
+# excludes server-side artifacts like summaries, reports, and clusters, and prompt-management events that
+# don't generate traces.
+LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS: list[str] = [
+    AIEventType.FIELD_AI_GENERATION.value,
+    AIEventType.FIELD_AI_EMBEDDING.value,
+    AIEventType.FIELD_AI_SPAN.value,
+    AIEventType.FIELD_AI_TRACE.value,
+    AIEventType.FIELD_AI_METRIC.value,
+    AIEventType.FIELD_AI_FEEDBACK.value,
+    AIEventType.FIELD_AI_EVALUATION.value,
+]
 
 # ClickHouse query settings for AI observability queries
 CH_LLM_ANALYTICS_SETTINGS = {
@@ -216,9 +226,13 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
+def get_teams_with_ai_events(
+    begin: datetime,
+    end: datetime,
+    trigger_events: list[str],
+) -> list[int]:
     """
-    Get all team_ids that have at least one AI observability report trigger event in the period.
+    Get all team_ids that have at least one AI observability trigger event in the period.
 
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
@@ -242,7 +256,7 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
         results = sync_execute(
             query,
             {
-                "llm_analytics_report_trigger_events": LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
+                "llm_analytics_report_trigger_events": trigger_events,
                 "begin": begin,
                 "end": end,
             },
@@ -658,7 +672,7 @@ def _get_all_llm_analytics_reports(
     logger.info("Querying AI observability usage data")
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
-    team_ids = get_teams_with_ai_events(period_start, period_end)
+    team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
     if not team_ids:
         logger.info("No teams with AI observability trigger events found")
