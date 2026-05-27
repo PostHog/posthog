@@ -32,5 +32,13 @@ echoes the latest user message into the assistant reply and returns
 `awaiting_input` after each turn. That's enough to verify the turn
 boundary + state plumbing without spending Anthropic credits.
 
+**Note (in flight):** the chat-\* stubs are being deleted in favour of
+the real `AssServerExecutor` driving real agents whose model name
+points at the in-process `MockAnthropicServer`. See the open SDK
+turn-by-turn refactor — `chat-echo` becomes `model: 'mock-echo'`,
+`chat-slow` becomes `model: 'mock-slow:3000'`, `failure` becomes
+`model: 'mock-error:overloaded'`. The `__TEST_EXECUTOR` machinery
+comes out once the migration lands.
+
 Tests gated on real Claude (multi-turn coherence over real text) live
 under `apps/` and stay separate.
