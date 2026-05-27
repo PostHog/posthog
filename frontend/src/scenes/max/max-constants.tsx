@@ -754,7 +754,8 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_diagnose_setup: {
         name: 'Diagnose marketing analytics',
-        description: 'Health check across data sources, attribution, and conversion goals',
+        description:
+            'Diagnose marketing analytics setup with a health check across data sources, attribution, and conversion goals',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
@@ -762,7 +763,8 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_explain_conversion_goal: {
         name: 'Explain a conversion goal',
-        description: "Show which events drove a goal's count, broken down by source and integration",
+        description:
+            'Explain a conversion goal by showing which events drove its count, broken down by source and integration',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
@@ -770,7 +772,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_list_conversion_goals: {
         name: 'List conversion goals',
-        description: 'Read configured conversion goals with last-30d performance',
+        description: 'List conversion goals with their last-30d performance',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
@@ -778,7 +780,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_list_data_sources: {
         name: 'List marketing data sources',
-        description: 'Show platform-side health for every connected ad integration',
+        description: 'List marketing data sources with platform-side health for every connected ad integration',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
@@ -786,7 +788,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_audit_utm: {
         name: 'Audit UTM tagging',
-        description: 'Find UTM issues that prevent attribution to ad platforms',
+        description: 'Audit UTM tagging to find issues that prevent attribution to ad platforms',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
@@ -794,7 +796,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_suggest_conversion_goals: {
         name: 'Suggest conversion goals',
-        description: 'Rank custom events that are good candidates for conversion goals',
+        description: 'Suggest conversion goals by ranking custom events that are good candidates',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
@@ -802,7 +804,8 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_suggest_utm_mappings: {
         name: 'Suggest UTM mappings',
-        description: 'Detect unmatched utm_source values and propose custom_source_mappings entries',
+        description:
+            'Suggest UTM mappings by detecting unmatched utm_source values and proposing custom_source_mappings entries',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
