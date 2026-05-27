@@ -1,9 +1,0 @@
-// Scoped via the .LemonSearchableSelect__searchHeader marker, which is only emitted
-// when `stickySearchHeader` is explicitly opted in by a caller. Other LemonSearchableSelect
-// usages render their search input bare and are unaffected by this rule.
-.Popover__content li:has(> .LemonSearchableSelect__searchHeader) {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: var(--color-bg-surface-popover);
-}

@@ -464,7 +464,6 @@ function CyclotronJobInputRenderer({
                         onChange={onValueChange}
                         options={schema.choices ?? []}
                         disabled={disabled}
-                        stickySearchHeader
                     />
                 )
             }

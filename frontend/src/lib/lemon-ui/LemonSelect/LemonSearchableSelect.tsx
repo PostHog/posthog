@@ -1,5 +1,3 @@
-import './LemonSearchableSelect.scss'
-
 import { useMemo, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
@@ -20,12 +18,6 @@ import {
 export interface LemonSearchableSelectPropsBase<T> extends LemonSelectPropsBase<T> {
     searchPlaceholder?: string
     searchKeys?: string[]
-    /**
-     * Pin the search input to the top of the dropdown so it stays visible while the menu scrolls.
-     * Useful when the option list is long enough that the auto-scroll-to-active behaviour would otherwise
-     * push the search field offscreen on first open. Defaults to false for backwards compatibility.
-     */
-    stickySearchHeader?: boolean
 }
 
 export interface LemonSearchableSelectPropsClearable<T>
@@ -97,7 +89,6 @@ function filterOptions<T>(
 export function LemonSearchableSelect<T extends string | number | boolean | null>({
     searchPlaceholder,
     searchKeys = ['label'],
-    stickySearchHeader = false,
     onChange,
     onSelect,
     ...selectProps
@@ -108,32 +99,26 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
         return filterOptions(selectProps.options, searchTerm, searchKeys)
     }, [selectProps.options, searchTerm, searchKeys])
 
+    // Add search input as first menu item
     const optionsWithSearch = useMemo(() => {
-        const searchInput = (
-            <LemonInput
-                type="search"
-                placeholder={searchPlaceholder || 'Search'}
-                autoFocus
-                value={searchTerm}
-                onChange={setSearchTerm}
-                fullWidth
-                onClick={(e) => e.stopPropagation()}
-                className="mb-1"
-            />
-        )
-
         const searchMenuItem: LemonSelectOption<T> = {
-            label: () =>
-                stickySearchHeader ? (
-                    <div className="LemonSearchableSelect__searchHeader">{searchInput}</div>
-                ) : (
-                    searchInput
-                ),
+            label: () => (
+                <LemonInput
+                    type="search"
+                    placeholder={searchPlaceholder || 'Search'}
+                    autoFocus
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    fullWidth
+                    onClick={(e) => e.stopPropagation()}
+                    className="mb-1"
+                />
+            ),
             custom: true,
         } as any
 
         return [searchMenuItem, ...filteredOptions] as LemonSelectOptions<T>
-    }, [searchPlaceholder, searchTerm, filteredOptions, stickySearchHeader])
+    }, [searchPlaceholder, searchTerm, filteredOptions])
 
     const handleChange = (newValue: T | null): void => {
         // Cast to `any` because `onChange` is a union type (T vs T | null) and TS can't infer it here.
