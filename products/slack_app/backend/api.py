@@ -1197,6 +1197,13 @@ def route_posthog_code_event_to_relevant_region(
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
+            if not _posthog_code_enabled_for_integration(local_match):
+                logger.info(
+                    "posthog_code_event_flag_off",
+                    slack_team_id=slack_team_id,
+                    organization_id=str(local_match.team.organization_id),
+                )
+                return ROUTE_HANDLED_LOCALLY
             ignore_reason = _app_mention_ignore_reason(event)
             if ignore_reason:
                 logger.info(
@@ -1205,13 +1212,6 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id=slack_team_id,
                     channel=event.get("channel"),
                     message_ts=event.get("ts"),
-                )
-                return ROUTE_HANDLED_LOCALLY
-            if not _posthog_code_enabled_for_integration(local_match):
-                logger.info(
-                    "posthog_code_event_flag_off",
-                    slack_team_id=slack_team_id,
-                    organization_id=str(local_match.team.organization_id),
                 )
                 return ROUTE_HANDLED_LOCALLY
             slack = SlackIntegration(local_match)
