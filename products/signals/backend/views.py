@@ -69,6 +69,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
+    SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
@@ -753,24 +754,6 @@ class SignalReportViewSet(
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
-    def artefacts(self, request, pk=None, **kwargs):
-        report = cast(SignalReport, self.get_object())
-        artefacts = list(report.artefacts.all().order_by("-created_at"))
-        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
-        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
-        serializer = SignalReportArtefactSerializer(
-            artefacts,
-            many=True,
-            context={
-                **self.get_serializer_context(),
-                "signals_github_login_to_user_map": login_map,
-            },
-        )
-        results = serializer.data
-        return Response({"results": results, "count": len(results)})
-
-    @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
@@ -899,6 +882,169 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
+)
+class SignalReportArtefactViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Artefacts attached to a signal report. PUT replaces the content of a
+    `suggested_reviewers` artefact; other types return 400."""
+
+    serializer_class = SignalReportArtefactSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    queryset = SignalReportArtefact.objects.all().order_by("-created_at")
+    # No POST / PATCH / DELETE
+    http_method_names = ["get", "put", "head", "options"]
+
+    def safely_get_queryset(self, queryset):
+        # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
+        # its artefacts must be too (otherwise a known UUID would bypass deletion).
+        return queryset.filter(
+            report_id=self.parents_query_dict["report_id"],
+            team=self.team,
+        ).exclude(report__status=SignalReport.Status.DELETED)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        artefacts = list(page if page is not None else queryset)
+        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
+        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
+        serializer = SignalReportArtefactSerializer(
+            artefacts,
+            many=True,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def update(self, request, *args, **kwargs):
+        artefact = cast(SignalReportArtefact, self.get_object())
+
+        # Generic endpoint, single-type allow-list: any other artefact type is
+        # part of the agentic pipeline contract and must not be hand-edited.
+        if artefact.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            return Response(
+                {
+                    "error": (
+                        "Only suggested_reviewers artefacts may be modified via this endpoint. "
+                        f"This artefact has type '{artefact.type}'."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        write_serializer = SignalReportArtefactWriteSerializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+        entries = write_serializer.validated_data["content"]
+
+        # Resolve any user_uuid → canonical github_login via team org membership.
+        uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
+        uuid_to_login: dict[str, str] = (
+            get_org_member_github_logins_by_user_uuid(self.team.id, uuids_to_resolve) if uuids_to_resolve else {}
+        )
+
+        # Resolve canonical login per entry. Fail loudly if a user_uuid does not
+        # map to an org member with a GitHub identity on this team.
+        # The third tuple element distinguishes "github_name explicitly supplied
+        # (incl. empty string to clear)" from "field absent" — the merge step below
+        # only falls back to the prior name when the field is absent.
+        resolved_entries: list[tuple[str, str | None, bool]] = []
+        for idx, entry in enumerate(entries):
+            user_uuid = entry.get("user_uuid")
+            if user_uuid is not None:
+                resolved_login = uuid_to_login.get(str(user_uuid))
+                if not resolved_login:
+                    return Response(
+                        {
+                            "error": (
+                                f"content[{idx}]: user_uuid '{user_uuid}' is not an org member of this team "
+                                "with a linked GitHub identity."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                login_lc = resolved_login.lower()
+            else:
+                raw_login = entry.get("github_login") or ""
+                login_lc = raw_login.strip().lower()
+                if not login_lc:
+                    return Response(
+                        {"error": f"content[{idx}]: github_login resolved to empty after normalization."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            explicit_name = "github_name" in entry
+            github_name = entry.get("github_name") if explicit_name else None
+            resolved_entries.append((login_lc, github_name, explicit_name))
+
+        # Preserve relevant_commits for entries that survive the replace, keyed by login.
+        try:
+            prior_content = json.loads(artefact.content)
+        except (json.JSONDecodeError, ValueError):
+            prior_content = []
+        prior_commits_by_login: dict[str, list] = {}
+        prior_name_by_login: dict[str, str | None] = {}
+        if isinstance(prior_content, list):
+            for prior in prior_content:
+                if not isinstance(prior, dict):
+                    continue
+                login = (prior.get("github_login") or "").strip().lower()
+                if not login:
+                    continue
+                commits = prior.get("relevant_commits")
+                if isinstance(commits, list):
+                    prior_commits_by_login[login] = commits
+                prior_name = prior.get("github_name")
+                if isinstance(prior_name, str):
+                    prior_name_by_login[login] = prior_name
+
+        # Dedupe by canonical login, preserve first-seen order.
+        seen: set[str] = set()
+        new_content: list[dict] = []
+        for login_lc, github_name, explicit_name in resolved_entries:
+            if login_lc in seen:
+                continue
+            seen.add(login_lc)
+            # If the client supplied github_name (incl. ""), honour it. Otherwise
+            # carry over the prior one so kept reviewers don't lose their name.
+            effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
+            new_content.append(
+                {
+                    "github_login": login_lc,
+                    "github_name": effective_name,
+                    "relevant_commits": prior_commits_by_login.get(login_lc, []),
+                }
+            )
+
+        artefact.content = json.dumps(new_content)
+        artefact.save(update_fields=["content"])
+
+        # Return the read-shape (enriched) so the client sees the canonical result.
+        login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
+        read_serializer = SignalReportArtefactSerializer(
+            artefact,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
+        )
+        return Response(read_serializer.data)
 
 
 @extend_schema_view(list=extend_schema(exclude=True))

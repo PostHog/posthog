@@ -40,6 +40,10 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    can_use_lazy_precompute as can_use_frustration_lazy_precompute,
+    execute_lazy_precomputed_read as execute_frustration_lazy_precomputed_read,
+)
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
     LazyStatsResult,
     can_use_lazy_precompute,
@@ -433,6 +437,72 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         self.used_preaggregated_tables = True
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
+    def _maybe_calculate_via_frustration_lazy_precompute(self) -> Optional[WebStatsTableQueryResponse]:
+        """Short-circuit through the FRUSTRATION lazy precompute table when eligible.
+
+        Returns None when ineligible or on any failure, in which case the caller
+        falls through to the live HogQL path.
+        """
+        if not can_use_frustration_lazy_precompute(self):
+            return None
+        limit = self.paginator.limit
+        offset = self.paginator.offset or 0
+        rows = execute_frustration_lazy_precomputed_read(self, limit=limit + 1, offset=offset)
+        if rows is None:
+            return None
+        self.used_preaggregated_tables = True
+        return self._build_frustration_response_from_lazy_rows(rows, limit=limit, offset=offset)
+
+    def _build_frustration_response_from_lazy_rows(
+        self, rows: list[tuple], *, limit: int, offset: int
+    ) -> WebStatsTableQueryResponse:
+        """Materialise the SQL-paginated frustration rows into the wire shape.
+        Pivots the flat columns (breakdown, rage_c, rage_p, dead_c, dead_p,
+        errors_c, errors_p) back into the runner's tuple-of-(current, previous)
+        shape, matching the live `FrustrationMetricsStrategy.build_query()`
+        response."""
+        include_previous = bool(self.query_compare_to_date_range)
+        has_more = len(rows) > limit
+        page = rows[:limit]
+
+        results = []
+        for row in page:
+            (
+                breakdown_value,
+                rage_clicks,
+                prev_rage_clicks,
+                dead_clicks,
+                prev_dead_clicks,
+                errors,
+                prev_errors,
+            ) = row
+            results.append(
+                [
+                    breakdown_value,
+                    (rage_clicks, prev_rage_clicks if include_previous else None),
+                    (dead_clicks, prev_dead_clicks if include_previous else None),
+                    (errors, prev_errors if include_previous else None),
+                    "",  # cross_sell placeholder
+                ]
+            )
+
+        return WebStatsTableQueryResponse(
+            columns=[
+                "context.columns.breakdown_value",
+                "context.columns.rage_clicks",
+                "context.columns.dead_clicks",
+                "context.columns.errors",
+                "context.columns.cross_sell",
+            ],
+            results=results,
+            modifiers=self.modifiers,
+            usedPreAggregatedTables=True,
+            usedLazyPrecompute=True,
+            hasMore=has_more,
+            limit=limit,
+            offset=offset,
+        )
+
     def _build_response_from_lazy_rows(
         self, rows: list[tuple], *, limit: int, offset: int
     ) -> WebStatsTableQueryResponse:
@@ -513,9 +583,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         return field, direction
 
     def _calculate(self):
-        # Try the PATHS lazy precompute first when the query targets the paths tile,
-        # otherwise fall back to the simple-breakdowns lazy path.
+        # Try each lazy precompute path in turn. Each `can_use_*` check short-
+        # circuits on the wrong `breakdownBy`, so the order only matters for
+        # rejection reason attribution in logs/metrics.
         lazy_response = self._maybe_calculate_via_lazy_precompute()
+        if lazy_response is not None:
+            return lazy_response
+
+        lazy_response = self._maybe_calculate_via_frustration_lazy_precompute()
         if lazy_response is not None:
             return lazy_response
 

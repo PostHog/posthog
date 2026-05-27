@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Insight, Project, Team
+from posthog.models import Project, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -18,6 +18,7 @@ from posthog.models.resource_transfer.types import ResourceKind, ResourceTransfe
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 

@@ -73,6 +73,7 @@ export interface BuildTrendsLifecycleConfigOpts {
     interval?: IntervalType | null
     timezone?: string
     allDays?: string[]
+    valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
 }
 
@@ -88,6 +89,7 @@ export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts)
             allDays: opts.allDays ?? [],
         },
         yAxis,
+        valueLabels: opts.valueLabels,
         barLayout: opts.isStacked ? 'stacked' : 'grouped',
         // Only meaningful in stacked layout — dormant stacks below 0.
         divergingStack: opts.isStacked,

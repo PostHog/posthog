@@ -14,6 +14,7 @@ imports keep working. New callers should import from the submodules directly.
 from posthog.temporal.data_imports.sources.common.sql.identifiers import (
     AnsiIdentifierQuoter,
     BacktickIdentifierQuoter,
+    BracketIdentifierQuoter,
     IdentifierQuoter,
     InvalidIdentifierError,
 )
@@ -37,6 +38,7 @@ from posthog.temporal.data_imports.sources.common.sql.types import (
 __all__ = [
     "AnsiIdentifierQuoter",
     "BacktickIdentifierQuoter",
+    "BracketIdentifierQuoter",
     "Column",
     "ColumnType",
     "IdentifierQuoter",

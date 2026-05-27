@@ -139,6 +139,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'property_definition:write',
     'query:read',
     'query:write',
+    'replay_scanner:read',
+    'replay_scanner:write',
     'revenue_analytics:read',
     'revenue_analytics:write',
     'session_recording:read',

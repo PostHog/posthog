@@ -7,7 +7,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -19,8 +19,9 @@ def resolve_lazy_tables(
     dialect: HogQLDialect,
     stack: Optional[list[ast.SelectQuery]],
     context: HogQLContext,
+    resolver_factory: ResolverFactory | None = None,
 ):
-    LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
+    LazyTableResolver(stack=stack, context=context, dialect=dialect, resolver_factory=resolver_factory).visit(node)
 
 
 @dataclasses.dataclass
@@ -178,11 +179,15 @@ class LazyTableResolver(TraversingVisitor):
         dialect: HogQLDialect,
         stack: Optional[list[ast.SelectQuery]],
         context: HogQLContext,
+        resolver_factory: ResolverFactory | None = None,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
         self.dialect: HogQLDialect = dialect
+        # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
+        # factory (e.g. BoundedResolver) applies to subqueries built mid-transform
+        self.resolver_factory = resolver_factory
 
     def _find_tables_needing_lazy_preresolution(
         self,
@@ -242,8 +247,11 @@ class LazyTableResolver(TraversingVisitor):
         )
 
         # Resolve types and lazy tables within the subquery
-        subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
-        resolve_lazy_tables(subquery, self.dialect, [subquery], self.context)
+        subquery = cast(
+            ast.SelectQuery,
+            resolve_types(subquery, self.context, self.dialect, [], resolver_factory=self.resolver_factory),
+        )
+        resolve_lazy_tables(subquery, self.dialect, [subquery], self.context, resolver_factory=self.resolver_factory)
         assert subquery.type is not None
 
         # Replace the table with the subquery
@@ -557,7 +565,12 @@ class LazyTableResolver(TraversingVisitor):
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [select_type]))
+            subquery = cast(
+                ast.SelectQuery,
+                resolve_types(
+                    subquery, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
+                ),
+            )
             if self.context.property_swapper is not None:
                 subquery = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -600,7 +613,12 @@ class LazyTableResolver(TraversingVisitor):
                 FieldChainReplacer(overrides).visit(join_to_add)
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [select_type]))
+            join_to_add = cast(
+                ast.JoinExpr,
+                resolve_types(
+                    join_to_add, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
+                ),
+            )
             if self.context.property_swapper is not None:
                 join_to_add = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
