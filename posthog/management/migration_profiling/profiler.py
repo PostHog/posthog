@@ -311,6 +311,55 @@ def _patch_operations(state: _ProfilerState) -> list[tuple[type[Operation], Any]
     return patched
 
 
+def _make_state_op_wrapper(original_method: Any, state: _ProfilerState) -> Any:
+    """Wrap ``Operation.state_forwards`` to emit per-state-op timings.
+
+    State ops don't touch the DB, so the record is leaner than ``OpRecord``:
+    just class, migration context, parent op index (for ops inside
+    ``SeparateDatabaseAndState``), and wall-clock. Emitted with
+    ``_kind: state_op`` so the analyze command can keep them separate from
+    ``database_forwards`` records.
+    """
+
+    def wrapped(op_self: Operation, app_label: str, state_obj: Any) -> Any:
+        op_type = op_self.__class__.__name__
+        stack = _get_stack()
+        parent_index = stack[-1].record.operation_index if stack else None
+        started_at = datetime.now(UTC).isoformat()
+        t0 = time.monotonic()
+        try:
+            return original_method(op_self, app_label, state_obj)
+        finally:
+            duration_ms = (time.monotonic() - t0) * 1000.0
+            record = {
+                "_kind": "state_op",
+                "database": state.database,
+                "app_label": app_label,
+                "migration_name": state.current_migration_name,
+                "operation_type": op_type,
+                "describe": _safe_describe(op_self),
+                "parent_op_index": parent_index,
+                "started_at": started_at,
+                "duration_ms": duration_ms,
+                "metadata": extract(op_self),
+            }
+            state.fp.write(json.dumps(record, default=str) + "\n")
+
+    return wrapped
+
+
+def _patch_state_forwards(state: _ProfilerState) -> list[tuple[type[Operation], Any]]:
+    patched: list[tuple[type[Operation], Any]] = []
+    for cls in _iter_operation_subclasses():
+        original = cls.__dict__.get("state_forwards")
+        if original is None:
+            continue
+        wrapper = _make_state_op_wrapper(original, state)
+        cls.state_forwards = wrapper
+        patched.append((cls, original))
+    return patched
+
+
 # ---------- SQL patching ----------
 
 
@@ -445,6 +494,7 @@ def profile_migrations(
 
     migration_apply_original = _patch_migration_apply(state)
     patched_ops = _patch_operations(state)
+    patched_state_ops = _patch_state_forwards(state)
 
     schema_editor_original = BaseDatabaseSchemaEditor.execute
     BaseDatabaseSchemaEditor.execute = _make_schema_editor_wrapper(schema_editor_original, state)  # type: ignore[method-assign]
@@ -473,6 +523,9 @@ def profile_migrations(
 
         for cls, original in patched_ops:
             cls.database_forwards = original
+
+        for cls, original in patched_state_ops:
+            cls.state_forwards = original
 
         Migration.apply = migration_apply_original  # type: ignore[method-assign]
 

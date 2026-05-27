@@ -364,6 +364,18 @@ class Command(DjangoMigrateCommand):
                         self.stdout.write(self.style.SUCCESS(f"Wrote pyinstrument JSON to {json_path}"))
                     except Exception as exc:
                         self.stdout.write(self.style.WARNING(f"pyinstrument JSON failed: {exc}"))
+                    try:
+                        from pyinstrument.renderers import SpeedscopeRenderer
+
+                        speedscope_path = profile_path.with_suffix(".speedscope.json")
+                        speedscope_path.write_text(py_profiler.output(SpeedscopeRenderer()))
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f"Wrote speedscope JSON to {speedscope_path} — open at https://www.speedscope.app/"
+                            )
+                        )
+                    except Exception as exc:
+                        self.stdout.write(self.style.WARNING(f"pyinstrument speedscope failed: {exc}"))
 
             self.stdout.write(self.style.SUCCESS(f"Wrote migration profile to {profile_path}"))
         else:
