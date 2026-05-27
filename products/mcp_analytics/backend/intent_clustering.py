@@ -33,6 +33,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
+from posthog.temporal.mcp_analytics.summarize_session_intents.activities import NO_INTENT_RECORDED_FALLBACK
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -135,10 +136,13 @@ def fetch_intent_corpus(
         return [], {}
 
     # Map session_id -> intent_text (last write wins per session).
+    # Skip the summariser's "no intents recorded" placeholder — clustering
+    # it produces a meaningless pseudo-cluster of sessions with nothing in
+    # common except that their tool calls had no $mcp_intent property.
     intent_by_session: dict[str, str] = {}
     for session_id, intent_text in session_rows:
         text = (intent_text or "").strip()
-        if not session_id or not text:
+        if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text
 

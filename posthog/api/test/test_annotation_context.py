@@ -11,9 +11,10 @@ from posthog.api.annotation_context import (
     resolve_dashboard_date_range,
     resolve_query_date_range,
 )
-from posthog.models import Annotation, Insight, Organization, Team
+from posthog.models import Annotation, Organization, Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotationContext(APIBaseTest):

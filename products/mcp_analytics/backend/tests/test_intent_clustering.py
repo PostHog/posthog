@@ -15,6 +15,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 import numpy as np
 from parameterized import parameterized
 
+from posthog.temporal.mcp_analytics.summarize_session_intents.activities import NO_INTENT_RECORDED_FALLBACK
+
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
     IntentRecord,
@@ -326,3 +328,21 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         records, _ = fetch_intent_corpus(self.team, lookback_days=lookback_days)
 
         assert [r.intent_text for r in records] == expected_intents
+
+    @parameterized.expand(
+        [
+            ("raw", NO_INTENT_RECORDED_FALLBACK),
+            ("padded_whitespace", f"  {NO_INTENT_RECORDED_FALLBACK}  "),
+        ]
+    )
+    def test_summariser_fallback_intent_is_excluded(self, _name: str, placeholder_text: str) -> None:
+        # Session whose intent column holds the summariser's "nothing here"
+        # placeholder — must be excluded so it doesn't form its own cluster.
+        # Whitespace variants must also be excluded after .strip().
+        self._seed_session("placeholder", placeholder_text)
+        self._seed_session("real", "look up feature flag rollout")
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert [r.intent_text for r in records] == ["look up feature flag rollout"]
+        assert intent_by_session == {"real": "look up feature flag rollout"}

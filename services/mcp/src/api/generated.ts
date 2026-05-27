@@ -3567,6 +3567,19 @@ export namespace Schemas {
       warnings: HogQLNotice[];
     }
 
+    export interface DataWarehouseSyncWarning {
+      /** Human-readable warning shown to the user */
+      message: string;
+      /** Name of the ExternalDataSchema responsible for syncing the table */
+      schema_name: string;
+      /** Source type, e.g. "Stripe", "Hubspot" */
+      source_type: string;
+      /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+      status: string;
+      /** Name of the warehouse table the warning refers to */
+      table_name: string;
+    }
+
     export interface HogQLQueryResponse {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
@@ -3596,6 +3609,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+      warnings?: DataWarehouseSyncWarning[] | null;
     }
 
     export interface HogQLVariable {
@@ -4362,13 +4377,18 @@ export namespace Schemas {
     }
 
     export interface ApproveSnapshotInput {
+      /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
       identifier: string;
+      /** The content hash of the new baseline image to record for this identifier. */
       new_hash: string;
     }
 
     export interface ApproveRunRequestInput {
+      /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
       snapshots?: ApproveSnapshotInput[];
+      /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
       approve_all?: boolean;
+      /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
       commit_to_github?: boolean;
     }
 
@@ -9243,6 +9263,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+      warnings?: DataWarehouseSyncWarning[] | null;
     }
 
     export interface Response4 {
@@ -9312,6 +9334,32 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
+    export interface Response7 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+    }
+
     export interface WebVitalsPathBreakdownResultItem {
       path: string;
       value: number;
@@ -9341,6 +9389,7 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
     }
 
     export interface Response9 {
@@ -9893,7 +9942,7 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
-    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | null;
+    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | null;
 
     export type DataTableNodeViewPropsContextType = typeof DataTableNodeViewPropsContextType[keyof typeof DataTableNodeViewPropsContextType];
 
@@ -10206,6 +10255,10 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
     }
 
     export interface WebGoalsQuery {
@@ -10233,6 +10286,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -10303,6 +10358,7 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
     }
 
     export interface WebVitalsPathBreakdownQuery {
@@ -10336,6 +10392,8 @@ export namespace Schemas {
          */
       thresholds: number[];
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -21184,7 +21242,14 @@ export namespace Schemas {
       readonly person_email: string;
       /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
       readonly person_name: string;
-      /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs. */
+      /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until generated on demand via the generate_intent endpoint. */
+      readonly intent: string;
+    }
+
+    export interface MCPSessionIntent {
+      /** $mcp_session_id the intent summary was generated for. */
+      readonly session_id: string;
+      /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. */
       readonly intent: string;
     }
 
@@ -21209,6 +21274,7 @@ export namespace Schemas {
     }
 
     export interface MarkToleratedInput {
+      /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
       snapshot_id: string;
     }
 
@@ -24316,6 +24382,7 @@ export namespace Schemas {
       reviewed_by?: UserBasicInfo | null;
       cluster_summary?: ClusterSummary | null;
       id: string;
+      run_id: string;
       identifier: string;
       result: string;
       classification_reason: string;
@@ -33479,6 +33546,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+      warnings?: DataWarehouseSyncWarning[] | null;
     }
 
     export interface QueryResponseAlternative9 {
@@ -33761,6 +33830,32 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
+    export interface QueryResponseAlternative26 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+    }
+
     export interface QueryResponseAlternative27 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -33779,6 +33874,7 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
     }
 
     export interface QueryResponseAlternative28 {
@@ -34068,6 +34164,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+      warnings?: DataWarehouseSyncWarning[] | null;
     }
 
     export interface QueryResponseAlternative43 {
@@ -34137,6 +34235,32 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
+    export interface QueryResponseAlternative46 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+    }
+
     export interface QueryResponseAlternative47 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -34155,6 +34279,7 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
     }
 
     export interface QueryResponseAlternative48 {
@@ -34907,7 +35032,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
@@ -42487,6 +42612,7 @@ export namespace Schemas {
     * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
+    * `InstanceSetting` - InstanceSetting
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -42563,6 +42689,7 @@ export namespace Schemas {
       LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      InstanceSetting: 'InstanceSetting',
     } as const;
 
     /**
@@ -42625,6 +42752,7 @@ export namespace Schemas {
     * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
+    * `InstanceSetting` - InstanceSetting
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -42689,6 +42817,7 @@ export namespace Schemas {
       LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      InstanceSetting: 'InstanceSetting',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
