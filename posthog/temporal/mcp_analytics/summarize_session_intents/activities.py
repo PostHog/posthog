@@ -25,6 +25,12 @@ _PRIORITY_TEAM_ID = 2
 # monopolising the global LLM budget by emitting many unique session ids.
 _PER_TEAM_CAP = 10
 
+# Placeholder written when an MCP session has no recordable tool-call intents.
+# Exported so downstream consumers (e.g. intent clustering) can filter it out
+# of their corpus — clustering an "empty" placeholder produces a meaningless
+# pseudo-cluster in real data.
+NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
+
 SYSTEM_PROMPT = (
     "You summarise what an AI agent was trying to accomplish during a single MCP session. "
     "You are given the per-tool-call intents the agent recorded, in chronological order. "
@@ -146,7 +152,7 @@ async def _summarise_one(
     async with semaphore:
         intents = await _fetch_tool_call_intents(team_id, session_id)
         if not intents:
-            await _save_intent(team_id, session_id, "No agent intent was recorded for this session.")
+            await _save_intent(team_id, session_id, NO_INTENT_RECORDED_FALLBACK)
             return "no_intents"
 
         summary = await asyncio.to_thread(_summarize_intents_sync, intents)

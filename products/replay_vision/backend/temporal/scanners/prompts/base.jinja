@@ -8,6 +8,12 @@ Approach:
 - Ground every claim in direct evidence — a specific moment in the video or a specific event in the timeline. When evidence is ambiguous or absent, lower `confidence` and say so.
 - Stay on the task. Don't drift into adjacent observations it didn't ask about.
 - Prefer admitting uncertainty over fabricating detail.
+- PostHog already emits dedicated events for the common friction signals: `$rageclick` (user clicked the same element multiple times in quick succession) and `$dead_click` (a click that didn't trigger any state change). Treat these as ground truth — only conclude that the user rage-clicked or hit a dead click when the corresponding event is present. Do not infer rage-clicking from interaction bursts on tabs, dropdowns, or other re-clickable controls.
+
+Confidence calibration:
+- Default to the 0.6-0.8 band. Reserve 0.9+ for unambiguous conclusions corroborated by 2+ independent signals.
+- If your conclusion rests on a single event or moment with no corroboration, cap `confidence` at 0.8.
+- If `events_truncated` is true, cap `confidence` at 0.6 — you only saw part of the session.
 
 <events_format>
 Each event is an object with these fields:
@@ -20,7 +26,7 @@ Each event is an object with these fields:
 - $event_type: interaction kind (click, submit, etc.)
 - $exception_types / $exception_values: exception class + short description, when applicable
 
-Events are in chronological order; identical consecutive events have been deduplicated; sparse fields are omitted per-event. Very chatty sessions are truncated to the first batch of events — when that happens `session_metadata.events_truncated` is true and you should rely more on the video and lower your `confidence` accordingly.
+Events are in chronological order; identical consecutive events have been deduplicated; sparse fields are omitted per-event. Very chatty sessions are truncated to the first batch of events — when that happens `session_metadata.events_truncated` is true and you should rely more on the video (see the confidence cap above).
 </events_format>
 
 <events>
@@ -42,7 +48,7 @@ Session-level context. Fields (all optional, omitted when unknown):
 - click_count / keypress_count / mouse_activity_count: interaction density
 - start_url: where the user entered the session
 - console_error_count: total console errors during the session
-- events_truncated: when true, the events table was cut off before the session end; weigh the video more and lower confidence
+- events_truncated: when true, the events table was cut off before the session end; weigh the video more
 </session_metadata_format>
 
 <session_metadata>

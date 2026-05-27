@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.activities.ensure_session_asset imp
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
+    mark_observation_ineligible_activity,
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "mark_observation_failed_activity",
+    "mark_observation_ineligible_activity",
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "upload_video_to_gemini_activity",

@@ -22,7 +22,6 @@ from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery
@@ -59,6 +58,7 @@ from posthog.temporal.subscriptions.workflows import (
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
