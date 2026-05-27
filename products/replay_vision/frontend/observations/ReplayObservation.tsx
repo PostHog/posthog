@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -67,12 +68,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
     const scannerType = snapshot?.scanner_type
     const scannerName = snapshot?.name || 'Scanner'
-    const triggerLabel =
-        observation.triggered_by === 'on_demand'
-            ? observation.triggered_by_user
-                ? `On demand · ${observation.triggered_by_user.first_name || observation.triggered_by_user.email}`
-                : 'On demand'
-            : 'Schedule'
+    const triggerLabel = observation.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'
     const snapshotConfig = readConfig(snapshot ?? null)
     const prompt = typeof snapshotConfig.prompt === 'string' ? snapshotConfig.prompt : null
     const configuredTags =
@@ -84,7 +80,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
         scannerType === 'summarizer' && typeof snapshotConfig.length === 'string' ? snapshotConfig.length : null
     const durationMs =
         observation.started_at && observation.completed_at
-            ? Date.parse(observation.completed_at) - Date.parse(observation.started_at)
+            ? dayjs(observation.completed_at).diff(observation.started_at)
             : null
     const durationLabel =
         durationMs !== null && Number.isFinite(durationMs) && durationMs >= 0
