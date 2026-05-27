@@ -937,7 +937,13 @@ pub async fn start_test_router_raw_with_leader_and_max_recv(
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, Some(leader), retry_config, max_recv_message_size, 0);
+    let proxy = RawProxyService::new(
+        replica,
+        Some(leader),
+        retry_config,
+        max_recv_message_size,
+        0,
+    );
 
     tokio::spawn(async move {
         Server::builder()

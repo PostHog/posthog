@@ -54,6 +54,25 @@ pub fn current_caller_tag() -> Arc<str> {
         .unwrap_or_else(|_| Arc::from("unknown"))
 }
 
+const MAX_HEADER_TAG_LEN: usize = 128;
+
+fn is_safe_tag_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | ':' | '.')
+}
+
+fn sanitize_header_tag(raw: &str) -> &str {
+    let s = if raw.len() > MAX_HEADER_TAG_LEN {
+        &raw[..MAX_HEADER_TAG_LEN]
+    } else {
+        raw
+    };
+    if s.chars().all(is_safe_tag_char) {
+        s
+    } else {
+        "unknown"
+    }
+}
+
 /// Extract the client name from HTTP headers, defaulting to `"unknown"`.
 fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
     request
@@ -61,6 +80,7 @@ fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
         .get(CLIENT_NAME_HEADER)
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
+        .map(sanitize_header_tag)
         .unwrap_or("unknown")
         .into()
 }
@@ -72,6 +92,7 @@ fn extract_caller_tag<B>(request: &Request<B>) -> Arc<str> {
         .get(CALLER_TAG_HEADER)
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
+        .map(sanitize_header_tag)
         .unwrap_or("unknown")
         .into()
 }
@@ -296,10 +317,7 @@ where
         });
 
         GrpcMetricsFuture {
-            inner: CLIENT_NAME.scope(
-                client.clone(),
-                CALLER_TAG.scope(caller_tag, inner),
-            ),
+            inner: CLIENT_NAME.scope(client.clone(), CALLER_TAG.scope(caller_tag, inner)),
             method,
             client,
             start,
@@ -703,5 +721,64 @@ mod tests {
     #[test]
     fn current_caller_tag_defaults_outside_scope() {
         assert_eq!(&*current_caller_tag(), "unknown");
+    }
+
+    #[test]
+    fn extract_caller_tag_truncates_long_value() {
+        let long_tag = "a".repeat(200);
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", &long_tag)
+            .body(())
+            .unwrap();
+        assert_eq!(extract_caller_tag(&req).len(), MAX_HEADER_TAG_LEN);
+    }
+
+    #[test]
+    fn extract_caller_tag_rejects_unsafe_chars() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", "bad tag with spaces!")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "unknown");
+    }
+
+    #[test]
+    fn extract_client_name_truncates_long_value() {
+        let long_name = "b".repeat(200);
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-client-name", &long_name)
+            .body(())
+            .unwrap();
+        assert_eq!(extract_client_name(&req).len(), MAX_HEADER_TAG_LEN);
+    }
+
+    #[test]
+    fn extract_client_name_rejects_unsafe_chars() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-client-name", "bad name!")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_client_name(&req), "unknown");
+    }
+
+    #[test]
+    fn sanitize_allows_valid_tag_chars() {
+        assert_eq!(
+            sanitize_header_tag("api/feature-flags"),
+            "api/feature-flags"
+        );
+        assert_eq!(
+            sanitize_header_tag("celery/calculate_cohort_ch"),
+            "celery/calculate_cohort_ch"
+        );
+        assert_eq!(
+            sanitize_header_tag("posthog-django-web"),
+            "posthog-django-web"
+        );
+        assert_eq!(sanitize_header_tag("some:tag.v1"), "some:tag.v1");
     }
 }
