@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -322,21 +323,30 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            # PK found upstream → persist it on sync_type_config, schema transitions to CDC.
+            # Stored PK from earlier discovery — reuse it; no caller override needed.
             (
-                "persists_primary_key_when_found",
-                "quotes",
-                {"quotes": ["id"]},
+                "reuses_stored_primary_key",
+                {"primary_key_columns": ["id"], "schema_metadata": {}},
+                None,
                 status.HTTP_200_OK,
                 ExternalDataSchema.SyncType.CDC,
                 ["id"],
             ),
-            # No PK on source → reject so the schema doesn't enter streaming mode and get
-            # stuck. The previous sync_type stays put.
+            # Caller explicitly provides PK — takes precedence over (and persists alongside)
+            # whatever was stored.
             (
-                "rejects_when_table_has_no_primary_key",
-                "tracking_link",
-                {},
+                "caller_override_wins",
+                {"primary_key_columns": ["old"], "schema_metadata": {}},
+                ["new_pk"],
+                status.HTTP_200_OK,
+                ExternalDataSchema.SyncType.CDC,
+                ["new_pk"],
+            ),
+            # No stored PK, no override → refuse the switch.
+            (
+                "rejects_when_no_primary_key_available",
+                {"schema_metadata": {}},
+                None,
                 status.HTTP_400_BAD_REQUEST,
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
@@ -346,8 +356,8 @@ class TestExternalDataSchema(APIBaseTest):
     def test_update_schema_to_cdc(
         self,
         _name: str,
-        table_name: str,
-        queried_pks: dict[str, list[str]],
+        initial_sync_type_config: dict,
+        payload_pk: list[str] | None,
         expected_status: int,
         expected_sync_type: str,
         expected_pk_columns: list[str] | None,
@@ -358,25 +368,22 @@ class TestExternalDataSchema(APIBaseTest):
             job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
         )
         schema = ExternalDataSchema.objects.create(
-            name=table_name,
+            name="quotes",
             team=self.team,
             source=source,
             should_sync=False,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            sync_type_config={"schema_metadata": {"source_schema": "public", "source_table_name": table_name}},
+            sync_type_config=initial_sync_type_config,
         )
+
+        request_body: dict[str, Any] = {"sync_type": "cdc"}
+        if payload_pk is not None:
+            request_body["primary_key_columns"] = payload_pk
 
         with (
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
-            ),
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection"
-            ) as mock_conn,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns",
-                return_value=queried_pks,
             ),
             mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
             mock.patch(
@@ -384,11 +391,9 @@ class TestExternalDataSchema(APIBaseTest):
                 return_value=False,
             ),
         ):
-            mock_conn.return_value.__enter__.return_value = object()
-            mock_conn.return_value.__exit__.return_value = None
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "cdc"},
+                data=request_body,
             )
 
         assert response.status_code == expected_status, response.content

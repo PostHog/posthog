@@ -1349,11 +1349,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     getDatabaseSchemaPayload(values.source)
                 )
 
-                // The backend's `cdc_available` only reflects team-level CDC enablement — it
-                // doesn't know whether the user toggled CDC on for *this* source in step 1.
-                // Without this guard, SyncMethodForm would still offer CDC for every PK-having
-                // table even when the source itself has CDC off, and the resulting submission
-                // would create CDC schemas with no replication slot/publication on the source.
+                // Backend `cdc_available` only reflects the team flag — clear it when the
+                // user didn't toggle CDC on for this source in step 1.
                 const sourceCdcEnabled = !!values.source.payload?.cdc_enabled
                 if (!sourceCdcEnabled) {
                     for (const schema of schemas) {

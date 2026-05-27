@@ -1074,12 +1074,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Schemas given do not exist in source"},
             )
 
-        # Reject `sync_type=cdc` schemas when source-level CDC isn't enabled (either the team
-        # doesn't have the feature, or the user didn't toggle CDC on in step 1 of the wizard).
-        # Without this, the per-schema CDC config gets persisted but `_setup_cdc_slot` never
-        # runs — so no replication slot/publication exists on the source DB and every CDC sync
-        # fails. The wizard frontend should also gate this, but a stale UI or a direct API/MCP
-        # call can bypass it.
+        # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_slot`
+        # would be skipped, leaving the source with no replication slot/publication.
         if not cdc_enabled:
             cdc_schemas_in_payload = sorted(
                 {
@@ -1137,10 +1133,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                             if schema_name is not None:
                                 pk_columns_by_table[schema_name] = primary_key_columns
 
-            # CDC (logical replication) cannot identify rows for UPDATE/DELETE without a primary
-            # key. Reject up front rather than letting the schema enter streaming mode and fail
-            # silently downstream. Must run before `_setup_cdc_slot` so we don't create a
-            # replication slot + publication on the source for a doomed config.
+            # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_slot` doesn't
+            # create replication state on the source for a config we're about to reject.
             tables_missing_pk = sorted(
                 {
                     schema["name"]
@@ -1163,9 +1157,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     },
                 )
 
-        # CDC: create slot + publication for PostHog-managed sources. Runs after PK validation so
-        # we don't leave replication state on the source for a config that's about to be rejected.
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+        # Slot + publication setup runs after PK validation so we don't leave replication state
+        # on the source for a config we're about to refuse.
+        if cdc_enabled:
             cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
             if cdc_result is not None:
                 return cdc_result
