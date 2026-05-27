@@ -281,6 +281,7 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
+                    <ConclusionForm />
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -376,7 +377,6 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    <ConclusionForm />
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">
                             For more precise control over your release, adjust the rollout percentage and release
