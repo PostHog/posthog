@@ -37,8 +37,9 @@ class TestParserMode(BaseTest):
 
     def test_resolve_parser_mode_shadows_in_prod_too(self):
         # The default shadow is no longer gated on `settings.TEST`: prod also
-        # resolves an absent modifier to cpp + rust-py shadow (sampling is 100%
-        # everywhere now; prod only reports divergences, never raises).
+        # resolves an absent modifier to cpp + rust-py shadow. (The shadow mode
+        # is active in both envs; the sampling rate still differs: prod 1%,
+        # tests 100%. Prod only reports divergences, never raises.)
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
             self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", "rust-py"))
@@ -130,6 +131,41 @@ class TestParserMode(BaseTest):
             with patch("posthog.hogql.parser.capture_exception"):
                 with self.assertRaises(HogQLSyntaxError):
                     parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
+
+    def test_shadow_rejected_records_and_logs_sql_in_prod(self):
+        # Prod analogue: a shadow that rejects primary-accepted input is a
+        # divergence, so it counts under result="shadow_rejected", logs the SQL
+        # at warning, and never raises (the primary result is returned).
+        from posthog.hogql import parser as parser_module
+        from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
+
+        real_invoke = parser_module._invoke_parser
+
+        def shadow_throws_parser_class(backend, rule, statement, start):
+            if backend == "rust-py":
+                raise HogQLSyntaxError("simulated rust-py rejection")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser.settings") as mock_settings:
+            mock_settings.TEST = False
+            with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
+                with patch("posthog.hogql.parser._invoke_parser", side_effect=shadow_throws_parser_class):
+                    with patch("posthog.hogql.parser.capture_exception"):
+                        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+                            with patch("posthog.hogql.parser.logger") as mock_logger:
+                                node = parse_select(
+                                    "select shadow_rejected_probe from events",
+                                    parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                                )
+        self.assertIsInstance(node, ast.SelectQuery)
+        results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
+        self.assertIn("shadow_rejected", results)
+        warns = [
+            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "hogql_parser_shadow_divergence"
+        ]
+        self.assertTrue(warns)
+        self.assertEqual(warns[-1].kwargs["result"], "shadow_rejected")
+        self.assertIn("shadow_rejected_probe", warns[-1].kwargs["sql"])
 
     def test_shadow_swallows_packaging_class_throw_in_test_mode(self):
         # A non-BaseHogQLError exception (ImportError, RuntimeError from a
