@@ -33,6 +33,7 @@ class HogFlow(UUIDTModel):
     """
 
     class Meta:
+        db_table = "posthog_hogflow"
         indexes = [
             models.Index(fields=["status", "team"]),
             models.Index(fields=["version", "team"]),
@@ -56,11 +57,11 @@ class HogFlow(UUIDTModel):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)
@@ -92,15 +93,13 @@ def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):
 
 @receiver(post_save, sender=Action)
 def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
-    # Whenever an action is saved we want to load all hog flows using it
-    # and trigger a refresh
-    from posthog.tasks.hog_flows import refresh_affected_hog_flows
+    from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
     refresh_affected_hog_flows.delay(action_id=instance.id)
 
 
 @receiver(post_save, sender=Team)
 def team_saved_for_hog_flows(sender, instance: Team, created, **kwargs):
-    from posthog.tasks.hog_flows import refresh_affected_hog_flows
+    from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
     refresh_affected_hog_flows.delay(team_id=instance.id)

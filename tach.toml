@@ -577,6 +577,8 @@ path = "products.workflows"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
+    "products.feature_flags",
 ]
 layer = "modules"
 

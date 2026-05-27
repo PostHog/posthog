@@ -20,7 +20,6 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -33,7 +32,6 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.models import Team
-from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
@@ -42,6 +40,8 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius,
     get_user_blast_radius_persons,
 )
+from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
@@ -716,11 +716,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         Internal endpoint called by the scheduler service to process due schedules.
         Handles both executing due schedules and initializing next_run_at for new ones.
         """
-        from django.db import transaction
+        from django.db import transaction  # noqa: PLC0415
 
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-        from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
-        from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
+        from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule  # noqa: PLC0415
+        from products.workflows.backend.utils.rrule_utils import compute_next_occurrences  # noqa: PLC0415
 
         def advance_next_run(schedule, after=None):
             """Compute and set next_run_at, or mark completed if RRULE is exhausted."""

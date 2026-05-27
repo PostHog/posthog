@@ -10,6 +10,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.actions.backend.models.action import Action
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = get_logger(__name__)
 
@@ -17,8 +18,6 @@ logger = get_logger(__name__)
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def refresh_affected_hog_flows(team_id: Optional[int] = None, action_id: Optional[int] = None) -> int:
-    from posthog.models.hog_flow.hog_flow import HogFlow
-
     affected_hog_flows: list[HogFlow] = []
 
     if action_id:

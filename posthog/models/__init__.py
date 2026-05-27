@@ -46,7 +46,6 @@ from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
-from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
 from .health_issue import HealthIssue
@@ -149,7 +148,6 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HealthIssue",
-    "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
     "LLMPrompt",

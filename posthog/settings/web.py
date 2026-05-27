@@ -459,7 +459,7 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.llm_analytics.backend.models.score_definitions.ScoreDefinition.Kind",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
-        "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
+        "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",

@@ -10,7 +10,8 @@ from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team, User
-from posthog.models.hog_flow.hog_flow import HogFlow
+
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -693,7 +694,7 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
-        with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
@@ -701,8 +702,8 @@ class TestHogFlowAPI(APIBaseTest):
         mock_get_user_blast_radius.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
-        with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
-            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=4, total=10)
 

@@ -42,10 +42,10 @@ class HogFlowTemplate(UUIDTModel):
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     tags = ArrayField(models.CharField(max_length=255), blank=True, default=list)
     scope = models.CharField(max_length=24, choices=Scope)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)

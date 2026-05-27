@@ -2,8 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models.hog_flow.hog_flow import HogFlow
-
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
 

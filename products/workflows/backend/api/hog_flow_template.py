@@ -11,15 +11,15 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
+from products.workflows.backend.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.templates import get_global_template_by_id, load_global_templates
 
 logger = structlog.get_logger(__name__)
@@ -157,7 +157,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
     @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by:
-            from posthog.api.shared import UserBasicSerializer
+            from posthog.api.shared import UserBasicSerializer  # noqa: PLC0415
 
             return UserBasicSerializer(obj.created_by).data
         return None
