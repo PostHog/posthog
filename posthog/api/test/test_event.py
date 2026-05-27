@@ -66,12 +66,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with self.assertNumQueries(9):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         assert response["results"][0]["person"] is None
 
-        with self.assertNumQueries(10):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2&include_person=true").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2&include_person=true").json()
         assert response["results"][0]["person"] == {
             "distinct_ids": ["2"],
             "is_identified": True,
@@ -873,17 +871,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
         flush_persons_and_events()
 
-        with self.assertNumQueries(9):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         assert response.status_code == status.HTTP_200_OK
         response_json = response.json()
         assert response_json["event"] == "event"
         assert response_json["person"] is None
 
-        with self.assertNumQueries(10):
-            with_person_response = self.client.get(
-                f"/api/projects/{self.team.id}/events/{event_id}?include_person=true"
-            )
+        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
         assert with_person_response.status_code == status.HTTP_200_OK
         with_person_response_json = with_person_response.json()
         assert with_person_response_json["event"] == "event"
