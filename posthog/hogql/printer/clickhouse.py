@@ -1385,6 +1385,17 @@ class ClickHousePrinter(BasePrinter):
         if optimized_property_group_call := self._get_optimized_property_group_call(node):
             return optimized_property_group_call
 
+        if node.name == "toFloatOrDefault" and len(node.args) == 1:
+            node = ast.Call(
+                name=node.name,
+                args=[node.args[0], ast.Constant(value=0.0)],
+                params=node.params,
+                distinct=node.distinct,
+                within_group=node.within_group,
+                filter_expr=node.filter_expr,
+                order_by=node.order_by,
+            )
+
         return super().visit_call(node)
 
     def visit_array_slice(self, node: ast.ArraySlice):

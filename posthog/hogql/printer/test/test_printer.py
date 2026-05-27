@@ -1192,6 +1192,15 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
+        self.assertEqual(
+            self._expr("toFloatOrDefault('1.5', 0)", context),
+            "toFloat64OrDefault(%(hogql_val_8)s, accurateCast(0, 'Float64'))",
+        )
+        self.assertEqual(
+            self._expr("toFloatOrDefault('1.5')", context),
+            "toFloat64OrDefault(%(hogql_val_9)s, accurateCast(0.0, 'Float64'))",
+        )
+
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
         self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
         self.assertEqual(
