@@ -116,6 +116,59 @@ async function main(): Promise<void> {
                 }),
             }
             break
+        case 'slow-cancellable':
+            // Subscribes to the session's input channel and sleeps up to 10s
+            // while watching for a `cancel`. Lets the /cancel and /listen
+            // runtime e2e tests drive the lifecycle without the real SDK:
+            //   - /cancel test posts /cancel mid-sleep → executor returns
+            //     `cancelled` → worker writes `cancelled by client`.
+            //   - /listen test attaches SSE during the sleep window, observes
+            //     turn_started → assistant_message → session_completed.
+            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=slow-cancellable — sleeps up to 10s; cancel-aware')
+            executor = {
+                runTurn: async (input) => {
+                    const sessionId = input.job.sessionId
+                    let cancelled = false
+                    const unsubscribe = await bus.subscribeInput(sessionId, (msg) => {
+                        if (msg.type === 'cancel') {
+                            cancelled = true
+                        }
+                    })
+                    try {
+                        const start = Date.now()
+                        while (!cancelled && Date.now() - start < 10_000) {
+                            await new Promise((r) => setTimeout(r, 50))
+                        }
+                    } finally {
+                        await unsubscribe().catch(() => {})
+                    }
+                    if (cancelled) {
+                        return { kind: 'cancelled' }
+                    }
+                    return {
+                        kind: 'completed',
+                        message: {
+                            role: 'assistant',
+                            content: 'slow-cancellable: completed without cancel',
+                            at: new Date().toISOString(),
+                        },
+                        output: { ok: true },
+                    }
+                },
+            }
+            break
+        case 'failure':
+            // Deterministic `failed` outcome — the failure-path e2e test
+            // asserts the queue row lands in `failed` and the
+            // `session_failed` event reaches log_entries with this message.
+            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=failure — every turn returns failed')
+            executor = {
+                runTurn: async () => ({
+                    kind: 'failed',
+                    error: 'forced failure for e2e test',
+                }),
+            }
+            break
         case undefined:
         case '':
         case 'sdk':
@@ -123,7 +176,7 @@ async function main(): Promise<void> {
             break
         default:
             throw new Error(
-                `Unknown AGENT_RUNNER_TEST_EXECUTOR='${testExecutorKind}'. Expected: echo, principal-echo, sdk.`
+                `Unknown AGENT_RUNNER_TEST_EXECUTOR='${testExecutorKind}'. Expected: echo, principal-echo, slow-cancellable, failure, sdk.`
             )
     }
 

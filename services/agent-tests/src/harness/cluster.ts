@@ -55,7 +55,7 @@ const ENCRYPTION_SALT = '00beef0000beef0000beef0000beef00'
 const INGRESS_BIN = resolvePath(__dirname, '../../../agent-ingress/dist/index.js')
 const RUNNER_BIN = resolvePath(__dirname, '../../../agent-runner/dist/index.js')
 
-export type ExecutorKind = 'echo' | 'principal-echo' | 'sdk'
+export type ExecutorKind = 'echo' | 'principal-echo' | 'slow-cancellable' | 'failure' | 'sdk'
 
 export interface ClusterOptions {
     /**
@@ -80,6 +80,8 @@ export interface AgentCluster {
     readonly queue: Pool
     readonly queueManager: SessionQueueManager
     readonly repository: ApplicationsRepository
+    /** Same fernet keys the runner subprocess uses — for stamping encrypted_env from tests. */
+    readonly encryption: EncryptedFields
     readonly identities: IdentitiesRepository
     readonly bundleStore: BundleStore
     readonly sandboxInstances: SandboxInstancesRepository
@@ -170,7 +172,7 @@ export async function startCluster(opts: ClusterOptions = {}): Promise<AgentClus
         throw err
     }
 
-    const cleanup = new CleanupRegistry({ posthog, queue })
+    const cleanup = new CleanupRegistry({ posthog, queue }, encryption)
 
     return {
         ingressUrl,
@@ -179,6 +181,7 @@ export async function startCluster(opts: ClusterOptions = {}): Promise<AgentClus
         queue,
         queueManager,
         repository,
+        encryption,
         identities,
         bundleStore,
         sandboxInstances,
@@ -223,8 +226,10 @@ function spawnService(name: string, bin: string, env: NodeJS.ProcessEnv): ChildP
     const child = spawn(process.execPath, [bin], {
         env,
         // stdout → ignore (chatty pino logs); stderr → inherit so genuine
-        // errors land in the jest output.
-        stdio: ['ignore', 'ignore', 'inherit'],
+        // errors land in the jest output. Set AGENT_TESTS_VERBOSE=1 to
+        // inherit stdout too — useful when debugging "why isn't this
+        // service doing X" questions.
+        stdio: ['ignore', process.env.AGENT_TESTS_VERBOSE ? 'inherit' : 'ignore', 'inherit'],
     })
     child.on('exit', (code, signal) => {
         if (code !== null && code !== 0) {

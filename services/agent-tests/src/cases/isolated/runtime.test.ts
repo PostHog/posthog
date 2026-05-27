@@ -1,4 +1,4 @@
-import { post, readPrincipal, waitForStatus } from '../../harness/clients'
+import { post, postSlack, readPrincipal, waitForStatus } from '../../harness/clients'
 /**
  * Headline runtime test — proves the principal flows all the way through
  * the production pipes, end-to-end:
@@ -21,16 +21,22 @@ import { post, readPrincipal, waitForStatus } from '../../harness/clients'
  */
 import { type AgentCluster, startCluster } from '../../harness/cluster'
 import { renderPrincipal } from '../../harness/executors'
-import { createApp, setTeamSecret } from '../../harness/fixtures'
+import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-runtime-team-secret'
+const SLACK_SIGNING_SECRET = 'e2e-runtime-slack-signing'
+const TRUSTED_WORKSPACE = 'T_RUNTIME_OWNER'
 
 describe('runtime: ingress → runner → executor → logs', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ executor: 'principal-echo' })
+        cluster = await startCluster({
+            executor: 'principal-echo',
+            secrets: { SLACK_SIGNING_SECRET },
+        })
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
+        await createIdentitySpace(cluster.cleanup, 'e2e-slack')
     }, 30_000)
 
     afterAll(async () => {
@@ -79,6 +85,50 @@ describe('runtime: ingress → runner → executor → logs', () => {
         // turn_completed + session_completed are the deterministic markers.
         expect(rows.some((row) => row.message.includes('turn_started'))).toBe(true)
         expect(rows.some((row) => row.message.includes('session_completed'))).toBe(true)
+    }, 30_000)
+
+    it('a slack-triggered agent stamps a user principal that rides through to ClickHouse', async () => {
+        // Slack identity is the third arm of the auth/identity model:
+        // a `user` principal sourced from a verified webhook + a Layer-2
+        // identity-space mapping. Mirrors the PAT case but exercises the
+        // resolveIdentity + AgentUser-persistence half that the other
+        // runtime cases don't touch.
+        const app = await createApp(cluster.cleanup, {
+            slugSuffix: 'runtime-slack',
+            auth: { type: 'webhook_signature', provider: 'slack' },
+            identity: { space: 'e2e-slack', source: { provider: 'slack', trusted_workspaces: [TRUSTED_WORKSPACE] } },
+            triggers: [
+                {
+                    id: 'slack',
+                    type: 'slack_event',
+                    events: ['app_mention'],
+                    signing_secret_name: 'SLACK_SIGNING_SECRET',
+                },
+            ],
+        })
+
+        const res = await postSlack(cluster, app.slug, {
+            teamId: TRUSTED_WORKSPACE,
+            userId: 'U_RUNTIME',
+            signingSecret: SLACK_SIGNING_SECRET,
+        })
+        expect(res.status).toBe(202)
+        const sessionId = res.body.sessionId as string
+
+        const principal = await readPrincipal(cluster, sessionId)
+        expect(principal).toMatchObject({
+            kind: 'user',
+            provider: 'slack',
+            providerAccountId: TRUSTED_WORKSPACE,
+            providerSubject: 'U_RUNTIME',
+        })
+
+        await waitForStatus(cluster, sessionId, ['completed'])
+
+        const expected = renderPrincipal(principal as Parameters<typeof renderPrincipal>[0])
+        await cluster.clickhouse.waitForLogs(sessionId, (r) => r.some((row) => row.message.includes(expected)), {
+            timeoutMs: 15_000,
+        })
     }, 30_000)
 
     it('a public agent runs to completion with no principal — rendered as "principal: none" in ClickHouse', async () => {

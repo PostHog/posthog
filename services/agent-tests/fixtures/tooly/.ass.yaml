@@ -1,0 +1,5 @@
+name: e2e-tooly
+slug: e2e-tooly
+description: Tool-using agent for the agent-tests sandbox e2e suite.
+tools: []
+skills: []

@@ -1,0 +1,5 @@
+name: e2e-wired
+slug: e2e-wired
+description: Webhook-calling agent for the secret-broker e2e suite.
+tools: []
+skills: []
