@@ -449,7 +449,14 @@ class TestSubscriptionLimit(BaseTest):
                 start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
 
-    @parameterized.expand([("zero", 0, False), ("four", 4, False), ("at_limit", 5, True), ("over_limit", 6, True)])
+    @parameterized.expand(
+        [
+            ("zero", 0, False),
+            ("below_limit", SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER - 1, False),
+            ("at_limit", SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER, True),
+            ("over_limit", SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER + 1, True),
+        ]
+    )
     def test_free_org_limit(self, _name: str, count: int, blocked: bool) -> None:
         self.organization.available_product_features = []
         self.organization.save()

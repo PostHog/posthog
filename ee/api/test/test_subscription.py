@@ -1499,7 +1499,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        for i in range(5):
+        for i in range(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/subscriptions/",
                 self._minimal_payload(target_value=f"user{i}@b.com"),
@@ -1525,7 +1525,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        existing = self._seed_subscriptions(5)
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
         subscription_id = existing[0].id
 
         response = self.client.patch(
@@ -1541,7 +1541,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        existing = self._seed_subscriptions(5)
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
         subscription_to_delete = existing[0].id
 
         # Soft-delete one subscription
@@ -1564,7 +1564,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        existing = self._seed_subscriptions(5)
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
         to_restore = existing[0]
 
         # Soft-delete one (4 active), then refill to the cap with a fresh POST.
@@ -1593,7 +1593,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        existing = self._seed_subscriptions(5)
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
         to_restore = existing[0]
 
         delete_response = self.client.patch(
