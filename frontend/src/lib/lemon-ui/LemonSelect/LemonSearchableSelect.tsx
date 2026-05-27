@@ -1,5 +1,3 @@
-import './LemonSearchableSelect.scss'
-
 import { useMemo, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
@@ -105,18 +103,16 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     const optionsWithSearch = useMemo(() => {
         const searchMenuItem: LemonSelectOption<T> = {
             label: () => (
-                <div className="LemonSearchableSelect__searchHeader">
-                    <LemonInput
-                        type="search"
-                        placeholder={searchPlaceholder || 'Search'}
-                        autoFocus
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        fullWidth
-                        onClick={(e) => e.stopPropagation()}
-                        className="mb-1"
-                    />
-                </div>
+                <LemonInput
+                    type="search"
+                    placeholder={searchPlaceholder || 'Search'}
+                    autoFocus
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    fullWidth
+                    onClick={(e) => e.stopPropagation()}
+                    className="mb-1"
+                />
             ),
             custom: true,
         } as any
