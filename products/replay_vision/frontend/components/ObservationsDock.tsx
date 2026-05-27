@@ -96,6 +96,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen } = useValues(logic)
     const { setDockOpen } = useActions(logic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -151,7 +152,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationDockCard key={observation.id} observation={observation} />
+                            <ObservationDockCard key={observation.id} observation={observation} onSeek={seekToTime} />
                         ))
                     )}
                 </div>
