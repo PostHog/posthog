@@ -68,3 +68,17 @@ export function filterValidEntries(entries: readonly ContextMillResource[], arch
 export function clearResourceCache(): void {
     cachedResources = null
 }
+
+/**
+ * Fetch + unzip + parse the context-mill manifest, returning the filtered
+ * entries. Does not touch the module-level `cachedResources`; used by the
+ * hono runtime to push entries into a Redis-sharded cache without retaining
+ * the archive in process memory.
+ */
+export async function fetchAndExtractEntries(localUrl?: string): Promise<ContextMillResource[]> {
+    const url = localUrl || CONTEXT_MILL_URL
+    const bytes = await defaultArchiveLoader(url, Boolean(localUrl))
+    const archive = unzipSync(bytes)
+    const manifest = loadManifestFromArchive(archive)
+    return filterValidEntries(manifest.resources, archive)
+}

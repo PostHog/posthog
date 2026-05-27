@@ -33,9 +33,9 @@ export type BlobUpstream = () => Promise<Uint8Array>
  * without colliding.
  */
 export class SharedBlobCache {
-    private readonly cacheKey: string
-    private readonly freshKey: string
-    private readonly lockKey: string
+    public readonly cacheKey: string
+    public readonly freshKey: string
+    public readonly lockKey: string
 
     private cacheTtlSeconds: number
     private freshSeconds: number

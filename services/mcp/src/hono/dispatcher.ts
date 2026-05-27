@@ -194,7 +194,7 @@ class McpDispatcher {
                 case Method.ResourcesList:
                     return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
-                    return jsonRpcResult(id, this.resourceCatalog.readResource(params))
+                    return jsonRpcResult(id, await this.resourceCatalog.readResource(params))
                 case Method.PromptsList:
                     return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
                 case Method.PromptsGet:

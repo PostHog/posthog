@@ -10,41 +10,34 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPromptsFromManifest } from '@/resources'
-import {
-    type ArchiveLoader,
-    fetchContextMillResources,
-    filterValidEntries,
-    loadManifestFromArchive,
-    clearResourceCache,
-} from '@/resources/internals'
-import type { ContextMillResource } from '@/resources/manifest-types'
+import { fetchAndExtractEntries } from '@/resources/internals'
 import { buildAppStubHtml } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
 
+import { ContextMillResourceCache, type SlimManifestEntry } from './cache/ContextMillResourceCache'
 import type { RedisLike } from './cache/RedisCache'
-import { SharedBlobCache } from './cache/SharedBlobCache'
 
 export class ResourceCatalog {
     private readonly env: Env
-    private readonly archiveLoader: ArchiveLoader | undefined
+    private readonly contextMillCache: ContextMillResourceCache | undefined
 
     private resources: Resource[] = []
-    private resourcesByUri = new Map<string, TextResourceContents>()
     private prompts: Prompt[] = []
     private promptsByName = new Map<string, GetPromptResult>()
     private uiAppResources: Resource[] = []
     private uiAppReadEntries = new Map<string, TextResourceContents>()
     private allResources: Resource[] = []
-    private contextMillData: readonly ContextMillResource[] = []
+    private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
+    private contextMillGen: string | undefined
 
     constructor(env: Env, redis?: RedisLike) {
         this.env = env
-        this.archiveLoader = redis ? buildSharedArchiveLoader(redis) : undefined
+        this.contextMillCache = redis ? new ContextMillResourceCache(redis) : undefined
     }
 
-    get contextMillEntries(): readonly ContextMillResource[] {
-        return this.contextMillData
+    get contextMillEntries(): readonly SlimManifestEntry[] {
+        return Array.from(this.contextMillEntriesByUri.values())
     }
 
     async warmup(): Promise<void> {
@@ -56,19 +49,42 @@ export class ResourceCatalog {
         return { resources: this.allResources }
     }
 
-    readResource(params: Record<string, unknown> | undefined): ReadResourceResult {
+    async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {
         const uri = (params?.uri as string) ?? ''
-        const entry = this.resourcesByUri.get(uri) ?? this.uiAppReadEntries.get(uri)
-        if (!entry) {
+        const uiEntry = this.uiAppReadEntries.get(uri)
+        if (uiEntry) {
+            return {
+                contents: [
+                    {
+                        uri: uiEntry.uri,
+                        mimeType: uiEntry.mimeType,
+                        text: uiEntry.text,
+                        ...(uiEntry._meta ? { _meta: uiEntry._meta } : {}),
+                    },
+                ],
+            }
+        }
+
+        const slimEntry = this.contextMillEntriesByUri.get(uri)
+        if (!slimEntry || !this.contextMillCache || !this.contextMillGen) {
+            return { contents: [] }
+        }
+        const body = await this.contextMillCache.readBody(uri, this.contextMillGen)
+        if (!body) {
+            // Eviction, partial state, or generation drift. Invalidate the
+            // slim manifest so the background refresh actually re-fetches
+            // upstream (a plain refresh would short-circuit on the still-fresh
+            // manifest), and let subsequent requests resolve once the new
+            // generation is published.
+            void this.contextMillCache.invalidate().then(() => this.refreshContextMill())
             return { contents: [] }
         }
         return {
             contents: [
                 {
-                    uri: entry.uri,
-                    mimeType: entry.mimeType,
-                    text: entry.text,
-                    ...(entry._meta ? { _meta: entry._meta } : {}),
+                    uri: slimEntry.uri,
+                    mimeType: body.mimeType,
+                    text: body.text,
                 },
             ],
         }
@@ -87,26 +103,34 @@ export class ResourceCatalog {
         return { messages: entry.messages }
     }
 
+    private async refreshContextMill(): Promise<void> {
+        if (!this.contextMillCache) {
+            return
+        }
+        const localUrlRaw = (this.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+        const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
+        const slim = await this.contextMillCache.loadOrRefresh(() => fetchAndExtractEntries(localUrl))
+
+        const nextEntriesByUri = new Map<string, SlimManifestEntry>()
+        const nextResources: Resource[] = []
+        for (const entry of slim.entries) {
+            nextEntriesByUri.set(entry.uri, entry)
+            nextResources.push({
+                name: entry.name,
+                uri: entry.uri,
+                mimeType: entry.mimeType,
+                description: entry.description,
+            })
+        }
+        this.contextMillEntriesByUri = nextEntriesByUri
+        this.contextMillGen = slim.gen
+        this.resources = nextResources
+        this.allResources = [...this.resources, ...this.uiAppResources]
+    }
+
     private async warmupResources(): Promise<void> {
         try {
-            const archive = await fetchContextMillResources(undefined, this.archiveLoader)
-            const manifest = loadManifestFromArchive(archive)
-            this.contextMillData = filterValidEntries(manifest.resources, archive)
-            clearResourceCache()
-
-            for (const entry of this.contextMillEntries) {
-                this.resources.push({
-                    name: entry.name,
-                    uri: entry.uri,
-                    mimeType: entry.resource.mimeType,
-                    description: entry.resource.description,
-                })
-                this.resourcesByUri.set(entry.uri, {
-                    uri: entry.uri,
-                    mimeType: entry.resource.mimeType,
-                    text: entry.resource.text,
-                })
-            }
+            await this.refreshContextMill()
         } catch (error) {
             console.error('[ResourceCatalog] Failed to pre-load context-mill resources:', error)
         }
@@ -160,17 +184,4 @@ export class ResourceCatalog {
             })
         }
     }
-}
-
-function buildSharedArchiveLoader(redis: RedisLike): ArchiveLoader {
-    const cache = new SharedBlobCache(redis, 'context-mill:archive')
-    return async (url) =>
-        cache.fetch(async () => {
-            const response = await fetch(url)
-            if (!response.ok) {
-                throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
-            }
-            const buffer = await response.arrayBuffer()
-            return new Uint8Array(buffer)
-        })
 }
