@@ -50,6 +50,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.access import user_can_see_signals_scout_reports
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -393,6 +394,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signals_scout_inbox_gate(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
@@ -450,6 +452,27 @@ class SignalReportViewSet(
 
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
+
+    def _apply_signals_scout_inbox_gate(self, queryset):
+        # `signals_scout` is a new signal source rolled out to the inbox behind the
+        # `signals-scout-inbox` flag (final, per-user step) so scout reports can be
+        # sense-checked internally before users see them. When the requesting user isn't
+        # flagged in, hide scout-sourced reports from both list and detail (shared queryset).
+        if user_can_see_signals_scout_reports(self.request.user, self.team):
+            return queryset
+        # Guard the ClickHouse lookup: only teams that have configured the scout source can
+        # have scout-sourced reports. Skipping the query here keeps it off the inbox hot path
+        # for every team that doesn't run scouts (the flag is off by default for everyone).
+        has_scout_source = SignalSourceConfig.objects.filter(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+        ).exists()
+        if not has_scout_source:
+            return queryset
+        scout_report_ids = fetch_report_ids_for_source_products(
+            self.team, [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]
+        )
+        return queryset.exclude(id__in=scout_report_ids)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
