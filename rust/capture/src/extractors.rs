@@ -8,7 +8,6 @@ use std::time::Duration;
 use axum::body::Body;
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
-use tracing::warn;
 
 use crate::api::CaptureError;
 
@@ -40,12 +39,6 @@ pub async fn extract_body_with_timeout(
                         // Timeout waiting for next chunk
                         metrics::counter!(METRIC_BODY_READ_TIMEOUT, "path" => path.to_string())
                             .increment(1);
-                        warn!(
-                            path = path,
-                            bytes_received = buf.len(),
-                            timeout_ms = timeout.as_millis() as u64,
-                            "Body read timeout: client stopped sending data"
-                        );
                         return Err(CaptureError::BodyReadTimeout);
                     }
                 }
