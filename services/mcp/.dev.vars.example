@@ -2,9 +2,11 @@
 # front of the Hono MCP server — most settings now belong to Hono, not here.
 
 # Override the per-region Hono target. Set this when running the worker against
-# a local Hono dev server. Leave unset in production so the worker picks
+# a local Hono dev server (`pnpm run dev:hono` defaults to port 8787). When you
+# point the worker at local Hono, start `pnpm run dev` with `--port 8788` so
+# the two don't fight over 8787. Leave unset in production so the worker picks
 # https://mcp.us.posthog.com / https://mcp.eu.posthog.com from the resolved region.
-MCP_HONO_URL=http://localhost:8788
+MCP_HONO_URL=http://localhost:8787
 
 # Used by the worker's token-probe path (POST /api/users/@me) when figuring out
 # a user's region. Local dev points both probes at the same backend.

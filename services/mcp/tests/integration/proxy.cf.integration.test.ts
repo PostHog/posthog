@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { startCfProxyHarness } from './harness/cf-proxy'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
-import { defineAuthTests, defineHttpRouteTests, type ProtocolTestHarness } from './mcp-protocol-suite'
+import {
+    defineAuthTests,
+    defineHttpRouteTests,
+    defineResilienceTests,
+    type ProtocolTestHarness,
+} from './mcp-protocol-suite'
 
 // End-to-end test for the Cloudflare Worker proxy.
 //
@@ -50,6 +55,11 @@ const harnessFor = (): ProtocolTestHarness => ({
 // preserves status, headers, body, and routing.
 defineHttpRouteTests('CF proxy → Hono (real stack)', harnessFor)
 defineAuthTests('CF proxy → Hono (real stack)', harnessFor)
+// `defineResilienceTests` covers the /sse → /mcp 308 + `_deprecated=sse`
+// marker (parity with the old `tests/workers/sse-redirect.test.ts`) plus the
+// unknown-Mcp-Session-Id recovery path, both of which the proxy needs to
+// forward verbatim.
+defineResilienceTests('CF proxy → Hono (real stack)', harnessFor)
 
 // Proxy-specific assertions: region detection inputs and request/response
 // fidelity. These deliberately stay narrow — the rich protocol surface is
@@ -110,13 +120,5 @@ describe('CF proxy plumbing (real stack)', () => {
         const res = await fetch(new URL('/', harness.baseUrl), { redirect: 'manual' })
         expect([301, 302, 307, 308]).toContain(res.status)
         expect(res.headers.get('location') || '').toContain('posthog.com')
-    })
-
-    it('forwards /sse as a 308 redirect to /mcp (Hono behaviour)', async () => {
-        const res = await fetch(new URL('/sse', harness.baseUrl), { redirect: 'manual' })
-        expect(res.status).toBe(308)
-        const location = res.headers.get('location') || ''
-        expect(location).toContain('/mcp')
-        expect(location).toContain('_deprecated=sse')
     })
 })
