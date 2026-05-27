@@ -5708,6 +5708,21 @@
             "readOnlyHint": true
         }
     },
+    "workflows-create": {
+        "description": "Create a new workflow. Requires an actions array containing exactly one action with type='trigger' whose config sets the trigger type (event, webhook, manual, batch, schedule, tracking_pixel). Additional actions define the workflow steps: function/function_email/function_sms/function_push (call a CDP template), delay (pause execution, e.g. '30m', '2h', '1d'), conditional_branch (if/else routing), wait_until_condition (pause until a condition is met). Connect actions via the edges array of {from, to, type} entries. New workflows default to status='draft' — set status='active' to enable live execution.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create workflow",
+        "title": "Create workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
         "category": "Workflows",
@@ -5736,6 +5751,36 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-run": {
+        "description": "Execute a test invocation of a saved workflow. Sends the workflow to the execution engine for a dry-run with the provided test event data. By default async actions (HTTP calls, emails, SMS) are mocked for safety — set mock_async_functions=false to actually fire side effects. Use globals to provide test event data matching your trigger type (typically {event, person, groups}). Optionally pass current_action_id to start from a specific node instead of the trigger. Returns the execution trace showing which actions ran and their outputs.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Test-run workflow",
+        "title": "Test-run workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update": {
+        "description": "Update an existing workflow by ID. Supports partial updates for most fields (e.g. renaming, archiving, editing description). EXCEPTION: to transition status from 'draft' to 'active', you must re-send the full workflow body (actions, edges, exit_condition, etc.) along with status='active' — a status-only PATCH will fail with an empty validation error because publish-time validation needs the full graph. Other common updates: status -> archived to disable, edit actions array (must still contain exactly one trigger action), modify edges, change exit_condition.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update workflow",
+        "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     }
 }

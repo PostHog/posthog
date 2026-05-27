@@ -1,0 +1,235 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actions": {
+            "description": "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'.",
+            "items": {
+                "properties": {
+                    "config": {
+                        "description": "Type-specific configuration. For triggers: {type: 'event'|'webhook'|'manual'|'batch'|'schedule'|'tracking_pixel', filters?}. filters is an object: {events: [{id, name, type: 'events', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: 'event'|'person'|'group'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is '<number><unit>' where unit is one of s|m|h|d (seconds, minutes, hours, days), e.g. '10s', '30m', '1.5h', '2d'. Fractions allowed. Per-unit max enforced by executor: s<=60, m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >60s use minutes, to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition's array position determines which 'branch' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}."
+                    },
+                    "created_at": {
+                        "description": "Unix epoch milliseconds when the action was added. Auto-managed by the frontend.",
+                        "type": "number"
+                    },
+                    "description": {
+                        "default": "",
+                        "description": "Optional description of what this action does.",
+                        "type": "string"
+                    },
+                    "filters": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "actions": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "bytecode": {},
+                                    "bytecode_error": {
+                                        "type": "string"
+                                    },
+                                    "data_warehouse": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "events": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "filter_test_accounts": {
+                                        "type": "boolean"
+                                    },
+                                    "properties": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "source": {
+                                        "default": "events",
+                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "type": "string"
+                                    },
+                                    "transpiled": {}
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Property filters that gate execution of this action."
+                    },
+                    "id": {
+                        "description": "Unique identifier for this action node within the workflow graph.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Human-readable name for the action node.",
+                        "maxLength": 400,
+                        "type": "string"
+                    },
+                    "on_error": {
+                        "anyOf": [
+                            {
+                                "description": "* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch",
+                                "enum": ["continue", "abort", "complete", "branch"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch"
+                    },
+                    "output_variable": {
+                        "description": "Variable definition to store this action's output for use by downstream actions."
+                    },
+                    "type": {
+                        "description": "Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "description": "Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.",
+                        "type": "number"
+                    }
+                },
+                "required": ["id", "name", "type", "config"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "conversion": {
+            "description": "Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. 'filters' is an array of property conditions; each condition is {key, value, operator, type} where type is 'event' | 'person' | 'group'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. 'bytecode' is compiled server-side from 'filters' — do not set it."
+        },
+        "description": {
+            "default": "",
+            "description": "Optional description of the workflow's purpose.",
+            "type": "string"
+        },
+        "edges": {
+            "description": "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch / wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+        },
+        "exit_condition": {
+            "anyOf": [
+                {
+                    "description": "* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End",
+                    "enum": [
+                        "exit_on_conversion",
+                        "exit_on_trigger_not_matched",
+                        "exit_on_trigger_not_matched_or_conversion",
+                        "exit_only_at_end"
+                    ],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable name for the workflow."
+        },
+        "status": {
+            "description": "Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
+            "enum": ["draft", "active", "archived"],
+            "type": "string"
+        },
+        "trigger_masking": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "bytecode": {
+                            "description": "Compiled bytecode for the hash template. Auto-generated server-side from the hash expression."
+                        },
+                        "hash": {
+                            "description": "HogQL template expression used as the masking key (e.g. '{person.properties.email}').",
+                            "type": "string"
+                        },
+                        "threshold": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum number of matching events before the workflow triggers (k-anonymity threshold)."
+                        },
+                        "ttl": {
+                            "anyOf": [
+                                {
+                                    "maximum": 94608000,
+                                    "minimum": 60,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Time-to-live in seconds for the masking hash. Min 60s, max 3 years."
+                        }
+                    },
+                    "required": ["hash"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+        },
+        "variables": {
+            "description": "Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.",
+            "items": {
+                "additionalProperties": {
+                    "type": "string"
+                },
+                "description": "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string).",
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["actions"],
+    "type": "object"
+}

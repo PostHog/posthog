@@ -148,7 +148,8 @@ class TestHogFlowAPI(APIBaseTest):
             "code": "invalid_input",
             "detail": (
                 "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
+                "For seconds, use a fraction of a minute."
             ),
             "type": "validation_error",
         }
@@ -550,6 +551,61 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "draft"
+
+    def _create_active_hog_flow(self) -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+        return flow_id
+
+    def test_mcp_cannot_modify_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed via MCP"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 400, response.json()
+        assert "enabled (active) workflow via MCP" in response.json()["detail"]
+
+    @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
+    def test_mcp_can_disable_active_workflow(self, _name, target_status):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": target_status},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == target_status
+
+    def test_mcp_can_modify_draft_workflow(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}",
+            {"name": "Renamed via MCP"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["name"] == "Renamed via MCP"
+
+    def test_non_mcp_can_modify_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed via UI"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["name"] == "Renamed via UI"
 
     def test_hog_flow_conditional_event_filter_rejected(self):
         conditional_action = {

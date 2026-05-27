@@ -76,18 +76,68 @@ class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
 
 
 class HogFlowActionSerializer(serializers.Serializer):
-    id = serializers.CharField()
-    name = serializers.CharField(max_length=400)
-    description = serializers.CharField(allow_blank=True, default="")
-    on_error = serializers.ChoiceField(
-        choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
+    id = serializers.CharField(help_text="Unique identifier for this action node within the workflow graph.")
+    name = serializers.CharField(max_length=400, help_text="Human-readable name for the action node.")
+    description = serializers.CharField(
+        allow_blank=True, default="", help_text="Optional description of what this action does."
     )
-    created_at = serializers.IntegerField(required=False)
-    updated_at = serializers.IntegerField(required=False)
-    filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
-    type = serializers.CharField(max_length=100)
-    config = serializers.JSONField()
-    output_variable = serializers.JSONField(required=False, allow_null=True)
+    on_error = serializers.ChoiceField(
+        choices=["continue", "abort", "complete", "branch"],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Behavior when this action fails: continue (skip and proceed), abort (stop workflow), "
+            "complete (mark as done), or branch (follow error edge)."
+        ),
+    )
+    created_at = serializers.IntegerField(
+        required=False, help_text="Unix epoch milliseconds when the action was added. Auto-managed by the frontend."
+    )
+    updated_at = serializers.IntegerField(
+        required=False,
+        help_text="Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.",
+    )
+    filters = HogFunctionFiltersSerializer(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Property filters that gate execution of this action.",
+    )
+    type = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "Action type. One of: trigger, function, function_email, function_sms, function_push, delay, "
+            "conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit."
+        ),
+    )
+    config = serializers.JSONField(
+        help_text=(
+            "Type-specific configuration. "
+            "For triggers: {type: 'event'|'webhook'|'manual'|'batch'|'schedule'|'tracking_pixel', filters?}. "
+            "filters is an object: {events: [{id, name, type: 'events', properties: [<property condition>]}], "
+            "properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property "
+            "condition is {key, value, operator, type: 'event'|'person'|'group'}. "
+            'Example: {"type": "event", "filters": {"events": [{"id": "$pageview", "name": '
+            '"$pageview", "type": "events", "properties": [{"key": "$current_url", "value": '
+            '"/pricing", "operator": "icontains", "type": "event"}]}]}}. '
+            "For function*: {template_id, inputs}. "
+            "For delay: {delay_duration: <string>} — duration format is '<number><unit>' where unit is one of "
+            "m|h|d (minutes, hours, days), e.g. '30m', '1.5h', '2d'. Fractions allowed — for sub-minute delays "
+            "use a fraction of a minute (e.g. '0.5m' = 30 seconds); seconds are not supported. "
+            "Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY "
+            "CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. "
+            "For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition's array position "
+            "determines which 'branch' edge fires when it matches (condition at index 0 -> edge with index:0). "
+            "For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — "
+            "same duration format and clamping rules as delay. "
+            "For exit: {reason: <string>}."
+        ),
+    )
+    output_variable = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Variable definition to store this action's output for use by downstream actions.",
+    )
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -190,7 +240,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                         {
                             "config": (
                                 "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+                                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
+                                "For seconds, use a fraction of a minute."
                             )
                         }
                     )
@@ -201,6 +252,10 @@ class HogFlowActionSerializer(serializers.Serializer):
 class HogFlowVariableSerializer(serializers.ListSerializer):
     child = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
+        help_text=(
+            "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' "
+            "(string|number|boolean), 'default' (initial value as a string)."
+        ),
     )
 
     def validate(self, attrs):
@@ -220,10 +275,27 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
 
 
 class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365 * 3, allow_null=True)
-    threshold = serializers.IntegerField(required=False, allow_null=True)
-    hash = serializers.CharField(required=True)
-    bytecode = serializers.JSONField(required=False, allow_null=True)
+    ttl = serializers.IntegerField(
+        required=False,
+        min_value=60,
+        max_value=60 * 60 * 24 * 365 * 3,
+        allow_null=True,
+        help_text="Time-to-live in seconds for the masking hash. Min 60s, max 3 years.",
+    )
+    threshold = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Minimum number of matching events before the workflow triggers (k-anonymity threshold).",
+    )
+    hash = serializers.CharField(
+        required=True,
+        help_text="HogQL template expression used as the masking key (e.g. '{person.properties.email}').",
+    )
+    bytecode = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.",
+    )
 
     def validate(self, attrs):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
@@ -316,9 +388,92 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
-    actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
-    trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
-    variables = HogFlowVariableSerializer(required=False)
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Human-readable name for the workflow.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional description of the workflow's purpose.",
+    )
+    status = serializers.ChoiceField(
+        choices=HogFlow.State.choices,
+        required=False,
+        help_text=(
+            "Workflow state: draft (editing, no live execution), active (processing events live), or "
+            "archived (soft-deleted, no execution)."
+        ),
+    )
+    trigger_masking = HogFlowMaskingSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional deduplication config that prevents the same entity from entering the workflow multiple times "
+            "within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, "
+            "60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from "
+            "'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+        ),
+    )
+    conversion = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. "
+            "'filters' is an array of property conditions; each condition is "
+            "{key, value, operator, type} where type is 'event' | 'person' | 'group'. "
+            'Example: {"filters": [{"key": "plan", "value": "paid", "operator": "exact", '
+            '"type": "person"}], "window_minutes": 60}. Empty array means any event in the window counts. '
+            "Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. "
+            "'bytecode' is compiled server-side from 'filters' — do not set it."
+        ),
+    )
+    exit_condition = serializers.ChoiceField(
+        choices=HogFlow.ExitCondition.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. "
+            "exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES "
+            "'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early "
+            "if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: "
+            "both of the above — also requires 'conversion' to be set."
+        ),
+    )
+    edges = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. "
+            "type='continue' is the default/fall-through edge — followed when an action does not select a "
+            "specific branch (sequential nodes, the no-match path of a conditional_branch). "
+            "type='branch' requires an integer 'index' field — followed when a conditional_branch / "
+            "wait_until_condition action matches the condition at that index in its config.conditions array. "
+            "Example for a conditional_branch with one condition: "
+            "{from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND "
+            "{from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. "
+            "Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with "
+            "'No next action found'."
+        ),
+    )
+    actions = serializers.ListField(
+        child=HogFlowActionSerializer(),
+        required=True,
+        help_text=(
+            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. "
+            "Typically also includes one action with type='exit'."
+        ),
+    )
+    variables = HogFlowVariableSerializer(
+        required=False,
+        help_text=(
+            "Workflow-level variables that persist across actions. Each variable has key, type, and default. "
+            "Total serialized size must be under 5KB."
+        ),
+    )
 
     def to_internal_value(self, data):
         status = data.get("status")
@@ -354,6 +509,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "version",
             "created_at",
             "created_by",
+            "updated_at",
+            "trigger",  # Derived from the trigger action in the actions array
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
         ]
@@ -417,10 +574,35 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
-    configuration = HogFlowSerializer(write_only=True, required=False)
-    globals = serializers.DictField(write_only=True, required=False)
-    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
-    current_action_id = serializers.CharField(write_only=True, required=False)
+    configuration = HogFlowSerializer(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Optional workflow configuration override for the test run. If omitted, uses the saved workflow "
+            "definition. Pass this only to test an unsaved edit."
+        ),
+    )
+    globals = serializers.DictField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Test event data to trigger the workflow with. Object shape matches the trigger payload — typically "
+            "{event: {...}, person: {...}, groups: {...}}."
+        ),
+    )
+    mock_async_functions = serializers.BooleanField(
+        default=True,
+        write_only=True,
+        help_text=(
+            "When true (default), async actions (HTTP requests, emails, SMS) are simulated rather than executed. "
+            "Set false to actually fire side effects — use with caution."
+        ),
+    )
+    current_action_id = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text="Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions.",
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -430,13 +612,14 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        fields = ["id", "created_by", "created_at", "updated_at"]
+        fields = ["id", "created_by", "created_at", "updated_at", "status"]
 
 
 @extend_schema(tags=["workflows"])
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "invocations"]
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -465,6 +648,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.headers.get("x-posthog-client") == "mcp"
+
     def perform_create(self, serializer):
         serializer.save()
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
@@ -491,6 +678,22 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             logger.warning("Failed to capture hog_flow_created event", error=str(e))
 
     def perform_update(self, serializer):
+        # Guardrail for MCP callers: don't let an LLM edit a live workflow that's actively
+        # processing events. The only update we allow on an active workflow is one that
+        # disables it (status -> draft/archived), so the agent can follow the hint below.
+        # The frontend and raw API are unaffected — this only fires for x-posthog-client: mcp.
+        if self._is_mcp_request(self.request):
+            current_status = serializer.instance.status
+            target_status = serializer.validated_data.get("status", current_status)
+            if current_status == HogFlow.State.ACTIVE and target_status not in (
+                HogFlow.State.DRAFT,
+                HogFlow.State.ARCHIVED,
+            ):
+                raise exceptions.ValidationError(
+                    "You can't modify an enabled (active) workflow via MCP. "
+                    "Disable it (set status to 'draft') first, then make your changes."
+                )
+
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
 
@@ -530,6 +733,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
 
+    @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         try:
