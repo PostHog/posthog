@@ -72,6 +72,19 @@ function GoalLine() {
 </LineChart>
 ```
 
+## Sparkline
+
+`Sparkline` is an axis-less line+area preset over `LineChart`, intended as a
+compact "trend at a glance" building block. It hides both axes and the
+tooltip, draws the area with a vertical gradient fill, and exposes
+`onHoverIndexChange` so consumers can drive a hover-following headline
+without subscribing to `useChartHover` directly.
+
+```tsx
+import { Sparkline } from 'lib/hog-charts'
+;<Sparkline data={[4200, 5100, 4700, /* … */ 8800]} theme={THEME} />
+```
+
 ## More
 
 - Building a new chart type, library architecture, conventions →

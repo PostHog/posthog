@@ -121,6 +121,7 @@ export function Chart<Meta = unknown>({
         showCrosshair = false,
         axisOrientation = 'vertical',
         isPercent = false,
+        margins: marginsOverride,
     } = config ?? {}
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -139,6 +140,7 @@ export function Chart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
+        override: marginsOverride,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
