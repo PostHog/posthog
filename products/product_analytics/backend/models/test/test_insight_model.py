@@ -4,10 +4,10 @@ from django.db.utils import IntegrityError
 
 from parameterized import parameterized
 
-from posthog.models import Insight, Team
-from posthog.models.insight import generate_insight_filters_hash
+from posthog.models import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight, generate_insight_filters_hash
 
 
 class TestInsightModel(BaseTest):
