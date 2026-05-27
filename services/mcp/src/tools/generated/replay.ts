@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    SessionGroupSummariesListQueryParams,
+    SessionGroupSummariesRetrieveParams,
     SessionRecordingPlaylistsCreateBody,
     SessionRecordingPlaylistsListQueryParams,
     SessionRecordingPlaylistsPartialUpdateBody,
@@ -10,6 +12,8 @@ import {
     SessionRecordingPlaylistsRetrieveParams,
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
+    SingleSessionSummariesListQueryParams,
+    SingleSessionSummariesRetrieveParams,
 } from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -167,6 +171,95 @@ const sessionRecordingPlaylistsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SingleSessionSummariesListSchema = SingleSessionSummariesListQueryParams
+
+const singleSessionSummariesList = (): ToolBase<
+    typeof SingleSessionSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSingleSessionSummaryMinimalList>
+> => ({
+    name: 'single-session-summaries-list',
+    schema: SingleSessionSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SingleSessionSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSingleSessionSummaryMinimalList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/`,
+            query: {
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                distinct_id: params.distinct_id,
+                has_exceptions: params.has_exceptions,
+                has_visual_confirmation: params.has_visual_confirmation,
+                limit: params.limit,
+                offset: params.offset,
+                order: params.order,
+                outcome: params.outcome,
+                session_ids: params.session_ids,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SingleSessionSummariesRetrieveSchema = SingleSessionSummariesRetrieveParams.omit({ project_id: true })
+
+const singleSessionSummariesRetrieve = (): ToolBase<
+    typeof SingleSessionSummariesRetrieveSchema,
+    WithPostHogUrl<Schemas.SingleSessionSummary>
+> => ({
+    name: 'single-session-summaries-retrieve',
+    schema: SingleSessionSummariesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SingleSessionSummariesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SingleSessionSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/${encodeURIComponent(String(params.session_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
+    },
+})
+
+const SessionGroupSummariesListSchema = SessionGroupSummariesListQueryParams
+
+const sessionGroupSummariesList = (): ToolBase<
+    typeof SessionGroupSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSessionGroupSummaryMinimalList>
+> => ({
+    name: 'session-group-summaries-list',
+    schema: SessionGroupSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionGroupSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSessionGroupSummaryMinimalList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_group_summaries/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SessionGroupSummariesRetrieveSchema = SessionGroupSummariesRetrieveParams.omit({ project_id: true })
+
+const sessionGroupSummariesRetrieve = (): ToolBase<
+    typeof SessionGroupSummariesRetrieveSchema,
+    WithPostHogUrl<Schemas.SessionGroupSummary>
+> => ({
+    name: 'session-group-summaries-retrieve',
+    schema: SessionGroupSummariesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionGroupSummariesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SessionGroupSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_group_summaries/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/replay/${result.id}`)
     },
 })
 
@@ -617,6 +710,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
+    'single-session-summaries-list': singleSessionSummariesList,
+    'single-session-summaries-retrieve': singleSessionSummariesRetrieve,
+    'session-group-summaries-list': sessionGroupSummariesList,
+    'session-group-summaries-retrieve': sessionGroupSummariesRetrieve,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,
