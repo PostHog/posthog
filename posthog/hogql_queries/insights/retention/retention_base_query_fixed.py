@@ -338,7 +338,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         event_filters = self._event_filters()
 
-        start_event_timestamps = parse_expr(
+        # When the start and return entities are identical, the start-side and return-side
+        # `groupUniqArrayIf` aggregates are byte-identical over the same filter. Hoist them
+        # to a single alias so ClickHouse aggregates the events table once instead of twice.
+        # Excludes the property-aggregation path (computes 3-tuples, not bare timestamps) and
+        # the minimum_occurrences>1 path (return side needs groupArrayIf with duplicates).
+        can_share_event_aggregate = (
+            self._start_and_return_entities_are_same()
+            and not self.has_property_aggregation
+            and self.minimum_occurrences == 1
+        )
+
+        base_event_timestamps_expr = parse_expr(
             """
             arraySort(
                 groupUniqArrayIf(
@@ -354,6 +365,16 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 "filter_timestamp": self.events_timestamp_filter(),
             },
         )
+
+        shared_event_timestamps_alias: ast.Alias | None = None
+        if can_share_event_aggregate:
+            shared_event_timestamps_alias = ast.Alias(
+                alias="_shared_event_timestamps",
+                expr=base_event_timestamps_expr,
+            )
+            start_event_timestamps: ast.Expr = ast.Field(chain=["_shared_event_timestamps"])
+        else:
+            start_event_timestamps = base_event_timestamps_expr
 
         minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
             minimum_occurrences=self.minimum_occurrences,
@@ -394,6 +415,10 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # Reference the pre-computed aliases rather than inlining the expressions again
             return_event_timestamps = parse_expr("arrayMap(x -> x.1, _return_event_data)")
             return_event_values = (start_event_data, return_event_data)
+        elif shared_event_timestamps_alias is not None:
+            # Reuse the hoisted aggregate computed for the start side.
+            return_event_timestamps = ast.Field(chain=["_shared_event_timestamps"])
+            return_event_values = None
         else:
             return_event_timestamps = self._get_return_event_timestamps_expr(
                 minimum_occurrences=self.minimum_occurrences,
@@ -429,13 +454,21 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.aggregation_target_events_column])),
-            # start events between date_from and date_to (represented by start of interval)
-            # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
-            ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-            # get all intervals between date_from and date_to (represented by start of interval)
-            self._date_range_alias(),
-            *minimum_occurrences_aliases,
         ]
+        # When start and return share an aggregate, the alias must precede any column that
+        # references `_shared_event_timestamps` (start_event_timestamps below).
+        if shared_event_timestamps_alias is not None:
+            select_fields.append(shared_event_timestamps_alias)
+        select_fields.extend(
+            [
+                # start events between date_from and date_to (represented by start of interval)
+                # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
+                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+                # get all intervals between date_from and date_to (represented by start of interval)
+                self._date_range_alias(),
+                *minimum_occurrences_aliases,
+            ]
+        )
 
         # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
         # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
