@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -125,13 +126,24 @@ def resolve_types_from_table(
     return resolve_types(expr, context, dialect, [select_node_with_types.type])
 
 
+ResolverFactory = Callable[
+    [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
+    "Resolver",
+]
+
+
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST:
-    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+    if resolver_factory is None:
+        resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    else:
+        resolver = resolver_factory(context, dialect, scopes)
+    return resolver.visit(node)
 
 
 class AliasCollector(TraversingVisitor):
