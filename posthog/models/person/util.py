@@ -50,7 +50,7 @@ from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
 
-PERSONHOG_BATCH_SIZE = 1000
+PERSONHOG_BATCH_SIZE = 500
 
 
 if TYPE_CHECKING:
@@ -87,6 +87,7 @@ def _batched_get_persons_by_distinct_ids(
     team_id: int,
     distinct_ids: list[str],
     operation: str,
+    deduplicate_by_person: bool = True,
 ) -> list[person_pb2.PersonWithDistinctIds]:
     seen_person_ids: set[int] = set()
     valid_results: list[person_pb2.PersonWithDistinctIds] = []
@@ -105,11 +106,13 @@ def _batched_get_persons_by_distinct_ids(
             PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
             logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
 
-        # Deduplicate across batches — same person can appear for different distinct_ids
-        for r in batch_valid:
-            if r.person.id not in seen_person_ids:
-                seen_person_ids.add(r.person.id)
-                valid_results.append(r)
+        if deduplicate_by_person:
+            for r in batch_valid:
+                if r.person.id not in seen_person_ids:
+                    seen_person_ids.add(r.person.id)
+                    valid_results.append(r)
+        else:
+            valid_results.extend(batch_valid)
 
     return valid_results
 
@@ -436,7 +439,7 @@ def get_persons_mapped_by_distinct_id(
             raise RuntimeError("personhog client not configured")
 
         valid_results = _batched_get_persons_by_distinct_ids(
-            client, team_id, distinct_ids, "get_persons_mapped_by_distinct_id"
+            client, team_id, distinct_ids, "get_persons_mapped_by_distinct_id", deduplicate_by_person=False
         )
         return {r.distinct_id: proto_person_to_model(r.person, distinct_ids=[r.distinct_id]) for r in valid_results}
 
