@@ -2,7 +2,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pluralize } from 'lib/utils'
 
-import { InsightActorsQuery, InsightActorsQueryOptionsResponse } from '~/queries/schema/schema-general'
+import {
+    InsightActorsQuery,
+    InsightActorsQueryOptionsResponse,
+    insightActorsQueryOptionsResponseKeys,
+} from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { StepOrderValue } from '~/types'
@@ -54,7 +58,11 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
     )
 }
 
-type InsightActorsQueryOptionKey = keyof InsightActorsQueryOptionsResponse
+// `InsightActorsQueryOptionsResponse` also carries non-option fields (e.g. `warnings` inherited
+// from analytics-response semantics) that must not be rendered as UI option lists. Restrict to
+// the explicit allowlist instead of blanket-iterating over `Object.keys`.
+type InsightActorsQueryOptionKey = (typeof insightActorsQueryOptionsResponseKeys)[number] &
+    keyof InsightActorsQueryOptionsResponse
 type InsightActorsQueryOptionTuple = {
     [K in InsightActorsQueryOptionKey]: [K, NonNullable<InsightActorsQueryOptionsResponse[K]>]
 }[InsightActorsQueryOptionKey]
@@ -64,7 +72,7 @@ export const cleanedInsightActorsQueryOptions = (
     query: InsightActorsQuery
 ): InsightActorsQueryOptionTuple[] => {
     const cleanedOptions: InsightActorsQueryOptionTuple[] = []
-    for (const key of Object.keys(insightActorsQueryOptions ?? {}) as InsightActorsQueryOptionKey[]) {
+    for (const key of insightActorsQueryOptionsResponseKeys as InsightActorsQueryOptionKey[]) {
         const value = insightActorsQueryOptions?.[key]
         if (Array.isArray(value) && value.length > 0) {
             cleanedOptions.push([key, value] as InsightActorsQueryOptionTuple)
