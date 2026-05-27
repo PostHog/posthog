@@ -3247,12 +3247,14 @@ export namespace Schemas {
       ignore_zeros?: boolean | null;
       isSharedMetric?: boolean | null;
       kind?: 'ExperimentMetric';
+      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
       lower_bound_percentile?: number | null;
       metric_type?: 'mean';
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
       source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -3282,7 +3284,9 @@ export namespace Schemas {
 
     export interface ExperimentMetricOutlierHandling {
       ignore_zeros?: boolean | null;
+      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
       lower_bound_percentile?: number | null;
+      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
     }
 
@@ -15794,6 +15798,10 @@ export namespace Schemas {
       kind: Kind;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
+      /** Group type index to aggregate over. Required when math is 'unique_group'. */
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+      math_hogql?: string | null;
       /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
       math_property?: string | null;
       /** Event property filters to narrow which events are counted. */
@@ -15824,7 +15832,7 @@ export namespace Schemas {
       /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
       ignore_zeros?: boolean | null;
       kind?: 'ExperimentMetric';
-      /** For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation. */
+      /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation. */
       lower_bound_percentile?: number | null;
       metric_type: ExperimentMetricType;
       /** Human-readable metric name. */
@@ -15843,7 +15851,7 @@ export namespace Schemas {
       /** For retention metrics: start event. */
       start_event?: ExperimentApiEventSource | null;
       start_handling?: StartHandling | null;
-      /** For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation. */
+      /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
       upper_bound_percentile?: number | null;
       /** Unique identifier. Auto-generated if omitted. */
       uuid?: string | null;

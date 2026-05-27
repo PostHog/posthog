@@ -3506,6 +3506,11 @@ export interface ExperimentApiEventSource {
     math?: ExperimentMetricMathType
     /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
     math_property?: string
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently
+     *  falls back to a plain count/sum. */
+    math_hogql?: string
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilter[]
 }
@@ -3531,11 +3536,17 @@ export interface ExperimentApiMetric {
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSource
-    /** For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this
-     *  percentile are clamped to it before aggregation. */
+    /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01
+     *  for the 1st percentile). Per-user values below this percentile are clamped to it before
+     *  aggregation.
+     *  @minimum 0
+     *  @maximum 1 */
     lower_bound_percentile?: number
-    /** For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this
-     *  percentile are clamped to it before aggregation. */
+    /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99
+     *  for the 99th percentile). Per-user values above this percentile are clamped to it before
+     *  aggregation.
+     *  @minimum 0
+     *  @maximum 1 */
     upper_bound_percentile?: number
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
     ignore_zeros?: boolean
@@ -3611,7 +3622,13 @@ export interface ExperimentMetricBaseProperties extends Node {
 }
 
 export type ExperimentMetricOutlierHandling = {
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).
+     *  @minimum 0
+     *  @maximum 1 */
     lower_bound_percentile?: number
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).
+     *  @minimum 0
+     *  @maximum 1 */
     upper_bound_percentile?: number
     ignore_zeros?: boolean
 }

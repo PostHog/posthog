@@ -8,7 +8,7 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, conint
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 
 class SchemaRoot(RootModel[Any]):
@@ -1935,8 +1935,18 @@ class ExperimentMetricOutlierHandling(BaseModel):
         extra="forbid",
     )
     ignore_zeros: bool | None = None
-    lower_bound_percentile: float | None = None
-    upper_bound_percentile: float | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
 
 
 class Status(StrEnum):
@@ -6906,6 +6916,17 @@ class ExperimentApiEventSource(BaseModel):
             " 'unique_session', 'dau', 'unique_group', 'hogql'."
         ),
     )
+    math_group_type_index: MathGroupTypeIndex | None = Field(
+        default=None,
+        description=("Group type index to aggregate over. Required when math is 'unique_group'."),
+    )
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "HogQL aggregation expression. Required when math is 'hogql' — without it"
+            " the metric silently falls back to a plain count/sum."
+        ),
+    )
     math_property: str | None = Field(
         default=None,
         description=(
@@ -6964,11 +6985,12 @@ class ExperimentApiMetric(BaseModel):
         description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
     )
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    lower_bound_percentile: float | None = Field(
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
-            "For mean metrics: winsorization lower percentile bound (0–1). Per-user"
-            " values below this percentile are clamped to it before aggregation."
+            "For mean metrics: winsorization lower percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this"
+            " percentile are clamped to it before aggregation."
         ),
     )
     metric_type: ExperimentMetricType
@@ -6994,11 +7016,12 @@ class ExperimentApiMetric(BaseModel):
         default=None, description="For retention metrics: start event."
     )
     start_handling: StartHandling | None = None
-    upper_bound_percentile: float | None = Field(
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
-            "For mean metrics: winsorization upper percentile bound (0–1). Per-user"
-            " values above this percentile are clamped to it before aggregation."
+            "For mean metrics: winsorization upper percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this"
+            " percentile are clamped to it before aggregation."
         ),
     )
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
@@ -21787,13 +21810,23 @@ class ExperimentMeanMetric(BaseModel):
     ignore_zeros: bool | None = None
     isSharedMetric: bool | None = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    lower_bound_percentile: float | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
     metric_type: Literal["mean"] = "mean"
     name: str | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    upper_bound_percentile: float | None = None
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -21803,10 +21836,20 @@ class ExperimentMeanMetricTypeProps(BaseModel):
         extra="forbid",
     )
     ignore_zeros: bool | None = None
-    lower_bound_percentile: float | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
     metric_type: Literal["mean"] = "mean"
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    upper_bound_percentile: float | None = None
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
 
 
 class ExperimentMetricTypeProps(

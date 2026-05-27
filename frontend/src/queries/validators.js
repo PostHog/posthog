@@ -5902,13 +5902,25 @@ const schema63 = {
         ignore_zeros: { type: 'boolean' },
         isSharedMetric: { type: 'boolean' },
         kind: { const: 'ExperimentMetric', type: 'string' },
-        lower_bound_percentile: { type: 'number' },
+        lower_bound_percentile: {
+            description:
+                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
         metric_type: { const: 'mean', type: 'string' },
         name: { type: 'string' },
         response: { type: 'object' },
         sharedMetricId: { type: 'number' },
         source: { $ref: '#/definitions/ExperimentMetricSource' },
-        upper_bound_percentile: { type: 'number' },
+        upper_bound_percentile: {
+            description:
+                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
         uuid: { type: 'string' },
         version: { description: 'version of the node, used for schema migrations', type: 'number' },
     },
@@ -9944,19 +9956,53 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                     if (data.lower_bound_percentile !== undefined) {
                                                         let data8 = data.lower_bound_percentile
                                                         const _errs20 = errors
-                                                        if (!(typeof data8 == 'number' && isFinite(data8))) {
-                                                            validate79.errors = [
-                                                                {
-                                                                    instancePath:
-                                                                        instancePath + '/lower_bound_percentile',
-                                                                    schemaPath:
-                                                                        '#/properties/lower_bound_percentile/type',
-                                                                    keyword: 'type',
-                                                                    params: { type: 'number' },
-                                                                    message: 'must be number',
-                                                                },
-                                                            ]
-                                                            return false
+                                                        if (errors === _errs20) {
+                                                            if (typeof data8 == 'number' && isFinite(data8)) {
+                                                                if (data8 > 1 || isNaN(data8)) {
+                                                                    validate79.errors = [
+                                                                        {
+                                                                            instancePath:
+                                                                                instancePath +
+                                                                                '/lower_bound_percentile',
+                                                                            schemaPath:
+                                                                                '#/properties/lower_bound_percentile/maximum',
+                                                                            keyword: 'maximum',
+                                                                            params: { comparison: '<=', limit: 1 },
+                                                                            message: 'must be <= 1',
+                                                                        },
+                                                                    ]
+                                                                    return false
+                                                                } else {
+                                                                    if (data8 < 0 || isNaN(data8)) {
+                                                                        validate79.errors = [
+                                                                            {
+                                                                                instancePath:
+                                                                                    instancePath +
+                                                                                    '/lower_bound_percentile',
+                                                                                schemaPath:
+                                                                                    '#/properties/lower_bound_percentile/minimum',
+                                                                                keyword: 'minimum',
+                                                                                params: { comparison: '>=', limit: 0 },
+                                                                                message: 'must be >= 0',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                validate79.errors = [
+                                                                    {
+                                                                        instancePath:
+                                                                            instancePath + '/lower_bound_percentile',
+                                                                        schemaPath:
+                                                                            '#/properties/lower_bound_percentile/type',
+                                                                        keyword: 'type',
+                                                                        params: { type: 'number' },
+                                                                        message: 'must be number',
+                                                                    },
+                                                                ]
+                                                                return false
+                                                            }
                                                         }
                                                         var valid0 = _errs20 === errors
                                                     } else {
@@ -10100,25 +10146,77 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             ) {
                                                                                 let data14 = data.upper_bound_percentile
                                                                                 const _errs31 = errors
-                                                                                if (
-                                                                                    !(
+                                                                                if (errors === _errs31) {
+                                                                                    if (
                                                                                         typeof data14 == 'number' &&
                                                                                         isFinite(data14)
-                                                                                    )
-                                                                                ) {
-                                                                                    validate79.errors = [
-                                                                                        {
-                                                                                            instancePath:
-                                                                                                instancePath +
-                                                                                                '/upper_bound_percentile',
-                                                                                            schemaPath:
-                                                                                                '#/properties/upper_bound_percentile/type',
-                                                                                            keyword: 'type',
-                                                                                            params: { type: 'number' },
-                                                                                            message: 'must be number',
-                                                                                        },
-                                                                                    ]
-                                                                                    return false
+                                                                                    ) {
+                                                                                        if (
+                                                                                            data14 > 1 ||
+                                                                                            isNaN(data14)
+                                                                                        ) {
+                                                                                            validate79.errors = [
+                                                                                                {
+                                                                                                    instancePath:
+                                                                                                        instancePath +
+                                                                                                        '/upper_bound_percentile',
+                                                                                                    schemaPath:
+                                                                                                        '#/properties/upper_bound_percentile/maximum',
+                                                                                                    keyword: 'maximum',
+                                                                                                    params: {
+                                                                                                        comparison:
+                                                                                                            '<=',
+                                                                                                        limit: 1,
+                                                                                                    },
+                                                                                                    message:
+                                                                                                        'must be <= 1',
+                                                                                                },
+                                                                                            ]
+                                                                                            return false
+                                                                                        } else {
+                                                                                            if (
+                                                                                                data14 < 0 ||
+                                                                                                isNaN(data14)
+                                                                                            ) {
+                                                                                                validate79.errors = [
+                                                                                                    {
+                                                                                                        instancePath:
+                                                                                                            instancePath +
+                                                                                                            '/upper_bound_percentile',
+                                                                                                        schemaPath:
+                                                                                                            '#/properties/upper_bound_percentile/minimum',
+                                                                                                        keyword:
+                                                                                                            'minimum',
+                                                                                                        params: {
+                                                                                                            comparison:
+                                                                                                                '>=',
+                                                                                                            limit: 0,
+                                                                                                        },
+                                                                                                        message:
+                                                                                                            'must be >= 0',
+                                                                                                    },
+                                                                                                ]
+                                                                                                return false
+                                                                                            }
+                                                                                        }
+                                                                                    } else {
+                                                                                        validate79.errors = [
+                                                                                            {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/upper_bound_percentile',
+                                                                                                schemaPath:
+                                                                                                    '#/properties/upper_bound_percentile/type',
+                                                                                                keyword: 'type',
+                                                                                                params: {
+                                                                                                    type: 'number',
+                                                                                                },
+                                                                                                message:
+                                                                                                    'must be number',
+                                                                                            },
+                                                                                        ]
+                                                                                        return false
+                                                                                    }
                                                                                 }
                                                                                 var valid0 = _errs31 === errors
                                                                             } else {
@@ -10869,8 +10967,20 @@ const schema105 = {
     additionalProperties: false,
     properties: {
         ignore_zeros: { type: 'boolean' },
-        lower_bound_percentile: { type: 'number' },
-        upper_bound_percentile: { type: 'number' },
+        lower_bound_percentile: {
+            description:
+                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
+        upper_bound_percentile: {
+            description:
+                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
     },
     type: 'object',
 }
@@ -11068,20 +11178,57 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                         if (data4.lower_bound_percentile !== undefined) {
                                                             let data6 = data4.lower_bound_percentile
                                                             const _errs16 = errors
-                                                            if (!(typeof data6 == 'number' && isFinite(data6))) {
-                                                                validate115.errors = [
-                                                                    {
-                                                                        instancePath:
-                                                                            instancePath +
-                                                                            '/denominator_outlier_handling/lower_bound_percentile',
-                                                                        schemaPath:
-                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/type',
-                                                                        keyword: 'type',
-                                                                        params: { type: 'number' },
-                                                                        message: 'must be number',
-                                                                    },
-                                                                ]
-                                                                return false
+                                                            if (errors === _errs16) {
+                                                                if (typeof data6 == 'number' && isFinite(data6)) {
+                                                                    if (data6 > 1 || isNaN(data6)) {
+                                                                        validate115.errors = [
+                                                                            {
+                                                                                instancePath:
+                                                                                    instancePath +
+                                                                                    '/denominator_outlier_handling/lower_bound_percentile',
+                                                                                schemaPath:
+                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/maximum',
+                                                                                keyword: 'maximum',
+                                                                                params: { comparison: '<=', limit: 1 },
+                                                                                message: 'must be <= 1',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                    } else {
+                                                                        if (data6 < 0 || isNaN(data6)) {
+                                                                            validate115.errors = [
+                                                                                {
+                                                                                    instancePath:
+                                                                                        instancePath +
+                                                                                        '/denominator_outlier_handling/lower_bound_percentile',
+                                                                                    schemaPath:
+                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/minimum',
+                                                                                    keyword: 'minimum',
+                                                                                    params: {
+                                                                                        comparison: '>=',
+                                                                                        limit: 0,
+                                                                                    },
+                                                                                    message: 'must be >= 0',
+                                                                                },
+                                                                            ]
+                                                                            return false
+                                                                        }
+                                                                    }
+                                                                } else {
+                                                                    validate115.errors = [
+                                                                        {
+                                                                            instancePath:
+                                                                                instancePath +
+                                                                                '/denominator_outlier_handling/lower_bound_percentile',
+                                                                            schemaPath:
+                                                                                '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/type',
+                                                                            keyword: 'type',
+                                                                            params: { type: 'number' },
+                                                                            message: 'must be number',
+                                                                        },
+                                                                    ]
+                                                                    return false
+                                                                }
                                                             }
                                                             var valid4 = _errs16 === errors
                                                         } else {
@@ -11091,20 +11238,60 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                             if (data4.upper_bound_percentile !== undefined) {
                                                                 let data7 = data4.upper_bound_percentile
                                                                 const _errs18 = errors
-                                                                if (!(typeof data7 == 'number' && isFinite(data7))) {
-                                                                    validate115.errors = [
-                                                                        {
-                                                                            instancePath:
-                                                                                instancePath +
-                                                                                '/denominator_outlier_handling/upper_bound_percentile',
-                                                                            schemaPath:
-                                                                                '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/type',
-                                                                            keyword: 'type',
-                                                                            params: { type: 'number' },
-                                                                            message: 'must be number',
-                                                                        },
-                                                                    ]
-                                                                    return false
+                                                                if (errors === _errs18) {
+                                                                    if (typeof data7 == 'number' && isFinite(data7)) {
+                                                                        if (data7 > 1 || isNaN(data7)) {
+                                                                            validate115.errors = [
+                                                                                {
+                                                                                    instancePath:
+                                                                                        instancePath +
+                                                                                        '/denominator_outlier_handling/upper_bound_percentile',
+                                                                                    schemaPath:
+                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/maximum',
+                                                                                    keyword: 'maximum',
+                                                                                    params: {
+                                                                                        comparison: '<=',
+                                                                                        limit: 1,
+                                                                                    },
+                                                                                    message: 'must be <= 1',
+                                                                                },
+                                                                            ]
+                                                                            return false
+                                                                        } else {
+                                                                            if (data7 < 0 || isNaN(data7)) {
+                                                                                validate115.errors = [
+                                                                                    {
+                                                                                        instancePath:
+                                                                                            instancePath +
+                                                                                            '/denominator_outlier_handling/upper_bound_percentile',
+                                                                                        schemaPath:
+                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/minimum',
+                                                                                        keyword: 'minimum',
+                                                                                        params: {
+                                                                                            comparison: '>=',
+                                                                                            limit: 0,
+                                                                                        },
+                                                                                        message: 'must be >= 0',
+                                                                                    },
+                                                                                ]
+                                                                                return false
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        validate115.errors = [
+                                                                            {
+                                                                                instancePath:
+                                                                                    instancePath +
+                                                                                    '/denominator_outlier_handling/upper_bound_percentile',
+                                                                                schemaPath:
+                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/type',
+                                                                                keyword: 'type',
+                                                                                params: { type: 'number' },
+                                                                                message: 'must be number',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                    }
                                                                 }
                                                                 var valid4 = _errs18 === errors
                                                             } else {
@@ -11387,29 +11574,86 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                             let data17 =
                                                                                                 data15.lower_bound_percentile
                                                                                             const _errs40 = errors
-                                                                                            if (
-                                                                                                !(
+                                                                                            if (errors === _errs40) {
+                                                                                                if (
                                                                                                     typeof data17 ==
                                                                                                         'number' &&
                                                                                                     isFinite(data17)
-                                                                                                )
-                                                                                            ) {
-                                                                                                validate115.errors = [
-                                                                                                    {
-                                                                                                        instancePath:
-                                                                                                            instancePath +
-                                                                                                            '/numerator_outlier_handling/lower_bound_percentile',
-                                                                                                        schemaPath:
-                                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/type',
-                                                                                                        keyword: 'type',
-                                                                                                        params: {
-                                                                                                            type: 'number',
-                                                                                                        },
-                                                                                                        message:
-                                                                                                            'must be number',
-                                                                                                    },
-                                                                                                ]
-                                                                                                return false
+                                                                                                ) {
+                                                                                                    if (
+                                                                                                        data17 > 1 ||
+                                                                                                        isNaN(data17)
+                                                                                                    ) {
+                                                                                                        validate115.errors =
+                                                                                                            [
+                                                                                                                {
+                                                                                                                    instancePath:
+                                                                                                                        instancePath +
+                                                                                                                        '/numerator_outlier_handling/lower_bound_percentile',
+                                                                                                                    schemaPath:
+                                                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/maximum',
+                                                                                                                    keyword:
+                                                                                                                        'maximum',
+                                                                                                                    params: {
+                                                                                                                        comparison:
+                                                                                                                            '<=',
+                                                                                                                        limit: 1,
+                                                                                                                    },
+                                                                                                                    message:
+                                                                                                                        'must be <= 1',
+                                                                                                                },
+                                                                                                            ]
+                                                                                                        return false
+                                                                                                    } else {
+                                                                                                        if (
+                                                                                                            data17 <
+                                                                                                                0 ||
+                                                                                                            isNaN(
+                                                                                                                data17
+                                                                                                            )
+                                                                                                        ) {
+                                                                                                            validate115.errors =
+                                                                                                                [
+                                                                                                                    {
+                                                                                                                        instancePath:
+                                                                                                                            instancePath +
+                                                                                                                            '/numerator_outlier_handling/lower_bound_percentile',
+                                                                                                                        schemaPath:
+                                                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/minimum',
+                                                                                                                        keyword:
+                                                                                                                            'minimum',
+                                                                                                                        params: {
+                                                                                                                            comparison:
+                                                                                                                                '>=',
+                                                                                                                            limit: 0,
+                                                                                                                        },
+                                                                                                                        message:
+                                                                                                                            'must be >= 0',
+                                                                                                                    },
+                                                                                                                ]
+                                                                                                            return false
+                                                                                                        }
+                                                                                                    }
+                                                                                                } else {
+                                                                                                    validate115.errors =
+                                                                                                        [
+                                                                                                            {
+                                                                                                                instancePath:
+                                                                                                                    instancePath +
+                                                                                                                    '/numerator_outlier_handling/lower_bound_percentile',
+                                                                                                                schemaPath:
+                                                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/type',
+                                                                                                                keyword:
+                                                                                                                    'type',
+                                                                                                                params: {
+                                                                                                                    type: 'number',
+                                                                                                                },
+                                                                                                                message:
+                                                                                                                    'must be number',
+                                                                                                            },
+                                                                                                        ]
+                                                                                                    return false
+                                                                                                }
                                                                                             }
                                                                                             var valid7 =
                                                                                                 _errs40 === errors
@@ -11425,30 +11669,90 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                     data15.upper_bound_percentile
                                                                                                 const _errs42 = errors
                                                                                                 if (
-                                                                                                    !(
+                                                                                                    errors === _errs42
+                                                                                                ) {
+                                                                                                    if (
                                                                                                         typeof data18 ==
                                                                                                             'number' &&
                                                                                                         isFinite(data18)
-                                                                                                    )
-                                                                                                ) {
-                                                                                                    validate115.errors =
-                                                                                                        [
-                                                                                                            {
-                                                                                                                instancePath:
-                                                                                                                    instancePath +
-                                                                                                                    '/numerator_outlier_handling/upper_bound_percentile',
-                                                                                                                schemaPath:
-                                                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/type',
-                                                                                                                keyword:
-                                                                                                                    'type',
-                                                                                                                params: {
-                                                                                                                    type: 'number',
+                                                                                                    ) {
+                                                                                                        if (
+                                                                                                            data18 >
+                                                                                                                1 ||
+                                                                                                            isNaN(
+                                                                                                                data18
+                                                                                                            )
+                                                                                                        ) {
+                                                                                                            validate115.errors =
+                                                                                                                [
+                                                                                                                    {
+                                                                                                                        instancePath:
+                                                                                                                            instancePath +
+                                                                                                                            '/numerator_outlier_handling/upper_bound_percentile',
+                                                                                                                        schemaPath:
+                                                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/maximum',
+                                                                                                                        keyword:
+                                                                                                                            'maximum',
+                                                                                                                        params: {
+                                                                                                                            comparison:
+                                                                                                                                '<=',
+                                                                                                                            limit: 1,
+                                                                                                                        },
+                                                                                                                        message:
+                                                                                                                            'must be <= 1',
+                                                                                                                    },
+                                                                                                                ]
+                                                                                                            return false
+                                                                                                        } else {
+                                                                                                            if (
+                                                                                                                data18 <
+                                                                                                                    0 ||
+                                                                                                                isNaN(
+                                                                                                                    data18
+                                                                                                                )
+                                                                                                            ) {
+                                                                                                                validate115.errors =
+                                                                                                                    [
+                                                                                                                        {
+                                                                                                                            instancePath:
+                                                                                                                                instancePath +
+                                                                                                                                '/numerator_outlier_handling/upper_bound_percentile',
+                                                                                                                            schemaPath:
+                                                                                                                                '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/minimum',
+                                                                                                                            keyword:
+                                                                                                                                'minimum',
+                                                                                                                            params: {
+                                                                                                                                comparison:
+                                                                                                                                    '>=',
+                                                                                                                                limit: 0,
+                                                                                                                            },
+                                                                                                                            message:
+                                                                                                                                'must be >= 0',
+                                                                                                                        },
+                                                                                                                    ]
+                                                                                                                return false
+                                                                                                            }
+                                                                                                        }
+                                                                                                    } else {
+                                                                                                        validate115.errors =
+                                                                                                            [
+                                                                                                                {
+                                                                                                                    instancePath:
+                                                                                                                        instancePath +
+                                                                                                                        '/numerator_outlier_handling/upper_bound_percentile',
+                                                                                                                    schemaPath:
+                                                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/type',
+                                                                                                                    keyword:
+                                                                                                                        'type',
+                                                                                                                    params: {
+                                                                                                                        type: 'number',
+                                                                                                                    },
+                                                                                                                    message:
+                                                                                                                        'must be number',
                                                                                                                 },
-                                                                                                                message:
-                                                                                                                    'must be number',
-                                                                                                            },
-                                                                                                        ]
-                                                                                                    return false
+                                                                                                            ]
+                                                                                                        return false
+                                                                                                    }
                                                                                                 }
                                                                                                 var valid7 =
                                                                                                     _errs42 === errors

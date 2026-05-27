@@ -176,6 +176,8 @@ export const experimentsCreateBodyExposureCriteriaOneFilterTestAccountsDefault =
 export const experimentsCreateBodyMetricsOneItemCompletionEventOneEventDefault = null
 export const experimentsCreateBodyMetricsOneItemCompletionEventOneIdDefault = null
 export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathDefault = null
+export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -187,6 +189,8 @@ export const experimentsCreateBodyMetricsOneItemConversionWindowDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOneEventDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOneIdDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOneMathDefault = null
+export const experimentsCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -195,17 +199,28 @@ export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemV
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingDefault = null
 export const experimentsCreateBodyMetricsOneItemGoalDefault = null
 export const experimentsCreateBodyMetricsOneItemIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
+export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsOneItemNameDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOneEventDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOneIdDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOneMathDefault = null
+export const experimentsCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
@@ -214,7 +229,13 @@ export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemVal
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingDefault = null
 export const experimentsCreateBodyMetricsOneItemRetentionWindowEndDefault = null
@@ -223,6 +244,8 @@ export const experimentsCreateBodyMetricsOneItemRetentionWindowUnitDefault = nul
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemEventDefault = null
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemIdDefault = null
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathDefault = null
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault = null
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathPropertyDefault = null
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
@@ -233,6 +256,8 @@ export const experimentsCreateBodyMetricsOneItemSeriesDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOneEventDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOneIdDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOneMathDefault = null
+export const experimentsCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsOneItemSourceOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -243,6 +268,8 @@ export const experimentsCreateBodyMetricsOneItemSourceDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOneEventDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOneIdDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOneMathDefault = null
+export const experimentsCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsOneItemStartEventOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -251,11 +278,16 @@ export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemVa
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventDefault = null
 export const experimentsCreateBodyMetricsOneItemStartHandlingDefault = null
+export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsOneItemUuidDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -267,6 +299,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemConversionWindowDefault
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneIdDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -275,17 +309,28 @@ export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertie
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemGoalDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
+export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNameDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneIdDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
@@ -294,7 +339,13 @@ export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesO
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowEndDefault = null
@@ -303,6 +354,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowUnitDefa
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
@@ -313,6 +366,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemSeriesDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneIdDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -323,6 +378,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemSourceDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneIdDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -331,6 +388,9 @@ export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneProperties
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartHandlingDefault = null
+export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
+export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
+
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemUuidDefault = null
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
@@ -559,6 +619,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -691,6 +776,29 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(experimentsCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault)
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -795,14 +903,40 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -825,10 +959,16 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .literal('ExperimentMetric')
                                 .default(experimentsCreateBodyMetricsOneItemKindDefault),
                             lower_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMin)
+                                        .max(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsCreateBodyMetricsOneItemLowerBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
@@ -865,6 +1005,29 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .default(experimentsCreateBodyMetricsOneItemNumeratorOneMathDefault)
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault)
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -968,14 +1131,40 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -1024,6 +1213,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 .default(experimentsCreateBodyMetricsOneItemSeriesOneItemMathDefault)
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .default(
+                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault
+                                                )
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .default(
+                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault
+                                                )
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -1154,6 +1368,29 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(experimentsCreateBodyMetricsOneItemSourceOneMathHogqlDefault)
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(experimentsCreateBodyMetricsOneItemSourceOneMathPropertyDefault)
@@ -1278,6 +1515,29 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(experimentsCreateBodyMetricsOneItemStartEventOneMathHogqlDefault)
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -1377,10 +1637,16 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
                                 .default(experimentsCreateBodyMetricsOneItemStartHandlingDefault),
                             upper_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin)
+                                        .max(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsCreateBodyMetricsOneItemUpperBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
@@ -1436,6 +1702,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -1575,6 +1866,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -1681,14 +1997,40 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -1711,10 +2053,16 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .literal('ExperimentMetric')
                                 .default(experimentsCreateBodyMetricsSecondaryOneItemKindDefault),
                             lower_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin)
+                                        .max(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
@@ -1755,6 +2103,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -1862,14 +2235,40 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -1924,6 +2323,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 )
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .default(
+                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault
+                                                )
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .default(
+                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault
+                                                )
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -2053,6 +2477,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .default(experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathDefault)
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -2186,6 +2635,31 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -2287,10 +2761,16 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
                                 .default(experimentsCreateBodyMetricsSecondaryOneItemStartHandlingDefault),
                             upper_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin)
+                                        .max(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
@@ -2382,6 +2862,8 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneFilterTestAccountsDe
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2393,6 +2875,8 @@ export const experimentsPartialUpdateBodyMetricsOneItemConversionWindowDefault =
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -2401,17 +2885,28 @@ export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesO
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemGoalDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemKindDefault = `ExperimentMetric`
+export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNameDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
@@ -2420,7 +2915,13 @@ export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOne
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemRetentionWindowEndDefault = null
@@ -2429,6 +2930,8 @@ export const experimentsPartialUpdateBodyMetricsOneItemRetentionWindowUnitDefaul
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemIdDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
@@ -2439,6 +2942,8 @@ export const experimentsPartialUpdateBodyMetricsOneItemSeriesDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -2449,6 +2954,8 @@ export const experimentsPartialUpdateBodyMetricsOneItemSourceDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2457,11 +2964,16 @@ export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOn
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartHandlingDefault = null
+export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemUuidDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2473,6 +2985,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemConversionWindow
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -2481,19 +2995,30 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePr
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault =
     null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault =
     null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemGoalDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNameDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
@@ -2502,8 +3027,14 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneProp
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault =
     null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault =
     null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault = null
@@ -2513,6 +3044,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowU
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
@@ -2523,6 +3056,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesDefault = 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -2533,6 +3068,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceDefault = 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneIdDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2541,6 +3078,9 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePro
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartHandlingDefault = null
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUuidDefault = null
 
@@ -2773,6 +3313,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -2909,6 +3474,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -3015,14 +3605,40 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -3045,10 +3661,16 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .literal('ExperimentMetric')
                                 .default(experimentsPartialUpdateBodyMetricsOneItemKindDefault),
                             lower_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMin)
+                                        .max(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
@@ -3085,6 +3707,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathDefault)
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3192,14 +3839,40 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -3254,6 +3927,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 )
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .default(
+                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault
+                                                )
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .default(
+                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathHogqlDefault
+                                                )
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -3383,6 +4081,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .default(experimentsPartialUpdateBodyMetricsOneItemSourceOneMathDefault)
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemSourceOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3514,6 +4237,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -3615,10 +4363,16 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
                                 .default(experimentsPartialUpdateBodyMetricsOneItemStartHandlingDefault),
                             upper_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin)
+                                        .max(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
@@ -3674,6 +4428,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3813,6 +4592,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -3919,14 +4723,40 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -3951,10 +4781,20 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .literal('ExperimentMetric')
                                 .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault),
                             lower_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(
+                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin
+                                        )
+                                        .max(
+                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
+                                        ),
+                                    zod.null(),
+                                ])
                                 .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
@@ -3997,6 +4837,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -4104,14 +4969,40 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -4170,6 +5061,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 )
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .default(
+                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault
+                                                )
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .default(
+                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault
+                                                )
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -4306,6 +5222,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -4440,6 +5381,31 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -4541,10 +5507,20 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
                                 .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemStartHandlingDefault),
                             upper_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(
+                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin
+                                        )
+                                        .max(
+                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                        ),
+                                    zod.null(),
+                                ])
                                 .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
@@ -4657,6 +5633,8 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneFilterTestAccounts
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4668,6 +5646,8 @@ export const experimentsDuplicateCreateBodyMetricsOneItemConversionWindowDefault
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -4676,17 +5656,28 @@ export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertie
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemGoalDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
+export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNameDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
@@ -4695,7 +5686,13 @@ export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesO
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowEndDefault = null
@@ -4704,6 +5701,8 @@ export const experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowUnitDefa
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
@@ -4714,6 +5713,8 @@ export const experimentsDuplicateCreateBodyMetricsOneItemSeriesDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -4724,6 +5725,8 @@ export const experimentsDuplicateCreateBodyMetricsOneItemSourceDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4732,11 +5735,16 @@ export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneProperties
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartHandlingDefault = null
+export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemUuidDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4748,6 +5756,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemConversionWind
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -4756,19 +5766,30 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOne
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault =
     null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault =
     null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemGoalDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNameDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
@@ -4777,8 +5798,14 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePr
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault =
     null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault =
     null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault = null
@@ -4788,6 +5815,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindo
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
@@ -4798,6 +5827,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesDefault 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -4808,6 +5839,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceDefault 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneIdDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4816,6 +5849,9 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneP
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartHandlingDefault = null
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUuidDefault = null
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
@@ -5052,6 +6088,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -5190,6 +6251,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -5296,14 +6382,40 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -5326,10 +6438,16 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .literal('ExperimentMetric')
                                 .default(experimentsDuplicateCreateBodyMetricsOneItemKindDefault),
                             lower_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMin)
+                                        .max(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
@@ -5370,6 +6488,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -5477,14 +6620,40 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -5539,6 +6708,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 )
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault
+                                                )
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault
+                                                )
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -5668,6 +6862,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .default(experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathDefault)
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -5801,6 +7020,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -5902,10 +7146,16 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
                                 .default(experimentsDuplicateCreateBodyMetricsOneItemStartHandlingDefault),
                             upper_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin)
+                                        .max(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
+                                    zod.null(),
+                                ])
                                 .default(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileDefault)
                                 .describe(
-                                    'For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
@@ -5961,6 +7211,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6100,6 +7375,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -6206,14 +7506,40 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -6238,12 +7564,22 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .literal('ExperimentMetric')
                                 .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault),
                             lower_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(
+                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin
+                                        )
+                                        .max(
+                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
+                                        ),
+                                    zod.null(),
+                                ])
                                 .default(
                                     experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault
                                 )
                                 .describe(
-                                    'For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
@@ -6286,6 +7622,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             )
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                            ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6393,14 +7754,40 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
                                             ),
                                         lower_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
                                         upper_bound_percentile: zod
-                                            .union([zod.number(), zod.null()])
+                                            .union([
+                                                zod
+                                                    .number()
+                                                    .min(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
                                             .default(
                                                 experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
+                                            )
+                                            .describe(
+                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
@@ -6463,6 +7850,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 )
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault
+                                                )
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault
+                                                )
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -6599,6 +8011,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -6733,6 +8170,31 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
+                                        math_group_type_index: zod
+                                            .union([
+                                                zod.union([
+                                                    zod.literal(0),
+                                                    zod.literal(1),
+                                                    zod.literal(2),
+                                                    zod.literal(3),
+                                                    zod.literal(4),
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault
+                                            )
+                                            .describe(
+                                                "Group type index to aggregate over. Required when math is 'unique_group'."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault
+                                            )
+                                            .describe(
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                            ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
                                             .default(
@@ -6834,12 +8296,22 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
                                 .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartHandlingDefault),
                             upper_bound_percentile: zod
-                                .union([zod.number(), zod.null()])
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(
+                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin
+                                        )
+                                        .max(
+                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                        ),
+                                    zod.null(),
+                                ])
                                 .default(
                                     experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault
                                 )
                                 .describe(
-                                    'For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.'
+                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])

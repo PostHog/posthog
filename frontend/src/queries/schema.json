@@ -16827,6 +16827,15 @@
                     "$ref": "#/definitions/ExperimentMetricMathType",
                     "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                 },
+                "math_group_type_index": {
+                    "description": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "type": "string"
+                },
                 "math_property": {
                     "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
                     "type": "string"
@@ -16911,7 +16920,9 @@
                     "type": "string"
                 },
                 "lower_bound_percentile": {
-                    "description": "For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.",
+                    "description": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "metric_type": {
@@ -16958,7 +16969,9 @@
                     "type": "string"
                 },
                 "upper_bound_percentile": {
-                    "description": "For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.",
+                    "description": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "uuid": {
@@ -17579,6 +17592,9 @@
                     "type": "string"
                 },
                 "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "metric_type": {
@@ -17598,6 +17614,9 @@
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
                 "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "uuid": {
@@ -17618,6 +17637,9 @@
                     "type": "boolean"
                 },
                 "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "metric_type": {
@@ -17628,6 +17650,9 @@
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
                 "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 }
             },
@@ -17697,9 +17722,15 @@
                     "type": "boolean"
                 },
                 "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 }
             },
