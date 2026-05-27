@@ -214,13 +214,11 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
-                // Width of the bar (narrower than the band in grouped mode after sub-band
-                // padding) so band-edge-anchored overlays land beside the bar, not the gap.
-                extent: () =>
-                    isHorizontal
-                        ? undefined
-                        : ((barLayout === 'grouped' ? d3Scales.group?.bandwidth() : undefined) ??
-                          d3Scales.band.bandwidth()),
+                // Full band width — keeps the band-edge tooltip anchor aligned to the
+                // step boundary in grouped mode (sub-band width would anchor inside the
+                // step, but `position.x` is the band center so the tooltip would point
+                // at the wrong bar).
+                extent: () => (isHorizontal ? undefined : d3Scales.band.bandwidth()),
                 _private: barChartPrivate,
             }
         },

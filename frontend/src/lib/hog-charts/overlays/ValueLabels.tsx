@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartHover, useChartLayout } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -354,7 +354,8 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolvePositionValue, axis, hoverIndex } = useChart()
+    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
+    const { hoverIndex } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -379,6 +380,23 @@ export function ValueLabels({
         [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
+    // Don't lift when multiple labels share a dataIndex (grouped bars) — we can't tell
+    // which bar the cursor is on from hoverIndex alone, so lifting all of them is worse
+    // than lifting none.
+    const liftableIndices = useMemo(() => {
+        const counts = new Map<number, number>()
+        for (const c of visible) {
+            counts.set(c.dataIndex, (counts.get(c.dataIndex) ?? 0) + 1)
+        }
+        const set = new Set<number>()
+        for (const [dIdx, count] of counts) {
+            if (count === 1) {
+                set.add(dIdx)
+            }
+        }
+        return set
+    }, [visible])
+
     if (visible.length === 0) {
         return null
     }
@@ -388,7 +406,7 @@ export function ValueLabels({
     return (
         <>
             {visible.map((c) => {
-                const isHovered = c.dataIndex === hoverIndex
+                const isHovered = c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
                 return (
                     <div
                         key={c.key}
