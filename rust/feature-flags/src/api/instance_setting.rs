@@ -46,7 +46,10 @@ pub async fn fetch_instance_setting_raw_value(
     let unwrapped = match serde_json::from_str::<serde_json::Value>(&raw_value) {
         Ok(serde_json::Value::String(s)) => s,
         Ok(serde_json::Value::Null) => String::new(),
-        Ok(other) => other.to_string(),
+        // For other JSON shapes (numbers, bools, arrays, objects) return the
+        // raw bytes from the DB rather than re-serialising via serde, so
+        // whitespace and formatting survive a round-trip.
+        Ok(_) => raw_value,
         Err(_) => raw_value,
     };
 

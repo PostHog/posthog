@@ -384,41 +384,40 @@ mod tests {
     }
 
     #[test]
-    fn pattern_exact_match() {
-        assert!(matches("my-feature", "my-feature"));
-        assert!(!matches("my-feature", "my-feature-2"));
-        assert!(!matches("my-feature", "not-my-feature"));
-    }
+    fn pattern_matching() {
+        let cases: &[(&str, &str, bool)] = &[
+            // Exact match.
+            ("my-feature", "my-feature", true),
+            ("my-feature", "my-feature-2", false),
+            ("my-feature", "not-my-feature", false),
+            // Prefix wildcard.
+            ("checkout-*", "checkout-foo", true),
+            ("checkout-*", "checkout-", true),
+            ("checkout-*", "checkout-bar-baz", true),
+            ("checkout-*", "checkou", false),
+            ("checkout-*", "not-checkout-x", false),
+            // Suffix wildcard.
+            ("*-targeting", "survey-targeting", true),
+            ("*-targeting", "-targeting", true),
+            ("*-targeting", "targeting-other", false),
+            // Middle wildcard.
+            ("survey-*-targeting", "survey-abc-targeting", true),
+            ("survey-*-targeting", "survey--targeting", true),
+            ("survey-*-targeting", "survey-abc-other", false),
+            ("survey-*-targeting", "not-survey-abc-targeting", false),
+            // Match-all wildcard.
+            ("*", "", true),
+            ("*", "anything", true),
+            ("*", "with-dashes-123", true),
+        ];
 
-    #[test]
-    fn pattern_prefix_wildcard() {
-        assert!(matches("checkout-*", "checkout-foo"));
-        assert!(matches("checkout-*", "checkout-"));
-        assert!(matches("checkout-*", "checkout-bar-baz"));
-        assert!(!matches("checkout-*", "checkou"));
-        assert!(!matches("checkout-*", "not-checkout-x"));
-    }
-
-    #[test]
-    fn pattern_suffix_wildcard() {
-        assert!(matches("*-targeting", "survey-targeting"));
-        assert!(matches("*-targeting", "-targeting"));
-        assert!(!matches("*-targeting", "targeting-other"));
-    }
-
-    #[test]
-    fn pattern_middle_wildcard() {
-        assert!(matches("survey-*-targeting", "survey-abc-targeting"));
-        assert!(matches("survey-*-targeting", "survey--targeting"));
-        assert!(!matches("survey-*-targeting", "survey-abc-other"));
-        assert!(!matches("survey-*-targeting", "not-survey-abc-targeting"));
-    }
-
-    #[test]
-    fn pattern_match_all() {
-        assert!(matches("*", ""));
-        assert!(matches("*", "anything"));
-        assert!(matches("*", "with-dashes-123"));
+        for (pattern, key, expected) in cases {
+            assert_eq!(
+                matches(pattern, key),
+                *expected,
+                "pattern={pattern:?} key={key:?}"
+            );
+        }
     }
 
     #[test]
