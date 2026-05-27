@@ -24,11 +24,13 @@ from hogli.manifest import get_manifest
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
+    DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
+    REGIONS,
     _diagnose_unreachable_coder,
     _fail,
     coder_authenticated,
@@ -54,6 +56,7 @@ from .coder import (
     get_sharing_status,
     get_workspace,
     get_workspace_name,
+    get_workspace_region,
     get_workspace_status,
     has_claude_oauth_secret,
     list_coder_users,
@@ -947,12 +950,14 @@ def devbox_list() -> None:
     if not workspaces:
         click.echo("No devboxes found. Run 'hogli devbox:start' to create one.")
     else:
-        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'NAME'}")
+        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'REGION':<14} {'NAME'}")
         for ws in workspaces:
             ws_name = ws.get("name", "")
             label = extract_workspace_label(ws_name) or "(default)"
             status = get_workspace_status(ws)
-            click.echo(f"  {label:<14} {click.style(status, fg=_workspace_status_color(status)):<20} {ws_name}")
+            region = get_workspace_region(ws) or "unknown"
+            styled_status = click.style(status, fg=_workspace_status_color(status))
+            click.echo(f"  {label:<14} {styled_status:<20} {region:<14} {ws_name}")
 
     shared = list_shared_workspaces()
     if shared:
@@ -1094,12 +1099,20 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     show_default=True,
     help="Coder template preset to apply (use 'none' to opt out)",
 )
+@click.option(
+    "--region",
+    type=click.Choice(REGIONS),
+    default=DEFAULT_REGION,
+    show_default=True,
+    help="AWS region to create the devbox in (set once at creation, cannot be changed later)",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
     disk: str,
     template: str,
     preset: str,
+    region: str,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
@@ -1113,13 +1126,14 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, disk={disk}GiB)...")
+    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={region}, disk={disk}GiB)...")
     create_workspace(
         name,
         int(disk),
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
+        region=region,
         template=template,
         preset=preset,
         verbose=verbose,
@@ -1457,6 +1471,7 @@ def devbox_status(workspace: str | None) -> None:
 
     click.echo(f"  Name:    {name}")
     click.echo(f"  Status:  {click.style(status, fg=_workspace_status_color(status))}")
+    click.echo(f"  Region:  {get_workspace_region(ws) or 'unknown'}")
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))

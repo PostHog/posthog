@@ -45,6 +45,17 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
+# Create-time region selector. The template defines `workspace_region` with a
+# us-east-1 default; eu-central-1 only becomes a valid option once the EU
+# infrastructure is live. The chosen value is immutable after creation, so it
+# is forwarded on `coder create` only -- never on update or the parameter sync.
+# Valid values match the template contract exactly (AWS region strings).
+WORKSPACE_REGION_PARAMETER = "workspace_region"
+REGIONS = ("us-east-1", "eu-central-1")
+DEFAULT_REGION = REGIONS[0]
+# Key of the workspace metadata item the template publishes the region back as.
+REGION_METADATA_KEY = "region"
+
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
 # start (including coder task runs); the workspace template reads it to populate
@@ -1001,6 +1012,24 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the AWS region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
+    in the ``coder list`` payload. Returns ``None`` for boxes created before
+    the metadata item existed so callers can render their own placeholder.
+    """
+    resources = workspace.get("latest_build", {}).get("resources", [])
+    for resource in resources:
+        for item in resource.get("metadata", []):
+            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+                value = item.get("value")
+                if isinstance(value, str) and value:
+                    return value
+    return None
+
+
 def _list_template_presets(template: str) -> list[str]:
     """Return preset names defined on the active version of ``template``, or [] on failure.
 
@@ -1061,6 +1090,7 @@ def create_workspace(
     dotfiles_uri: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
+    region: str = DEFAULT_REGION,
     template: str = DEFAULT_TEMPLATE,
     preset: str = DEFAULT_PRESET,
     verbose: bool = False,
@@ -1073,12 +1103,21 @@ def create_workspace(
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
 
+    ``region`` is forwarded as ``workspace_region``. On a template that does
+    not yet declare it, the retry loop drops it and the box lands in the
+    template default (us-east-1) -- so shipping this before the template
+    update is harmless. On a template that declares it but does not offer the
+    requested value yet (eu-central-1 before the EU infra is live), coder
+    rejects it as an invalid option, which is *not* the "parameter not
+    present" error, so the failure surfaces instead of silently falling back.
+
     ``preset`` is resolved against the template's actual presets via
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),
         "repo": repo,
+        WORKSPACE_REGION_PARAMETER: region,
     }
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name

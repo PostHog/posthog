@@ -662,6 +662,76 @@ class TestWorkspaceNaming:
         assert coder.extract_workspace_label("other-workspace") is None
 
 
+class TestWorkspaceRegion:
+    """Reading the region back from the workspace `region` metadata item."""
+
+    @pytest.mark.parametrize(
+        "workspace, expected",
+        [
+            # Region item present on a resource.
+            (
+                {"latest_build": {"resources": [{"metadata": [{"key": "region", "value": "eu-central-1"}]}]}},
+                "eu-central-1",
+            ),
+            # Region item sits among other metadata items.
+            (
+                {
+                    "latest_build": {
+                        "resources": [
+                            {"metadata": [{"key": "cpu", "value": "8"}, {"key": "region", "value": "us-east-1"}]}
+                        ]
+                    }
+                },
+                "us-east-1",
+            ),
+            # Region item lives on a later resource.
+            (
+                {
+                    "latest_build": {
+                        "resources": [
+                            {"metadata": [{"key": "cpu", "value": "8"}]},
+                            {"metadata": [{"key": "region", "value": "us-east-1"}]},
+                        ]
+                    }
+                },
+                "us-east-1",
+            ),
+            # No metadata at all (box created before the item existed).
+            ({"latest_build": {"resources": [{"metadata": []}]}}, None),
+            ({"latest_build": {"resources": []}}, None),
+            ({"latest_build": {}}, None),
+            ({}, None),
+            # Empty value is treated as unknown.
+            (
+                {"latest_build": {"resources": [{"metadata": [{"key": "region", "value": ""}]}]}},
+                None,
+            ),
+            # Malformed metadata entries are ignored, not crashed on.
+            (
+                {
+                    "latest_build": {
+                        "resources": [{"metadata": ["not-a-dict", {"key": "region", "value": "us-east-1"}]}]
+                    }
+                },
+                "us-east-1",
+            ),
+        ],
+        ids=[
+            "single-item",
+            "among-others",
+            "later-resource",
+            "empty-metadata",
+            "no-resources",
+            "no-build-resources",
+            "empty-payload",
+            "empty-value",
+            "malformed-entry-skipped",
+        ],
+    )
+    def test_get_workspace_region(self, workspace: dict[str, object], expected: str | None) -> None:
+        assert coder.get_workspace_region(workspace) == expected
+
+
 def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
     """Extract `key=value` pairs from `--parameter` flags in argv."""
     out: dict[str, str] = {}
@@ -694,6 +764,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         git_name: str | None = None,
         git_email: str | None = None,
         dotfiles_uri: str | None = None,
+        region: str = coder.DEFAULT_REGION,
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
         verbose: bool = False,
@@ -705,6 +776,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
                 "git_name": git_name,
                 "git_email": git_email,
                 "dotfiles_uri": dotfiles_uri,
+                "region": region,
                 "template": template,
                 "preset": preset,
             }
@@ -739,7 +811,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "Default (warm)",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             (
                 {
@@ -753,6 +825,7 @@ class TestWorkspaceCreation:
                 {
                     "disk_size": "100",
                     "repo": _REPO,
+                    "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
                     "git_email": "test-user@example.com",
                     "dotfiles_uri": _DOTFILES,
@@ -763,14 +836,14 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "Default (warm)",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             (
                 {"preset": "none"},
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -780,7 +853,15 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+            ),
+            # A non-default region is forwarded verbatim as workspace_region.
+            (
+                {"region": "eu-central-1"},
+                ["Default (warm)"],
+                "posthog-linux",
+                "Default (warm)",
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -789,6 +870,7 @@ class TestWorkspaceCreation:
             "custom-template",
             "preset-opt-out",
             "resolver-fallback-flows-through",
+            "explicit-region",
         ],
     )
     def test_create_workspace_forwards_params_and_template(
@@ -1269,6 +1351,7 @@ class TestDevboxCommands:
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
+            "region": coder.DEFAULT_REGION,
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
         }
@@ -1302,6 +1385,7 @@ class TestDevboxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
+        assert captured["region"] == coder.DEFAULT_REGION
         assert captured["template"] == coder.DEFAULT_TEMPLATE
         assert captured["preset"] == coder.DEFAULT_PRESET
         assert "devbox:ssh api" in result.output
@@ -1336,6 +1420,32 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0, result.output
         assert captured["preset"] == "none"
+
+    def test_devbox_start_forwards_region_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--region", "eu-central-1"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["region"] == "eu-central-1"
+        assert "region=eu-central-1" in result.output
+
+    def test_devbox_start_rejects_unknown_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+
+        result = runner.invoke(cli, ["devbox:start", "--region", "ap-southeast-2"])
+
+        assert result.exit_code != 0
+        assert "ap-southeast-2" in result.output
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -1426,6 +1536,74 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0
         assert "devbox:update" in result.output
+
+    def test_devbox_status_shows_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {
+                "latest_build": {
+                    "status": "running",
+                    "resources": [{"metadata": [{"key": "region", "value": "eu-central-1"}]}],
+                }
+            },
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        result = runner.invoke(cli, ["devbox:status"])
+
+        assert result.exit_code == 0
+        assert "Region:" in result.output
+        assert "eu-central-1" in result.output
+
+    def test_devbox_status_region_unknown_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"latest_build": {"status": "stopped", "resources": []}},
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        result = runner.invoke(cli, ["devbox:status"])
+
+        assert result.exit_code == 0
+        assert "Region:  unknown" in result.output
+
+    def test_devbox_list_shows_region_column(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [
+                {
+                    "name": "devbox-test-user",
+                    "latest_build": {
+                        "status": "running",
+                        "resources": [{"metadata": [{"key": "region", "value": "eu-central-1"}]}],
+                    },
+                },
+                {"name": "devbox-test-user-api", "latest_build": {"status": "stopped", "resources": []}},
+            ],
+        )
+        monkeypatch.setattr(devbox_cli, "list_shared_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "get_shared_users", lambda name: [])
+        monkeypatch.setattr(
+            devbox_cli,
+            "extract_workspace_label",
+            lambda name: None if name == "devbox-test-user" else "api",
+        )
+
+        result = runner.invoke(cli, ["devbox:list"])
+
+        assert result.exit_code == 0
+        assert "REGION" in result.output
+        assert "eu-central-1" in result.output
+        # The box without region metadata renders the unknown placeholder.
+        assert "unknown" in result.output
 
     def test_devbox_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
