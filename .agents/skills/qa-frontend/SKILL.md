@@ -92,6 +92,8 @@ Load these files only when the matching phase starts:
 - `references/evidence-and-output.md` - evidence upload, verdict artifacts, and
   PR/local report rendering.
 - `references/pr-comment-template.md` - final PR comment structure.
+- `references/cleanup.md` - checkout, browser session, stack, and generated-file
+  cleanup after the report is written.
 
 Skill scripts live next to this file (under `scripts/`). When Claude Code
 activates this skill, it emits a line at the top of the prompt:
@@ -486,45 +488,5 @@ rendering anything user-facing. That reference owns:
 Local mode always uses local evidence paths and writes
 `.qa-frontend/runs/<run-id>/report.md`. It never uploads, comments, or pushes.
 
-## Cleanup
-
-PR mode - always attempt to restore the original branch:
-
-```bash
-git checkout "$original_branch"
-```
-
-Leave `.qa-frontend/runs/<run-id>/` in place for debugging unless the user asked
-for cleanup. Confirm `git status --porcelain` is clean except for intentional
-local fix commits that could not be pushed due to a connectivity or lease
-failure.
-
-Local mode - no checkout happened; nothing to restore. Leave the run directory
-in place.
-
-After the final report is written, end the browser automation session if the
-browser or Playwright MCP exposes a close-page, close-context, close-browser, or
-end-session action. This prevents stale Chromium sessions from blocking later QA
-runs. Do not close the user's visible browser windows. If a stale headless
-Chromium process from a previous agent blocks the run and no MCP close action is
-available, ask the user before killing it, and target only agent-started browser
-processes. Agent-started browser processes commonly include command-line markers
-such as `ms-playwright`, `mcp-chrome-`, `remote-debugging-pipe`, or
-`playwright-mcp`; visible user browsers usually use the normal browser profile
-instead. If you inspect processes, use these markers to explain exactly what you
-plan to terminate before asking for approval.
-
-If `STACK_STARTED_BY_AGENT=1`, stop only the stack the agent started during
-cleanup unless the user explicitly asked to keep it running. Use the matching
-repo-recommended stop command for the approved startup path. For example, when
-the approved startup path was `bin/hogli up -d`, stop it with:
-
-```bash
-bin/hogli down -y
-```
-
-If the user started the stack themselves, do not stop or restart it without
-explicit approval.
-
-If `hogli` auto-adds a local `phrocs` command to `hogli.yaml`, remove only that
-generated hunk during cleanup. Do not commit it as part of a QA run.
+After the report/comment path completes, load `references/cleanup.md` before
+returning to the user.
