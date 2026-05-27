@@ -294,8 +294,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # — otherwise PATCHing `deleted=False` on a grandfathered row would
         # bypass the cap entirely.
         if self._is_becoming_active_summary(attrs):
-            # Reject on the Redis quota signal before the DB org fetch, so an over-budget
-            # org doesn't trigger a needless query just to be turned away.
             self._validate_summary_credit_budget()
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)

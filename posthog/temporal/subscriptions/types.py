@@ -186,9 +186,7 @@ class SnapshotInsightsInputs:
 @dataclasses.dataclass
 class SnapshotInsightsResult:
     summary_text: str | None = None
-    # True only when the summary was skipped because the org is over its AI credit
-    # budget — distinct from summary_text=None on disabled/no-consent skips, which
-    # carry no user-facing notice. Drives the "summary skipped" line in the report.
+    # Set only on the over-budget skip — drives the user-facing notice in the report.
     summary_skipped_over_budget: bool = False
 
 
