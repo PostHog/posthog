@@ -44,6 +44,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     QueryRunner,
+    QueryRunnerWithHogQLContext,
     get_query_runner,
     shared_insights_execution_mode,
 )
@@ -82,10 +83,10 @@ class TestQueryRunner(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def setup_test_query_runner_class(self):
+    def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
         """Setup required methods and attributes of the abstract base class."""
 
-        class TestQueryRunner(QueryRunner):
+        class TestQueryRunner(base):  # type: ignore[misc, valid-type]
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
@@ -335,17 +336,13 @@ class TestQueryRunner(BaseTest):
     @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_cache_key_differs_when_user_is_restricted_from_object(self):
         """
-        Cache-poisoning guard: an unrestricted user's cached result must not be
-        served to a user who is denied access to one of the rows in it. The
-        fingerprint only applies to HogQL runners (only ones that can touch
-        ``system.*`` tables), so we attach a Database carrying a real
-        UserAccessControl to drive the production path.
+        Cache-poisoning guard: a restricted user's cache key must differ from an
+        unrestricted user's. Only HogQL runners can touch ``system.*`` tables, so we
+        exercise the override on ``QueryRunnerWithHogQLContext`` directly — the base
+        ``QueryRunner._get_object_access_restrictions`` returns ``None``.
         """
-        from types import SimpleNamespace
-
         from posthog.constants import AvailableFeature
         from posthog.models import OrganizationMembership
-        from posthog.rbac.user_access_control import UserAccessControl
 
         from ee.models import AccessControl
 
@@ -358,21 +355,15 @@ class TestQueryRunner(BaseTest):
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
 
-        TestQueryRunner = self.setup_test_query_runner_class()
+        TestHogQLRunner = self.setup_test_query_runner_class(base=QueryRunnerWithHogQLContext)
 
-        baseline_runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
-        baseline_runner.database = SimpleNamespace(
-            user_access_control=UserAccessControl(user=self.user, team=self.team)
-        )  # type: ignore[attr-defined]
+        baseline_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
         baseline_key = baseline_runner.get_cache_key()
         assert "restricted_objects" not in baseline_runner.get_cache_payload()
 
         AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="42", access_level="none")
 
-        restricted_runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
-        restricted_runner.database = SimpleNamespace(
-            user_access_control=UserAccessControl(user=self.user, team=self.team)
-        )  # type: ignore[attr-defined]
+        restricted_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
         restricted_payload = restricted_runner.get_cache_payload()
 
         assert restricted_payload["restricted_objects"] == {"dashboard": ["42"]}

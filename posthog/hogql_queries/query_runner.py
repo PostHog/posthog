@@ -1158,6 +1158,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
+    # Set by QueryRunnerWithHogQLContext when the runner actually needs a database.
+    # Declared here so base-class methods can read self.database without AttributeError.
+    database: Optional[Database] = None
 
     def __init__(
         self,
@@ -1876,12 +1879,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         Non-HogQL runners can't query ``system.*`` tables, so skipping the fingerprint
         for them avoids needless cache misses.
         """
-        if self.user is None:
+        if self.user is None or self.database is None or self.database.user_access_control is None:
             return None
-        database = getattr(self, "database", None)
-        if database is None or database.user_access_control is None:
-            return None
-        blocked = database.user_access_control.blocked_resource_ids_by_scope
+        blocked = self.database.user_access_control.blocked_resource_ids_by_scope
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
