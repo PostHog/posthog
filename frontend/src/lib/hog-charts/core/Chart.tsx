@@ -21,6 +21,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DrawHoverResult,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -68,8 +69,10 @@ export interface ChartProps<Meta = unknown> {
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
-    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
-    drawHover: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. Return
+     *  `false` to signal "drew nothing visible" — the hover-fade timer pauses while invisible
+     *  so the fade always starts at progress 0 when the highlight first appears. */
+    drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -121,7 +124,9 @@ export function Chart<Meta = unknown>({
         showCrosshair = false,
         axisOrientation = 'vertical',
         isPercent = false,
+        animateHover,
     } = config ?? {}
+    const hoverAnimationMs = animateHover === true ? 150 : typeof animateHover === 'number' ? animateHover : 0
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
@@ -202,6 +207,7 @@ export function Chart<Meta = unknown>({
         theme,
         drawStatic,
         drawHover: composedDrawHover,
+        hoverAnimationMs,
     })
 
     const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT

@@ -17,21 +17,27 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
+// Floor per-step width — below this the legend text overlaps; scroll horizontally instead.
+const MIN_STEP_WIDTH_PX = 210
+// Ceiling per-step width — without it, few-step funnels stretch each bar across half the
+// chart with huge gaps. The bar layer clusters at the start of the plot; gridlines still
+// span the full width so the chart doesn't look truncated.
+const MAX_STEP_WIDTH_PX = 320
+
 // X-axis is hidden — steps are identified by the legend row below the chart. The y-axis
 // shows the conversion rate from the basis step (0–100%) so the bar heights are readable
 // without hovering. Bar widths are aligned with the legend columns via the parent flex layout.
-const CHART_CONFIG: BarChartConfig = {
+const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
-    barCornerRadius: 6,
+    barCornerRadius: 10,
     barTrack: true,
+    barShadow: true,
+    animateHover: true,
     hideXAxis: true,
     yTickFormatter: (value) => `${Math.round(value)}%`,
     tooltip: { placement: 'top' },
 }
-
-// Floor per-step width — below this the legend text overlaps; scroll horizontally instead.
-const MIN_STEP_WIDTH_PX = 210
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -70,6 +76,8 @@ export function FunnelStepsBarChart({
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
+    const barsWidth = steps.length * MAX_STEP_WIDTH_PX
+    const chartConfig = useMemo<BarChartConfig>(() => ({ ...baseChartConfig, maxBandRange: barsWidth }), [barsWidth])
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -113,31 +121,30 @@ export function FunnelStepsBarChart({
                         series={series}
                         labels={labels}
                         theme={theme}
-                        config={CHART_CONFIG}
+                        config={chartConfig}
                         tooltip={renderTooltip}
                         onPointClick={showPersonsModal ? onPointClick : undefined}
                         onError={handleChartError}
                     />
                 </div>
-                <div
-                    className="flex"
-                    // Pad the legend so its columns line up with the bar groups above —
-                    // the y-axis pushes the plot area in by ~`DEFAULT_MARGINS.left`px
-                    // on the left, and the chart reserves `DEFAULT_MARGINS.right`px on the right.
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ paddingLeft: DEFAULT_MARGINS.left, paddingRight: DEFAULT_MARGINS.right }}
-                >
-                    {steps.map((step, stepIndex) => (
-                        <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
-                            <StepLegend
-                                step={step}
-                                stepIndex={stepIndex}
-                                showTime={showTime}
-                                showPersonsModal={showPersonsModal}
-                                inCardView={inCardView}
-                            />
-                        </div>
-                    ))}
+                {/* Pad the legend so its columns line up with the bar groups above — the
+                    y-axis pushes the bar layer in by ~`DEFAULT_MARGINS.left`px on the left.
+                    Bars cluster within `barsWidth`px so the legend matches that width. */}
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div className="flex" style={{ paddingLeft: DEFAULT_MARGINS.left }}>
+                    <div className="flex" style={{ width: barsWidth }}>
+                        {steps.map((step, stepIndex) => (
+                            <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
+                                <StepLegend
+                                    step={step}
+                                    stepIndex={stepIndex}
+                                    showTime={showTime}
+                                    showPersonsModal={showPersonsModal}
+                                    inCardView={inCardView}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>

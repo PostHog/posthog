@@ -179,6 +179,11 @@ export interface ChartConfig {
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
      *  on layout context so overlays can default to a percent formatter. */
     isPercent?: boolean
+    /** Fade-in the hover overlay when the hovered data point changes instead of snapping.
+     *  `true` uses ~150ms; pass a number to override duration in ms. The chart type's
+     *  `drawHover` receives a `hoverProgress` value (0..1) on each frame — it's up to the
+     *  chart type to apply it (e.g. via `ctx.globalAlpha`). */
+    animateHover?: boolean | number
 }
 
 export interface TooltipConfig {
@@ -205,6 +210,14 @@ export interface BarChartConfig extends ChartConfig {
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack
      *  below the zero baseline (positives above). Default `false` clamps negatives to 0. */
     divergingStack?: boolean
+    /** Cap (px) on the band-axis range, so bars cluster at the start of the plot area
+     *  instead of stretching across it. The remaining plot width still draws gridlines —
+     *  use this for funnel-style charts with few categories where full-width bands would
+     *  produce huge bars and equally huge gaps. */
+    maxBandRange?: number
+    /** Drop shadow under each bar, so bars read as elevated cards over a backdrop (e.g. a
+     *  `barTrack`). `true` uses a sensible default; pass an object for explicit tuning. */
+    barShadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
 }
 
 export interface LineChartConfig extends ChartConfig {
@@ -229,7 +242,24 @@ export interface ChartDrawArgs {
     hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
+    /** Hover-overlay fade-in progress (0..1). `1` when `animateHover` is off or the fade
+     *  has completed; chart types typically apply this as `ctx.globalAlpha` around their
+     *  highlight rendering. */
+    hoverProgress: number
+    /** Resets the hover-fade animation back to progress 0 and returns the new value.
+     *  Chart types call this when they detect a visual-state change the framework can't
+     *  see from `hoverIndex` alone (e.g. cursor moves from a bar's fill into its track
+     *  region at the same hoverIndex). The returned 0 should be used for the current
+     *  frame's draw; the framework recomputes progress from the new start time for
+     *  subsequent frames. */
+    resetHoverFade: () => number
 }
+
+/** Return type for a chart type's `drawHover` callback. Returning `false` tells the
+ *  framework that nothing visible was drawn this frame (e.g. cursor in a gap) so the
+ *  hover-fade timer should not elapse against the invisible frames. Returning `true` or
+ *  `void` is treated as "drew something". */
+export type DrawHoverResult = boolean | void
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
