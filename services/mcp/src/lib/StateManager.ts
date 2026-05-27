@@ -285,12 +285,11 @@ export class StateManager {
         if (!orgId) {
             return undefined
         }
-        // `/api/organizations/{id}/` requires `organization:read`. Project-scoped
-        // personal API keys do not carry that scope, so the fetch would 403 on
-        // every session init and dogpile error tracking. Mirror the `group:read`
-        // gate in `mcp.ts` and skip the fetch when the scope is absent.
         const apiKey = await this.getApiKey()
-        if (!hasScope(apiKey.scopes, 'organization:read')) {
+        // `/api/organizations/{id}/` is not project-nested. Backend permission
+        // checks reject project-scoped tokens there even when they carry
+        // `organization:read` or `*`, so skip the best-effort fetch entirely.
+        if (apiKey.scoped_teams.length > 0 || !hasScope(apiKey.scopes, 'organization:read')) {
             return undefined
         }
         return this.getOrFetchCached({

@@ -359,6 +359,27 @@ describe('StateManager', () => {
             expect(orgGet).not.toHaveBeenCalled()
         })
 
+        it.each([['organization:read'], ['*']])(
+            'skips the org fetch for project-scoped API keys even when they carry %s',
+            async (scope) => {
+                await cache.set('orgId', 'org-1')
+                vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                    scopes: [scope],
+                    scoped_organizations: [],
+                    scoped_teams: [456],
+                })
+                const orgGet = vi.fn()
+                ;(stateManager as any)._api = {
+                    organizations: () => ({ get: orgGet }),
+                }
+
+                const result = await stateManager.getCachedOrFetchOrg()
+
+                expect(result).toBeUndefined()
+                expect(orgGet).not.toHaveBeenCalled()
+            }
+        )
+
         it.each([['organization:read'], ['organization:write'], ['*']])(
             'fetches the org when the API key carries %s',
             async (scope) => {
