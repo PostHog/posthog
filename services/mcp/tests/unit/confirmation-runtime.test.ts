@@ -27,7 +27,26 @@ function makeContext(elicit: ElicitFn | undefined): Context {
 }
 
 describe('requestConfirmation — no elicit available', () => {
-    it('returns denied-no-elicit when context.elicit is undefined and policy is deny', async () => {
+    it.each([
+        { policy: 'deny' as const, expectedKind: 'denied-no-elicit' as const },
+        { policy: 'allow' as const, expectedKind: 'allowed-no-elicit' as const },
+    ])(
+        'routes to $expectedKind when context.elicit is undefined and policy is $policy',
+        async ({ policy, expectedKind }) => {
+            const outcome = await requestConfirmation(
+                makeContext(undefined),
+                {},
+                {
+                    message: 'Proceed?',
+                    onNoElicit: policy,
+                    actionLabel: 'enforce 2FA',
+                }
+            )
+            expect(outcome.kind).toBe(expectedKind)
+        }
+    )
+
+    it('deny includes an instructional message naming the action', async () => {
         const outcome = await requestConfirmation(
             makeContext(undefined),
             {},
@@ -37,30 +56,34 @@ describe('requestConfirmation — no elicit available', () => {
                 actionLabel: 'enforce 2FA',
             }
         )
-        expect(outcome.kind).toBe('denied-no-elicit')
-        if (outcome.kind === 'denied-no-elicit') {
-            expect(outcome.result.isError).toBe(true)
-            expect(outcome.result.content[0].text).toContain('Enforce 2FA')
-            expect(outcome.result.content[0].text).toContain('does not support')
+        if (outcome.kind !== 'denied-no-elicit') {
+            throw new Error(`expected denied-no-elicit, got ${outcome.kind}`)
         }
-    })
-
-    it('returns allowed-no-elicit when context.elicit is undefined and policy is allow', async () => {
-        const outcome = await requestConfirmation(
-            makeContext(undefined),
-            {},
-            {
-                message: 'Proceed?',
-                onNoElicit: 'allow',
-            }
-        )
-        expect(outcome.kind).toBe('allowed-no-elicit')
+        expect(outcome.result.isError).toBe(true)
+        expect(outcome.result.content[0].text).toContain('Enforce 2FA')
+        expect(outcome.result.content[0].text).toContain('does not support')
     })
 })
 
 describe('requestConfirmation — elicit available', () => {
+    it('emits an empty requestedSchema (no form fields, just action buttons)', async () => {
+        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        await requestConfirmation(
+            makeContext(elicit),
+            {},
+            {
+                message: 'Proceed?',
+                onNoElicit: 'deny',
+            }
+        )
+        expect(elicit.mock.calls[0]![0].requestedSchema).toEqual({
+            type: 'object',
+            properties: {},
+        })
+    })
+
     it('returns accepted when the user accepts', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const, content: { confirmed: true } }))
+        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
         const outcome = await requestConfirmation(
             makeContext(elicit),
             { id: 42 },
@@ -71,73 +94,53 @@ describe('requestConfirmation — elicit available', () => {
         )
         expect(outcome.kind).toBe('accepted')
         expect(elicit).toHaveBeenCalledTimes(1)
-        const callArgs = elicit.mock.calls[0]![0]
-        expect(callArgs.message).toBe('Delete 42?')
+        expect(elicit.mock.calls[0]![0].message).toBe('Delete 42?')
     })
 
-    it('returns cancelled with a decline reason when the user declines', async () => {
-        const elicit = vi.fn(async () => ({ action: 'decline' as const }))
-        const outcome = await requestConfirmation(
-            makeContext(elicit),
-            {},
-            {
-                message: 'Proceed?',
-                onNoElicit: 'deny',
-                actionLabel: 'org delete',
+    it.each([
+        { action: 'decline' as const, label: 'org delete', expectedWord: 'declined' },
+        { action: 'cancel' as const, label: 'org delete', expectedWord: 'cancelled' },
+    ])(
+        'returns cancelled with a $expectedWord reason when the user $action',
+        async ({ action, label, expectedWord }) => {
+            const elicit = vi.fn(async () => ({ action }))
+            const outcome = await requestConfirmation(
+                makeContext(elicit),
+                {},
+                {
+                    message: 'Proceed?',
+                    onNoElicit: 'deny',
+                    actionLabel: label,
+                }
+            )
+            if (outcome.kind !== 'cancelled') {
+                throw new Error(`expected cancelled, got ${outcome.kind}`)
             }
-        )
-        expect(outcome.kind).toBe('cancelled')
-        if (outcome.kind === 'cancelled') {
-            expect(outcome.result.content[0].text).toContain('declined')
+            expect(outcome.result.content[0].text).toContain(expectedWord)
             expect(outcome.result.content[0].text).toContain('Org delete')
         }
-    })
+    )
 
-    it('returns cancelled with a cancel reason when the user cancels', async () => {
-        const elicit = vi.fn(async () => ({ action: 'cancel' as const }))
-        const outcome = await requestConfirmation(
-            makeContext(elicit),
-            {},
-            {
-                message: 'Proceed?',
-                onNoElicit: 'deny',
-            }
-        )
-        expect(outcome.kind).toBe('cancelled')
-        if (outcome.kind === 'cancelled') {
-            expect(outcome.result.content[0].text).toContain('cancelled')
+    it.each([
+        { policy: 'deny' as const, expectedKind: 'denied-no-elicit' as const },
+        { policy: 'allow' as const, expectedKind: 'allowed-no-elicit' as const },
+    ])(
+        'treats runtime ElicitationNotSupportedError as the no-elicit branch ($policy)',
+        async ({ policy, expectedKind }) => {
+            const elicit = vi.fn(async () => {
+                throw new ElicitationNotSupportedError(-32601, 'Method not found')
+            }) as unknown as ElicitFn
+            const outcome = await requestConfirmation(
+                makeContext(elicit),
+                {},
+                {
+                    message: 'Proceed?',
+                    onNoElicit: policy,
+                }
+            )
+            expect(outcome.kind).toBe(expectedKind)
         }
-    })
-
-    it('treats runtime ElicitationNotSupportedError as the no-elicit branch (deny)', async () => {
-        const elicit = vi.fn(async () => {
-            throw new ElicitationNotSupportedError(-32601, 'Method not found')
-        }) as unknown as ElicitFn
-        const outcome = await requestConfirmation(
-            makeContext(elicit),
-            {},
-            {
-                message: 'Proceed?',
-                onNoElicit: 'deny',
-            }
-        )
-        expect(outcome.kind).toBe('denied-no-elicit')
-    })
-
-    it('treats runtime ElicitationNotSupportedError as the no-elicit branch (allow)', async () => {
-        const elicit = vi.fn(async () => {
-            throw new ElicitationNotSupportedError(-32601, 'Method not found')
-        }) as unknown as ElicitFn
-        const outcome = await requestConfirmation(
-            makeContext(elicit),
-            {},
-            {
-                message: 'Proceed?',
-                onNoElicit: 'allow',
-            }
-        )
-        expect(outcome.kind).toBe('allowed-no-elicit')
-    })
+    )
 
     it('propagates non-NotSupported errors (e.g. bus unhealthy) — does not swallow', async () => {
         const elicit = vi.fn(async () => {

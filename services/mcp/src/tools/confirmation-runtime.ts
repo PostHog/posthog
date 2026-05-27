@@ -49,16 +49,13 @@ export async function requestConfirmation<P extends Record<string, unknown>>(
     try {
         elicitResult = await context.elicit({
             message: prompt,
+            // Empty schema → clients render just the action buttons.
+            // The protocol-level `action` field is the explicit-intent signal;
+            // an extra "tick to confirm" checkbox would be friction without
+            // security value (a client that auto-accepts will auto-tick too).
             requestedSchema: {
                 type: 'object',
-                properties: {
-                    confirmed: {
-                        type: 'boolean',
-                        title: 'Confirm',
-                        description: 'Tick to proceed; submit to confirm.',
-                    },
-                },
-                required: ['confirmed'],
+                properties: {},
             },
         })
     } catch (error) {
