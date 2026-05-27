@@ -252,17 +252,20 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ## Eager baseline warming (hourly Dagster job)
 
-The lazy path computes on first read, but for high-traffic teams the dashboard's main tiles get hit constantly — there's no reason to make the first user every cycle pay the INSERT cost. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
+The lazy path computes on first read, but for high-traffic teams the dashboard's main tiles are requested constantly — there's no reason to make the first user of every cycle pay the INSERT cost. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
 
 - **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
-- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`)
-- **Window**: last 28 days, fixed
-- **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`)
-- **Audience**: teams whose organization has at least one member matching the `web-analytics-pre-aggregated-tables` feature flag's `email icontains <domain>` conditions. The flag lives on the PostHog dogfooding project (team id 2 in PostHog Cloud); on self-hosted instances the flag is absent and the job is a no-op.
+- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
+- **Windows**: `-7d` (matches the dashboard's default range so the Django response cache is hit on default loads) and `-28d` (the broader coverage commitment).
+- **Matrix per team per window**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`).
+- **Per-query opt-in**: every warmer query sets `useWebAnalyticsPrecompute=True` so the lazy precompute path accepts it; without this the gate rejects via `PerQueryOptInNotSet` and the warming is a silent no-op.
+- **Audience**: teams whose organization has at least one **active** member whose email **ends with** one of the domains listed in the `web-analytics-pre-aggregated-tables` feature flag's `email icontains <domain>` conditions. The flag lives on PostHog's internal dogfooding project. Self-hosted instances are gated out via `is_cloud()` so a same-keyed flag on someone else's team-2 doesn't trigger anything.
+- **Audience cap**: 200 teams. A typo in the flag config fails-loudly (op returns with `skipped=N` and zero warmed) rather than silently overloading ClickHouse.
+- **Cycle budget**: 45 minutes of wall-clock; remaining teams are reported as `skipped` if the budget is exhausted. The concurrency guard absorbs the next tick.
 
-There's no separate runtime gate — the eager job populates the same cache the lazy read path consults. For an enrolled team to actually be served from the warmed cache, the team must also be on `web-analytics-precompute-toggle` (the lazy-path rollout flag). Both flags should overlap for the same audience.
+There's no separate per-runner gate — the eager job populates the same cache the lazy read path consults. For an enrolled team to actually be **served** from the warmed cache, that team must also be on `web-analytics-precompute-toggle` (the lazy-path rollout flag). The two flags are independent by design; operators are expected to overlap their audiences. Pause `web-analytics-pre-aggregated-tables` to stop eager warming; pause `web-analytics-precompute-toggle` to stop the runtime read path consulting the cache.
 
-This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. Together: the eager job guarantees the head of the distribution is always warm; the replay job covers the long tail of team-specific filter combinations.
+This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. The eager job covers the fixed UI matrix; the replay job covers the long tail of team-specific filter combinations.
 
 ## Related code
 
