@@ -117,40 +117,47 @@ describe('whatsapp template', () => {
         )
     })
 
-    it('should error when no recipient phone is set', async () => {
-        const response = await tester.invoke(
-            {
+    it.each([
+        {
+            name: 'recipient phone is empty',
+            inputs: {
                 access_token: 'token_12345',
                 phone_number_id: '987654321',
                 message_type: 'text',
                 message: 'Hello',
                 to_number: '',
             },
-            {
-                event: { event: 'event-name' },
-                person: { properties: {} },
-            }
-        )
-
-        expect(response.error).toMatch(/Recipient phone number is required/)
-    })
-
-    it('should error when template name is missing for template messages', async () => {
-        const response = await tester.invoke(
-            {
+            expectedError: /Recipient phone number is required/,
+        },
+        {
+            name: 'template name is empty for template messages',
+            inputs: {
                 access_token: 'token_12345',
                 phone_number_id: '987654321',
                 to_number: '+1234567893',
                 message_type: 'template',
                 template_name: '',
             },
-            {
-                event: { event: 'event-name' },
-                person: { properties: {} },
-            }
-        )
+            expectedError: /Template name is required/,
+        },
+        {
+            name: 'message body is empty for text messages',
+            inputs: {
+                access_token: 'token_12345',
+                phone_number_id: '987654321',
+                to_number: '+1234567893',
+                message_type: 'text',
+                message: '',
+            },
+            expectedError: /Message body is required for text messages/,
+        },
+    ])('should error when $name', async ({ inputs, expectedError }) => {
+        const response = await tester.invoke(inputs, {
+            event: { event: 'event-name' },
+            person: { properties: {} },
+        })
 
-        expect(response.error).toMatch(/Template name is required/)
+        expect(response.error).toMatch(expectedError)
     })
 
     it('should throw on non-2xx response', async () => {

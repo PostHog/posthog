@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-whatsapp',
     name: 'WhatsApp',
     description: 'Send WhatsApp messages using the WhatsApp Cloud API (Meta Graph API)',
-    icon_url: '/static/services/whatsapp.png',
+    icon_url: '/static/services/whatsapp.svg',
     category: ['Communication'],
     code_language: 'hog',
     code: `
@@ -42,7 +42,7 @@ if (messageType == 'template') {
     let templatePayload := {
         'name': inputs.template_name,
         'language': {
-            'code': empty(inputs.template_language) ? 'af' : inputs.template_language
+            'code': empty(inputs.template_language) ? 'en_US' : inputs.template_language
         }
     }
     body['type'] := 'template'
@@ -159,7 +159,7 @@ if (inputs.debug) {
             label: 'Template language',
             description:
                 'Language and locale code of the pre-approved template. Must match the language the template was approved in. Only used for template messages.',
-            default: 'af',
+            default: 'en_US',
             searchable: true,
             choices: [
                 { value: 'af', label: 'Afrikaans (af)' },
