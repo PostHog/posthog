@@ -76,7 +76,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_webhook_url,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location
+from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     apply_on_schema_clear as apply_postgres_warehouse_schema_clear_migration,
     detect_schema_clear_transition as detect_postgres_schema_clear_transition,
@@ -806,8 +806,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 )
                 # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
                 # exercise the real direct-query DataWarehouseTable rebuild.
-                from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
-
                 reconcile_postgres_schemas(
                     source=updated_source,
                     source_schemas=discovered_schemas,
@@ -1653,8 +1651,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             # Direct call (not via hook): tests that mock `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
-                from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
-
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
                     source_schemas=schemas,

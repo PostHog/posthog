@@ -43,6 +43,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     source_requires_ssl,
 )
 
+from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 log = logging.getLogger(__name__)
@@ -199,8 +200,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
     ) -> list[str]:
         """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
-        from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
-
         return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:

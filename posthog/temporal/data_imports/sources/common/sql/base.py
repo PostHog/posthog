@@ -37,6 +37,8 @@ from posthog.temporal.data_imports.sources.common.sql.metadata import (
 )
 from posthog.temporal.data_imports.sources.common.sql.projection import prune_enabled_columns
 
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -159,8 +161,6 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         Returns schema names this hook soft-deleted (default impl never does;
         override to handle direct-query table cleanup).
         """
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-
         schemas_by_name: dict[str, SourceSchema] = {s.name: s for s in source_schemas}
         rows = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
         for row in rows:
