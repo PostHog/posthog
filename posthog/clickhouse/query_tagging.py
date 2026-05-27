@@ -248,6 +248,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.DATABASE_SCHEMA_QUERY
             | NodeKind.PROPERTY_VALUES_QUERY
             | NodeKind.USAGE_METRICS_QUERY
+            | NodeKind.ACCOUNTS_QUERY
             # drill-downs — caller's product is what matters
             | NodeKind.ACTORS_QUERY
             | NodeKind.GROUPS_QUERY
