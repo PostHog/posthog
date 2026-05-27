@@ -492,7 +492,8 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     # Populate event/property definitions so the taxonomic filter works
     from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 
-    infer_taxonomy_for_team(team.pk)
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        infer_taxonomy_for_team(team.pk)
 
 
 @dataclass(frozen=True)
