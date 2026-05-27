@@ -503,11 +503,11 @@ services:
                 # Use rpk topic list as the readiness check - it's a simple operation
                 # that confirms the broker is accepting Kafka protocol requests
                 until rpk topic list --brokers kafka:9092 2>/dev/null; do
-                    echo "Kafka broker not ready yet (elapsed: ${ELAPSED}s)..."
+                    echo "Kafka broker not ready yet (elapsed: $${ELAPSED}s)..."
                     sleep 2
-                    ELAPSED=$((ELAPSED + 2))
-                    if [ $ELAPSED -ge $TIMEOUT ]; then
-                        echo "Timeout waiting for Kafka broker after ${TIMEOUT}s"
+                    ELAPSED=$$((ELAPSED + 2))
+                    if [ $$ELAPSED -ge $$TIMEOUT ]; then
+                        echo "Timeout waiting for Kafka broker after $${TIMEOUT}s"
                         echo "Final attempt to list topics:"
                         rpk topic list --brokers kafka:9092 || true
                         exit 1

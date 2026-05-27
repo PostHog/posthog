@@ -6,9 +6,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.api.product_tour import get_product_tours_response
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.models import ProductTour

@@ -18,7 +18,10 @@ import math
 import asyncio
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
+
+from django.utils import timezone
 
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering
@@ -30,6 +33,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
+from posthog.temporal.mcp_analytics.summarize_session_intents.activities import NO_INTENT_RECORDED_FALLBACK
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -119,16 +123,26 @@ def fetch_intent_corpus(
 
     ``intent_by_session`` is exposed so callers can later join session-level
     data (e.g. journey aggregation) back to the cluster a session belongs to.
+
+    ``lookback_days`` bounds both stores to the same window: sessions are
+    filtered by ``session_end`` (the index on ``(team, -session_end)`` makes
+    this cheap), and the joined ClickHouse query filters by event timestamp.
     """
-    session_rows = list(MCPSession.objects.filter(team=team).values_list("session_id", "intent"))
+    window_start = timezone.now() - timedelta(days=lookback_days)
+    session_rows = list(
+        MCPSession.objects.filter(team=team, session_end__gte=window_start).values_list("session_id", "intent")
+    )
     if not session_rows:
         return [], {}
 
     # Map session_id -> intent_text (last write wins per session).
+    # Skip the summariser's "no intents recorded" placeholder — clustering
+    # it produces a meaningless pseudo-cluster of sessions with nothing in
+    # common except that their tool calls had no $mcp_intent property.
     intent_by_session: dict[str, str] = {}
     for session_id, intent_text in session_rows:
         text = (intent_text or "").strip()
-        if not session_id or not text:
+        if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text
 

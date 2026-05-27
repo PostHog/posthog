@@ -19,15 +19,17 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    PostgresImplementation,
     SSLRequiredError,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
@@ -55,11 +57,18 @@ PostgresErrors = {
 }
 
 
+_POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+
 @SourceRegistry.register
-class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
+
+    @property
+    def get_implementation(self) -> PostgresImplementation:
+        return _POSTGRES_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
