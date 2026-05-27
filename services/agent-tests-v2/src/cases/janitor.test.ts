@@ -53,6 +53,6 @@ describe('janitor: real e2e', () => {
     it('POST /sweep returns counts', async () => {
         const res = await request(c.janitor).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ inspected: 0, reaped: 0, sessions: [] })
+        expect(res.body).toEqual({ requeued: 0, failed: 0 })
     })
 })

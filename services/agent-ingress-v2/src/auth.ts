@@ -25,6 +25,50 @@ export type Principal =
     | { kind: 'internal'; team_id: number }
     | { kind: 'shared_secret'; team_id: number }
 
+/**
+ * Serializable form stored on `AgentSession.principal`. Captured at /run time;
+ * /send compares the incoming auth's principal to this for strict match.
+ */
+export function principalToSession(p: Principal): import('@posthog/agent-shared-v2').SessionPrincipal {
+    if (p.kind === 'service') {
+        return { kind: 'service', team_id: p.team_id, id: p.pat_id }
+    }
+    if (p.kind === 'internal' || p.kind === 'shared_secret') {
+        return { kind: p.kind, team_id: p.team_id }
+    }
+    return { kind: 'anonymous' }
+}
+
+/**
+ * Strict principal match: same kind + same identifying key. Used on /send to
+ * reject "slack-started session, PAT /send" and similar mismatches.
+ * Two anonymous principals match. A team-scoped PAT only matches the same
+ * pat_id (or the same team for impl-defined "any-PAT-on-team" cases).
+ */
+export function principalsMatch(
+    stored: import('@posthog/agent-shared-v2').SessionPrincipal | null,
+    incoming: import('@posthog/agent-shared-v2').SessionPrincipal | null
+): boolean {
+    if (!stored && !incoming) {
+        return true
+    }
+    if (!stored || !incoming) {
+        return false
+    }
+    if (stored.kind !== incoming.kind) {
+        return false
+    }
+    // Service principals: match on pat_id when set, else fall back to team.
+    if (stored.kind === 'service') {
+        if (stored.id && incoming.id) {
+            return stored.id === incoming.id
+        }
+        return stored.team_id === incoming.team_id
+    }
+    // internal / shared_secret / anonymous: kind equality is the contract.
+    return true
+}
+
 export interface AuthProvider {
     verifyPat(token: string, application: AgentApplication): Promise<Principal | null>
     verifyInternal(secret: string, application: AgentApplication): Promise<Principal | null>

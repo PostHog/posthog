@@ -14,6 +14,7 @@ function session(id: string): AgentSession {
         state: 'running',
         conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
         pending_inputs: [],
+        principal: null,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -24,7 +25,7 @@ describe('janitor HTTP', () => {
         const queue = new MemorySessionQueue()
         const app = buildJanitorApp({
             queue,
-            sweep: { queue, stuckThresholdMs: 60_000, listCandidates: async () => [] },
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
         })
         return { queue, app }
     }
@@ -57,14 +58,14 @@ describe('janitor HTTP', () => {
         const { app } = mk()
         const res = await request(app).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ inspected: 0, reaped: 0, sessions: [] })
+        expect(res.body).toEqual({ requeued: 0, failed: 0 })
     })
 
     it('enforces internal secret when configured', async () => {
         const queue = new MemorySessionQueue()
         const app = buildJanitorApp({
             queue,
-            sweep: { queue, stuckThresholdMs: 60_000, listCandidates: async () => [] },
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
             internalSecret: 'topsecret',
         })
         const noAuth = await request(app).get('/sessions/x')

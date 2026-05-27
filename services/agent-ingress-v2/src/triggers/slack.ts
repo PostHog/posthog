@@ -10,7 +10,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { Request, Response, Router } from 'express'
 
-import { SessionQueue } from '@posthog/agent-shared-v2'
+import { IdentityStore, SessionQueue } from '@posthog/agent-shared-v2'
 
 import { enqueueOrResume } from '../enqueue'
 import { RevisionResolver } from '../resolver'
@@ -21,6 +21,8 @@ export interface SlackTriggerDeps {
     queue: SessionQueue
     teamId: number
     signingSecret?: string
+    /** Optional identity store — when present, slack events resolve to a stable AgentUser. */
+    identities?: IdentityStore
 }
 
 export function slackRouter(deps: SlackTriggerDeps): Router {
@@ -49,7 +51,41 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             res.status(404).json({ error: 'no_slack_trigger' })
             return
         }
+
+        // Workspace trust check. trusted_workspaces is required in the spec:
+        // an array gates on membership; `"*"` opens to any workspace.
+        const slackTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
+        const trusted =
+            slackTrigger && 'config' in slackTrigger
+                ? (slackTrigger.config as { trusted_workspaces?: string[] | '*' }).trusted_workspaces
+                : undefined
+        const workspaceId = event.team ?? 'unknown'
+        if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
+            res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
+            return
+        }
+
+        // Identity resolution: same (workspace, user) tuple resolves to the
+        // same AgentUser across sessions.
+        const principalId = `${workspaceId}:${event.user}`
+        let agentUserId = principalId
+        if (deps.identities) {
+            const agentUser = await deps.identities.findOrCreate({
+                team_id: resolved.application.team_id,
+                application_id: resolved.application.id,
+                principal_kind: 'slack',
+                principal_id: principalId,
+                metadata: { workspace: workspaceId, slack_user: event.user },
+            })
+            agentUserId = agentUser.id
+        }
+
         const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
+        const slackPrincipal = {
+            kind: 'slack',
+            team_id: resolved.application.team_id,
+            id: agentUserId,
+        }
         const { sessionId, isResume } = await enqueueOrResume(
             { queue: deps.queue, teamId: deps.teamId },
             {
@@ -57,6 +93,7 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 revision: resolved.revision,
                 externalKey,
                 seed: { role: 'user', content: event.text ?? '', timestamp: Date.now() },
+                principal: slackPrincipal,
             }
         )
         res.json({ ok: true, session_id: sessionId, resumed: isResume })
@@ -68,6 +105,7 @@ interface SlackEvent {
     type: string
     channel: string
     user: string
+    team?: string
     text?: string
     ts: string
     thread_ts?: string

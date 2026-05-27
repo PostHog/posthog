@@ -131,6 +131,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 state: 'queued',
                 conversation: [{ role: 'user', content: `msg ${i}`, timestamp: Date.now() }],
                 pending_inputs: [],
+                principal: null,
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -168,6 +169,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             state: 'running',
             conversation: [{ role: 'user', content: 'first', timestamp: Date.now() }],
             pending_inputs: [],
+            principal: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -204,6 +206,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             state: 'queued',
             conversation: [],
             pending_inputs: [],
+            principal: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })

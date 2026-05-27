@@ -15,6 +15,14 @@ export const TriggerSchema = z.discriminatedUnion('type', [
         config: z.object({
             channel_id: z.string().optional(),
             mention_only: z.boolean().default(false),
+            /**
+             * Required. Workspaces (Slack team ids, e.g. "T01ABC") allowed to
+             * invoke this agent. Use the literal string `"*"` to opt into an
+             * open-to-any-workspace policy (B2C-style public bot). Authors
+             * MUST make the choice explicitly — there is no implicit
+             * "any-workspace" default.
+             */
+            trusted_workspaces: z.union([z.array(z.string()).min(1), z.literal('*')]),
         }),
     }),
     z.object({
@@ -138,6 +146,14 @@ export interface AgentRevision {
     spec: AgentSpec
 }
 
+export interface SessionPrincipal {
+    /** "anonymous" | "service" | "internal" | "shared_secret" | "slack" */
+    kind: string
+    team_id?: number
+    /** Stable identifier for the principal — pat_id, slack user, etc. */
+    id?: string
+}
+
 export interface AgentSession {
     id: string
     application_id: string
@@ -145,6 +161,12 @@ export interface AgentSession {
     team_id: number
     external_key: string | null
     state: 'queued' | 'running' | 'waiting' | 'completed' | 'failed'
+    /**
+     * Principal that authenticated `/run`. Subsequent `/send` calls must
+     * carry a principal that matches (same kind + id). Null for sessions
+     * started without auth on public agents.
+     */
+    principal: SessionPrincipal | null
     /**
      * The active conversation history. Built up turn-by-turn. Uses pi-ai's
      * Message shape verbatim so the runner can hand it straight to `complete()`.

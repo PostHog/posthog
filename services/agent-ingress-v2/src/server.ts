@@ -6,6 +6,7 @@
 
 import express, { Express, NextFunction, Request, Response } from 'express'
 
+import type { IdentityStore } from '@posthog/agent-shared-v2'
 import { RevisionStore, SessionQueue } from '@posthog/agent-shared-v2'
 
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from './auth'
@@ -26,6 +27,8 @@ export interface BuildAppOpts {
     pathPrefix?: string
     slackSigningSecret?: string
     authProvider?: AuthProvider
+    /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
+    identities?: IdentityStore
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -52,7 +55,7 @@ export function buildApp(opts: BuildAppOpts): Express {
     const authProvider = opts.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
     const triggerDeps = { resolver, queue: opts.queue, teamId: opts.teamId, bus, authProvider }
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
-    app.use(mount, slackRouter({ ...triggerDeps, signingSecret: opts.slackSigningSecret }))
+    app.use(mount, slackRouter({ ...triggerDeps, signingSecret: opts.slackSigningSecret, identities: opts.identities }))
     app.use(mount, webhookRouter(triggerDeps))
     app.use(mount, chatRouter(triggerDeps))
     app.use(mount, mcpRouter(triggerDeps))

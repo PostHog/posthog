@@ -1,3 +1,5 @@
+import type { Model } from '@earendil-works/pi-ai'
+
 import {
     AgentRevision,
     AgentSession,
@@ -9,6 +11,9 @@ import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { endTurn, errorTurn, FauxPiClient, lengthCappedTurn, toolCall, toolUseTurn } from './faux-pi-client'
 import { runSession } from './run-turn'
+
+// FauxPiClient ignores the model argument so a structural stub is fine.
+const FAUX_MODEL = { id: 'stub', name: 'stub', api: 'faux', provider: 'faux' } as unknown as Model<string>
 
 function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}): AgentRevision {
     return {
@@ -34,6 +39,7 @@ function makeSession(): AgentSession {
         state: 'running',
         conversation: [{ role: 'user', content: 'hello', timestamp: Date.now() }],
         pending_inputs: [],
+        principal: null,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -57,7 +63,14 @@ describe('runSession', () => {
         const pi = new FauxPiClient([endTurn('hi back')])
         const rev = makeRev()
         const session = makeSession()
-        const out = await runSession(rev, session, { pi, bundle, sandbox: null, integrations: {}, secrets: {} })
+        const out = await runSession(rev, session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+        })
         expect(out.state).toBe('completed')
         expect(out.turns).toBe(1)
         expect(session.conversation).toHaveLength(2)
@@ -72,7 +85,14 @@ describe('runSession', () => {
         ])
         const rev = makeRev({ tools: [{ kind: 'native', id: 'posthog.query.v1' }] })
         const session = makeSession()
-        const out = await runSession(rev, session, { pi, bundle, sandbox: null, integrations: {}, secrets: {} })
+        const out = await runSession(rev, session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+        })
         expect(out.state).toBe('completed')
         expect(out.turns).toBe(2)
         // user + assistant(tool_use) + toolResult + assistant(final)
@@ -88,6 +108,7 @@ describe('runSession', () => {
         const pi = new FauxPiClient([toolUseTurn([toolCall('meta.ask_for_input.v1', { prompt: 'Continue?' })])])
         const out = await runSession(makeRev(), makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -103,6 +124,7 @@ describe('runSession', () => {
         const pi = new FauxPiClient([toolUseTurn([toolCall('meta.end_session.v1', { summary: 'all done' })])])
         const out = await runSession(makeRev(), makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -126,6 +148,7 @@ describe('runSession', () => {
         })
         const out = await runSession(rev, makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -141,6 +164,7 @@ describe('runSession', () => {
         const pi = new FauxPiClient([lengthCappedTurn()])
         const out = await runSession(makeRev(), makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -156,6 +180,7 @@ describe('runSession', () => {
         const pi = new FauxPiClient([errorTurn('rate_limit')])
         const out = await runSession(makeRev(), makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -187,6 +212,7 @@ describe('runSession', () => {
         const rev = makeRev({ tools: [{ kind: 'custom', id: 'echo', path: 'tools/echo/' }] })
         const out = await runSession(rev, makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox,
             integrations: {},
@@ -202,7 +228,7 @@ describe('runSession', () => {
         const pi = new FauxPiClient([toolUseTurn([toolCall('ghost-tool', {})]), endTurn('ok recovered')])
         const rev = makeRev()
         const session = makeSession()
-        await runSession(rev, session, { pi, bundle, sandbox: null, integrations: {}, secrets: {} })
+        await runSession(rev, session, { pi, model: FAUX_MODEL, bundle, sandbox: null, integrations: {}, secrets: {} })
         const tr = session.conversation[2] as { role: 'toolResult'; isError: boolean }
         expect(tr.role).toBe('toolResult')
         expect(tr.isError).toBe(true)
@@ -216,6 +242,7 @@ describe('runSession', () => {
         session.pending_inputs = [{ role: 'user', content: 'queued follow-up', timestamp: Date.now() }]
         const out = await runSession(makeRev(), session, {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -237,6 +264,7 @@ describe('runSession', () => {
         controller.abort()
         const out = await runSession(makeRev(), makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -262,6 +290,7 @@ describe('runSession', () => {
         const rev = makeRev({ tools: [{ kind: 'native', id: 'posthog.query.v1' }] })
         const out = await runSession(rev, makeSession(), {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},
@@ -280,6 +309,7 @@ describe('runSession', () => {
         const session = makeSession()
         await runSession(rev, session, {
             pi,
+            model: FAUX_MODEL,
             bundle,
             sandbox: null,
             integrations: {},

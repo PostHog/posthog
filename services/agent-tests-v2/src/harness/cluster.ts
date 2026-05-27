@@ -26,6 +26,8 @@ import { Pool } from 'pg'
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress-v2'
 import { buildJanitorApp } from '@posthog/agent-janitor-v2'
 import { PiAiClient, Worker } from '@posthog/agent-runner-v2'
+import type { IdentityStore } from '@posthog/agent-shared-v2'
+import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared-v2'
 import {
     AgentApplication,
     AgentRevision,
@@ -62,6 +64,8 @@ export interface Cluster {
     bundle: FsBundleStore
     bundleRoot: string
     bus: SessionEventBus
+    identities: IdentityStore
+    logs: InMemoryLogSink
     sandboxes: InProcessSandboxPool
     broker: SecretBroker
     /** The faux pi-ai Model the runner is wired with. */
@@ -133,11 +137,17 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const revisions = new PgRevisionStore(pool)
     const queue = new PgSessionQueue(pool)
     const bus: SessionEventBus = new MemorySessionEventBus()
+    const identities: IdentityStore = new MemoryIdentityStore()
+    const logs = new InMemoryLogSink()
     const sandboxes = new InProcessSandboxPool()
     const broker = new SecretBroker()
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
-    const piClient = new PiAiClient(model, process.env.AGENT_TEST_API_KEY ?? 'faux-key')
+    const piClient = new PiAiClient(process.env.AGENT_TEST_API_KEY ?? 'faux-key')
+    // resolveModel ignores spec.model and always returns the harness's Model —
+    // tests don't exercise per-agent model selection (that's covered in
+    // real-inference + dedicated tests).
+    const resolveModelForHarness = (): typeof model => model
 
     // For native posthog.query.v1 etc. tests use the in-process echo client.
     setPosthogInternalClient({
@@ -156,8 +166,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         sandboxes,
         pi: piClient,
         broker,
+        bus,
+        logs,
         resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
+        resolveModel: resolveModelForHarness,
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
@@ -171,11 +184,12 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         domainSuffix: opts.domainSuffix,
         slackSigningSecret: opts.slackSigningSecret,
         authProvider: opts.authProvider,
+        identities,
     })
 
     const janitor = buildJanitorApp({
         queue,
-        sweep: { queue, stuckThresholdMs: 60_000, listCandidates: async () => [] },
+        sweep: { queue, stuckRunningThresholdMs: 60_000 },
     })
 
     return {
@@ -185,6 +199,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bundle,
         bundleRoot,
         bus,
+        identities,
+        logs,
         sandboxes,
         broker,
         model,
@@ -208,7 +224,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 model: 'faux/faux',
                 triggers: [
                     { type: 'chat', config: { require_auth: false } },
-                    { type: 'slack', config: {} },
+                    // Default to "*" for tests — individual cases override
+                    // with explicit trusted_workspaces to exercise the gate.
+                    { type: 'slack', config: { trusted_workspaces: '*' } },
                     { type: 'webhook', config: { path: '/webhook' } },
                     { type: 'mcp', config: {} },
                 ],

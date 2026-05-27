@@ -14,7 +14,7 @@ describe('AgentSpecSchema', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
             model: 'claude-opus-4-7',
             triggers: [
-                { type: 'slack', config: { channel_id: 'C01', mention_only: true } },
+                { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' } },
             ],
             tools: [

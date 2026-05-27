@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS agent_session_v2 (
     state           TEXT NOT NULL DEFAULT 'queued',
     conversation    JSONB NOT NULL DEFAULT '[]'::jsonb,
     pending_inputs  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    principal       JSONB,
     claimed_at      TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -62,9 +63,23 @@ CREATE INDEX IF NOT EXISTS agent_session_v2_state_updated_idx
 CREATE INDEX IF NOT EXISTS agent_session_v2_external_key_idx
     ON agent_session_v2 (application_id, external_key)
     WHERE external_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS agent_user_v2 (
+    id               UUID PRIMARY KEY,
+    team_id          INT NOT NULL,
+    application_id   UUID NOT NULL,
+    principal_kind   TEXT NOT NULL,
+    principal_id     TEXT NOT NULL,
+    metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_user_v2_unique_natural_key
+    ON agent_user_v2 (application_id, principal_kind, principal_id);
 `
 
 export const DROP_SQL = `
+DROP TABLE IF EXISTS agent_user_v2 CASCADE;
 DROP TABLE IF EXISTS agent_session_v2 CASCADE;
 DROP TABLE IF EXISTS agent_revision_v2 CASCADE;
 DROP TABLE IF EXISTS agent_application_v2 CASCADE;

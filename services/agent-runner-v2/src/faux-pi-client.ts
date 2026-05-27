@@ -6,7 +6,7 @@
  * agent-tests-v2).
  */
 
-import type { AssistantMessage, Context, TextContent, ToolCall } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Context, Model, TextContent, ToolCall } from '@earendil-works/pi-ai'
 
 import { InvokeOpts, PiClient } from './pi-client'
 
@@ -16,12 +16,12 @@ export type ScriptedTurn =
 
 export class FauxPiClient implements PiClient {
     private idx = 0
-    public readonly calls: Array<{ context: Context; opts?: InvokeOpts }> = []
+    public readonly calls: Array<{ model: Model<string>; context: Context; opts?: InvokeOpts }> = []
 
     constructor(private readonly turns: ScriptedTurn[]) {}
 
-    async invoke(context: Context, opts?: InvokeOpts): Promise<AssistantMessage> {
-        this.calls.push({ context, opts })
+    async invoke(model: Model<string>, context: Context, opts?: InvokeOpts): Promise<AssistantMessage> {
+        this.calls.push({ model, context, opts })
         if (this.idx >= this.turns.length) {
             throw new Error(`FauxPiClient ran out of scripted turns at idx=${this.idx}`)
         }

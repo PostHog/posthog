@@ -22,6 +22,12 @@ export interface SessionQueue {
     get(sessionId: string): Promise<AgentSession | null>
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
+    /**
+     * Re-queue sessions stuck in 'running' beyond the TTL (their worker
+     * probably crashed). The session's conversation is preserved; a sibling
+     * worker picks it up via the normal claim path. Returns the count reaped.
+     */
+    reapStuckRunning(thresholdMs: number): Promise<number>
 }
 
 /** In-memory test impl. Not thread-safe across processes. */
@@ -85,6 +91,24 @@ export class MemorySessionQueue implements SessionQueue {
             }
         }
         return null
+    }
+
+    async reapStuckRunning(thresholdMs: number): Promise<number> {
+        const cutoff = Date.now() - thresholdMs
+        let n = 0
+        for (const s of this.sessions.values()) {
+            if (s.state !== 'running') {
+                continue
+            }
+            const updated = Date.parse(s.updated_at)
+            if (Number.isFinite(updated) && updated < cutoff) {
+                s.state = 'queued'
+                s.updated_at = new Date().toISOString()
+                this.waiting.push(s.id)
+                n++
+            }
+        }
+        return n
     }
 
     /** Test helper. */

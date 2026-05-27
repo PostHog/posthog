@@ -25,7 +25,7 @@ describe('routing edges: real e2e', () => {
         c = await buildCluster()
         await c.deployAgent({
             slug: 'slack-only',
-            spec: { triggers: [{ type: 'slack', config: {} }] },
+            spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: '*' } }] },
         })
         const res = await request(c.ingress).post('/agents/slack-only/run').send({ message: 'x' })
         expect(res.status).toBe(404)

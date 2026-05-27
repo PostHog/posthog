@@ -17,16 +17,20 @@
  * there via the ingress → `queue.appendPendingInput()` path.
  */
 
+import type { Model } from '@earendil-works/pi-ai'
+
 import {
     AgentSession,
     BundleStore,
+    LogSink,
     RevisionStore,
     SandboxPool,
     SecretBroker,
+    SessionEventBus,
     SessionQueue,
 } from '@posthog/agent-shared-v2'
 
-import { PiClient } from './pi-client'
+import { PiClient, resolveModelCached } from './pi-client'
 import { runSession } from './run-turn'
 
 export interface WorkerDeps {
@@ -41,6 +45,25 @@ export interface WorkerDeps {
     resolveIntegrations: (
         session: AgentSession
     ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
+    /**
+     * Resolve a session's spec.model string to a concrete pi-ai Model. Defaults
+     * to `resolveModelCached(spec.model)` which works for built-in providers.
+     * Override for custom-endpoint models (llm-gateway) or test faux models.
+     */
+    resolveModel?: (specModel: string) => Model<string>
+    /** Per-session API key resolver. Defaults to no override (uses PiAiClient's default). */
+    resolveApiKey?: (session: AgentSession) => string | undefined
+    /**
+     * Optional lifecycle event bus. Runner publishes session_started /
+     * turn_started / assistant_text / tool_call / tool_result / completed /
+     * waiting / failed events here. Chat `/listen` SSE consumes these.
+     */
+    bus?: SessionEventBus
+    /**
+     * Optional structured-log sink. Mirrors the bus events into a
+     * persistent store (ClickHouse via Kafka in prod).
+     */
+    logs?: LogSink
     /**
      * Max concurrent in-flight sessions per worker process. Default 8.
      * Tune against memory / sandbox-pool size / LLM rate limits.
@@ -138,14 +161,21 @@ export class Worker {
                 sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
             })
         }
+        const resolveModel = this.deps.resolveModel ?? resolveModelCached
+        const model = resolveModel(rev.spec.model)
+        const apiKey = this.deps.resolveApiKey?.(session)
         try {
             const outcome = await runSession(rev, session, {
                 pi: this.deps.pi,
+                model,
+                apiKey,
                 bundle: this.deps.bundle,
                 sandbox,
                 integrations,
                 secrets,
                 broker: this.deps.broker,
+                bus: this.deps.bus,
+                logs: this.deps.logs,
                 shutdownSignal: this.shutdownController.signal,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop

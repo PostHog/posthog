@@ -48,6 +48,7 @@ describe('Worker', () => {
             state: 'queued',
             conversation: [{ role: 'user', content: 'hello', timestamp: Date.now() }],
             pending_inputs: [],
+            principal: null,
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -104,6 +105,7 @@ describe('Worker', () => {
             state: 'queued',
             conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
             pending_inputs: [],
+            principal: null,
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -153,6 +155,7 @@ describe('Worker', () => {
             state: 'queued',
             conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
             pending_inputs: [],
+            principal: null,
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }

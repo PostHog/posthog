@@ -8,7 +8,7 @@ import { Request, Response, Router } from 'express'
 
 import { SessionQueue } from '@posthog/agent-shared-v2'
 
-import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../auth'
+import { authorize, AuthProvider, principalsMatch, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER } from '../auth'
 import { SessionEventBus } from '../bus'
 import { enqueueOrResume } from '../enqueue'
 import { RevisionResolver } from '../resolver'
@@ -47,6 +47,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
         }
         const message = typeof req.body?.message === 'string' ? req.body.message : ''
         const externalKey = typeof req.body?.external_key === 'string' ? req.body.external_key : null
+        const sessionPrincipal = principalToSession(auth.principal)
         const { sessionId, isResume } = await enqueueOrResume(
             { queue: deps.queue, teamId: deps.teamId },
             {
@@ -54,6 +55,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 revision: resolved.revision,
                 externalKey,
                 seed: { role: 'user', content: message, timestamp: Date.now() },
+                principal: sessionPrincipal,
             }
         )
         res.json({ ok: true, session_id: sessionId, resumed: isResume, principal: auth.principal })
@@ -73,6 +75,27 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
         }
         if (existing.state === 'completed' || existing.state === 'failed') {
             res.status(410).json({ error: 'session_terminal', state: existing.state })
+            return
+        }
+        // Strict principal match: re-authenticate against the agent's auth
+        // mode and compare to the principal stored at /run time.
+        const resolved = await resolveAgent(deps.resolver, req)
+        if (!resolved) {
+            res.status(404).json({ error: 'no_agent' })
+            return
+        }
+        const auth = await authorize(
+            req,
+            resolved.application,
+            resolved.revision.spec,
+            deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
+        )
+        if (!auth.ok) {
+            res.status(auth.status).json({ error: auth.reason })
+            return
+        }
+        if (!principalsMatch(existing.principal, principalToSession(auth.principal))) {
+            res.status(403).json({ error: 'principal_mismatch' })
             return
         }
         await deps.queue.appendPendingInput(sessionId, { role: 'user', content: message, timestamp: Date.now() })

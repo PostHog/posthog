@@ -20,7 +20,7 @@ async function seedApp(
             model: 'x',
             triggers: [
                 { type: 'chat', config: { require_auth: false } },
-                { type: 'slack', config: {} },
+                { type: 'slack', config: { trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/webhook' } },
                 { type: 'mcp', config: {} },
             ],

@@ -22,8 +22,15 @@ import {
     AssistantMessageRecord,
     BundleStore,
     IntegrationCredentials,
+    LogLevel,
+    LogSink,
+    NoopLogSink,
+    NoopSessionEventBus,
     Sandbox,
     SecretBroker,
+    SessionEvent,
+    SessionEventBus,
+    SessionEventKind,
     ToolResultMessage,
 } from '@posthog/agent-shared-v2'
 import { listNativeTools } from '@posthog/agent-tools'
@@ -34,6 +41,10 @@ import { dispatchTool } from './tool-dispatch'
 
 export interface RunSessionDeps {
     pi: PiClient
+    /** The pi-ai Model to invoke for this session (resolved from rev.spec.model). */
+    model: import('@earendil-works/pi-ai').Model<string>
+    /** Per-call API key (provider-specific). Optional — PiAiClient has a default. */
+    apiKey?: string
     bundle: BundleStore
     sandbox: Sandbox | null
     integrations: Record<string, IntegrationCredentials>
@@ -47,6 +58,16 @@ export interface RunSessionDeps {
      * worker uses it to persist progress so a crash mid-loop leaves valid state.
      */
     onTurnPersist?: (session: AgentSession) => Promise<void>
+    /**
+     * Lifecycle event sink. Defaults to NoopSessionEventBus.
+     * Chat `/listen` SSE subscribes through this bus.
+     */
+    bus?: SessionEventBus
+    /**
+     * Structured log sink. Defaults to NoopLogSink.
+     * Production writes to ClickHouse via Kafka.
+     */
+    logs?: LogSink
 }
 
 export type RunOutcome =
@@ -58,11 +79,33 @@ export type RunOutcome =
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
     const system = await buildSystemPrompt(rev, deps.bundle)
     const tools = await buildToolList(rev, deps.bundle)
+    const bus: SessionEventBus = deps.bus ?? new NoopSessionEventBus()
+    const logs: LogSink = deps.logs ?? new NoopLogSink()
     let turns = 0
     const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
         // eslint-disable-next-line no-console
         console.log(`[runner] ${level} ${msg}`, meta ?? '')
     }
+    const emit = async (kind: SessionEventKind, data: Record<string, unknown> = {}): Promise<void> => {
+        const ts = new Date().toISOString()
+        await bus.publish({ session_id: session.id, kind, data, ts } satisfies SessionEvent)
+        // Mirror lifecycle events into the structured log sink. Levels:
+        // failed → error; waiting → info; everything else → info.
+        const level: LogLevel = kind === 'failed' ? 'error' : 'info'
+        await logs.write([
+            {
+                ts,
+                team_id: session.team_id,
+                application_id: session.application_id,
+                session_id: session.id,
+                level,
+                event: kind,
+                data,
+            },
+        ])
+    }
+
+    await emit('session_started', { team_id: session.team_id, agent: rev.application_id, rev: rev.id })
 
     while (turns < rev.spec.limits.max_turns) {
         // Shutdown check at the top of every turn — clean suspension point.
@@ -79,6 +122,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
 
         turns++
+        await emit('turn_started', { turn: turns })
 
         const context: Context = {
             systemPrompt: system,
@@ -87,7 +131,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         let result: AssistantMessage
         try {
-            result = await deps.pi.invoke(context, {
+            result = await deps.pi.invoke(deps.model, context, {
+                apiKey: deps.apiKey,
                 maxTokens: 4096,
                 signal: deps.shutdownSignal,
             })
@@ -116,16 +161,27 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         session.conversation.push(assistantRecord)
         await deps.onTurnPersist?.(session)
 
+        // Emit assistant text events for SSE listeners. One event per text
+        // block (streaming will subdivide later).
+        for (const block of result.content) {
+            if (block.type === 'text' && block.text) {
+                await emit('assistant_text', { text: block.text })
+            }
+        }
+
         if (result.stopReason === 'error') {
+            await emit('failed', { reason: result.errorMessage ?? 'model_error', turns })
             return { state: 'failed', reason: result.errorMessage ?? 'model_error', turns }
         }
         if (result.stopReason === 'aborted') {
             return { state: 'suspended', reason: 'shutdown', turns }
         }
         if (result.stopReason === 'length') {
+            await emit('failed', { reason: 'max_tokens', turns })
             return { state: 'failed', reason: 'max_tokens', turns }
         }
         if (result.stopReason === 'stop') {
+            await emit('completed', { turns })
             return { state: 'completed', turns }
         }
 
@@ -140,6 +196,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let end: { summary?: string } | null = null
 
         for (const call of toolCalls) {
+            await emit('tool_call', { name: call.name, args: call.arguments, id: call.id })
             const outcome = await dispatchTool(
                 {
                     teamId: session.team_id,
@@ -153,6 +210,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 call.name,
                 call.arguments
             )
+            await emit('tool_result', {
+                name: call.name,
+                id: call.id,
+                ok: outcome.kind === 'ok',
+                error: outcome.kind === 'error' ? outcome.message : undefined,
+            })
             const toolResult: ToolResultMessage = {
                 role: 'toolResult',
                 toolCallId: call.id,
@@ -187,12 +250,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         await deps.onTurnPersist?.(session)
 
         if (end) {
+            await emit('completed', { turns, summary: end.summary })
             return { state: 'completed', summary: end.summary, turns }
         }
         if (suspend) {
+            await emit('waiting', { turns, prompt: suspend.prompt })
             return { state: 'waiting', prompt: suspend.prompt, turns }
         }
     }
+    await emit('failed', { reason: 'max_turns_exceeded', turns })
     return { state: 'failed', reason: 'max_turns_exceeded', turns }
 }
 

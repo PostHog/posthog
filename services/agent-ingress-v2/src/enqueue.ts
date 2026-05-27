@@ -8,11 +8,20 @@
  * `pending_inputs` queue and re-enqueue. The runner drains pending_inputs at
  * the start of its next turn — so this works whether the session is currently
  * queued, running (in-flight), or waiting (parked).
+ *
+ * principal: captured at session creation time. /send compares its incoming
+ * principal to this for strict match.
  */
 
 import { randomUUID } from 'crypto'
 
-import { AgentApplication, AgentRevision, ConversationMessage, SessionQueue } from '@posthog/agent-shared-v2'
+import {
+    AgentApplication,
+    AgentRevision,
+    ConversationMessage,
+    SessionPrincipal,
+    SessionQueue,
+} from '@posthog/agent-shared-v2'
 
 export interface EnqueueDeps {
     queue: SessionQueue
@@ -24,6 +33,7 @@ export interface EnqueueInput {
     revision: AgentRevision
     externalKey: string | null
     seed: ConversationMessage
+    principal?: SessionPrincipal | null
 }
 
 export interface EnqueueResult {
@@ -49,6 +59,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         state: 'queued' as const,
         conversation: [input.seed],
         pending_inputs: [],
+        principal: input.principal ?? null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }
