@@ -92,7 +92,8 @@ This avoids circular imports and keeps migrations/app labels stable.
 - Each `frontend/` directory contains the frontend app for the product.
 - It lives under the same package as the backend.
 - Backend and frontend tooling can be independent (`requirements.txt` vs. `package.json`) but remain in the same Turborepo package.
-- Tests for frontend code live inside `frontend/tests/`.
+- Jest unit tests for frontend code live inside `frontend/tests/` (or alongside the file as `*.test.ts` / `*.spec.ts`).
+- Playwright end-to-end tests for a product live inside `frontend/e2e/` as `*.spec.ts` — these are discovered by `playwright.config.ts` and run by the E2E CI workflow. Import shared fixtures via the `@playwright-utils/*` and `@playwright-pages/*` aliases. See `playwright/README.md` for details.
 
 ## Shared code
 

@@ -112,6 +112,7 @@ jobs:
                         # to the tests, page models, utils, snapshots, or this workflow itself
                         # need to validate before merge.
                         - playwright/**
+                        - 'products/*/frontend/e2e/**'
                         - .github/workflows/ci-e2e-playwright.yml
                       shouldSuggest:
                         # Wider net — code that *could* affect E2E behavior. We don't auto-run

@@ -10,7 +10,13 @@ import { defineConfig, devices } from '@playwright/test'
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
-    testDir: '.',
+    // testDir is the repo root so we can discover tests in two locations:
+    //   - playwright/e2e/**           — cross-cutting and platform-level tests
+    //   - products/*/frontend/e2e/**  — product-owned tests, co-located with the product
+    // testMatch keeps discovery scoped to those two roots so we don't accidentally
+    // pick up unrelated *.spec.ts files (e.g. Jest unit tests under products/).
+    testDir: '..',
+    testMatch: ['playwright/e2e/**/*.spec.ts', 'products/*/frontend/e2e/**/*.spec.ts'],
     /*
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
