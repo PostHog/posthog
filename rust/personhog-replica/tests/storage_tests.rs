@@ -1413,3 +1413,202 @@ async fn test_delete_persons_partial_failure_returns_error() {
         .ok();
     ctx.cleanup().await.ok();
 }
+
+// ============================================================
+// Bulk read chunking tests — exercise the parallel path
+// (test chunk_size=50, so >50 items triggers chunking)
+// ============================================================
+
+#[tokio::test]
+async fn test_get_persons_by_ids_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut ids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("bulk_id_{i}"), None)
+            .await
+            .unwrap();
+        ids.push(p.id);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &ids)
+        .await
+        .expect("Failed to get persons by ids");
+
+    assert_eq!(result.len(), 80);
+    let returned_ids: Vec<i64> = result.iter().map(|p| p.id).collect();
+    for id in &ids {
+        assert!(returned_ids.contains(id), "Missing person id {id}");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_uuids_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut uuids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("bulk_uuid_{i}"), None)
+            .await
+            .unwrap();
+        uuids.push(p.uuid);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_uuids(ctx.team_id, &uuids)
+        .await
+        .expect("Failed to get persons by uuids");
+
+    assert_eq!(result.len(), 80);
+    let returned_uuids: Vec<Uuid> = result.iter().map(|p| p.uuid).collect();
+    for uuid in &uuids {
+        assert!(returned_uuids.contains(uuid), "Missing person uuid {uuid}");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut distinct_ids = Vec::new();
+    for i in 0..80 {
+        let did = format!("bulk_did_{i}");
+        ctx.insert_person(&did, None).await.unwrap();
+        distinct_ids.push(did);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids)
+        .await
+        .expect("Failed to get persons by distinct ids");
+
+    assert_eq!(result.len(), 80);
+    let mut found_count = 0;
+    for (did, person) in &result {
+        assert!(
+            distinct_ids.contains(did),
+            "Unexpected distinct_id {did} in result"
+        );
+        if person.is_some() {
+            found_count += 1;
+        }
+    }
+    assert_eq!(found_count, 80, "All persons should be found");
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_chunked_preserves_missing() {
+    let ctx = TestContext::new().await;
+
+    // Create 60 persons but request 80 distinct_ids (20 nonexistent)
+    let mut distinct_ids = Vec::new();
+    for i in 0..60 {
+        let did = format!("partial_did_{i}");
+        ctx.insert_person(&did, None).await.unwrap();
+        distinct_ids.push(did);
+    }
+    for i in 60..80 {
+        distinct_ids.push(format!("missing_did_{i}"));
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids)
+        .await
+        .expect("Failed to get persons");
+
+    assert_eq!(result.len(), 80);
+    let found: Vec<_> = result.iter().filter(|(_, p)| p.is_some()).collect();
+    let missing: Vec<_> = result.iter().filter(|(_, p)| p.is_none()).collect();
+    assert_eq!(found.len(), 60);
+    assert_eq!(missing.len(), 20);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_persons_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut person_ids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("did_bulk_{i}"), None)
+            .await
+            .unwrap();
+        // Add a second distinct_id to some persons
+        if i % 5 == 0 {
+            ctx.add_distinct_id_to_person(p.id, &format!("did_bulk_{i}_extra"))
+                .await
+                .unwrap();
+        }
+        person_ids.push(p.id);
+    }
+
+    let result = ctx
+        .storage
+        .get_distinct_ids_for_persons(ctx.team_id, &person_ids, ConsistencyLevel::Eventual, None)
+        .await
+        .expect("Failed to get distinct ids for persons");
+
+    // 80 persons, 16 with 2 distinct_ids each = 96 total
+    assert_eq!(result.len(), 96);
+
+    // Every person_id should appear at least once
+    let returned_person_ids: std::collections::HashSet<i64> =
+        result.iter().map(|d| d.person_id).collect();
+    for pid in &person_ids {
+        assert!(returned_person_ids.contains(pid), "Missing person_id {pid}");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_persons_chunked_with_limit() {
+    let ctx = TestContext::new().await;
+
+    let mut person_ids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("did_lim_{i}"), None)
+            .await
+            .unwrap();
+        ctx.add_distinct_id_to_person(p.id, &format!("did_lim_{i}_b"))
+            .await
+            .unwrap();
+        ctx.add_distinct_id_to_person(p.id, &format!("did_lim_{i}_c"))
+            .await
+            .unwrap();
+        person_ids.push(p.id);
+    }
+
+    // Each person has 3 distinct_ids, limit to 1 per person
+    let result = ctx
+        .storage
+        .get_distinct_ids_for_persons(
+            ctx.team_id,
+            &person_ids,
+            ConsistencyLevel::Eventual,
+            Some(1),
+        )
+        .await
+        .expect("Failed to get distinct ids with limit");
+
+    // Should get exactly 80 rows (1 per person)
+    assert_eq!(result.len(), 80);
+
+    ctx.cleanup().await.ok();
+}
