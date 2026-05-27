@@ -26,10 +26,10 @@ import { MarkdownOutline } from '../components/MarkdownOutline'
 import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
-import { SkillVersionDiff } from './SkillVersionDiff'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
+import { SkillVersionDiff } from './SkillVersionDiff'
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
@@ -803,8 +803,7 @@ function SkillVersionSidebar({
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                     {versions.map((versionSkill) => {
                         const selected = skill?.id === versionSkill.id
-                        const isCompareTarget =
-                            isDiffVisible && diffFromVersion === versionSkill.version && !selected
+                        const isCompareTarget = isDiffVisible && diffFromVersion === versionSkill.version && !selected
                         const canCompare = skill?.version !== versionSkill.version
                         const cleanedParams = { ...searchParams }
                         delete cleanedParams.edit
