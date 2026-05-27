@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -11,11 +12,12 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ScenePanel, ScenePanelInfoSection, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     CitedText,
+    FailureDetail,
+    IneligibleDetail,
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
@@ -80,6 +82,25 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
             ? (snapshot.scanner_config as Record<string, unknown>)
             : {}
     const prompt = typeof snapshotConfig.prompt === 'string' ? snapshotConfig.prompt : null
+    const configuredTags =
+        scannerType === 'classifier' && Array.isArray(snapshotConfig.tags)
+            ? (snapshotConfig.tags as unknown[]).filter((t): t is string => typeof t === 'string')
+            : []
+    const multiLabel = scannerType === 'classifier' ? snapshotConfig.multi_label === true : false
+    const summarizerLength =
+        scannerType === 'summarizer' && typeof snapshotConfig.length === 'string' ? snapshotConfig.length : null
+    const durationMs =
+        observation.started_at && observation.completed_at
+            ? Date.parse(observation.completed_at) - Date.parse(observation.started_at)
+            : null
+    const durationLabel =
+        durationMs !== null && Number.isFinite(durationMs) && durationMs >= 0
+            ? durationMs < 1000
+                ? `${durationMs} ms`
+                : durationMs < 60_000
+                  ? `${(durationMs / 1000).toFixed(1)} s`
+                  : `${Math.floor(durationMs / 60_000)}m ${Math.floor((durationMs % 60_000) / 1000)}s`
+            : null
 
     return (
         <SceneContent>
@@ -89,74 +110,22 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                 resourceType={{ type: 'replay_vision' }}
             />
 
-            <ScenePanel>
-                <ScenePanelInfoSection>
-                    <ScenePanelLabel title="Scanner">
-                        <Link to={urls.replayVision(observation.scanner_id)} className="text-sm">
-                            {snapshot?.name || 'Scanner'}
-                        </Link>
-                    </ScenePanelLabel>
-                    <ScenePanelLabel title="Session">
-                        <Link to={urls.replaySingle(observation.session_id)} className="font-mono text-xs">
-                            {observation.session_id}
-                        </Link>
-                    </ScenePanelLabel>
-                    <ScenePanelLabel title="Triggered by">
-                        <span className="text-sm">{triggerLabel}</span>
-                    </ScenePanelLabel>
-                    <ScenePanelLabel title="Run at">
-                        <TZLabel time={observation.created_at} />
-                    </ScenePanelLabel>
-                    {observation.started_at && (
-                        <ScenePanelLabel title="Started at">
-                            <TZLabel time={observation.started_at} />
-                        </ScenePanelLabel>
-                    )}
-                    {observation.completed_at && (
-                        <ScenePanelLabel title="Completed at">
-                            <TZLabel time={observation.completed_at} />
-                        </ScenePanelLabel>
-                    )}
-                    {snapshot?.model && (
-                        <ScenePanelLabel title="Model">
-                            <span className="text-sm">{modelLabel(snapshot.model)}</span>
-                        </ScenePanelLabel>
-                    )}
-                    {snapshot?.provider && (
-                        <ScenePanelLabel title="Provider">
-                            <span className="text-sm">{snapshot.provider}</span>
-                        </ScenePanelLabel>
-                    )}
-                    {typeof snapshot?.scanner_version === 'number' && (
-                        <ScenePanelLabel title="Scanner version">
-                            <span className="text-sm">v{snapshot.scanner_version}</span>
-                        </ScenePanelLabel>
-                    )}
-                    {snapshot?.emits_signals && (
-                        <ScenePanelLabel title="Signals">
-                            <span className="text-sm">Emitted ({observation.scanner_result?.signals_count ?? 0})</span>
-                        </ScenePanelLabel>
-                    )}
-                </ScenePanelInfoSection>
-            </ScenePanel>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <section className="border rounded p-4 bg-surface-primary space-y-3 lg:col-span-1">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <section className="border rounded p-4 bg-surface-primary space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-medium uppercase tracking-wide text-muted">Result</span>
                             {scannerType && <LemonTag type="option">{scannerTypeLabel(scannerType)}</LemonTag>}
                         </div>
-                        <div className="flex items-center gap-2">
-                            {result && typeof result.confidence === 'number' && (
-                                <ObservationConfidence result={result} />
-                            )}
-                            <ObservationStatusTag status={observation.status} />
-                        </div>
+                        <ObservationStatusTag status={observation.status} />
                     </div>
 
-                    {observation.status === 'failed' && (
-                        <div className="text-danger text-sm">{observation.error_reason || 'Unknown error'}</div>
+                    {observation.status === 'failed' && observation.error_reason && (
+                        <FailureDetail errorReason={observation.error_reason} />
+                    )}
+
+                    {observation.status === 'ineligible' && observation.error_reason && (
+                        <IneligibleDetail errorReason={observation.error_reason} />
                     )}
 
                     {observation.status === 'succeeded' && snapshot && result && (
@@ -165,6 +134,16 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                                 <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
                             )}
                             <ObservationPrimaryOutput observation={observation} showPrompt={false} />
+                            {configuredTags.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                                    <span>Allowed tags{multiLabel ? ' (multi-label)' : ''}:</span>
+                                    {configuredTags.map((tag) => (
+                                        <LemonTag key={tag} type="option" size="small">
+                                            {tag}
+                                        </LemonTag>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -175,7 +154,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                     )}
                 </section>
 
-                <section className="border rounded p-4 bg-surface-primary space-y-2 lg:col-span-2">
+                <section className="border rounded p-4 bg-surface-primary space-y-2">
                     <div className="text-sm font-medium">Reasoning</div>
                     {reasoning ? (
                         <p className="text-sm whitespace-pre-wrap m-0">
@@ -186,6 +165,68 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                     )}
                 </section>
             </div>
+
+            <section className="border rounded p-4 bg-surface-primary">
+                <div className="text-sm font-medium mb-3">Run details</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                    <div>
+                        <div className="text-xs text-muted mb-0.5">Triggered by</div>
+                        {observation.triggered_by === 'on_demand' && observation.triggered_by_user ? (
+                            <ProfilePicture
+                                user={{
+                                    first_name: observation.triggered_by_user.first_name,
+                                    last_name: observation.triggered_by_user.last_name,
+                                    email: observation.triggered_by_user.email,
+                                }}
+                                size="sm"
+                                showName
+                            />
+                        ) : (
+                            <span>{triggerLabel}</span>
+                        )}
+                    </div>
+                    <div>
+                        <div className="text-xs text-muted mb-0.5">Run at</div>
+                        <TZLabel time={observation.created_at} />
+                    </div>
+                    {durationLabel && (
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Duration</div>
+                            <span>{durationLabel}</span>
+                        </div>
+                    )}
+                    {result && typeof result.confidence === 'number' && (
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Confidence</div>
+                            <ObservationConfidence result={result} />
+                        </div>
+                    )}
+                    {snapshot?.model && (
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Model</div>
+                            <span>{modelLabel(snapshot.model)}</span>
+                        </div>
+                    )}
+                    {typeof snapshot?.scanner_version === 'number' && (
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Scanner version</div>
+                            <span>v{snapshot.scanner_version}</span>
+                        </div>
+                    )}
+                    {summarizerLength && (
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Summary length</div>
+                            <span className="capitalize">{summarizerLength}</span>
+                        </div>
+                    )}
+                    {snapshot?.emits_signals && (
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Signals</div>
+                            <span>Emitted ({observation.scanner_result?.signals_count ?? 0})</span>
+                        </div>
+                    )}
+                </div>
+            </section>
 
             <section className="border rounded bg-surface-primary overflow-hidden">
                 <div className="p-4 pb-2 text-sm font-medium">Recording</div>

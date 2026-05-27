@@ -37,7 +37,7 @@ function readResult(observation: ReplayObservationApi): Record<string, unknown> 
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-// Matches `(event_id <16-hex>)` markers the model emits inline; mirrors the backend's `_EVENT_ID_CITATION_RE`.
+// Mirrors backend's `_EVENT_ID_CITATION_RE`; keep in sync.
 const EVENT_ID_PATTERN = /\(event_id ([0-9a-f]{16})\)/gi
 
 function formatSessionOffset(ms: number): string {
@@ -51,7 +51,6 @@ function formatSessionOffset(ms: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-/** Render text that may contain `(event_id <hash>)` markers, replacing them with chips that deep-link to that moment in the recording. */
 export function CitedText({ observation, text }: { observation: ReplayObservationApi; text: string }): JSX.Element {
     const mapping = (observation.scanner_result?.event_id_mapping ?? {}) as Record<string, unknown>
     if (!text || Object.keys(mapping).length === 0) {
@@ -91,7 +90,6 @@ export function CitedText({ observation, text }: { observation: ReplayObservatio
     return <>{parts}</>
 }
 
-/** The scanner-type-specific *primary* output — verdict, score, tags, summary. No reasoning, no confidence. */
 function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
     const config = snapshot?.scanner_config
     return config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
@@ -180,11 +178,13 @@ export function ObservationPrimaryOutput({
         const scale =
             config.scale && typeof config.scale === 'object' ? (config.scale as Record<string, unknown>) : null
         const scaleMax = scale && typeof scale.max === 'number' ? scale.max : null
+        const scaleLabel = scale && typeof scale.label === 'string' ? scale.label : null
         return (
             <div className="flex flex-col gap-1">
                 <span className="text-sm">
                     <span className="font-semibold text-base">{score ?? '—'}</span>
                     {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
+                    {scaleLabel && <span className="text-muted text-xs"> {scaleLabel}</span>}
                     {label && <span className="text-muted"> — {label}</span>}
                 </span>
                 {prompt && <span className={promptClass}>{prompt}</span>}
@@ -192,7 +192,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    // Indexer / unknown: fall through to the legacy multi-field rendering until indexer gets its own treatment.
+    // Indexer / unknown fallback.
     const summary = typeof result.summary === 'string' ? result.summary : null
     const userType = typeof result.user_type === 'string' ? result.user_type : null
     const outcome = typeof result.outcome === 'string' ? result.outcome : null
@@ -225,7 +225,6 @@ export function ObservationPrimaryOutput({
     )
 }
 
-/** Confidence renderer — bucket badge with the raw value alongside. Returns null if no confidence value present. */
 export function ObservationConfidence({ result }: { result: Record<string, unknown> }): JSX.Element | null {
     if (typeof result.confidence !== 'number') {
         return null
@@ -246,7 +245,6 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
     )
 }
 
-/** Compact, single-cell preview of an observation result for the Vision scene's observations table. */
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     if (observation.status === 'ineligible') {
         const parsed = parseIneligibleReason(observation.error_reason)
@@ -280,7 +278,7 @@ export function ObservationResultSummary({ observation }: { observation: ReplayO
     return <ObservationPrimaryOutput observation={observation} compact showPrompt={false} />
 }
 
-function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
+export function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
     const parsed = parseFailureReason(errorReason)
     if (!parsed) {
         return <div className="text-danger text-sm">{errorReason}</div>
@@ -294,7 +292,7 @@ function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
     )
 }
 
-function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element {
+export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element {
     const parsed = parseIneligibleReason(errorReason)
     if (!parsed) {
         return <div className="text-muted text-sm">{errorReason}</div>
@@ -307,7 +305,6 @@ function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element
     )
 }
 
-/** In-progress state for a pending/running observation. */
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     return (
         <div className="flex items-center gap-2 text-muted text-sm">
@@ -317,7 +314,6 @@ function ObservationProgress({ observation }: { observation: ReplayObservationAp
     )
 }
 
-/** Compact card for the replay-page dock — primary output only, with a link out to the full detail view. */
 export function ObservationDockCard({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
