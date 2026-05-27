@@ -20,11 +20,18 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
-) -> TaskRun | None:
+) -> tuple[TaskRun | None, str | None]:
+    """Locate the TaskRun that produced this PR for analytics attribution.
+
+    Returns ``(task_run, match_strategy)`` where ``match_strategy`` is
+    ``"pr_url"`` or ``"branch"`` when matched and ``None`` otherwise. The
+    strategy is logged so we can tell, from logs alone, which path matched
+    when diagnosing webhook attribution issues.
+    """
     if pr_url:
         task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related(*TASK_RUN_SELECT_RELATED).first()
         if task_run:
-            return task_run
+            return task_run, "pr_url"
 
     # Branch-only lookups must be scoped to the repository the webhook came from.
     # Without this, a PR opened on an unrelated repo with a colliding branch name
@@ -37,9 +44,9 @@ def find_task_run(
             .first()
         )
         if task_run:
-            return task_run
+            return task_run, "branch"
 
-    return None
+    return None, None
 
 
 def verify_github_signature(payload: bytes, signature: str | None, secret: str) -> bool:
@@ -100,7 +107,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
-    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    task_run, match_strategy = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
 
     if not task_run:
         logger.debug(
@@ -109,6 +116,12 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
             pr_url=pr_url,
             message="No TaskRun found with this PR URL",
         )
+        # A merged PR may still resolve linked SignalReports even when we cannot
+        # attribute it to a TaskRun for analytics — the SignalReportTask link
+        # is what matters for resolution, and it's keyed off pr_url, not the
+        # particular TaskRun that produced the PR.
+        if action == "closed" and merged:
+            _resolve_signal_reports_for_pr(pr_url)
         return HttpResponse(status=200)
 
     logger.info(
@@ -118,6 +131,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         pr_url=pr_url,
         task_id=str(task_run.task_id),
         run_id=str(task_run.id),
+        match_strategy=match_strategy,
     )
 
     # Generate a deterministic UUID from the PR URL and event type so that
@@ -126,13 +140,20 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     task_run.capture_event(analytics_event, {"pr_url": pr_url}, event_uuid=event_uuid)
 
     if action == "closed" and merged:
-        _resolve_signal_reports_for_task(task_run.task_id, pr_url)
+        _resolve_signal_reports_for_pr(pr_url)
 
     return HttpResponse(status=200)
 
 
-def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
-    """Mark signal reports linked to a merged PR's task as resolved.
+def _resolve_signal_reports_for_pr(pr_url: str) -> None:
+    """Mark signal reports linked to a merged PR as resolved.
+
+    Looks up reports via ``report_tasks.task.runs.output.pr_url`` instead of
+    routing through the single TaskRun that ``find_task_run`` happened to pick.
+    Multiple TaskRuns can carry the same ``pr_url`` (reruns, parallel attempts,
+    or user-initiated runs that opened the PR after a signal-initiated run
+    pushed the branch). Filtering on ``task_id`` of just one of them meant any
+    SignalReport linked through a different run was silently skipped.
 
     Kept tolerant: a single bad transition should not fail the whole webhook,
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
@@ -142,7 +163,9 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
         SignalReport.Status.DELETED,
         SignalReport.Status.SUPPRESSED,
     )
-    linked_reports = list(SignalReport.objects.filter(report_tasks__task_id=task_id).distinct().only("id", "status"))
+    linked_reports = list(
+        SignalReport.objects.filter(report_tasks__task__runs__output__pr_url=pr_url).distinct().only("id", "status")
+    )
     reports_to_resolve = [r for r in linked_reports if r.status not in terminal_statuses]
     skipped_terminal = [r for r in linked_reports if r.status in terminal_statuses]
 
@@ -150,7 +173,6 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     # ran, how many reports were linked, and why we did/didn't transition any of them.
     logger.info(
         "github_pr_webhook_signal_report_resolution_started",
-        task_id=str(task_id),
         pr_url=pr_url,
         linked_report_count=len(linked_reports),
         candidate_report_count=len(reports_to_resolve),
@@ -170,7 +192,6 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
                 "github_pr_webhook_signal_report_invalid_transition",
                 report_id=str(report.id),
                 from_status=report.status,
-                task_id=str(task_id),
                 pr_url=pr_url,
             )
             continue
@@ -179,13 +200,11 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
         logger.info(
             "github_pr_webhook_signal_report_resolved",
             report_id=str(report.id),
-            task_id=str(task_id),
             pr_url=pr_url,
         )
 
     logger.info(
         "github_pr_webhook_signal_report_resolution_finished",
-        task_id=str(task_id),
         pr_url=pr_url,
         resolved_count=resolved_count,
         invalid_transition_count=invalid_transition_count,

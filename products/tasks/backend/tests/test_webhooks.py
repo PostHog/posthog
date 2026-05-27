@@ -383,6 +383,96 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.READY)
 
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_resolves_report_when_find_task_run_picks_unrelated_run(self, _mock_capture, mock_get_secret):
+        # Regression: when a different (unrelated, non-signal) task also has
+        # output.pr_url set to this PR — e.g. a parallel user-initiated run —
+        # find_task_run may return that one via .first(). The resolver must
+        # still pick up the signal-linked report by looking up SignalReports
+        # whose linked tasks have any TaskRun matching the pr_url, not by
+        # routing through the single TaskRun find_task_run happened to pick.
+        mock_get_secret.return_value = self.webhook_secret
+        unrelated_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Unrelated user task",
+            description="Manually created run that opened the PR",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=unrelated_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+        )
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_resolves_report_even_when_no_task_run_matches_for_analytics(self, _mock_capture, mock_get_secret):
+        # If find_task_run returns None (e.g. analytics-side attribution lost
+        # the run), the merge still resolves the signal report — the report
+        # link is keyed off pr_url through SignalReportTask.task.runs.
+        mock_get_secret.return_value = self.webhook_secret
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Untraceable report",
+            summary="Run cannot be found via find_task_run",
+        )
+        orphan_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Orphan signal task",
+            description="No analytics-side TaskRun match",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=orphan_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/777"},
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=report,
+            task=orphan_task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/777",
+                "merged": True,
+            },
+        }
+        # Wipe find_task_run's matchable TaskRun for this PR by mutating the
+        # task_run's output so analytics attribution misses, but leave the
+        # SignalReport link intact via a separate run.
+        with patch("products.tasks.backend.webhooks.find_task_run", return_value=(None, None)):
+            payload_bytes = json.dumps(payload).encode("utf-8")
+            signature = generate_github_signature(payload_bytes, self.webhook_secret)
+            response = self.client.post(
+                "/webhooks/github/pr/",
+                data=payload_bytes,
+                content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=signature,
+                HTTP_X_GITHUB_EVENT="pull_request",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        report.refresh_from_db()
+        self.assertEqual(report.status, SignalReport.Status.RESOLVED)
+
 
 class TestFindTaskRun(TestCase):
     def setUp(self):
@@ -405,8 +495,9 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
-        result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
+        result, strategy = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
+        self.assertEqual(strategy, "pr_url")
 
     def test_finds_by_branch_when_no_pr_url_match(self):
         task_run = TaskRun.objects.create(
@@ -415,8 +506,9 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/my-branch",
         )
-        result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
+        result, strategy = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
+        self.assertEqual(strategy, "branch")
 
     def test_pr_url_takes_priority_over_branch(self):
         pr_run = TaskRun.objects.create(
@@ -432,12 +524,13 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/my-branch",
         )
-        result = find_task_run(
+        result, strategy = find_task_run(
             pr_url="https://github.com/posthog/posthog/pull/123",
             branch="feature/my-branch",
             repository="posthog/posthog",
         )
         self.assertEqual(result, pr_run)
+        self.assertEqual(strategy, "pr_url")
 
     def test_falls_back_to_branch_when_pr_url_not_found(self):
         branch_run = TaskRun.objects.create(
@@ -446,20 +539,23 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/my-branch",
         )
-        result = find_task_run(
+        result, strategy = find_task_run(
             pr_url="https://github.com/posthog/posthog/pull/999",
             branch="feature/my-branch",
             repository="posthog/posthog",
         )
         self.assertEqual(result, branch_run)
+        self.assertEqual(strategy, "branch")
 
     def test_returns_none_when_no_match(self):
-        result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")
+        result, strategy = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")
         self.assertIsNone(result)
+        self.assertIsNone(strategy)
 
     def test_returns_none_with_no_args(self):
-        result = find_task_run()
+        result, strategy = find_task_run()
         self.assertIsNone(result)
+        self.assertIsNone(strategy)
 
     def test_branch_fallback_requires_repository(self):
         TaskRun.objects.create(
@@ -470,7 +566,9 @@ class TestFindTaskRun(TestCase):
         )
         # Without a repository the branch fallback must not match — bare branch
         # names like "main" collide across every team in the database.
-        self.assertIsNone(find_task_run(branch="main"))
+        result, strategy = find_task_run(branch="main")
+        self.assertIsNone(result)
+        self.assertIsNone(strategy)
 
     def test_branch_fallback_does_not_match_other_repositories(self):
         # The task's repository is "posthog/posthog"; a webhook from a foreign
@@ -481,8 +579,9 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="main",
         )
-        result = find_task_run(branch="main", repository="ArkeroAI/arkero2")
+        result, strategy = find_task_run(branch="main", repository="ArkeroAI/arkero2")
         self.assertIsNone(result)
+        self.assertIsNone(strategy)
 
     def test_branch_fallback_matches_repository_case_insensitively(self):
         task_run = TaskRun.objects.create(
@@ -491,8 +590,9 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/my-branch",
         )
-        result = find_task_run(branch="feature/my-branch", repository="PostHog/PostHog")
+        result, strategy = find_task_run(branch="feature/my-branch", repository="PostHog/PostHog")
         self.assertEqual(result, task_run)
+        self.assertEqual(strategy, "branch")
 
     def test_branch_fallback_rejects_empty_repository(self):
         TaskRun.objects.create(
@@ -502,7 +602,9 @@ class TestFindTaskRun(TestCase):
             branch="main",
         )
         for value in ("", "   ", "\t"):
-            self.assertIsNone(find_task_run(branch="main", repository=value))
+            result, strategy = find_task_run(branch="main", repository=value)
+            self.assertIsNone(result)
+            self.assertIsNone(strategy)
 
 
 class TestGitHubWebhookFanout(TestCase):
