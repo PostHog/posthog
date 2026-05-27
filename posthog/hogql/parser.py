@@ -373,7 +373,10 @@ def _run_shadow_comparison(
     # Comparing `start`/`end` here surfaces widespread cpp-vs-rust-py position
     # divergences on real-world queries, so source-position parity is left to
     # the cross-backend parser test suite and a follow-up.
-    if clear_locations(primary_node) == clear_locations(shadow_node):
+    primary_cleared = clear_locations(primary_node)
+    shadow_cleared = clear_locations(shadow_node)
+    # Dataclass `==` reports a false mismatch for NaN-bearing ASTs (`float("nan") != float("nan")`); repr is stable for NaN, so treat repr-equal as agreement too.
+    if primary_cleared == shadow_cleared or repr(primary_cleared) == repr(shadow_cleared):
         _count("agree")
         return
     _count("disagree")

@@ -10,7 +10,7 @@ from posthog.hogql import (
     parser as parser_module,
 )
 from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
-from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode, parse_select
+from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode, parse_expr, parse_select
 
 
 class TestParserMode(BaseTest):
@@ -182,6 +182,12 @@ class TestParserMode(BaseTest):
         self.assertIn("sql_attach_probe", props["hogql_parser_statement"])
         self.assertEqual(props["hogql_parser_primary_version"], parser_module._BACKEND_VERSION["cpp-json"])
         self.assertEqual(props["hogql_parser_shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
+
+    def test_shadow_treats_nan_constant_as_agreement_not_divergence(self):
+        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+            node = parse_expr("nan", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
+        self.assertIsInstance(node, ast.Constant)
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
 
     def test_parser_version_falls_back_to_unknown_for_missing_dist(self):
         self.assertEqual(parser_module._parser_version("definitely-not-a-real-distribution"), "unknown")
