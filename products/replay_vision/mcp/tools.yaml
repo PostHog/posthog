@@ -42,8 +42,8 @@ tools:
             - created_at
             - created_by
             - updated_at
-        feature_flag: replay-vision
         requires_ai_consent: true
+        feature_flag: replay-vision
     vision-scanners-delete:
         operation: vision_scanners_destroy
         enabled: true
@@ -180,5 +180,5 @@ tools:
             - created_at
             - created_by
             - updated_at
-        feature_flag: replay-vision
         requires_ai_consent: true
+        feature_flag: replay-vision

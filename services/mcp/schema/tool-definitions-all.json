@@ -6046,8 +6046,8 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "replay-vision",
-        "requires_ai_consent": true
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
     },
     "vision-scanners-delete": {
         "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
@@ -6152,7 +6152,7 @@
         "feature": "replay_vision",
         "summary": "Update replay vision scanner",
         "title": "Update replay vision scanner",
-        "required_scopes": ["replay_scanner:write"],
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -6160,9 +6160,8 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "replay-vision",
         "requires_ai_consent": true,
-        "scopes": ["session_recording:read"]
+        "feature_flag": "replay-vision"
     },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
