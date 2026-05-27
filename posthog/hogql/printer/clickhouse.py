@@ -1283,7 +1283,7 @@ class ClickHousePrinter(BasePrinter):
             # one, e.g. minIf(..., notIn(...)) vs minIf(..., notNullIn(...)).
             # Wrapping nullable NOT IN matches the existing nullable materialized
             # column path and preserves transform_null_in=1 semantics.
-            if nullable_left and not in_join_constraint and not in_index_hint:
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
                 return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
