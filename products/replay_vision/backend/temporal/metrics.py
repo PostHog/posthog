@@ -36,3 +36,15 @@ REPLAY_VISION_PROVIDER_CALL = Histogram(
     ["provider", "model", "scanner_type", "outcome"],
     buckets=(0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
 )
+
+REPLAY_VISION_CLEANUP_SWEEP_ROWS = Counter(
+    "replay_vision_cleanup_sweep_rows_total",
+    "Observation rows touched per cleanup-sweep cycle",
+    ["action"],  # action: pruned|reaped|skipped_running|skipped_temporal_error
+)
+
+REPLAY_VISION_CLEANUP_SWEEP_HIT_CAP = Counter(
+    "replay_vision_cleanup_sweep_hit_cap_total",
+    "Cleanup-sweep cycles that hit the per-sweep batch/candidate cap (alert on sustained > 0)",
+    ["stage"],  # stage: prune|reap
+)

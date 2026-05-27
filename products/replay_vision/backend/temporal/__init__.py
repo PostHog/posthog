@@ -16,9 +16,14 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_succeeded_activity,
     upload_video_to_gemini_activity,
 )
+from products.replay_vision.backend.temporal.cleanup_sweep import (
+    ReplayVisionCleanupSweepWorkflow,
+    prune_old_observations_activity,
+    reap_stranded_observations_activity,
+)
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
-WORKFLOWS = [ApplyScannerWorkflow]
+WORKFLOWS = [ApplyScannerWorkflow, ReplayVisionCleanupSweepWorkflow]
 ACTIVITIES: list[Callable[..., Any]] = [
     create_observation_activity,
     mark_observation_running_activity,
@@ -33,12 +38,15 @@ ACTIVITIES: list[Callable[..., Any]] = [
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     cleanup_gemini_file_activity,
+    prune_old_observations_activity,
+    reap_stranded_observations_activity,
 ]
 
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "ApplyScannerWorkflow",
+    "ReplayVisionCleanupSweepWorkflow",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
     "create_observation_activity",
@@ -51,5 +59,7 @@ __all__ = [
     "mark_observation_ineligible_activity",
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
+    "prune_old_observations_activity",
+    "reap_stranded_observations_activity",
     "upload_video_to_gemini_activity",
 ]

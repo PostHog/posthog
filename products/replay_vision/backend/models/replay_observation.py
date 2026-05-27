@@ -90,6 +90,18 @@ class ReplayObservation(UUIDModel):
                 name="rlo_workflow_id_idx",
                 condition=~models.Q(workflow_id=""),
             ),
+            # Supports the cleanup-sweep prune query: terminal rows older than the retention cutoff.
+            models.Index(
+                fields=["completed_at"],
+                name="rlo_prune_idx",
+                condition=models.Q(status__in=["succeeded", "failed", "ineligible"]),
+            ),
+            # Supports the cleanup-sweep reap query: in-flight rows older than the stranded cutoff.
+            models.Index(
+                fields=["created_at"],
+                name="rlo_reap_idx",
+                condition=models.Q(status__in=["pending", "running"]),
+            ),
         ]
 
     def save(self, *args, **kwargs) -> None:

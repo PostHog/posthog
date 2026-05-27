@@ -11,7 +11,6 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
-from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -83,7 +82,10 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
 )
 from products.replay_vision.backend.temporal.workflow import _extract_kind_for_type, _root_cause_message
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    counter_value,
+    snapshot_for as _snapshot_for,
+)
 
 
 def _make_scanner() -> ReplayScanner:
@@ -384,17 +386,13 @@ class TestObservationStateActivities:
         assert observation.scanner_result == {}  # not overwritten
 
 
-def _counter_value(metric_name: str, **labels: str) -> float:
-    return REGISTRY.get_sample_value(metric_name, labels) or 0.0
-
-
 @pytest.mark.django_db(transaction=True)
 class TestObservationStateMetricsAndLogs:
     def test_mark_succeeded_increments_observations_counter_and_logs(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
         result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8))
-        before = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
+        before = counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
 
         with capture_logs() as logs:
             mark_observation_succeeded_activity(
@@ -403,7 +401,7 @@ class TestObservationStateMetricsAndLogs:
                 )
             )
 
-        after = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
+        after = counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
         assert after == before + 1
         events = [r for r in logs if r.get("event") == "replay_vision.observation.succeeded"]
         assert len(events) == 1
@@ -413,8 +411,8 @@ class TestObservationStateMetricsAndLogs:
     def test_mark_failed_increments_observations_and_failure_kinds(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        before_obs = _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor")
-        before_kind = _counter_value(
+        before_obs = counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor")
+        before_kind = counter_value(
             "replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor"
         )
 
@@ -427,12 +425,12 @@ class TestObservationStateMetricsAndLogs:
                 )
             )
 
-        assert _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor") == (
+        assert counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor") == (
             before_obs + 1
         )
-        assert _counter_value(
-            "replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor"
-        ) == (before_kind + 1)
+        assert counter_value("replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor") == (
+            before_kind + 1
+        )
         events = [r for r in logs if r.get("event") == "replay_vision.observation.failed"]
         assert len(events) == 1
         assert events[0]["kind"] == "provider_rejected"
@@ -441,7 +439,7 @@ class TestObservationStateMetricsAndLogs:
     def test_mark_failed_with_unparseable_error_reason_labels_kind_unknown(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        before = _counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor")
+        before = counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor")
 
         mark_observation_failed_activity(
             MarkObservationFailedInputs(
@@ -451,15 +449,15 @@ class TestObservationStateMetricsAndLogs:
             )
         )
 
-        assert _counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor") == (
+        assert counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor") == (
             before + 1
         )
 
     def test_mark_ineligible_increments_observations_and_ineligible_kinds(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        before_obs = _counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor")
-        before_kind = _counter_value("replay_vision_ineligible_kinds_total", kind="too_short")
+        before_obs = counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor")
+        before_kind = counter_value("replay_vision_ineligible_kinds_total", kind="too_short")
 
         with capture_logs() as logs:
             mark_observation_ineligible_activity(
@@ -470,10 +468,10 @@ class TestObservationStateMetricsAndLogs:
                 )
             )
 
-        assert _counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor") == (
+        assert counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor") == (
             before_obs + 1
         )
-        assert _counter_value("replay_vision_ineligible_kinds_total", kind="too_short") == before_kind + 1
+        assert counter_value("replay_vision_ineligible_kinds_total", kind="too_short") == before_kind + 1
         events = [r for r in logs if r.get("event") == "replay_vision.observation.ineligible"]
         assert len(events) == 1
         assert events[0]["kind"] == "too_short"
@@ -483,7 +481,7 @@ class TestObservationStateMetricsAndLogs:
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
         result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8))
         labels = {"activity": "mark_observation_succeeded_activity", "status": "succeeded"}
-        before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
+        before = counter_value("replay_vision_activity_duration_seconds_count", **labels)
 
         mark_observation_succeeded_activity(
             MarkObservationSucceededInputs(
@@ -491,7 +489,7 @@ class TestObservationStateMetricsAndLogs:
             )
         )
 
-        assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
+        assert counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
 
     @pytest.mark.parametrize(
         "error_reason, expected_kind",
@@ -508,7 +506,7 @@ class TestObservationStateMetricsAndLogs:
     def test_failure_kind_parser_validates_against_enum(self, error_reason: str, expected_kind: str) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        before = _counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor")
+        before = counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor")
 
         mark_observation_failed_activity(
             MarkObservationFailedInputs(
@@ -516,7 +514,7 @@ class TestObservationStateMetricsAndLogs:
             )
         )
 
-        assert _counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor") == (
+        assert counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor") == (
             before + 1
         )
 
@@ -576,13 +574,13 @@ class TestObservationStateMetricsAndLogs:
         observation = _make_observation(
             scanner, status=observation_status, completed_at=timezone.now(), error_reason="original"
         )
-        before_obs = _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+        before_obs = counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
 
         with capture_logs() as logs:
             run_activity(observation.id)
 
         assert (
-            _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+            counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
             == before_obs
         )
         assert [r for r in logs if r.get("event") == log_event] == []
@@ -591,7 +589,7 @@ class TestObservationStateMetricsAndLogs:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.PENDING)
         labels = {"activity": "mark_observation_succeeded_activity", "status": "failed"}
-        before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
+        before = counter_value("replay_vision_activity_duration_seconds_count", **labels)
 
         with patch(
             "products.replay_vision.backend.temporal.activities.observation_state.ReplayObservation.objects",
@@ -609,7 +607,7 @@ class TestObservationStateMetricsAndLogs:
                     )
                 )
 
-        assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
+        assert counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
 
 
 @pytest.mark.django_db(transaction=True)
