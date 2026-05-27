@@ -1535,41 +1535,34 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "devbox:update" in result.output
 
-    def test_devbox_status_shows_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "status, resources, expected",
+        [
+            (
+                "running",
+                [{"metadata": [{"key": "region", "value": "eu-central-1"}]}],
+                "Region:  eu-central-1",
+            ),
+            ("stopped", [], "Region:  unknown"),
+        ],
+        ids=["region-present", "region-absent"],
+    )
+    def test_devbox_status_shows_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: str, resources: list, expected: str
+    ) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
-            lambda name, workspaces=None: {
-                "latest_build": {
-                    "status": "running",
-                    "resources": [{"metadata": [{"key": "region", "value": "eu-central-1"}]}],
-                }
-            },
+            lambda name, workspaces=None: {"latest_build": {"status": status, "resources": resources}},
         )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
 
         result = runner.invoke(cli, ["devbox:status"])
 
         assert result.exit_code == 0
-        assert "Region:" in result.output
-        assert "eu-central-1" in result.output
-
-    def test_devbox_status_region_unknown_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
-        monkeypatch.setattr(
-            devbox_cli,
-            "get_workspace",
-            lambda name, workspaces=None: {"latest_build": {"status": "stopped", "resources": []}},
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        result = runner.invoke(cli, ["devbox:status"])
-
-        assert result.exit_code == 0
-        assert "Region:  unknown" in result.output
+        assert expected in result.output
 
     def test_devbox_list_shows_region_column(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
