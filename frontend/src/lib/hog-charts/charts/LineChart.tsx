@@ -71,13 +71,8 @@ function LineChartInner<Meta = unknown>({
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
     const hasMultipleFilledSeries = useMemo(() => {
-        let count = 0
-        for (const s of series) {
-            if (s.fill !== undefined && !s.fill.lowerData && ++count >= 2) {
-                return true
-            }
-        }
-        return false
+        const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
+        return filledSeries.length >= 2
     }, [series])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
