@@ -315,6 +315,33 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
 
+SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
+
+
+class SignalReportStateRequestSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=[("suppressed", "suppressed"), ("potential", "potential")],
+        help_text=(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
+            "or 'potential' to snooze/reopen it for later review."
+        ),
+    )
+    dismissal_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). "
+            "The set of reason codes is owned by the caller and is not validated server-side."
+        ),
+    )
+    dismissal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH,
+        help_text="Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+    )
+
+
 @extend_schema_view(
     destroy=extend_schema(exclude=True),
 )
@@ -764,9 +791,12 @@ class SignalReportViewSet(
 
     # The set of allowed reason codes is owned by PostHog Code (the calling UI),
     # not validated here -- we just persist whatever the client sends.
-    DISMISSAL_NOTE_MAX_LENGTH = 4000
+    DISMISSAL_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        request=SignalReportStateRequestSerializer,
+        responses={200: SignalReportSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
     def state(self, request, pk=None, **kwargs):
         """
