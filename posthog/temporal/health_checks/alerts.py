@@ -6,7 +6,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
-from posthog.temporal.health_checks.registry import _DETECT_FNS
+from posthog.temporal.health_checks.registry import _DETECT_FNS, ensure_registry_loaded
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +24,9 @@ EVENT_RESOLVED = "$health_check_issue_resolved"
 def _check_class_for_kind(kind: str) -> type[HealthCheck] | None:
     # The registry only stores instance-bound detect callables, but every
     # HealthCheck subclass binds `cls()` so the underlying class is reachable
-    # via the bound method's `__self__`.
+    # via the bound method's `__self__`. Ensure the registry is loaded so this
+    # works when called outside the orchestrator's primary code path.
+    ensure_registry_loaded()
     fn = _DETECT_FNS.get(kind)
     if fn is None:
         return None
