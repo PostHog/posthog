@@ -414,7 +414,19 @@ def _get_discovered_tables(
     if names is None:
         return all_tables, qualify_with_schema
 
-    return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
+    # Accept both qualified (`schema.table`) and unqualified (`table`) lookup names regardless of
+    # how `all_tables` is keyed. The multi-schema migration rewrites legacy row names to qualified
+    # form even when the source still has `config.schema` set, so callers passing a row's name in
+    # to filter by would otherwise get an empty result.
+    filtered: dict[str, tuple[str | None, str, str]] = {}
+    for name in names:
+        if name in all_tables:
+            filtered[name] = all_tables[name]
+        elif "." in name:
+            _, _, unqualified = name.partition(".")
+            if unqualified in all_tables:
+                filtered[name] = all_tables[unqualified]
+    return filtered, qualify_with_schema
 
 
 def _row_counts_from_conn(
