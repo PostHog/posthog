@@ -459,13 +459,32 @@ jobs:
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  # Temporary timing instrumentation for backend setup analysis.
+                  timing_now_ms() { date +%s%3N; }
+                  timing_emit() {
+                      local label="$1"
+                      local started_ms="$2"
+                      local status="${3:-ok}"
+                      local finished_ms
+                      finished_ms=$(timing_now_ms)
+                      echo "backend_setup_timing label=${label} status=${status} ms=$((finished_ms - started_ms))"
+                  }
+
+                  prime_started_ms=$(timing_now_ms)
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      timing_emit schema_cache_check "$prime_started_ms" miss
                       exit 0
                   fi
+
+                  timing_emit schema_cache_check "$prime_started_ms" hit
+                  prepare_started_ms=$(timing_now_ms)
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  timing_emit schema_file_prepare "$prepare_started_ms"
+
+                  BACKEND_SETUP_TIMING=1 ./bin/hogli db:restore-test-db
+                  timing_emit prime_test_posthog_total "$prime_started_ms"
 
             - name: Register Temporal search attributes
               run: |
@@ -1645,13 +1664,32 @@ jobs:
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  # Temporary timing instrumentation for backend setup analysis.
+                  timing_now_ms() { date +%s%3N; }
+                  timing_emit() {
+                      local label="$1"
+                      local started_ms="$2"
+                      local status="${3:-ok}"
+                      local finished_ms
+                      finished_ms=$(timing_now_ms)
+                      echo "backend_setup_timing label=${label} status=${status} ms=$((finished_ms - started_ms))"
+                  }
+
+                  prime_started_ms=$(timing_now_ms)
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      timing_emit schema_cache_check "$prime_started_ms" miss
                       exit 0
                   fi
+
+                  timing_emit schema_cache_check "$prime_started_ms" hit
+                  prepare_started_ms=$(timing_now_ms)
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  timing_emit schema_file_prepare "$prepare_started_ms"
+
+                  BACKEND_SETUP_TIMING=1 ./bin/hogli db:restore-test-db
+                  timing_emit prime_test_posthog_total "$prime_started_ms"
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots

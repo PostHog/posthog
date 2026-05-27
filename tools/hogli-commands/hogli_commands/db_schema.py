@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import gzip
+import time
 import shutil
 import zipfile
 import tempfile
@@ -87,6 +88,14 @@ def _run(command: list[str], *, env: Mapping[str, str] | None = None) -> None:
         env={**os.environ, **dict(env or {})},
         check=True,
     )
+
+
+def _emit_backend_setup_timing(label: str, started_at: float) -> None:
+    if os.environ.get("BACKEND_SETUP_TIMING") != "1":
+        return
+
+    elapsed_ms = int((time.monotonic() - started_at) * 1000)
+    click.echo(f"backend_setup_timing label={label} status=ok ms={elapsed_ms}")
 
 
 def _validate_db_identifier(target_db: str) -> str:
@@ -172,21 +181,30 @@ def restore_schema_dump(
     schema_path: Path = LOCAL_SCHEMA_PATH,
     ensure_defaults: bool = True,
 ) -> None:
+    total_start = time.monotonic()
     target_db = _validate_db_identifier(target_db)
     resolved_schema_path = _resolve_repo_path(schema_path)
     if not resolved_schema_path.is_file():
         raise SchemaRestoreError(f"no schema at {schema_path}; run db:download-schema first")
 
+    validate_start = time.monotonic()
     _validate_gzip(resolved_schema_path)
+    _emit_backend_setup_timing("schema_gzip_validate", validate_start)
 
     if recreate:
+        recreate_start = time.monotonic()
         _recreate_database(target_db)
+        _emit_backend_setup_timing("postgres_recreate_database", recreate_start)
 
     try:
+        restore_start = time.monotonic()
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
+        _emit_backend_setup_timing("postgres_restore_schema", restore_start)
 
         if ensure_defaults:
+            defaults_start = time.monotonic()
             _ensure_migration_defaults(target_db)
+            _emit_backend_setup_timing("ensure_migration_defaults", defaults_start)
     except Exception as exc:
         if recreate:
             try:
@@ -198,6 +216,7 @@ def restore_schema_dump(
         raise
 
     click.echo(f"Restored {target_db} from {schema_path}")
+    _emit_backend_setup_timing("restore_test_db_total", total_start)
 
 
 def _github_token() -> str | None:
