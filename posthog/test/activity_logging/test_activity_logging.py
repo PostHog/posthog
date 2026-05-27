@@ -180,6 +180,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_created", "User", "created", False, True),
             # User activities not in the restricted list are not restricted
             ("user_changed_password", "User", "changed_password", False, False),
+            # InstanceSetting updates are staff-only and must be hidden from non-staff viewers
+            ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -207,6 +209,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("normal_login_staff_bypass", "User", "logged_in", False, False),
             ("user_updated_staff_bypass", "User", "updated", False, False),
             ("user_created_staff_bypass", "User", "created", False, False),
+            # Staff can also see InstanceSetting updates (allow_staff=True)
+            ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]

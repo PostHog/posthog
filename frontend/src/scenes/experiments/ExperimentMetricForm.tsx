@@ -37,7 +37,10 @@ import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConve
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
-import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
+import {
+    ExperimentMetricOutlierHandling,
+    ExperimentRatioMetricOutlierHandling,
+} from './ExperimentMetricOutlierHandling'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -649,6 +652,12 @@ export function ExperimentMetricForm({
             {isExperimentMeanMetric(metric) && (
                 <>
                     <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
+            {isExperimentRatioMetric(metric) && (
+                <>
+                    <ExperimentRatioMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
                     <SceneDivider />
                 </>
             )}

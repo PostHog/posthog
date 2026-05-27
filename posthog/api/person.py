@@ -35,7 +35,6 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
-from posthog.api.insight import capture_legacy_api_call
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_target_entity
@@ -78,6 +77,8 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+
+from products.product_analytics.backend.api.insight import capture_legacy_api_call
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)

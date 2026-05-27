@@ -1702,6 +1702,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
+        # Best-effort per-endpoint scope probe — transient failure falls back to "available".
+        try:
+            endpoint_permissions = source.get_endpoint_permissions(
+                source_config, self.team_id, [schema.name for schema in schemas]
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            endpoint_permissions = {schema.name: None for schema in schemas}
+
         # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
@@ -1728,6 +1737,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
+                "permission_error": endpoint_permissions.get(schema.name),
             }
             for schema in schemas
         ]

@@ -119,19 +119,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let guard = manager.monitor_background();
 
+    let excluded_events = shared_config.excluded_property_keys.clone();
+    let excluded_groups = shared_config.excluded_property_keys.clone();
+
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
-        fan_out,
+        move |e: &Event| fan_out(e, &excluded_events),
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),
         groups_consumer,
         groups_producer,
         groups_handle.clone(),
-        fan_out_group,
+        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
     ));
     drop(events_handle);
     drop(groups_handle);

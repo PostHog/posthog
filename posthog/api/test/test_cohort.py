@@ -24,7 +24,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import FeatureFlag, Person, User
+from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
@@ -41,6 +41,7 @@ from posthog.tasks.calculate_cohort import (
 )
 
 from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -1792,7 +1793,7 @@ email@example.org,
             ("realtime_backfilled_flag_off", CohortType.REALTIME, True, False, False),
         ]
     )
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_cohort_dropdown_visibility(
         self,
@@ -1848,7 +1849,7 @@ email@example.org,
         else:
             self.assertNotIn(behavioral_cohort.id, result_ids)
 
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_nested_cohort_with_flag_compatible_leaf_visible_when_flag_on(
         self,
@@ -4573,7 +4574,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_insight(self, patch_calculate_cohort, patch_capture):
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4602,7 +4603,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_multiple_insights(self, patch_calculate_cohort, patch_capture):
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4636,7 +4637,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_more_than_five_insights(self, patch_calculate_cohort, patch_capture):
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4682,7 +4683,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_can_delete_cohort_not_used_in_insights(self, patch_calculate_cohort, patch_capture):
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4712,7 +4713,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_breakdown_filter(self, patch_calculate_cohort, patch_capture):
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4748,7 +4749,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_deeply_nested_properties(self, patch_calculate_cohort, patch_capture):
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",

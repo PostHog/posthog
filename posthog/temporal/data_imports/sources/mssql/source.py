@@ -1,6 +1,5 @@
 from typing import Optional, cast
 
-import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
@@ -12,22 +11,14 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
-from posthog.temporal.data_imports.sources.mssql.mssql import (
-    filter_mssql_incremental_fields,
-    get_leading_index_columns_for_schemas as get_mssql_leading_index_columns_for_schemas,
-    get_primary_keys_for_schemas as get_mssql_primary_keys_for_schemas,
-    get_schemas as get_mssql_schemas,
-    mssql_source,
-)
+from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 MSSQLErrors = {
     "Login failed for user": "Login failed for database",
@@ -35,9 +26,15 @@ MSSQLErrors = {
     "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
+_MSSQL_IMPLEMENTATION = MSSQLImplementation()
+
 
 @SourceRegistry.register
-class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    @property
+    def get_implementation(self) -> MSSQLImplementation:
+        return _MSSQL_IMPLEMENTATION
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MSSQL
@@ -132,78 +129,6 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
             ),
         )
 
-    def get_schemas(
-        self,
-        config: MSSQLSourceConfig,
-        team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
-        force_refresh: bool = False,
-    ) -> list[SourceSchema]:
-        schemas = []
-
-        with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_mssql_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                names=names,
-            )
-            try:
-                detected_pks = get_mssql_primary_keys_for_schemas(
-                    host=host,
-                    port=port,
-                    user=config.user,
-                    password=config.password,
-                    database=config.database,
-                    schema=config.schema,
-                    table_names=list(db_schemas.keys()),
-                )
-            except Exception as e:
-                structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
-                detected_pks = {}
-
-            indexed_columns_by_table = get_mssql_leading_index_columns_for_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                table_names=list(db_schemas.keys()),
-            )
-
-        for table_name, columns in db_schemas.items():
-            incremental_field_tuples = filter_mssql_incremental_fields(columns)
-            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
-
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                    columns=columns,
-                    detected_primary_keys=resolve_detected_primary_keys(detected_pks.get(table_name), columns),
-                )
-            )
-
-        return schemas
-
     def validate_credentials(
         self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
@@ -240,20 +165,3 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
             return False, "Could not connect to MS SQL. Please check all connection details are valid."
 
         return True, None
-
-    def source_for_pipeline(self, config: MSSQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
-
-        return mssql_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            schema=config.schema,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-        )

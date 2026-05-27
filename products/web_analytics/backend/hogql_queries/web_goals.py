@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Sequence
-from typing import TypeVar
+from typing import Optional, TypeVar
 
 from posthog.schema import CachedWebGoalsQueryResponse, WebAnalyticsOrderByFields, WebGoalsQuery, WebGoalsQueryResponse
 
@@ -10,6 +10,10 @@ from posthog.hogql.query import execute_hogql_query
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
+    can_use_lazy_precompute,
+    execute_lazy_precomputed_read,
+)
 
 # Returns an array `seq` split into chunks of size `size`
 # Example:
@@ -183,6 +187,10 @@ WHERE {periods_expression}
         return outer_select
 
     def _calculate(self):
+        lazy_response = self._maybe_calculate_via_lazy_precompute()
+        if lazy_response is not None:
+            return lazy_response
+
         try:
             query = self.to_query()
         except NoActionsError:
@@ -232,7 +240,13 @@ WHERE {periods_expression}
                 index = 3
 
             if index is not None:
-                results.sort(key=lambda x: x[index], reverse=self.query.orderBy[1] == "DESC")
+                # Sort by the current-period scalar only — `x[index]` is a
+                # `(current, previous)` tuple and `previous` is `None` when
+                # `include_previous=False`. Python's stable sort falls
+                # through to compare the second element on ties, and
+                # `None < int` raises `TypeError`. Indexing `[0]` keeps the
+                # comparison on the scalar current value only.
+                results.sort(key=lambda x: x[index][0], reverse=self.query.orderBy[1] == "DESC")
 
         return WebGoalsQueryResponse(
             columns=[
@@ -244,6 +258,84 @@ WHERE {periods_expression}
             results=results,
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
+        )
+
+    def _maybe_calculate_via_lazy_precompute(self) -> Optional[WebGoalsQueryResponse]:
+        """Short-circuit through the goals lazy precompute table when eligible.
+
+        Returns None on ineligibility or any failure, in which case the caller
+        falls through to the live HogQL path.
+
+        The lazy precompute reads each top-5 action's `count` / `unique persons`
+        plus the per-period denominator (`action_id = -1` carrying every
+        qualifying session's person). We pivot those back into the runner's
+        response shape — `[action_name, (cur_unique, prev_unique), (cur_total,
+        prev_total), (cur_rate, prev_rate)]` per action — matching the live
+        path's `_calculate` exactly so consumers can't tell the two apart.
+        """
+        if not can_use_lazy_precompute(self):
+            return None
+        result = execute_lazy_precomputed_read(self)
+        if result is None:
+            return None
+        return self._build_response_from_lazy(result)
+
+    def _build_response_from_lazy(self, result: dict) -> WebGoalsQueryResponse:
+        include_previous = self.query_compare_to_date_range is not None
+        actions = result["actions"]
+        denominator = result["denominator"]
+        per_action = result["per_action"]
+
+        current_visitors = denominator["current"]
+        previous_visitors = denominator["previous"]
+
+        results: list = []
+        for action in actions:
+            metrics = per_action.get(int(action.id))
+            current_total = metrics["current_total"] if metrics else 0
+            previous_total = metrics["previous_total"] if metrics else 0
+            current_unique = metrics["current_unique"] if metrics else 0
+            previous_unique = metrics["previous_unique"] if metrics else 0
+
+            action_total = (current_total, previous_total if include_previous else None)
+            action_unique = (current_unique, previous_unique if include_previous else None)
+
+            current_rate = current_unique / current_visitors if current_visitors > 0 else 0
+            previous_rate = (
+                (previous_unique / previous_visitors if previous_visitors > 0 else 0) if include_previous else None
+            )
+
+            results.append([action.name, action_unique, action_total, (current_rate, previous_rate)])
+
+        if self.query.orderBy is not None:
+            index = None
+            if self.query.orderBy[0] == WebAnalyticsOrderByFields.CONVERTING_USERS:
+                index = 1
+            elif self.query.orderBy[0] == WebAnalyticsOrderByFields.TOTAL_CONVERSIONS:
+                index = 2
+            elif self.query.orderBy[0] == WebAnalyticsOrderByFields.CONVERSION_RATE:
+                index = 3
+            if index is not None:
+                # Sort by the current-period scalar only — `x[index]` is a
+                # `(current, previous)` tuple and `previous` is `None` when
+                # `include_previous=False`. Python's stable sort falls
+                # through to compare the second element on ties, and
+                # `None < int` raises `TypeError`. Indexing `[0]` keeps the
+                # comparison on the scalar current value only.
+                results.sort(key=lambda x: x[index][0], reverse=self.query.orderBy[1] == "DESC")
+
+        return WebGoalsQueryResponse(
+            columns=[
+                "context.columns.action_name",
+                "context.columns.converting_users",
+                "context.columns.total_conversions",
+                "context.columns.conversion_rate",
+            ],
+            results=results,
+            samplingRate=self._sample_rate,
+            modifiers=self.modifiers,
+            usedPreAggregatedTables=True,
+            usedLazyPrecompute=True,
         )
 
     def event_properties(self) -> ast.Expr:
