@@ -21,7 +21,6 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -36,6 +35,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_suggested_reviewers,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
