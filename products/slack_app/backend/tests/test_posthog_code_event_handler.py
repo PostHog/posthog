@@ -249,26 +249,31 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         [
             ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}),
             ("message_changed_subtype", {"subtype": "message_changed"}),
+            ("bot_id", {"bot_id": "B0ALERT"}),
+            ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}),
+            ("app_id", {"app_id": "A0ALERT"}),
+            ("bot_message_subtype", {"subtype": "bot_message"}),
+            ("slackbot_user", {"user": "USLACKBOT"}),
         ]
     )
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
-    def test_app_mention_edit_does_not_start_workflow(
+    def test_app_mention_ignored_does_not_start_workflow(
         self,
         _name,
-        edit_marker: dict,
+        ignore_marker: dict,
         mock_sync_connect,
         mock_asyncio_run,
         _mock_flag,
     ):
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
-        edited_event = {**self.event, **edit_marker}
+        ignored_event = {**self.event, **ignore_marker}
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
-        result = route_posthog_code_event_to_relevant_region(request, edited_event, "T12345")
+        result = route_posthog_code_event_to_relevant_region(request, ignored_event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_not_called()

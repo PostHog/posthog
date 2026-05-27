@@ -14,7 +14,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.subscription import Subscription, SubscriptionDelivery
@@ -22,6 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team

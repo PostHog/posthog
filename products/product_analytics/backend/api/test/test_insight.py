@@ -46,30 +46,21 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
-from posthog.api.insight import _last_refresh_for_shared_gate
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import (
-    Cohort,
-    Filter,
-    Insight,
-    InsightViewed,
-    OrganizationMembership,
-    Person,
-    SharingConfiguration,
-    Team,
-    User,
-)
-from posthog.models.insight_caching_state import InsightCachingState
-from posthog.models.insight_variable import InsightVariable
+from posthog.models import Cohort, Filter, OrganizationMembership, Person, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.product_analytics.backend.api.insight import _last_refresh_for_shared_gate
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -88,7 +79,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
-        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+        with patch(
+            "products.product_analytics.backend.api.insight.posthoganalytics.feature_enabled", return_value=True
+        ) as mock_feature_enabled:
             response = self.client.get(path.format(team_id=self.team.id))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -99,7 +92,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(legacy_calls), 1)
 
     def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
-        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+        with patch(
+            "products.product_analytics.backend.api.insight.posthoganalytics.feature_enabled", return_value=True
+        ) as mock_feature_enabled:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
                 {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
@@ -116,7 +111,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(legacy_filter_calls), 1)
 
     def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
-        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+        with patch(
+            "products.product_analytics.backend.api.insight.posthoganalytics.feature_enabled", return_value=True
+        ) as mock_feature_enabled:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
                 {
@@ -1393,7 +1390,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    @patch("posthog.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
     def test_creating_insight_with_dashboard_fires_tile_added_event(
         self,
         _name: str,
@@ -1420,7 +1417,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("posthog.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
     def test_adding_insight_to_dashboard_fires_tile_added_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         insight_id, _ = self.dashboard_api.create_insight({"filters": {"insight": "STICKINESS"}})
@@ -4764,7 +4761,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.api.insight.process_query_dict")
+    @patch("products.product_analytics.backend.api.insight.process_query_dict")
     def test_trend_returns_400_for_exposed_errors(
         self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
@@ -4796,7 +4793,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.api.insight.process_query_dict")
+    @patch("products.product_analytics.backend.api.insight.process_query_dict")
     def test_funnel_returns_400_for_exposed_errors(
         self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:

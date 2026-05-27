@@ -4,7 +4,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models.insight import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import LicensedTestMixin
 

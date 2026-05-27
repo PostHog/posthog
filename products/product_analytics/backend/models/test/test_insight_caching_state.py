@@ -4,11 +4,13 @@ from posthog.test.base import BaseTest
 
 from django.utils.timezone import now
 
-from posthog.models import Insight, InsightCachingState, SharingConfiguration
+from posthog.models import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
 filters = {
     "events": [{"id": "$pageview"}],

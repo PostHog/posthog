@@ -1052,7 +1052,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_insight_specific_access_control(self):
         """Test insight-specific access controls"""
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         insight = Insight.objects.create(team=self.team, created_by=self.other_user)
 
