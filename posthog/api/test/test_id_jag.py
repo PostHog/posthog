@@ -175,6 +175,37 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(header["typ"], ACCESS_TOKEN_TYPE)
         self.assertEqual(header["alg"], "RS256")
 
+    def test_email_claim_is_preferred_over_sub_for_user_lookup(self) -> None:
+        # IdPs are not required to put an email in `sub` — it may be an opaque
+        # stable identifier. When the `email` claim is present we should use it
+        # for domain verification and membership lookup; `sub` is still stamped
+        # into the issued access token as the subject identifier.
+        opaque_sub = "auth0|abc123"
+        assertion = _make_id_jag(sub=opaque_sub, extra_claims={"email": "user@example.com"})
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        # The stamped sub preserves the IdP's opaque identifier.
+        self.assertEqual(claims["sub"], f"{_PROVIDER_NAME}:{opaque_sub}")
+
+    def test_rejects_when_email_claim_domain_is_not_verified(self) -> None:
+        # When the `email` claim is present it takes precedence — a verified-
+        # domain email in `sub` should not rescue an unverified `email` claim.
+        assertion = _make_id_jag(
+            sub="user@example.com",
+            extra_claims={"email": "user@unverified.example"},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
     def test_intersection_with_requested_scope(self) -> None:
         assertion = _make_id_jag(scope="feature_flag:read feature_flag:write dashboard:read")
         resp = self._post_token(

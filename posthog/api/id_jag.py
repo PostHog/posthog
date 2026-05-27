@@ -100,6 +100,7 @@ class InvalidTargetError(IdJagError):
 class IdJagClaims(TypedDict, total=False):
     iss: str
     sub: str
+    email: str | None
     aud: str | list[str]
     client_id: str
     scope: str
@@ -240,9 +241,9 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     if not issuer:
         raise InvalidGrantError("ID-JAG is missing the iss claim")
 
-    id_jag_sub = unverified_claims.get("sub") or ""
+    id_jag_email = unverified_claims.get("email") or unverified_claims.get("sub") or ""
 
-    org_domain, error = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_sub, issuer)
+    org_domain, error = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_email, issuer)
     if org_domain is None or error:
         raise InvalidGrantError(error or "ID-JAG configuration is invalid")
 
@@ -326,16 +327,16 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     else:
         logger.info("id_jag_assertion_missing_jti", issuer=expected_issuer)
 
-    verified_sub = claims.get("sub") or ""
+    verified_email = claims.get("email") or claims.get("sub") or ""
 
-    # The sub must be an active member of the *specific* organization whose
+    # The user must be an active member of the *specific* organization whose
     # OrganizationDomain pinned this IdP — not merely a member of any org that
     # also verified this domain. The issued access token is scoped to
     # `org_domain.organization_id` downstream, so membership must be enforced
     # on that exact org.
     is_member = User.objects.filter(
         is_active=True,
-        email__iexact=verified_sub,
+        email__iexact=verified_email,
         organization_membership__organization_id=org_domain.organization.pk,
     ).exists()
     if not is_member:
