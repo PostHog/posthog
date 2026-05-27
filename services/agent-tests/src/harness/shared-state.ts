@@ -21,6 +21,15 @@ export interface SharedClusterState {
     /** Absolute path the bins write logs to. Tests can `tail -f` for debugging. */
     ingressLog: string
     runnerLog: string
+    /** Mock Anthropic server endpoint. globalSetup reserves the port;
+     *  the test-worker process lazily binds it on first
+     *  `getMockAnthropic()` call. The bins are already configured to
+     *  reach this URL via `ANTHROPIC_BASE_URL`. Tests using
+     *  `model: 'mock-*'` hit built-in handlers; real `claude-*` model
+     *  names fall through to the proxy upstream
+     *  (`api.anthropic.com`). */
+    mockAnthropicUrl: string
+    mockAnthropicPort: number
 }
 
 export const SHARED_STATE_PATH = join(tmpdir(), 'agent-tests-shared-cluster.json')

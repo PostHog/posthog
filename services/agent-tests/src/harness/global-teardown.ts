@@ -15,7 +15,9 @@ export default async function globalTeardown(): Promise<void> {
         return
     }
 
-    console.log(`[agent-tests] tearing down shared cluster (pids ${state.ingressPid}, ${state.runnerPid})…`)
+    console.log(
+        `[agent-tests] tearing down shared cluster (pids ingress=${state.ingressPid}, runner=${state.runnerPid})…`
+    )
     await Promise.all([
         signalAndWait(state.ingressPid, 'agent-ingress'),
         signalAndWait(state.runnerPid, 'agent-runner'),

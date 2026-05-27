@@ -1,4 +1,5 @@
 /* eslint-disable no-console */
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,6 +25,14 @@ export default async function globalSetup(): Promise<void> {
     const ingressLog = join(tmpdir(), 'agent-tests-ingress.log')
     const runnerLog = join(tmpdir(), 'agent-tests-runner.log')
 
+    // Reserve a port for the mock Anthropic server. The test worker
+    // (a different process from globalSetup) lazily binds this port
+    // when the first test imports `getMockAnthropic()`. The bins boot
+    // pointing at this URL, but the mock isn't required to be up at
+    // boot time — the SDK only hits it when an agent actually runs.
+    const mockAnthropicPort = await pickFreePort()
+    const mockAnthropicUrl = `http://127.0.0.1:${mockAnthropicPort}`
+
     console.log('[agent-tests] booting shared cluster (ingress + runner)…')
     const start = Date.now()
     const spawned = await spawnBins({
@@ -35,6 +44,11 @@ export default async function globalSetup(): Promise<void> {
             // pre-flight refusal.
             ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
             ANTHROPIC_MODEL: process.env.AGENT_E2E_MODEL ?? 'claude-haiku-4-5',
+            // Point the SDK at the in-process mock. `mock-*` model
+            // names get served from built-ins; real `claude-*` model
+            // names fall through to the mock's proxy upstream
+            // (`api.anthropic.com`).
+            ANTHROPIC_BASE_URL: mockAnthropicUrl,
             AGENT_RUNNER_TOOL_SANDBOX: process.env.AGENT_RUNNER_TOOL_SANDBOX ?? 'docker',
             // agent-core's logger defaults to `silent` when NODE_ENV=test
             // (which jest sets). The runner subprocess is a separate
@@ -59,6 +73,8 @@ export default async function globalSetup(): Promise<void> {
         runnerPid: spawned.runnerProc.pid,
         ingressLog,
         runnerLog,
+        mockAnthropicUrl,
+        mockAnthropicPort,
     })
 
     // Detach the child handles so the globalSetup process can exit
@@ -68,8 +84,26 @@ export default async function globalSetup(): Promise<void> {
     spawned.runnerProc.unref()
 
     console.log(
-        `[agent-tests] shared cluster ready in ${Date.now() - start}ms — ingress=${spawned.ingressUrl} (pid ${spawned.ingressProc.pid}) runner pid=${spawned.runnerProc.pid}`
+        `[agent-tests] shared cluster ready in ${Date.now() - start}ms — ingress=${spawned.ingressUrl} (pid ${spawned.ingressProc.pid}) runner pid=${spawned.runnerProc.pid} mock-anthropic=${mockAnthropicUrl} (bound lazily in test worker)`
     )
     console.log(`[agent-tests]   ingress log: tail -f ${ingressLog}`)
     console.log(`[agent-tests]   runner  log: tail -f ${runnerLog}`)
+}
+
+/** Reserve a free TCP port the OS hands back. Same logic as cluster.ts. */
+async function pickFreePort(): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+        const srv = createServer()
+        srv.unref()
+        srv.on('error', reject)
+        srv.listen(0, '127.0.0.1', () => {
+            const addr = srv.address()
+            if (addr && typeof addr === 'object') {
+                const { port } = addr
+                srv.close(() => resolve(port))
+            } else {
+                reject(new Error('pickFreePort: address() returned a non-object'))
+            }
+        })
+    })
 }

@@ -29,6 +29,7 @@ export function compileAgent(revision: ResolvedRevision): AgentDefinition {
     const tools = readStringIds(manifest.tools)
     const skills = readStringIds(manifest.skills)
     const prompt = typeof manifest.prompt === 'string' ? manifest.prompt : ''
+    const model = typeof manifest.model === 'string' && manifest.model.length > 0 ? manifest.model : undefined
     // Prefer the agent.yaml-shape auth on the manifest (`{type, ...}`); fall
     // back to the legacy ResolvedRevision.auth (`{mode, ...}`) for old revisions
     // whose top_level_config was emitted before pat / posthog_internal landed.
@@ -39,6 +40,7 @@ export function compileAgent(revision: ResolvedRevision): AgentDefinition {
         name: revision.applicationSlug,
         slug: revision.applicationSlug,
         prompt,
+        model,
         tools,
         skills,
         triggers,

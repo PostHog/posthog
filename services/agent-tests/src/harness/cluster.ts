@@ -42,6 +42,7 @@ import {
 
 import { ClickHouseClient } from './clickhouse'
 import { CleanupRegistry } from './fixtures'
+import { type MockAnthropicHandle, startMockAnthropic } from './mock-anthropic'
 import { readSharedState } from './shared-state'
 
 loadDevEnv()
@@ -153,6 +154,35 @@ export async function openSharedCluster(): Promise<AgentCluster> {
         internalHeader: INTERNAL_HEADER,
         stop: () => Promise.resolve(),
     }
+}
+
+let sharedMock: MockAnthropicHandle | null = null
+
+/**
+ * Lazy-init the mock Anthropic server in the test-worker process. The
+ * port was reserved by globalSetup and threaded into the bins'
+ * `ANTHROPIC_BASE_URL` at spawn time; we bind it the first time a
+ * test asks for the handle. Subsequent calls share the same server.
+ *
+ * Each suite that scripts handlers should call `mock.reset()` in
+ * `afterEach` to keep tests independent — the built-in models
+ * (`mock-echo`, `mock-static:`, `mock-noop`) stay available either
+ * way.
+ */
+export async function getMockAnthropic(): Promise<MockAnthropicHandle> {
+    if (sharedMock) {
+        return sharedMock
+    }
+    const state = readSharedState()
+    sharedMock = await startMockAnthropic({
+        port: state.mockAnthropicPort,
+        // Real-Claude tests share this mock — un-mapped model names
+        // are proxied to api.anthropic.com so the same harness can
+        // serve both worlds. `ANTHROPIC_PROXY_UPSTREAM` overrides for
+        // gateway / staging variants.
+        proxyUpstream: process.env.ANTHROPIC_PROXY_UPSTREAM ?? 'https://api.anthropic.com',
+    })
+    return sharedMock
 }
 
 async function initSharedResources(): Promise<SharedResources> {
