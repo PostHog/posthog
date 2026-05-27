@@ -34,8 +34,8 @@ from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _social_auth_backend() -> BaseAuth:

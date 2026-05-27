@@ -14,22 +14,9 @@ from posthog.models import (
     Annotation,
     Cohort,
     ExportedAsset,
-    FeatureFlag,
     Group,
     GroupTypeMapping,
     GroupUsageMetric,
-    Organization,
-    Team,
-)
-from posthog.models import (
-    Annotation,
-    Cohort,
-    ExportedAsset,
-    Group,
-    GroupTypeMapping,
-    GroupUsageMetric,
-    Insight,
-    InsightVariable,
     Organization,
     Team,
 )

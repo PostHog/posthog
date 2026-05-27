@@ -43,7 +43,6 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.product_analytics.backend.models.insight import Insight
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
@@ -52,6 +51,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagHashKeyOverride,
     get_feature_flags_for_team_in_cache,
 )
+from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 

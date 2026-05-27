@@ -74,8 +74,8 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroupProperty,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 

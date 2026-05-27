@@ -76,13 +76,13 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
-from products.product_analytics.backend.models.insight import Insight
 from products.feature_flags.backend.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
     get_feature_flag_hash_key_overrides,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
