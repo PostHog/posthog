@@ -35,6 +35,7 @@ import { EditConclusionModal } from './ExperimentModals'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
+import { HighMultipleExposureWarning } from './HighMultipleExposureWarning'
 import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -82,6 +83,7 @@ const MetricsTab = (): JSX.Element => {
             <div className="w-full mb-4">
                 <Exposures />
                 <MultiVariantBiasWarning />
+                <HighMultipleExposureWarning />
             </div>
 
             {/* Modern metrics view */}
