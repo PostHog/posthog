@@ -170,8 +170,21 @@ export const NewRemoteConfigFlagPayloadError: Story = {
 
         logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
         logic.actions.setFeatureFlagValue('is_remote_configuration', true)
-        // Yield to let React flush the state updates before triggering validation.
-        await new Promise((resolve) => setTimeout(resolve, 50))
+        // Wait for the remote config UI to actually render before submitting.
+        // Without this, kea may not have flushed is_remote_configuration=true to React,
+        // so submitFeatureFlag's validator doesn't see payload as required and the
+        // screenshot captures the default "Unnamed" state (~37% visual diff).
+        await waitFor(
+            () => {
+                const hasPayloadSection = Array.from(canvasElement.querySelectorAll('.LemonLabel')).some(
+                    (el) => el.textContent?.includes('Payload')
+                )
+                if (!hasPayloadSection) {
+                    throw new Error('Payload section not yet visible — is_remote_configuration not flushed')
+                }
+            },
+            { timeout: 5000 }
+        )
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
         logic.actions.submitFeatureFlag()
