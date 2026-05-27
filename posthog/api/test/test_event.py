@@ -923,6 +923,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2").json()
         assert len(response["results"]) == 2
 
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 2)
+    def test_limit_is_capped_at_event_list_max(self):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        for _i in range(3):
+            _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
+        assert len(response["results"]) == 2
+
     def test_get_events_with_specified_token(self):
         _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
         assert user2.team is not None
@@ -1290,6 +1299,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Should NOT update cache when data is identical (optimization)
         mock_cache.set.assert_not_called()
 
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 6000)
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event.query_events_list")
     def test_ignores_cached_window_when_result_count_below_threshold(self, mock_query_events_list, mock_cache):

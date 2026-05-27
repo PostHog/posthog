@@ -1,1 +1,1 @@
-1180_migrate_product_analytics_models
+1184_migrate_product_analytics_models

@@ -501,9 +501,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert data[0]["name"] == "Legacy insight"
 
     def test_references_returns_experiment_using_action(self):
-        from posthog.models.feature_flag import FeatureFlag
-
         from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
         flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
@@ -601,9 +600,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == []
 
     def test_references_does_not_return_deleted_experiments(self):
-        from posthog.models.feature_flag import FeatureFlag
-
         from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
         flag = FeatureFlag.objects.create(team=self.team, key="deleted-exp-flag", created_by=self.user)
@@ -755,9 +753,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert counts[action_without_refs.id] == 0
 
     def test_include_reference_count_counts_across_all_resource_types(self):
-        from posthog.models.feature_flag import FeatureFlag
-
         from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         action = Action.objects.create(team=self.team, name="widely used action", steps_json=[{"event": "$pageview"}])
 

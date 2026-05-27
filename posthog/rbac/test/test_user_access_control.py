@@ -1020,7 +1020,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_feature_flag_specific_access_control(self):
         """Test feature flag-specific access controls"""
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.other_user)
 

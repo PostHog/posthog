@@ -183,6 +183,7 @@ class Snapshot:
     """A snapshot with its comparison results."""
 
     id: UUID
+    run_id: UUID
     identifier: str
     result: str
     classification_reason: str  # exact, tolerated_hash, below_threshold, or ""

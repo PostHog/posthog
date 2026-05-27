@@ -58,7 +58,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
     linked_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -66,7 +66,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_linked_flag",
     )
     targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -84,7 +84,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -92,7 +92,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_internal_targeting_flag",
     )
     internal_response_sampling_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -482,8 +482,9 @@ surveys_hypercache = HyperCache(
 @receiver(post_save, sender=Survey)
 @receiver(post_delete, sender=Survey)
 def survey_changed(sender, instance: "Survey", **kwargs):
-    from posthog.tasks.feature_flags import update_team_flags_cache
     from posthog.tasks.surveys import update_team_surveys_cache
+
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     # Defer task execution until after the transaction commits
     # Update both survey cache and flag cache since survey-linked flags are

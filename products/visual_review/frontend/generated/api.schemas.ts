@@ -302,13 +302,18 @@ export interface AddSnapshotsResultApi {
 }
 
 export interface ApproveSnapshotInputApi {
+    /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
     identifier: string
+    /** The content hash of the new baseline image to record for this identifier. */
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
+    /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
     snapshots?: ApproveSnapshotInputApi[]
+    /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
     approve_all?: boolean
+    /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
     commit_to_github?: boolean
 }
 
@@ -351,6 +356,7 @@ export interface SnapshotApi {
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
     id: string
+    run_id: string
     identifier: string
     result: string
     classification_reason: string
@@ -382,6 +388,7 @@ export interface PaginatedSnapshotListApi {
 }
 
 export interface MarkToleratedInputApi {
+    /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
     snapshot_id: string
 }
 

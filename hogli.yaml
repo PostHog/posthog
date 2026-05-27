@@ -13,6 +13,10 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
+        # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
+        # regenerating a stub entry on every hogli run.
+        - phrocs
     env:
         files:
             - .env.development
@@ -780,6 +784,9 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:lint:owners:
+        click: hogli_commands.product.cli:cmd_lint_owners
+        description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
         description: Score product maturity across isolation dimensions

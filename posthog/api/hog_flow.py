@@ -33,15 +33,15 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.models import Team
-from posthog.models.feature_flag.user_blast_radius import (
-    PERSON_BATCH_SIZE,
-    get_user_blast_radius,
-    get_user_blast_radius_persons,
-)
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
+from products.feature_flags.backend.user_blast_radius import (
+    PERSON_BATCH_SIZE,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+)
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule

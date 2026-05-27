@@ -21,6 +21,18 @@ from posthog.models import (
     Organization,
     Team,
 )
+from posthog.models import (
+    Annotation,
+    Cohort,
+    ExportedAsset,
+    Group,
+    GroupTypeMapping,
+    GroupUsageMetric,
+    Insight,
+    InsightVariable,
+    Organization,
+    Team,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -39,6 +51,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
 from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
