@@ -2271,6 +2271,16 @@
                   "table": null,
                   "type": "string"
               },
+              "endpoint_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint_version",
+                  "id": null,
+                  "name": "endpoint_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "cpu_microseconds": {
                   "chain": null,
                   "fields": null,
@@ -10251,6 +10261,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "endpoint_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint_version",
+                  "id": null,
+                  "name": "endpoint_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "cpu_microseconds": {
                   "chain": null,

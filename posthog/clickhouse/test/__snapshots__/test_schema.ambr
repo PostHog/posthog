@@ -3853,6 +3853,7 @@
       lc_person_on_events_mode LowCardinality(String),
       lc_service_name String,
       lc_workload LowCardinality(String),
+      lc_endpoint_version Int64,
   
       lc_query__kind LowCardinality(String),
       lc_query__query String,
@@ -3974,6 +3975,7 @@
       JSONExtractString(log_comment, 'person_on_events_mode') as lc_person_on_events_mode,
       JSONExtractString(log_comment, 'service_name') as lc_service_name,
       JSONExtractString(log_comment, 'workload') as lc_workload,
+      JSONExtractInt(log_comment, 'endpoint_version') as lc_endpoint_version,
   
       -- for entries with 'query' tag, some queries have source, we should use this
       if(JSONHas(log_comment, 'query', 'source'),
@@ -8462,6 +8464,7 @@
       lc_person_on_events_mode LowCardinality(String),
       lc_service_name String,
       lc_workload LowCardinality(String),
+      lc_endpoint_version Int64,
   
       lc_query__kind LowCardinality(String),
       lc_query__query String,
