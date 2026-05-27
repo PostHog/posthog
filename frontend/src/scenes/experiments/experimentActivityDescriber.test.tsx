@@ -130,7 +130,32 @@ describe('experimentActivityDescriber', () => {
     })
 
     describe('excluded_variants describer', () => {
-        it('single variant added to exclusion list', () => {
+        it.each([
+            {
+                name: 'single variant added to exclusion list',
+                before: { excluded_variants: [] },
+                after: { excluded_variants: ['test-2'] },
+                expected: 'excluded variant test-2 from analysis',
+            },
+            {
+                name: 'single variant removed from exclusion list',
+                before: { excluded_variants: ['test-2'] },
+                after: { excluded_variants: [] },
+                expected: 're-included variant test-2 in analysis',
+            },
+            {
+                name: 'multiple variants added to exclusion list',
+                before: { excluded_variants: [] },
+                after: { excluded_variants: ['test-2', 'test-3'] },
+                expected: 'excluded variants test-2, test-3 from analysis',
+            },
+            {
+                name: 'handles null before payload (fresh record case)',
+                before: null,
+                after: { excluded_variants: ['test-2'] },
+                expected: 'excluded variant test-2 from analysis',
+            },
+        ])('$name', ({ before, after, expected }) => {
             const result = experimentActivityDescriber(
                 baseLogItem({
                     activity: 'updated',
@@ -141,8 +166,8 @@ describe('experimentActivityDescriber', () => {
                                 type: ActivityScope.EXPERIMENT,
                                 action: 'changed',
                                 field: 'parameters',
-                                before: { excluded_variants: [] },
-                                after: { excluded_variants: ['test-2'] },
+                                before,
+                                after,
                             },
                         ],
                         merge: null,
@@ -150,80 +175,7 @@ describe('experimentActivityDescriber', () => {
                     },
                 })
             )
-            const text = textOf(result)
-            expect(text).toContain('excluded variant test-2 from analysis')
-        })
-
-        it('single variant removed from exclusion list', () => {
-            const result = experimentActivityDescriber(
-                baseLogItem({
-                    activity: 'updated',
-                    detail: {
-                        name: 'Checkout funnel',
-                        changes: [
-                            {
-                                type: ActivityScope.EXPERIMENT,
-                                action: 'changed',
-                                field: 'parameters',
-                                before: { excluded_variants: ['test-2'] },
-                                after: { excluded_variants: [] },
-                            },
-                        ],
-                        merge: null,
-                        trigger: null,
-                    },
-                })
-            )
-            const text = textOf(result)
-            expect(text).toContain('re-included variant test-2 in analysis')
-        })
-
-        it('multiple variants added to exclusion list', () => {
-            const result = experimentActivityDescriber(
-                baseLogItem({
-                    activity: 'updated',
-                    detail: {
-                        name: 'Checkout funnel',
-                        changes: [
-                            {
-                                type: ActivityScope.EXPERIMENT,
-                                action: 'changed',
-                                field: 'parameters',
-                                before: { excluded_variants: [] },
-                                after: { excluded_variants: ['test-2', 'test-3'] },
-                            },
-                        ],
-                        merge: null,
-                        trigger: null,
-                    },
-                })
-            )
-            const text = textOf(result)
-            expect(text).toMatch(/excluded variants test-2, test-3 from analysis/)
-        })
-
-        it('handles null before payload (fresh record case)', () => {
-            const result = experimentActivityDescriber(
-                baseLogItem({
-                    activity: 'updated',
-                    detail: {
-                        name: 'Checkout funnel',
-                        changes: [
-                            {
-                                type: ActivityScope.EXPERIMENT,
-                                action: 'changed',
-                                field: 'parameters',
-                                before: null,
-                                after: { excluded_variants: ['test-2'] },
-                            },
-                        ],
-                        merge: null,
-                        trigger: null,
-                    },
-                })
-            )
-            const text = textOf(result)
-            expect(text).toContain('excluded variant test-2 from analysis')
+            expect(textOf(result)).toContain(expected)
         })
     })
 })
