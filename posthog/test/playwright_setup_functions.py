@@ -13,13 +13,14 @@ from pydantic import BaseModel
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import Insight, PersonalAPIKey, Team, User
-from posthog.models.insight_variable import InsightVariable
+from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class PlaywrightSetupVariableType(StrEnum):

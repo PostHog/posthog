@@ -2335,15 +2335,6 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
-export interface FlagValueItemApi {
-    name: unknown
-}
-
-export interface FlagValueResponseApi {
-    results: FlagValueItemApi[]
-    refreshing: boolean
-}
-
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -3421,13 +3412,6 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type FlagValueValuesRetrieveParams = {
-    /**
-     * The flag ID
-     */
-    key?: string
 }
 
 export type ProjectSecretApiKeysListParams = {
