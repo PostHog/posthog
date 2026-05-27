@@ -71,3 +71,60 @@ describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () =
         }
     })
 })
+
+describe('slackIntegrationLogic — loadAllSlackChannels pagination', () => {
+    let logic: ReturnType<typeof slackIntegrationLogic.build>
+    let forceRefreshByOffset: Record<string, string | null>
+
+    const channel = (id: string): { id: string; name: string; is_private: boolean; is_member: boolean } => ({
+        id,
+        name: id,
+        is_private: false,
+        is_member: true,
+    })
+
+    beforeEach(() => {
+        forceRefreshByOffset = {}
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': (req) => {
+                    const offset = Number(req.url.searchParams.get('offset') || 0)
+                    forceRefreshByOffset[offset] = req.url.searchParams.get('force_refresh')
+                    // Three pages of 200; the third is partial, so has_more flips false.
+                    if (offset === 0) {
+                        return [200, { channels: [channel('a')], lastRefreshedAt: '', has_more: true }]
+                    }
+                    if (offset === 200) {
+                        return [200, { channels: [channel('b')], lastRefreshedAt: '', has_more: true }]
+                    }
+                    return [200, { channels: [channel('zzz-sentry-alerts')], lastRefreshedAt: '', has_more: false }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = slackIntegrationLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('walks every page and accumulates channels beyond the first', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['a', 'b', 'zzz-sentry-alerts'])
+    })
+
+    it('only forces a refresh on the first page', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(true)
+        }).toFinishAllListeners()
+
+        expect(forceRefreshByOffset['0']).toBe('true')
+        expect(forceRefreshByOffset['200']).toBe('false')
+        expect(forceRefreshByOffset['400']).toBe('false')
+    })
+})

@@ -11,6 +11,9 @@ import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
 export const SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS = 30
 
+// Matches the channels endpoint's max page size (SlackChannelsQuerySerializer.limit).
+const SLACK_CHANNELS_PAGE_SIZE = 200
+
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
@@ -28,7 +31,25 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as { channels: SlackChannelType[]; lastRefreshedAt: string } | null,
             {
                 loadAllSlackChannels: async ({ forceRefresh }) => {
-                    return await api.integrations.slackChannels(props.id, forceRefresh)
+                    // The channels endpoint is paginated, so walk every page to build the full
+                    // channel list for client-side filtering. Only force a refresh on the first
+                    // page — later pages read the cache that first page populated.
+                    const channels: SlackChannelType[] = []
+                    let offset = 0
+                    let lastRefreshedAt = ''
+                    for (;;) {
+                        const res = await api.integrations.slackChannels(props.id, forceRefresh && offset === 0, {
+                            limit: SLACK_CHANNELS_PAGE_SIZE,
+                            offset,
+                        })
+                        channels.push(...res.channels)
+                        lastRefreshedAt = res.lastRefreshedAt
+                        if (!res.has_more) {
+                            break
+                        }
+                        offset += SLACK_CHANNELS_PAGE_SIZE
+                    }
+                    return { channels, lastRefreshedAt }
                 },
             },
         ],
