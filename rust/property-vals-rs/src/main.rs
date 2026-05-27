@@ -6,7 +6,7 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
     config::Config,
-    fan_out::{fan_in, fan_out, fan_out_group},
+    fan_out::{extract_tuple, fan_out, fan_out_group},
     producer::AggregatedProducer,
     types::{Event, GroupIdentify, PropertyValueMessage},
     worker::worker_loop,
@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stage2_consumer,
         stage2_producer,
         stage2_handle.clone(),
-        |m: &PropertyValueMessage| fan_in(m),
+        |m: &PropertyValueMessage| extract_tuple(m),
         true,
     ));
     drop(events_handle);

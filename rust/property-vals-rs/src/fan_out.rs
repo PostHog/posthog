@@ -36,11 +36,7 @@ pub fn fan_out_group(
     out
 }
 
-/// Stage-2 input adapter. Each intermediate-topic message represents one
-/// already-aggregated `(team, type, key, value)` tuple with its per-pod count;
-/// emit it 1:1 into the stage-2 aggregator so it can be summed with sibling
-/// emissions of the same tuple from other stage-1 pods.
-pub fn fan_in(msg: &PropertyValueMessage) -> Vec<(TupleKey, u64)> {
+pub fn extract_tuple(msg: &PropertyValueMessage) -> Vec<(TupleKey, u64)> {
     if msg.property_key.is_empty() || msg.property_value.is_empty() {
         return Vec::new();
     }
@@ -383,9 +379,9 @@ mod tests {
     }
 
     #[test]
-    fn fan_in_emits_single_tuple_with_message_count() {
+    fn extract_tuple_emits_single_tuple_with_message_count() {
         let msg = pv_message(2, PropertyType::Event, "$browser", "Chrome", 42);
-        let out = fan_in(&msg);
+        let out = extract_tuple(&msg);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].0.team_id, 2);
         assert_eq!(out[0].0.property_type, PropertyType::Event);
@@ -395,27 +391,27 @@ mod tests {
     }
 
     #[test]
-    fn fan_in_carries_property_count_for_person_type() {
+    fn extract_tuple_carries_property_count_for_person_type() {
         let msg = pv_message(7, PropertyType::Person, "email", "a@b.com", 5);
-        let out = fan_in(&msg);
+        let out = extract_tuple(&msg);
         assert_eq!(out[0].0.property_type, PropertyType::Person);
         assert_eq!(out[0].1, 5);
     }
 
     #[test]
-    fn fan_in_carries_property_count_for_group_type() {
+    fn extract_tuple_carries_property_count_for_group_type() {
         let msg = pv_message(7, PropertyType::Group(3), "plan", "enterprise", 11);
-        let out = fan_in(&msg);
+        let out = extract_tuple(&msg);
         assert_eq!(out[0].0.property_type, PropertyType::Group(3));
         assert_eq!(out[0].1, 11);
     }
 
     #[test]
-    fn fan_in_drops_empty_key_or_value() {
+    fn extract_tuple_drops_empty_key_or_value() {
         let empty_key = pv_message(2, PropertyType::Event, "", "Chrome", 1);
-        assert!(fan_in(&empty_key).is_empty());
+        assert!(extract_tuple(&empty_key).is_empty());
         let empty_value = pv_message(2, PropertyType::Event, "$browser", "", 1);
-        assert!(fan_in(&empty_value).is_empty());
+        assert!(extract_tuple(&empty_value).is_empty());
     }
 
     /// Stage-1's wire format (producer.rs::Outgoing) must round-trip into
