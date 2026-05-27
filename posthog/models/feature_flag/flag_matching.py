@@ -281,7 +281,7 @@ class FeatureFlagMatcher:
         enrollment_is_set = self.query_conditions.get(is_set_key)
 
         if enrollment_is_set is None:
-            logger.warning(
+            logger.debug(
                 "feature_enrollment_query_missing",
                 flag_id=feature_flag.pk,
                 flag_key=feature_flag.key,
