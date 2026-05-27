@@ -14,6 +14,11 @@ export const SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS = 30
 // Matches the channels endpoint's max page size (SlackChannelsQuerySerializer.limit).
 const SLACK_CHANNELS_PAGE_SIZE = 200
 
+// Safety bound on the pagination loop. The backend caps list_channels at 10k public +
+// 10k private channels, so 100 pages covers any real workspace; the cap only guards
+// against a runaway loop if the endpoint ever returns has_more incorrectly.
+const SLACK_CHANNELS_MAX_PAGES = 100
+
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
@@ -37,7 +42,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     const channels: SlackChannelType[] = []
                     let offset = 0
                     let lastRefreshedAt = ''
-                    for (;;) {
+                    for (let page = 0; page < SLACK_CHANNELS_MAX_PAGES; page++) {
                         const res = await api.integrations.slackChannels(props.id, forceRefresh && offset === 0, {
                             limit: SLACK_CHANNELS_PAGE_SIZE,
                             offset,

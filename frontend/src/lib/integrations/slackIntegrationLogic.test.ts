@@ -127,4 +127,23 @@ describe('slackIntegrationLogic — loadAllSlackChannels pagination', () => {
         expect(forceRefreshByOffset['200']).toBe('false')
         expect(forceRefreshByOffset['400']).toBe('false')
     })
+
+    it('stops after the page cap if the endpoint never reports has_more false', async () => {
+        let requestCount = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': () => {
+                    requestCount++
+                    return [200, { channels: [channel('a')], lastRefreshedAt: '', has_more: true }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        // Bounded by SLACK_CHANNELS_MAX_PAGES (100) rather than looping forever.
+        expect(requestCount).toBe(100)
+    })
 })
