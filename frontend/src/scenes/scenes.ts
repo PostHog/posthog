@@ -48,16 +48,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         allowUnauthenticated: true,
     },
-    [Scene.Autoresearch]: {
-        projectBased: true,
-        name: 'Autoresearch',
-        description: 'Automatically find the best model to predict user behavior and score your users daily.',
-        iconType: 'experiment',
-    },
-    [Scene.AutoresearchPipeline]: {
-        projectBased: true,
-        name: 'Autoresearch pipeline',
-    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.MaterializedColumns]: {
         projectBased: true,
@@ -918,8 +908,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
     [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
-    [urls.autoresearch()]: [Scene.Autoresearch, 'autoresearch'],
-    [urls.autoresearchPipeline(':id')]: [Scene.AutoresearchPipeline, 'autoresearchPipeline'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
