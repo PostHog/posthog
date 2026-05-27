@@ -192,3 +192,9 @@ class TestWizardSessionViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual(data["event_plan"], {"events": [{"name": "$pageview"}]})
         self.assertEqual(data["error"], {"type": "TimeoutError", "message": "Anthropic API timed out"})
+
+    def test_stream_requires_workflow_id(self):
+        # No params → 400 from the view-level validation (workflow_id is the
+        # only required query param; skill_id is optional for pattern subscribe).
+        response = self.client.get(f"{self._url()}stream/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
