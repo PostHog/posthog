@@ -242,6 +242,7 @@ class FileDownloadBatchExportOnDemandViewSet(
                 status__in=(BatchExportRun.Status.STARTING, BatchExportRun.Status.RUNNING),
                 batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
                 batch_export_on_demand__team_id=self.team_id,
+                batch_export_on_demand__deleted=False,
             ).count()
 
             if current_count >= settings.BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM:
