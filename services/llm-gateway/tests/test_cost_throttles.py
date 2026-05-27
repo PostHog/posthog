@@ -767,6 +767,135 @@ class TestTeamRateLimitMultipliers:
         assert key == "cost:product:wizard:tm10"
         get_settings.cache_clear()
 
+    @pytest.mark.parametrize("multiplier", [2, 10, 25, 100])
+    @pytest.mark.asyncio
+    async def test_product_throttle_limit_scales_with_multiplier(
+        self, monkeypatch: pytest.MonkeyPatch, multiplier: int
+    ) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", f'{{"2": {multiplier}}}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+
+        throttle = ProductCostThrottle(redis=None)
+        context = make_context(user=make_user(team_id=2), product="llm_gateway")
+
+        base = get_settings().product_cost_limits["llm_gateway"].limit_usd
+        limit, _ = throttle._get_limit_and_window(context)
+        assert limit == base * multiplier
+        get_settings.cache_clear()
+
+    @pytest.mark.parametrize("multiplier", [2, 10, 25, 100])
+    @pytest.mark.asyncio
+    async def test_user_burst_throttle_limit_scales_with_multiplier(
+        self, monkeypatch: pytest.MonkeyPatch, multiplier: int
+    ) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", f'{{"2": {multiplier}}}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(user=make_user(team_id=2), product="posthog_code")
+
+        base = get_settings().user_cost_limits["posthog_code"].burst_limit_usd
+        limit, _ = throttle._get_limit_and_window(context)
+        assert limit == base * multiplier
+        get_settings.cache_clear()
+
+    @pytest.mark.parametrize("multiplier", [2, 10, 25, 100])
+    @pytest.mark.asyncio
+    async def test_user_sustained_throttle_limit_scales_with_multiplier(
+        self, monkeypatch: pytest.MonkeyPatch, multiplier: int
+    ) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", f'{{"2": {multiplier}}}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        context = make_context(user=make_user(team_id=2), product="posthog_code")
+
+        base = get_settings().user_cost_limits["posthog_code"].sustained_limit_usd
+        limit, _ = throttle._get_limit_and_window(context)
+        assert limit == base * multiplier
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_multiplier_team_bucket_isolated_from_shared_bucket(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Team-2 spend lands in a suffixed bucket and must not bleed into the shared (default) bucket,
+        otherwise a single multiplier team could burn down everyone else's product cap."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+
+        throttle = ProductCostThrottle(redis=None)
+        # default limit for wizard product = $2000/day
+        team_2_ctx = make_context(user=make_user(user_id=10, team_id=2), product="wizard")
+        team_other_ctx = make_context(user=make_user(user_id=20, team_id=42), product="wizard")
+
+        await throttle.record_cost(team_2_ctx, 1500.0)
+
+        # Shared bucket should still be empty.
+        other_status = await throttle.get_status(team_other_ctx)
+        assert other_status.used_usd == pytest.approx(0.0)
+        # Team-2's own bucket records its own spend.
+        team_2_status = await throttle.get_status(team_2_ctx)
+        assert team_2_status.used_usd == pytest.approx(1500.0)
+        # And both can still serve traffic.
+        assert (await throttle.allow_request(team_other_ctx)).allowed is True
+        assert (await throttle.allow_request(team_2_ctx)).allowed is True
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_multiplier_team_denied_above_multiplied_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+
+        throttle = ProductCostThrottle(redis=None)
+        context = make_context(user=make_user(team_id=2), product="llm_gateway")
+        # Default llm_gateway limit is $1000; 25x = $25_000.
+        await throttle.record_cost(context, 25_001.0)
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is False, "spending past 25x the base cap must still be rejected"
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_multiplier_routes_by_team_id_not_user_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The multiplier must key off team_id; configuring '{"2": 25}' should not boost a user_id=2 on team_id=99."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        # user_id 2 but on team 99 — should NOT get the 25x multiplier.
+        context = make_context(user=make_user(user_id=2, team_id=99), product="posthog_code")
+
+        base = get_settings().user_cost_limits["posthog_code"].burst_limit_usd
+        limit, _ = throttle._get_limit_and_window(context)
+        assert limit == base, "multiplier must key on team_id, not user_id"
+        assert ":tm" not in throttle._get_cache_key(context)
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_multiplier_team_does_not_affect_other_team_user_buckets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two users on different teams (one with a multiplier, one without) must keep separate
+        per-user buckets — spending by one user on team 2 must not deplete a different user's quota on team 99."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        team_2_ctx = make_context(user=make_user(user_id=100, team_id=2), product="posthog_code")
+        team_99_ctx = make_context(user=make_user(user_id=200, team_id=99), product="posthog_code")
+
+        await throttle.record_cost(team_2_ctx, 4_000.0)
+
+        assert (await throttle.get_status(team_99_ctx)).used_usd == pytest.approx(0.0)
+        assert (await throttle.get_status(team_2_ctx)).used_usd == pytest.approx(4_000.0)
+        get_settings.cache_clear()
+
 
 class TestUnconfiguredProductsUseDefaults:
     """Products without user_cost_limits config use default limits ($100/24h burst, $1000/30d sustained)."""
