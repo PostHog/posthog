@@ -93,38 +93,6 @@ where
                 } else {
                     UNMATCHED_PATH_LABEL.to_owned()
                 };
-                let client_ip = req
-                    .headers()
-                    .get("X-Forwarded-For")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.split(',').next())
-                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.trim().to_string());
-                let request_id = req
-                    .headers()
-                    .get("X-REQUEST-ID")
-                    .and_then(|v| v.to_str().ok())
-                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
-                let content_type = req
-                    .headers()
-                    .get("Content-Type")
-                    .and_then(|v| v.to_str().ok())
-                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
-                let content_length = req
-                    .headers()
-                    .get("Content-Length")
-                    .and_then(|v| v.to_str().ok())
-                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
-                let user_agent = req
-                    .headers()
-                    .get("User-Agent")
-                    .and_then(|v| v.to_str().ok())
-                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
-                let envoy_ip = req
-                    .headers()
-                    .get("X-Envoy-External-Address")
-                    .and_then(|v| v.to_str().ok())
-                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
-
                 match tokio::time::timeout(timeout_duration, next.run(req)).await {
                     Ok(response) => {
                         let elapsed = start.elapsed();
@@ -156,21 +124,6 @@ where
                             tags.push(("threshold", "respected".to_string()));
                         }
                         metrics::counter!(METRIC_CAPTURE_REQUEST_TIMED_OUT, &tags).increment(1);
-
-                        tracing::warn!(
-                            method = method,
-                            path = path,
-                            request_id = request_id,
-                            client_ip = client_ip,
-                            envoy_ip = envoy_ip,
-                            content_type = content_type,
-                            content_length = content_length,
-                            user_agent = user_agent,
-                            timeout_threshold_seconds = request_timeout_seconds,
-                            threshold_exceeded = threshold_exceeded,
-                            elapsed_seconds = elapsed.as_secs_f64(),
-                            "Request timed out"
-                        );
 
                         // This should be a 408 Request Timeout, but we need to set it to
                         // a >500 status code to avoid breaking SDK integrations.
