@@ -317,7 +317,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_any_call(cohort_id=cohort.id)
@@ -339,7 +339,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         ]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()
@@ -359,7 +359,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id + 9999}]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()

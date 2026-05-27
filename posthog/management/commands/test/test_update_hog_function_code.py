@@ -13,7 +13,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         super().setUp()
 
         # Create HogFunctions for testing
-        with patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
             # LinkedIn destination with old API version
             self.linkedin_function1 = HogFunction.objects.create(
                 team=self.team,

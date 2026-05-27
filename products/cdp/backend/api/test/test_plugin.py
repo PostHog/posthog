@@ -30,7 +30,7 @@ def mocked_plugin_reload(*args, **kwargs):
     pass
 
 
-@mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
+@mock.patch("products.cdp.backend.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("posthog.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
@@ -348,7 +348,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @mock.patch("posthog.models.plugin.PluginSourceFile.objects.sync_from_plugin_archive")
+    @mock.patch("products.cdp.backend.models.plugin.PluginSourceFile.objects.sync_from_plugin_archive")
     def test_update_plugin_auth(self, mock_sync_from_plugin_archive, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         self.assertEqual(mock_sync_from_plugin_archive.call_count, 0)

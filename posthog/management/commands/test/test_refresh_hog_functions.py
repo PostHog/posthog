@@ -18,7 +18,7 @@ class TestRefreshHogFunctions(BaseTest):
         self.team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
 
         # Create HogFunctions for testing
-        with patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
             self.hog_function1 = HogFunction.objects.create(
                 team=self.team,
                 name="Test Function 1",
@@ -63,7 +63,7 @@ class TestRefreshHogFunctions(BaseTest):
                 deleted=True,
             )
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_all_hog_functions(self, mock_reload):
         """Test refreshing all non-deleted destination HogFunctions (both enabled and disabled) across all teams."""
 
@@ -81,7 +81,7 @@ class TestRefreshHogFunctions(BaseTest):
         self.assertIn("Updated: 3", output)
         self.assertIn("Errors: 0", output)
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_by_team_id(self, mock_reload):
         """Test refreshing destination HogFunctions for a specific team."""
 
@@ -97,7 +97,7 @@ class TestRefreshHogFunctions(BaseTest):
         self.assertIn("Found 2 HogFunctions to process", output)
         self.assertIn("Updated: 2", output)
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_by_hog_function_id(self, mock_reload):
         """Test refreshing a specific HogFunction by ID."""
 
@@ -112,7 +112,7 @@ class TestRefreshHogFunctions(BaseTest):
         self.assertIn("Found 1 HogFunctions to process", output)
         self.assertIn("Updated: 1", output)
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_nonexistent_team_id(self, mock_reload):
         """Test handling of nonexistent team ID."""
 
@@ -125,7 +125,7 @@ class TestRefreshHogFunctions(BaseTest):
         self.assertIn("Found 0 HogFunctions to process", output)
         self.assertIn("No HogFunctions found matching criteria", output)
 
-    @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_nonexistent_hog_function_id(self, mock_reload):
         """Test handling of nonexistent HogFunction ID."""
 

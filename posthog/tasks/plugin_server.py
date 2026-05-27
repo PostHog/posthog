@@ -104,7 +104,7 @@ def fatal_plugin_error(
 def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     logger.info("hog_function_state_transition (disabled)", hog_function_id=hog_function_id, state=state)
     return
-    # from posthog.models.hog_functions.hog_function import HogFunction
+    # from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     # logger.info("hog_function_state_transition", hog_function_id=hog_function_id, state=state)
 

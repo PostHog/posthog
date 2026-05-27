@@ -161,7 +161,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
         # Mock the plugin server status endpoint to avoid connection errors
         # Patch where it's used (in hog_function.py) not where it's defined
-        self.mock_get_status = patch("posthog.models.hog_functions.hog_function.get_hog_function_status").start()
+        self.mock_get_status = patch(
+            "products.cdp.backend.models.hog_functions.hog_function.get_hog_function_status"
+        ).start()
         self.mock_get_status.return_value = MagicMock(status_code=200, json=lambda: {"state": "idle", "tokens": 0})
         self.addCleanup(self.mock_get_status.stop)
 
