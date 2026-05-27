@@ -1074,19 +1074,27 @@ def _posthog_code_flag_subject(integration: Integration) -> User | None:
     return fallback.user if fallback else None
 
 
-def _is_app_mention_edit(event: dict[str, Any]) -> bool:
-    """Detect app_mention events Slack re-fires when a user edits a mentioning message.
+def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
-    Why: Slack sends a fresh app_mention with a new event_id when a previously-posted
-    mention is edited, which gives the resulting Temporal workflow a different
-    workflow_id and bypasses USE_EXISTING — so without this guard the edit kicks off
-    a second task in parallel with the original.
+    - "edit": Slack re-fires app_mention with a new event_id when a previously-posted
+      mention is edited. The new event_id bypasses Temporal workflow dedup, so without
+      this guard the edit spawns a duplicate task alongside the original.
+    - "bot_author": the message was authored by another Slack app/bot. Foreign bots
+      that quote `<@PostHog>` in their text (incident bots, alert relays, our own
+      notifications integration) would trigger reply loops on every re-post.
     """
-    if event.get("edited"):
-        return True
-    if event.get("subtype") == "message_changed":
-        return True
-    return False
+    if event.get("edited") or event.get("subtype") == "message_changed":
+        return "edit"
+    if (
+        event.get("bot_id")
+        or event.get("bot_profile")
+        or event.get("app_id")
+        or event.get("subtype") == "bot_message"
+        or event.get("user") == "USLACKBOT"
+    ):
+        return "bot_author"
+    return None
 
 
 def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
@@ -1189,9 +1197,11 @@ def route_posthog_code_event_to_relevant_region(
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
-            if _is_app_mention_edit(event):
+            ignore_reason = _app_mention_ignore_reason(event)
+            if ignore_reason:
                 logger.info(
-                    "posthog_code_event_edit_ignored",
+                    "posthog_code_event_app_mention_ignored",
+                    reason=ignore_reason,
                     slack_team_id=slack_team_id,
                     channel=event.get("channel"),
                     message_ts=event.get("ts"),
