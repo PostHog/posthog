@@ -69,12 +69,14 @@ jobs:
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
                       # Inputs that can break inside the Docker build but aren't covered
-                      # by the `hobby:` filter — workflow self-edits, and `pnpm-lock.yaml`
-                      # so Renovate-style dep bumps are exercised on PR (otherwise they'd
+                      # by the `hobby:` filter — workflow self-edits, `.dockerignore`
+                      # (silently changes the build context), and `pnpm-lock.yaml` so
+                      # Renovate-style dep bumps are exercised on PR (otherwise they'd
                       # only fail at merge_group / master push).
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/actions/build-n-cache-image/**
+                        - .dockerignore
                         - pnpm-lock.yaml
 
     posthog_build:
