@@ -21,28 +21,15 @@ function datum(overrides: Partial<BoxPlotDatum> = {}): BoxPlotDatum {
 // component uses at the component layer.
 function makeScales(
     labels: string[],
-    seriesSpec: { key: string; data: (BoxPlotDatum | null)[] }[],
-    dims = PIXEL_TEST_DIMENSIONS,
-    barLayout: 'grouped' | 'stacked' = seriesSpec.length > 1 ? 'grouped' : 'stacked'
+    seriesSpec: { key: string; data: BoxPlotDatum[] }[],
+    barLayout: 'grouped' | 'stacked',
+    dims = PIXEL_TEST_DIMENSIONS
 ): ReturnType<typeof createBarScales> {
     const coloredSeries = seriesSpec.map((s) => makeSeries({ key: s.key, data: [0] }))
-    const valueRange: { key: string; label: string; data: number[] }[] = []
-    for (const s of seriesSpec) {
-        const mins: number[] = []
-        const maxs: number[] = []
-        for (const d of s.data) {
-            if (d) {
-                mins.push(d.min)
-                maxs.push(d.max)
-            }
-        }
-        if (mins.length > 0) {
-            valueRange.push({ key: `${s.key}__min`, label: s.key, data: mins })
-        }
-        if (maxs.length > 0) {
-            valueRange.push({ key: `${s.key}__max`, label: s.key, data: maxs })
-        }
-    }
+    const valueRange = seriesSpec.flatMap((s) => [
+        { key: `${s.key}__min`, label: s.key, data: s.data.map((d) => d.min) },
+        { key: `${s.key}__max`, label: s.key, data: s.data.map((d) => d.max) },
+    ])
     return createBarScales(coloredSeries, labels, dims, {
         barLayout,
         axisOrientation: 'vertical',
@@ -53,7 +40,7 @@ function makeScales(
 describe('computeBoxRect', () => {
     it('puts the box top at p75 and bottom at p25 (y-axis inverted)', () => {
         const data = [datum({ min: 0, p25: 20, median: 50, mean: 55, p75: 80, max: 100 })]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -71,7 +58,7 @@ describe('computeBoxRect', () => {
 
     it('positions the median line and mean marker at their values', () => {
         const data = [datum({ p25: 20, median: 50, mean: 60, p75: 80 })]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -87,7 +74,7 @@ describe('computeBoxRect', () => {
 
     it('extends whiskers to min and max', () => {
         const data = [datum({ min: 5, p25: 20, median: 50, mean: 55, p75: 80, max: 95 })]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -104,7 +91,7 @@ describe('computeBoxRect', () => {
 
     it('uses the full band width when not grouped', () => {
         const data = [datum()]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -125,7 +112,8 @@ describe('computeBoxRect', () => {
             [
                 { key: 'a', data: aData },
                 { key: 'b', data: bData },
-            ]
+            ],
+            'grouped'
         )
         const boxA = computeBoxRect({
             seriesKey: 'a',
@@ -151,7 +139,7 @@ describe('computeBoxRect', () => {
 
     it('returns null for unknown labels (band scale miss)', () => {
         const data = [datum()]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Friday',
@@ -165,7 +153,7 @@ describe('computeBoxRect', () => {
 
     it('returns null when grouped but the series is missing from the group scale', () => {
         const data = [datum()]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }], PIXEL_TEST_DIMENSIONS, 'stacked')
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         // Stacked layout has no group scale — caller asking for grouped should miss cleanly.
         const box = computeBoxRect({
             seriesKey: 'a',
@@ -180,7 +168,7 @@ describe('computeBoxRect', () => {
 
     it('returns null when any of the six numbers is non-finite', () => {
         const data = [datum({ p25: Number.NaN })]
-        const scales = makeScales(['Mon'], [{ key: 'a', data: [datum()] }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data: [datum()] }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -194,7 +182,7 @@ describe('computeBoxRect', () => {
 
     it('collapses to a flat box when all-equal values', () => {
         const data = [{ min: 50, p25: 50, median: 50, mean: 50, p75: 50, max: 50 }]
-        const scales = makeScales(['Mon'], [{ key: 'a', data }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -211,7 +199,7 @@ describe('computeBoxRect', () => {
 
     it('handles degenerate inverted p25 > p75 by always reporting top < bottom', () => {
         const data = [{ min: 0, p25: 80, median: 50, mean: 50, p75: 20, max: 100 }]
-        const scales = makeScales(['Mon'], [{ key: 'a', data: [datum()] }])
+        const scales = makeScales(['Mon'], [{ key: 'a', data: [datum()] }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Mon',
@@ -224,9 +212,8 @@ describe('computeBoxRect', () => {
     })
 
     it('preserves dataIndex on the result', () => {
-        const dims = PIXEL_TEST_DIMENSIONS
         const data: BoxPlotDatum[] = [datum(), datum(), datum()]
-        const scales = makeScales(['Mon', 'Tue', 'Wed'], [{ key: 'a', data }], dims)
+        const scales = makeScales(['Mon', 'Tue', 'Wed'], [{ key: 'a', data }], 'stacked')
         const box = computeBoxRect({
             seriesKey: 'a',
             label: 'Wed',
@@ -243,7 +230,8 @@ describe('computeSeriesBoxes', () => {
     it('drops null and unrenderable indices', () => {
         const labels = ['Mon', 'Tue', 'Wed']
         const data: (BoxPlotDatum | null)[] = [datum(), null, datum()]
-        const scales = makeScales(labels, [{ key: 'a', data }])
+        // makeScales only needs the value-range samples — pass the non-null entries.
+        const scales = makeScales(labels, [{ key: 'a', data: [datum(), datum()] }], 'stacked')
         const boxes = computeSeriesBoxes({
             seriesKey: 'a',
             data,
@@ -257,7 +245,7 @@ describe('computeSeriesBoxes', () => {
     it('emits one box per non-null index', () => {
         const labels = ['Mon', 'Tue', 'Wed']
         const data: BoxPlotDatum[] = [datum(), datum(), datum()]
-        const scales = makeScales(labels, [{ key: 'a', data }])
+        const scales = makeScales(labels, [{ key: 'a', data }], 'stacked')
         const boxes = computeSeriesBoxes({
             seriesKey: 'a',
             data,
@@ -271,7 +259,7 @@ describe('computeSeriesBoxes', () => {
     it('handles a single-point series (one label)', () => {
         const labels = ['only']
         const data: BoxPlotDatum[] = [datum()]
-        const scales = makeScales(labels, [{ key: 'a', data }])
+        const scales = makeScales(labels, [{ key: 'a', data }], 'stacked')
         const boxes = computeSeriesBoxes({
             seriesKey: 'a',
             data,

@@ -1,6 +1,9 @@
 import type { BoxPlotDatum as SchemaBoxPlotDatum } from '~/queries/schema/schema-general'
 
+import type { BoxRect } from '../../core/canvas-renderer'
 import type { BarScaleSet } from '../../core/scales'
+
+export type { BoxRect }
 
 /** Six-number summary plus an opaque `day` identifier. Structurally compatible with the
  *  canonical `BoxPlotDatum` in `queries/schema-general.ts` (we only care about the six
@@ -29,21 +32,6 @@ export interface BoxPlotSeries<Meta = unknown> {
         excluded?: boolean
         tooltip?: boolean
     }
-}
-
-/** A laid-out box-and-whisker for a single (series, x) slot. Pre-computed by the geometry
- *  helpers below so the canvas-renderer draw primitives don't touch scales — same shape
- *  contract as `BarRect` ↔ `drawBars`. */
-export interface BoxRect {
-    x: number
-    width: number
-    top: number
-    bottom: number
-    medianY: number
-    mean: { x: number; y: number }
-    whiskerTop: number
-    whiskerBottom: number
-    dataIndex: number
 }
 
 interface BandSlot {

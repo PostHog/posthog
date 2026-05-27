@@ -1,9 +1,9 @@
-import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
 import { drawBoxes, drawBoxHighlight, drawGrid, type DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { dimColor } from '../../core/color-utils'
 import { createBarScales, type BarScaleSet, yTickCountForHeight } from '../../core/scales'
 import type {
     ChartConfig,
@@ -58,17 +58,20 @@ export interface BoxPlotConfig extends Omit<ChartConfig, 'axisOrientation'> {
 }
 
 export interface BoxPlotClickData<Meta = unknown> {
-    /** Series at the clicked column (the original `BoxPlotSeries`, not the inner Series adapter). */
+    /** The *first visible series* at the clicked column — matches BarChart's `onPointClick`
+     *  contract. In grouped mode this is **not necessarily the series under the cursor**: when
+     *  the user clicks series B's sub-band, `series` is still A. The product layer should
+     *  narrow via `crossSeriesData` + the cursor x if it needs the precise box. */
     series: BoxPlotSeries<Meta>
-    /** Index of the box's series in the input `series` array. */
+    /** Index of `series` in the input `series` array (first-visible, not under-cursor). */
     seriesIndex: number
     /** Index along the x-axis (into `labels`). */
     dataIndex: number
     /** The x-axis label at this index. */
     label: string
-    /** The six-number summary that was clicked. */
+    /** The six-number summary on `series` at this column. */
     datum: BoxPlotDatum
-    /** All visible boxes at this column, for cross-series comparisons. */
+    /** All visible boxes at this column, in render order, for cross-series comparisons. */
     crossSeriesData: { series: BoxPlotSeries<Meta>; datum: BoxPlotDatum }[]
 }
 
@@ -111,58 +114,33 @@ function BoxPlotInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         showGrid = false,
-        xTickFormatter,
         meanRadius = 3,
         whiskerCapRatio = 0.6,
         boxStrokeWidth = 1.5,
     } = config ?? {}
 
-    const grouped = useMemo(() => series.filter((s) => !s.visibility?.excluded).length > 1, [series])
+    const grouped = series.filter((s) => !s.visibility?.excluded).length > 1
 
-    // Whisker min/max appended past `labels.length` so `useChartMargins` (which reads
-    // `seriesValueRange(series)`) sizes the y-tick column for the real value range, not just
-    // the medians. `valueRangeSeries` separately drives the d3 y-domain via createBarScales.
     const adaptedSeries = useMemo<Series<BoxPlotAdaptedMeta<Meta>>[]>(
         () =>
-            series.map((s) => {
-                const data: number[] = Array.from({ length: labels.length }, (_, i) => {
+            series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+                data: Array.from({ length: labels.length }, (_, i) => {
                     const datum = s.data[i]
                     return datum && isFinite(datum.median) ? datum.median : Number.NaN
-                })
-                let seriesMin = Infinity
-                let seriesMax = -Infinity
-                for (const datum of s.data) {
-                    if (!datum) {
-                        continue
-                    }
-                    if (isFinite(datum.min) && datum.min < seriesMin) {
-                        seriesMin = datum.min
-                    }
-                    if (isFinite(datum.max) && datum.max > seriesMax) {
-                        seriesMax = datum.max
-                    }
-                }
-                if (isFinite(seriesMin)) {
-                    data.push(seriesMin)
-                }
-                if (isFinite(seriesMax)) {
-                    data.push(seriesMax)
-                }
-                return {
-                    key: s.key,
-                    label: s.label,
-                    color: s.color,
-                    data,
-                    meta: { datums: s.data, user: s.meta },
-                    visibility: s.visibility,
-                }
-            }),
+                }),
+                meta: { datums: s.data, user: s.meta },
+                visibility: s.visibility,
+            })),
         [series, labels.length]
     )
 
-    /** Synthetic series carrying min/max samples so `seriesValueRange` (inside createBarScales)
-     *  produces a y-domain that spans every whisker — not just the medians on `data`. Same
-     *  source feeds `useChartMargins` once we pass `stackedSeries` to `createBarScales`. */
+    /** Synthetic series carrying min/max samples so the y-domain spans every whisker, not just
+     *  the medians on `adaptedSeries.data`. Fed to `createBarScales` (as `stackedSeries`) for
+     *  the d3 scale and to `Chart` (as `valueRangeSeries`) for `useChartMargins` tick sizing —
+     *  one source, two call sites. */
     const valueRangeSeries = useMemo<Series[]>(() => {
         const out: Series[] = []
         for (const s of series) {
@@ -290,21 +268,6 @@ function BoxPlotInner<Meta = unknown>({
         [showGrid, meanRadius, whiskerCapRatio, boxStrokeWidth]
     )
 
-    /** Reshapes `coloredSeries` into the `BoxPlotSeries` shape `seriesKeysAtCursor` expects.
-     *  Hoisted out of the mousemove hot path so we don't reallocate the adapter array on
-     *  every frame — only when the series identity or per-key datum lookup changes. */
-    const hitTestSeries = useMemo<BoxPlotSeries<unknown>[]>(
-        () =>
-            series.map((s) => ({
-                key: s.key,
-                label: s.label,
-                color: s.color,
-                data: datumsByKey.get(s.key) ?? [],
-                visibility: s.visibility,
-            })),
-        [series, datumsByKey]
-    )
-
     const drawHover = useCallback(
         ({
             ctx,
@@ -323,8 +286,8 @@ function BoxPlotInner<Meta = unknown>({
             // Same band-axis hit-test as BarChart's hover layer — anchors the highlight to
             // whichever group slot the cursor lines up with. `seriesKeysAtCursor` is now
             // band-only, so we only materialise the full `BoxRect` for hit series in the loop.
-            const hits = seriesKeysAtCursor<unknown>({
-                series: hitTestSeries,
+            const hits = seriesKeysAtCursor<Meta>({
+                series,
                 label: hoveredLabel,
                 dataIndex: hoverIndex,
                 cursor: hoverPosition,
@@ -360,7 +323,7 @@ function BoxPlotInner<Meta = unknown>({
             }
             return drewAny
         },
-        [hitTestSeries]
+        [series]
     )
 
     const renderTooltip = useCallback(
@@ -402,34 +365,22 @@ function BoxPlotInner<Meta = unknown>({
         [onBoxClick, seriesByKey]
     )
 
-    const chartConfig = useMemo(
-        () => ({ ...config, axisOrientation: 'vertical' as const, xTickFormatter }),
-        [config, xTickFormatter]
-    )
-
     return (
         <Chart<BoxPlotAdaptedMeta<Meta>>
             series={adaptedSeries}
             labels={labels}
-            config={chartConfig}
+            config={{ ...config, axisOrientation: 'vertical' }}
             theme={theme}
             createScales={createScales}
             drawStatic={drawStatic}
             drawHover={drawHover}
             tooltip={renderTooltip}
             onPointClick={onPointClick}
+            valueRangeSeries={valueRangeSeries.length > 0 ? valueRangeSeries : undefined}
             className={className}
             dataAttr={dataAttr}
         >
             {children}
         </Chart>
     )
-}
-
-/** Translucent variant of a series colour for box fills, mean markers, and the hover overlay.
- *  Uses `d3.color` so we cover hex (3/6 digit), `rgb(…)`, `rgba(…)`, named colors, and HSL —
- *  the previous hand-rolled hex parser only handled a subset of those. Falls back to the raw
- *  string when `d3.color` returns `null`, matching the BarChart pattern. */
-function dimColor(color: string, alpha: number): string {
-    return d3.color(color)?.copy({ opacity: alpha }).toString() ?? color
 }

@@ -1,10 +1,7 @@
 import * as d3 from 'd3'
 
-import type { BoxRect } from '../charts/BoxPlot/computeBoxLayout'
 import { yTickCountForHeight } from './scales'
 import type { ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
-
-export type { BoxRect }
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -614,15 +611,24 @@ export interface DrawBoxOptions {
     whiskerCapRatio?: number
 }
 
-/** Paint a single box-and-whisker. Takes a pre-laid-out {@link BoxRect}; no scale access. */
-export function drawBox(ctx: CanvasRenderingContext2D, box: BoxRect, options: DrawBoxOptions): void {
-    drawBoxes(ctx, [box], options)
+/** A laid-out box-and-whisker for a single (series, x) slot. Same shape contract as
+ *  {@link BarRect} — pre-computed pixel coordinates so the draw primitives don't touch scales. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
 }
 
 /** Paint a whole series of box-and-whiskers, batching path operations so the number of
  *  `beginPath`/`stroke` pairs is `4 + N` instead of `5N` (whisker stems, caps, box outlines,
  *  and medians are each one shared path; mean markers stay per-box since each needs both
- *  fill and stroke). Same shape contract as {@link drawBox}; no scale access. */
+ *  fill and stroke). Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
 export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], options: DrawBoxOptions): void {
     if (boxes.length === 0) {
         return

@@ -149,10 +149,9 @@ describe('BoxPlot', () => {
         ]
 
         it('renders the six stats in the canonical order (Max → p75 → Median → Mean → p25 → Min)', async () => {
-            const { chart } = renderHogChart(
-                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
-                { nativeTooltip: true }
-            )
+            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+                nativeTooltip: true,
+            })
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForHogChartTooltip()
             const rowLabels = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
@@ -162,10 +161,9 @@ describe('BoxPlot', () => {
         })
 
         it('renders the values in the canonical row order', async () => {
-            const { chart } = renderHogChart(
-                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
-                { nativeTooltip: true }
-            )
+            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+                nativeTooltip: true,
+            })
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForHogChartTooltip()
             const values = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
@@ -175,20 +173,18 @@ describe('BoxPlot', () => {
         })
 
         it('shows the x label in the header', async () => {
-            const { chart } = renderHogChart(
-                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
-                { nativeTooltip: true }
-            )
+            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+                nativeTooltip: true,
+            })
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForHogChartTooltip()
             expect(tooltipEl.textContent).toContain('Mon')
         })
 
         it('renders one stat table per visible series when grouped (multi-series)', async () => {
-            const { chart } = renderHogChart(
-                <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />,
-                { nativeTooltip: true }
-            )
+            const { chart } = renderHogChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />, {
+                nativeTooltip: true,
+            })
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForHogChartTooltip()
             // Per-series header labels show in grouped mode.
@@ -198,10 +194,9 @@ describe('BoxPlot', () => {
         })
 
         it('hides the per-series label when not grouped (single series)', async () => {
-            const { chart } = renderHogChart(
-                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
-                { nativeTooltip: true }
-            )
+            const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
+                nativeTooltip: true,
+            })
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForHogChartTooltip()
             const headers = Array.from(tooltipEl.querySelectorAll('.font-semibold')).map((el) => el.textContent)
@@ -247,21 +242,24 @@ describe('BoxPlot', () => {
     })
 
     describe('error handling', () => {
+        let consoleErrorSpy: jest.SpyInstance
+        beforeEach(() => {
+            consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+        })
+        afterEach(() => {
+            consoleErrorSpy.mockRestore()
+        })
+
         it('reports render errors through onError', async () => {
             const onError = jest.fn()
             const tooltip = (): React.ReactNode => {
                 throw new Error('boom')
             }
-            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-            try {
-                const { chart } = renderHogChart(
-                    <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
-                )
-                chart.hoverAtIndex(1)
-                await waitFor(() => expect(onError).toHaveBeenCalled())
-            } finally {
-                consoleErrorSpy.mockRestore()
-            }
+            const { chart } = renderHogChart(
+                <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
+            )
+            chart.hoverAtIndex(1)
+            await waitFor(() => expect(onError).toHaveBeenCalled())
         })
     })
 
