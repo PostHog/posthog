@@ -18,6 +18,7 @@ from products.growth.backend.constants import (
     github_sdk_versions_key,
     team_sdk_versions_key,
 )
+from products.growth.backend.sdk_health import _is_safe_for_interpolation
 
 logger = structlog.get_logger(__name__)
 
@@ -91,7 +92,12 @@ class SdkOutdatedCheck(HealthCheck):
         sdk_name = issue.payload.get("sdk_name", "an SDK")
         latest = issue.payload.get("latest_version") or "the latest version"
         usage = issue.payload.get("usage") or []
-        current = usage[0].get("lib_version") if usage else None
+        # `lib_version` originates from the $lib_version event property — attacker
+        # controllable via project token. Gate it through the same allowlist used
+        # by SDK Doctor before interpolating into a string we forward to alert
+        # destinations (Slack, email, webhooks).
+        raw_current = usage[0].get("lib_version") if usage else None
+        current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
         summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
         return AlertContent(
             title=f"{sdk_name} SDK is outdated",
