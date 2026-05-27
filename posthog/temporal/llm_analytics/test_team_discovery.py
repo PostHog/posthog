@@ -278,6 +278,7 @@ class TestGetTeamIdsForLlmAnalytics:
         assert "$ai_trace_summary" not in passed_trigger_events
         assert "$ai_generation_summary" not in passed_trigger_events
         assert "$ai_tag" not in passed_trigger_events
+        assert "$llm_prompt_fetched" not in passed_trigger_events
         assert "$ai_generation" in passed_trigger_events
         assert set(passed_trigger_events) < set(LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 

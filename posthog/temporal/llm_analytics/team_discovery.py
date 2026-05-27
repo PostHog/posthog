@@ -140,8 +140,6 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
         guaranteed = set(config.guaranteed_team_ids)
         skip = set(config.skip_team_ids)
 
-        # FF payload overrides TeamDiscoveryInput when set so config can be tuned
-        # from the PostHog UI without a deploy.
         sample_percentage = config.sample_percentage
         lookback_days = inputs.lookback_days
 

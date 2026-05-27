@@ -36,7 +36,9 @@ LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 
 LLM_ANALYTICS_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
 
-# Restricted to customer-emitted events: excludes server-side artifacts like summaries, reports, and clusters.
+# Restricted to customer-emitted events that produce data downstream LLM analytics workflows can act on:
+# excludes server-side artifacts like summaries, reports, and clusters, and prompt-management events that
+# don't generate traces.
 LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS: list[str] = [
     AIEventType.FIELD_AI_GENERATION.value,
     AIEventType.FIELD_AI_EMBEDDING.value,
@@ -45,7 +47,6 @@ LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS: list[str] = [
     AIEventType.FIELD_AI_METRIC.value,
     AIEventType.FIELD_AI_FEEDBACK.value,
     AIEventType.FIELD_AI_EVALUATION.value,
-    LLM_PROMPT_FETCHED_EVENT,
 ]
 
 # ClickHouse query settings for AI observability queries
