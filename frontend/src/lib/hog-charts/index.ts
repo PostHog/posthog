@@ -14,6 +14,8 @@ export type {
 export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
+export { Sparkline } from './charts/Sparkline/Sparkline'
+export type { SparklineProps } from './charts/Sparkline/Sparkline'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -76,6 +78,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelsProps } from './overlays/ValueLabels'
+export { AxisTitles } from './overlays/AxisTitles'
+export type { AxisTitlesProps } from './overlays/AxisTitles'
 
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'

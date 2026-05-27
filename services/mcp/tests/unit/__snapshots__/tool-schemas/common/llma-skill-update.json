@@ -116,11 +116,11 @@
             },
             "type": "object"
         },
-        "skill_identifier": {
+        "skill_name": {
             "pattern": "^[^/]+$",
             "type": "string"
         }
     },
-    "required": ["skill_identifier"],
+    "required": ["skill_name"],
     "type": "object"
 }

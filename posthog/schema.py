@@ -641,6 +641,7 @@ class AssistantRecordingPropertyFilter4(BaseModel):
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
+    DATA_WAREHOUSE = "data_warehouse"
 
 
 class AggregationType(StrEnum):
@@ -958,7 +959,16 @@ class CalendarHeatmapFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dummy: str | None = None
+    bucketBySessionStart: bool | None = Field(
+        default=False,
+        description=(
+            "When true and the series math is `dau`/`unique_users`, each user"
+            " contributes to the (day-of-week, hour) bucket of their session's first"
+            " event only — matching the web overview session-start attribution. When"
+            " false (default), the user contributes to every bucket they have any event"
+            " in. No effect on `total` math (event counts are unchanged either way)."
+        ),
+    )
 
 
 class CalendarHeatmapMathType(StrEnum):
@@ -4238,12 +4248,6 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
-class AggregationPropertyType1(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    DATA_WAREHOUSE = "data_warehouse"
-
-
 class RetentionPeriod(StrEnum):
     HOUR = "Hour"
     DAY = "Day"
@@ -5007,6 +5011,8 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: bool | None = None
     show_values_on_series: bool | None = None
     smoothing_intervals: float | None = None
+    x_axis_label: str | None = None
+    y_axis_label: str | None = None
     y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
@@ -6460,6 +6466,8 @@ class AssistantTrendsFilter(BaseModel):
     )
     showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
     smoothingIntervals: int | None = Field(default=1, description="Smoothing intervals for the trend line.")
+    xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
+    yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
@@ -9066,6 +9074,8 @@ class TrendsFilter(BaseModel):
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
+    xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
+    yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
@@ -9253,6 +9263,14 @@ class WebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class WebNotableChangesQueryResponse(BaseModel):
@@ -12647,6 +12665,14 @@ class CachedWebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class CachedWebNotableChangesQueryResponse(BaseModel):
@@ -12849,6 +12875,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class CalendarHeatmapResponse(BaseModel):
@@ -13413,6 +13440,46 @@ class Response6(BaseModel):
     types: list | None = None
 
 
+class Response7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class Response8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13437,6 +13504,7 @@ class Response8(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class Response9(BaseModel):
@@ -16304,6 +16372,46 @@ class QueryResponseAlternative25(BaseModel):
     types: list | None = None
 
 
+class QueryResponseAlternative26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16328,6 +16436,7 @@ class QueryResponseAlternative27(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class QueryResponseAlternative28(BaseModel):
@@ -16839,6 +16948,46 @@ class QueryResponseAlternative45(BaseModel):
     types: list | None = None
 
 
+class QueryResponseAlternative46(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16863,6 +17012,7 @@ class QueryResponseAlternative47(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class QueryResponseAlternative48(BaseModel):
@@ -17999,8 +18149,8 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
-    aggregationPropertyType: AggregationPropertyType1 | None = Field(
-        default=AggregationPropertyType1.EVENT,
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
         description=("The type of property to aggregate on (event, person or data_warehouse). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
@@ -18660,6 +18810,14 @@ class WebGoalsQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_goals_query precompute path. Requires"
+            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
+            " the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18904,6 +19062,7 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class WebVitalsQueryResponse(BaseModel):
@@ -20518,6 +20677,14 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     tags: QueryLogTags | None = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web vitals path breakdown precompute"
+            " path. Requires the `web-analytics-precompute-toggle` PostHog feature flag"
+            " to be on for the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -21568,6 +21735,14 @@ class TrendsQuery(BaseModel):
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    calendarHeatmapFilter: CalendarHeatmapFilter | None = Field(
+        default=None,
+        description=(
+            "Properties specific to the calendar heatmap display variant. Only"
+            " consulted when `trendsFilter.display ==="
+            " ChartDisplayType.CalendarHeatmap`; ignored otherwise."
+        ),
+    )
     compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
         default=None,
@@ -21698,6 +21873,12 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched."
+        ),
     )
     version: int | None = Field(
         default=None,
@@ -22289,6 +22470,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative23
         | QueryResponseAlternative24
         | QueryResponseAlternative25
+        | QueryResponseAlternative26
         | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
@@ -22309,6 +22491,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative43
         | QueryResponseAlternative44
         | QueryResponseAlternative45
+        | QueryResponseAlternative46
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -22379,6 +22562,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative23
         | QueryResponseAlternative24
         | QueryResponseAlternative25
+        | QueryResponseAlternative26
         | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
@@ -22399,6 +22583,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative43
         | QueryResponseAlternative44
         | QueryResponseAlternative45
+        | QueryResponseAlternative46
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -23218,6 +23403,7 @@ class DataTableNode(BaseModel):
         | Response4
         | Response5
         | Response6
+        | Response7
         | Response8
         | Response9
         | Response10

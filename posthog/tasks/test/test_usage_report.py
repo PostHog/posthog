@@ -40,7 +40,6 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -66,6 +65,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
