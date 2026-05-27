@@ -47,6 +47,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
     actions({
         appendActivity: (text: string) => ({ text, at: Date.now() }),
         tick: (now: number) => ({ now }),
+        taskStarted: (taskId: string, at: number) => ({ taskId, at }),
     }),
     reducers({
         activityLog: [
@@ -62,6 +63,14 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             Date.now(),
             {
                 tick: (_, { now }) => now,
+            },
+        ],
+        // Wall-clock timestamp (ms) of the moment each task was observed entering `in_progress`.
+        // Used to render a per-task running timer. Last write wins so retries restart the clock.
+        taskStartedAt: [
+            {} as Record<string, number>,
+            {
+                taskStarted: (state, { taskId, at }) => ({ ...state, [taskId]: at }),
             },
         ],
     }),
@@ -124,8 +133,15 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             if (!session) {
                 return
             }
+            const now = Date.now()
             if (!prev) {
                 actions.appendActivity(`session started · ${session.workflow_id} · ${session.skill_id}`)
+                // Tasks we joined mid-run: best-effort, start the per-task clock now.
+                for (const task of session.tasks) {
+                    if (task.status === 'in_progress') {
+                        actions.taskStarted(task.id, now)
+                    }
+                }
                 return
             }
             if (session.run_phase !== prev.run_phase) {
@@ -136,6 +152,9 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 const key = `${task.id}::${task.status}`
                 if (!prevTaskKeys.has(key)) {
                     actions.appendActivity(`${task.status}: ${task.title}`)
+                    if (task.status === 'in_progress') {
+                        actions.taskStarted(task.id, now)
+                    }
                 }
             }
         },

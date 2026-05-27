@@ -20,16 +20,26 @@ export function WizardProgressTracker({ onManualSetup }: { onManualSetup?: () =>
         return null
     }
 
+    const isCompleted = displayState === 'completed'
+
     return (
         <div className="w-full font-mono text-sm bg-neutral-950 text-neutral-100 rounded-lg border border-neutral-800 shadow-2xl shadow-black/30 overflow-hidden">
             <TerminalHeader />
             <StatusSubhead />
-            <div className="px-4 py-3 border-t border-neutral-800">
-                <TaskList />
-            </div>
-            <div className="px-4 py-3 border-t border-neutral-800">
-                <ActivityLog />
-            </div>
+            {isCompleted ? (
+                <div className="px-4 py-4 border-t border-neutral-800">
+                    <CompletionRecap />
+                </div>
+            ) : (
+                <>
+                    <div className="px-4 py-3 border-t border-neutral-800">
+                        <TaskList />
+                    </div>
+                    <div className="px-4 py-3 border-t border-neutral-800">
+                        <ActivityLog />
+                    </div>
+                </>
+            )}
             <Footer onManualSetup={onManualSetup} />
         </div>
     )
@@ -147,7 +157,7 @@ function Headline({ displayState }: { displayState: DisplayState }): JSX.Element
 }
 
 function TaskList(): JSX.Element {
-    const { latestSession } = useValues(wizardProgressTrackerLogic)
+    const { latestSession, taskStartedAt, now } = useValues(wizardProgressTrackerLogic)
     const tasks = latestSession?.tasks ?? []
 
     if (tasks.length === 0) {
@@ -167,6 +177,8 @@ function TaskList(): JSX.Element {
         <ul className="m-0 p-0 list-none -mx-2">
             {tasks.map((task) => {
                 const isActive = task.status === 'in_progress'
+                const startedAt = taskStartedAt[task.id]
+                const taskElapsed = isActive && startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : null
                 return (
                     <li
                         key={task.id}
@@ -189,6 +201,11 @@ function TaskList(): JSX.Element {
                         {isActive ? (
                             <span aria-hidden className="text-brand-red wizard-caret">
                                 _
+                            </span>
+                        ) : null}
+                        {taskElapsed !== null ? (
+                            <span className="ml-auto text-[11px] text-neutral-500 tabular-nums shrink-0">
+                                {formatShortElapsed(taskElapsed)}
                             </span>
                         ) : null}
                     </li>
@@ -282,10 +299,88 @@ function Footer({ onManualSetup }: { onManualSetup?: () => void }): JSX.Element 
     )
 }
 
+function CompletionRecap(): JSX.Element {
+    const { latestSession } = useValues(wizardProgressTrackerLogic)
+    const tasks = latestSession?.tasks ?? []
+    const completed = tasks.filter((t) => t.status === 'completed')
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center gap-2 text-xs text-neutral-300">
+                <span className="text-success">✓</span>
+                <span>
+                    {completed.length} {completed.length === 1 ? 'step' : 'steps'} installed —{' '}
+                    <span className="text-neutral-500">your project is wired up.</span>
+                </span>
+            </div>
+            <ul className="m-0 p-0 list-none grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {COMPLETION_LINKS.map((item) => (
+                    <li key={item.title}>
+                        <Link
+                            to={item.href}
+                            target="_blank"
+                            className="block h-full rounded border border-neutral-800 hover:border-neutral-700 bg-neutral-900/60 hover:bg-neutral-900 transition-colors px-3 py-2.5"
+                        >
+                            <div className="text-xs text-neutral-100 font-semibold">{item.title}</div>
+                            <div className="text-[11px] text-neutral-400 leading-snug mt-0.5">{item.blurb}</div>
+                            <div className="text-[11px] text-brand-red mt-1.5">{item.cta} →</div>
+                        </Link>
+                    </li>
+                ))}
+            </ul>
+            {completed.length > 0 ? (
+                <details className="text-[11px] text-neutral-500">
+                    <summary className="cursor-pointer hover:text-neutral-300 transition-colors select-none">
+                        view setup details
+                    </summary>
+                    <ul className="m-0 mt-2 p-0 list-none space-y-0.5">
+                        {completed.map((t) => (
+                            <li key={t.id} className="flex items-start gap-2">
+                                <span className="text-success shrink-0">✓</span>
+                                <span className="line-through text-neutral-500">{t.title}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </details>
+            ) : null}
+        </div>
+    )
+}
+
+const COMPLETION_LINKS: Array<{ title: string; blurb: string; cta: string; href: string }> = [
+    {
+        title: 'See live events',
+        blurb: 'Confirm PostHog is receiving from your app.',
+        cta: 'open activity',
+        href: 'https://posthog.com/docs/getting-started/install',
+    },
+    {
+        title: 'Session replay',
+        blurb: 'Watch real user sessions — every click and rage-tap.',
+        cta: 'docs',
+        href: 'https://posthog.com/docs/session-replay',
+    },
+    {
+        title: 'Feature flags',
+        blurb: 'Ship safely with targeted rollouts and A/B tests.',
+        cta: 'docs',
+        href: 'https://posthog.com/docs/feature-flags',
+    },
+]
+
 function formatElapsed(seconds: number): string {
     const m = Math.floor(seconds / 60)
     const s = seconds % 60
     return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatShortElapsed(seconds: number): string {
+    if (seconds < 60) {
+        return `${seconds}s`
+    }
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return s === 0 ? `${m}m` : `${m}m ${s}s`
 }
 
 function formatTime(epochMs: number): string {
