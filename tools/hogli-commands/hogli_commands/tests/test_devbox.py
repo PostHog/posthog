@@ -1437,11 +1437,9 @@ class TestDevboxCommands:
         assert captured["region"] == "eu-central-1"
         assert "region=eu-central-1" in result.output
 
-    def test_devbox_start_rejects_unknown_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
-
+    def test_devbox_start_rejects_unknown_region(self) -> None:
+        # click.Choice rejects the value during option parsing, before the
+        # command body runs, so no runtime collaborators need stubbing.
         result = runner.invoke(cli, ["devbox:start", "--region", "ap-southeast-2"])
 
         assert result.exit_code != 0
