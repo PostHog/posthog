@@ -2728,6 +2728,84 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["logs_records_in_period"] == 2000
         assert org_1_report["teams"]["4"]["logs_mb_in_period"] == 2500
 
+    def _logs_records_json(self, team_id: int, sdk_name: str | None, count: int) -> str:
+        resource_attributes = {"telemetry.sdk.name": sdk_name} if sdk_name is not None else {}
+        lines = ""
+        for _ in range(count):
+            lines += (
+                json.dumps(
+                    {
+                        "uuid": str(uuid4()),
+                        "team_id": team_id,
+                        "timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "observed_timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "body": "test log line",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "test-service",
+                        "resource_attributes": resource_attributes,
+                    }
+                )
+                + "\n"
+            )
+        return lines
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_logs_per_sdk_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+        # A team only shows per-SDK counts if it also has an app_metrics2 logs row: the per-SDK query
+        # is pre-filtered to those team_ids to stay under the Logs cluster scan-bytes limit.
+        org_1_team_3 = Team.objects.create(pk=5, organization=self.org_1, name="Team 3 org 1")
+
+        sync_execute("TRUNCATE TABLE IF EXISTS logs32")
+
+        for team in (self.org_1_team_1, self.org_1_team_2):
+            create_app_metric2(
+                team_id=team.id,
+                app_source="logs",
+                metric_name="records_ingested",
+                count=1,
+            )
+
+        lines = ""
+        lines += self._logs_records_json(self.org_1_team_1.id, "web", 3)
+        lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ios", 2)
+        lines += self._logs_records_json(self.org_1_team_1.id, "posthog-android", 1)
+        lines += self._logs_records_json(self.org_1_team_2.id, "posthog-react-native", 4)
+        # A server SDK and an infra log (no telemetry.sdk.name) must not be counted.
+        lines += self._logs_records_json(self.org_1_team_2.id, "posthog-node", 5)
+        lines += self._logs_records_json(self.org_1_team_2.id, None, 6)
+        # Team 3 has log records but no app_metrics2 row, so the pre-filter excludes it entirely.
+        lines += self._logs_records_json(org_1_team_3.id, "posthog-ios", 9)
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{lines}")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["web_logs_records_in_period"] == 3
+        assert org_1_report["ios_logs_records_in_period"] == 2
+        assert org_1_report["react_native_logs_records_in_period"] == 4
+        assert org_1_report["android_logs_records_in_period"] == 1
+        assert org_1_report["flutter_logs_records_in_period"] == 0
+
+        assert org_1_report["teams"]["3"]["web_logs_records_in_period"] == 3
+        assert org_1_report["teams"]["3"]["ios_logs_records_in_period"] == 2
+        assert org_1_report["teams"]["3"]["android_logs_records_in_period"] == 1
+        assert org_1_report["teams"]["3"]["react_native_logs_records_in_period"] == 0
+
+        assert org_1_report["teams"]["4"]["react_native_logs_records_in_period"] == 4
+        assert org_1_report["teams"]["4"]["web_logs_records_in_period"] == 0
+        assert org_1_report["teams"]["4"]["ios_logs_records_in_period"] == 0
+
+        # Excluded by the pre-filter despite having log records.
+        assert org_1_report["teams"]["5"]["ios_logs_records_in_period"] == 0
+
 
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
