@@ -13,7 +13,7 @@ export const MAX_CLUSTERING_RUNS = 20
 // Cluster detail URL pattern. Mirrored in `manifest.tsx`'s route registration so any
 // `tabAwareUrlToAction` matcher (e.g. `clusterDetailLogic`, `llmAnalyticsSharedLogic`)
 // stays in lockstep with the actual route.
-export const LLM_ANALYTICS_CLUSTER_URL_PATTERN = '/llm-analytics/clusters/:runId/:clusterId'
+export const LLM_ANALYTICS_CLUSTER_URL_PATTERN = '/ai-observability/clusters/:runId/:clusterId'
 
 // Scene names used as ClickHouse query tags. These match the route registrations in
 // `manifest.tsx`, and the query runner pulls them off `query.tags.scene` to attach to

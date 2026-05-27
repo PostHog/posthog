@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use base64::Engine;
+use bytes::Bytes;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use sqlx::PgPool;
@@ -10,10 +11,11 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    error::{JsResolveErr, ResolveError},
+    error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
         CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
-        SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
+        SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND,
+        SOURCEMAP_PARSE, SYMBOL_SET_DECOMPRESSED_BYTES,
     },
 };
 
@@ -169,9 +171,9 @@ impl From<Url> for SourceMappingUrl {
 #[async_trait]
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
-    type Fetched = Vec<u8>;
+    type Fetched = Bytes;
     type Err = ResolveError;
-    async fn fetch(&self, team_id: i32, r: Url) -> Result<Vec<u8>, Self::Err> {
+    async fn fetch(&self, team_id: i32, r: Url) -> Result<Bytes, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
         let peek = find_sourcemap_url(&self.client, r).await?;
 
@@ -207,7 +209,7 @@ impl Fetcher for SourcemapProvider {
 
         start.label("found_data", "true").fin();
 
-        Ok(data)
+        Ok(Bytes::from(data))
     }
 }
 
@@ -215,7 +217,7 @@ async fn try_chunk_id_rescue(
     rescue: &ChunkIdRescue,
     team_id: i32,
     chunk_id: &str,
-) -> Result<Option<Vec<u8>>, ResolveError> {
+) -> Result<Option<Bytes>, ResolveError> {
     match load_symbol_set_data(
         &rescue.pool,
         rescue.blob_client.as_ref(),
@@ -253,15 +255,25 @@ async fn try_chunk_id_rescue(
 
 #[async_trait]
 impl Parser for SourcemapProvider {
-    type Source = Vec<u8>;
+    type Source = Bytes;
     type Set = OwnedSourceMapCache;
     type Err = ResolveError;
-    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
+    async fn parse(&self, data: Bytes) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let (sam, decompressed_bytes): (SourceAndMap, usize) =
-            read_symbol_data_with_byte_count(data).map_err(JsResolveErr::JSDataError)?;
-        let smc = OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
-            .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
+        // `read_symbol_data_with_byte_count` zstd-decompresses a potentially large blob, and
+        // `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
+        // worker blocks the runtime; offload to a blocking thread instead.
+        let smc =
+            tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
+                let (sam, decompressed_bytes): (SourceAndMap, usize) =
+                    read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
+                metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")
+                    .record(decompressed_bytes as f64);
+                OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
+                    .map_err(|_| JsResolveErr::InvalidSourceAndMap.into())
+            })
+            .await
+            .map_err(|e| UnhandledError::Other(format!("sourcemap parse task failed: {e}")))??;
 
         start.label("success", "true").fin();
         Ok(smc)
@@ -319,6 +331,7 @@ async fn find_sourcemap_url(
 
     // We always need the body
     let body = res.text().await.map_err(JsResolveErr::from)?;
+    metrics::histogram!(SOURCEMAP_EXTERNAL_BYTES, "kind" => "source").record(body.len() as f64);
 
     let chunk_id_from_body = extract_chunk_id_from_body(&body);
 
@@ -424,6 +437,8 @@ async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, 
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
     let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
+    metrics::histogram!(SOURCEMAP_EXTERNAL_BYTES, "kind" => "sourcemap")
+        .record(sourcemap.len() as f64);
     Ok(sourcemap)
 }
 
@@ -729,11 +744,13 @@ mod test {
         .await
         .unwrap();
 
-        let saved_payload = write_symbol_data(SourceAndMap {
-            minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
-            sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
-        })
-        .unwrap();
+        let saved_payload = Bytes::from(
+            write_symbol_data(SourceAndMap {
+                minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
+                sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
+            })
+            .unwrap(),
+        );
         let saved_payload_for_mock = saved_payload.clone();
 
         let mut s3 = MockS3Client::default();

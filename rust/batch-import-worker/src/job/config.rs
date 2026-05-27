@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
@@ -79,6 +79,8 @@ pub struct S3SourceConfig {
     region: String,
     #[serde(default)]
     endpoint_url: Option<String>,
+    #[serde(default)]
+    allow_internal_ips: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -300,7 +302,39 @@ impl UrlListConfig {
 }
 
 impl S3SourceConfig {
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+    /// Reject endpoint URLs that point to private/internal IPs.
+    /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
+    fn validate_endpoint_url(url: &str, allow_internal_ips: bool) -> Result<(), Error> {
+        if allow_internal_ips {
+            return Ok(());
+        }
+
+        let parsed = url::Url::parse(url)
+            .map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
+
+        let host = parsed
+            .host()
+            .ok_or_else(|| Error::msg(format!("Endpoint URL '{}' has no host", url)))?;
+
+        let ip = match host {
+            url::Host::Ipv4(v4) => Some(IpAddr::V4(v4)),
+            url::Host::Ipv6(v6) => Some(IpAddr::V6(v6)),
+            url::Host::Domain(_) => None,
+        };
+
+        if let Some(ip) = ip {
+            if !common_dns::is_global_ip(&ip) {
+                return Err(Error::msg(format!(
+                    "Endpoint URL '{}' resolves to non-public IP address",
+                    url
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn build_s3_config(&self, secrets: &JobSecrets) -> Result<aws_sdk_s3::config::Builder, Error> {
         let access_key_id = secrets
             .secrets
             .get(&self.access_key_id_key)
@@ -345,9 +379,26 @@ impl S3SourceConfig {
                     .build(),
             )
             .retry_config(RetryConfig::standard());
+
         if let Some(ref url) = self.endpoint_url {
+            Self::validate_endpoint_url(url, self.allow_internal_ips)?;
             builder = builder.endpoint_url(url).force_path_style(true);
+
+            if !self.allow_internal_ips {
+                let http_client = aws_smithy_http_client::Builder::new()
+                    .tls_provider(aws_smithy_http_client::tls::Provider::Rustls(
+                        aws_smithy_http_client::tls::rustls_provider::CryptoMode::AwsLc,
+                    ))
+                    .build_with_resolver(common_dns::PublicIPv4SmithyResolver);
+                builder = builder.http_client(http_client);
+            }
         }
+
+        Ok(builder)
+    }
+
+    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+        let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(S3Source::new(
@@ -358,53 +409,7 @@ impl S3SourceConfig {
     }
 
     pub async fn create_gzip_source(&self, secrets: &JobSecrets) -> Result<GzipS3Source, Error> {
-        let access_key_id = secrets
-            .secrets
-            .get(&self.access_key_id_key)
-            .ok_or(Error::msg(format!(
-                "Missing access key id as key {}",
-                self.access_key_id_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Access key id as key {} is not a string",
-                self.access_key_id_key
-            )))?;
-
-        let secret_access_key = secrets
-            .secrets
-            .get(&self.secret_access_key_key)
-            .ok_or(Error::msg(format!(
-                "Missing secret access key as key {}",
-                self.secret_access_key_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Secret access key as key {} is not a string",
-                self.secret_access_key_key
-            )))?;
-
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
-            access_key_id,
-            secret_access_key,
-            None,
-            None,
-            "job_config",
-        );
-
-        let mut builder = aws_sdk_s3::config::Builder::new()
-            .region(Region::new(self.region.clone()))
-            .credentials_provider(aws_credentials)
-            .behavior_version(BehaviorVersion::latest())
-            .timeout_config(
-                TimeoutConfig::builder()
-                    .operation_timeout(Duration::from_secs(30))
-                    .build(),
-            )
-            .retry_config(RetryConfig::standard());
-        if let Some(ref url) = self.endpoint_url {
-            builder = builder.endpoint_url(url).force_path_style(true);
-        }
+        let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(GzipS3Source::new(
@@ -790,6 +795,82 @@ mod tests {
             }
             _ => panic!("SourceConfig variants don't match"),
         }
+    }
+
+    #[test]
+    fn test_s3_source_config_allow_internal_ips_defaults_false() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_s3_source_config_allow_internal_ips_explicit_true() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "allow_internal_ips": true
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert!(config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_metadata_service() {
+        let result = S3SourceConfig::validate_endpoint_url("http://169.254.169.254", false);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("non-public IP address"));
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_private_ip() {
+        let result = S3SourceConfig::validate_endpoint_url("http://10.0.0.1:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_loopback() {
+        let result = S3SourceConfig::validate_endpoint_url("http://127.0.0.1:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_ipv6_loopback() {
+        let result = S3SourceConfig::validate_endpoint_url("http://[::1]:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_accepts_public_hostname() {
+        let result = S3SourceConfig::validate_endpoint_url(
+            "https://acct123.r2.cloudflarestorage.com",
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_accepts_internal_when_allowed() {
+        let result = S3SourceConfig::validate_endpoint_url("http://localhost:9000", true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_invalid_url() {
+        let result = S3SourceConfig::validate_endpoint_url("not-a-url", false);
+        assert!(result.is_err());
     }
 
     #[test]

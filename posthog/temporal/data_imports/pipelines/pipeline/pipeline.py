@@ -52,13 +52,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
-from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 T = TypeVar("T")
 
@@ -437,6 +434,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 row_count=row_count,
                 queryable_folder=queryable_folder,
                 table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                primary_keys=self._resource.primary_keys,
             )
             await self._logger.adebug("Finished validating schema and updating table")
 

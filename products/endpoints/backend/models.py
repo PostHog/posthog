@@ -120,7 +120,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
     )
     saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
+        "data_modeling.DataWarehouseSavedQuery",
         null=True,
         blank=True,
         db_index=False,

@@ -19,7 +19,6 @@ import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsMod
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils'
 
@@ -106,28 +105,23 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
 }
 
 /** Placeholder while alert detail (including check history) is loading; avoids an empty gap before `AlertHistorySection` mounts. */
-export function AlertHistorySectionSkeleton({ showChartArea = true }: { showChartArea?: boolean }): JSX.Element {
+export function AlertHistorySectionSkeleton(): JSX.Element {
     return (
         <div className="mt-10 space-y-2" aria-busy="true" aria-label="Loading alert history">
             <div className="flex flex-row gap-2 items-center">
                 <LemonSkeleton className="h-4 w-36" />
                 <LemonSkeleton className="h-6 w-28" />
             </div>
-            {showChartArea ? <LemonSkeleton className="h-8 w-44" /> : null}
-            {showChartArea ? (
-                <LemonSkeleton className="h-56 w-full min-h-56" />
-            ) : (
-                <LemonSkeleton className="h-72 w-full min-h-72" />
-            )}
-            {showChartArea ? <LemonSkeleton className="h-3 w-full max-w-xl" /> : null}
+            <LemonSkeleton className="h-8 w-44" />
+            <LemonSkeleton className="h-56 w-full min-h-56" />
+            <LemonSkeleton className="h-3 w-full max-w-xl" />
         </div>
     )
 }
 
-/** Check history in the alert modal: status, empty state, chart/table toggle (when enabled), and paginated table. */
+/** Check history in the alert modal: status, empty state, chart/table toggle, and paginated table. */
 export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): JSX.Element | null {
-    const historyChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
-    const logic = alertLogic({ alertId, historyChartEnabled })
+    const logic = alertLogic({ alertId })
     const {
         alert,
         alertLoading,
@@ -137,7 +131,6 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
         alertHistoryChartSeriesName,
         alertHistoryUsesAnomalyScores,
         alertHistoryHasHistory,
-        alertHistoryHasChartableHistory,
         alertHistoryChecksSortedDesc,
         alertHistoryTableEntryCount,
         alertHistoryIsAnomalyDetection,
@@ -219,18 +212,16 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
                 </div>
             ) : (
                 <>
-                    {alertHistoryHasChartableHistory ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={alertHistoryView}
-                            onChange={(v) => selectAlertHistoryView(v)}
-                            options={[
-                                { value: 'chart', label: 'Chart' },
-                                { value: 'table', label: 'Table' },
-                            ]}
-                        />
-                    ) : null}
-                    {historyChartEnabled && alertHistoryView === 'chart' && alertHistoryHasChartableHistory ? (
+                    <LemonSegmentedButton
+                        size="small"
+                        value={alertHistoryView}
+                        onChange={(v) => selectAlertHistoryView(v)}
+                        options={[
+                            { value: 'chart', label: 'Chart' },
+                            { value: 'table', label: 'Table' },
+                        ]}
+                    />
+                    {alertHistoryView === 'chart' ? (
                         <div className="relative">
                             {alertLoading ? <SpinnerOverlay /> : null}
                             <AlertHistoryChart

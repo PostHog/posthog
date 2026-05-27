@@ -47,6 +47,7 @@ from __future__ import annotations
 import re
 import sys
 import argparse
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -613,52 +614,26 @@ EXCLUDED_RULES: frozenset[str] = frozenset(
 # are intentionally NOT excluded — the grammar PBT drives Hog-program
 # parity via the generated `program_strategy`.
 
-# Alternatives the cpp-json backend (ANTLR parser + Python visitor)
-# unconditionally rejects. The PBT contract is one-sided — we only
-# assert when cpp accepts — so generating these productions produces
-# zero test signal: every example gets discarded. We hard-exclude them
-# to keep the discard rate sane.
+# Alternatives the cpp-json oracle unconditionally rejects — error-message
+# productions (e.g. ``ColumnExprInvalidFromImplicitAlias``, which exists only
+# to raise on ``SELECT FROM x`` typos) and visitor-NotImplementedError
+# productions the AST builder doesn't support (``ColumnExprDate`` /
+# ``ColumnExprTimestamp`` / ``ColumnExprSubstring`` / ``ColumnTypeExprEnum`` /
+# ``ColumnExprIntervalString``).
 #
-# Two sources of unconditional rejection are excluded here:
-#
-# 1. Error-message productions: the grammar declares an alternative
-#    *intentionally* invalid so the parser can attach a nice error
-#    (e.g. ``ColumnExprInvalidFromImplicitAlias`` catches
-#    ``SELECT FROM x`` typos and exists only to raise).
-#
-# 2. Visitor-NotImplementedError productions: the Python ANTLR visitor
-#    in ``posthog/hogql/parser.py`` raises ``NotImplementedError`` for
-#    productions the grammar accepts but HogQL's Python AST builder
-#    doesn't support. Until the visitor grows support, these are dead
-#    productions from cpp-json's point of view.
-EXCLUDED_ALT_NAMES: frozenset[str] = frozenset(
-    {
-        # Error-message alts (always invalid by grammar author's intent)
-        "ColumnExprInvalidFromImplicitAlias",
-        # Visitor-NotImplementedError alts (Python-side product gap)
-        "ColumnExprDate",
-        "ColumnExprTimestamp",
-        "ColumnExprSubstring",
-        "ColumnTypeExprEnum",
-        # ``INTERVAL 'literal'`` requires the string to be a well-formed
-        # ``<count> <unit>`` — our random STRING_LITERAL strategy never
-        # produces a valid one. The typed form ``INTERVAL <expr> <unit>``
-        # (alt ``ColumnExprInterval``) covers the same surface generically
-        # and gets exercised. Re-enable if we add a context-aware
-        # STRING_LITERAL strategy that produces ``'1 day'`` shapes inside
-        # INTERVAL.
-        "ColumnExprIntervalString",
-    }
-)
+# These were hard-excluded while the diagnostic contract was one-sided (assert
+# only when cpp accepts), since an oracle-rejected production carried zero
+# signal. Under the two-sided contract they're the point: a query the oracle
+# rejects must be rejected by the candidate too, so generating them is exactly
+# how we catch the candidate accepting an invalid query. Empty by default;
+# the hook stays for any future production that genuinely shouldn't generate.
+EXCLUDED_ALT_NAMES: frozenset[str] = frozenset()
 
-# Whole rules the cpp-json visitor rejects unconditionally — same
-# rationale as ``EXCLUDED_ALT_NAMES`` but at rule granularity.
-EXCLUDED_BY_VISITOR_RULES: frozenset[str] = frozenset(
-    {
-        "topClause",
-        "settingsClause",
-    }
-)
+# Whole rules the cpp-json oracle rejects unconditionally (``topClause`` /
+# ``settingsClause``). Same rationale as ``EXCLUDED_ALT_NAMES`` at rule
+# granularity — now generated so the two-sided contract checks the candidate
+# rejects them too.
+EXCLUDED_BY_VISITOR_RULES: frozenset[str] = frozenset()
 
 # Soft-weighting hooks remain (empty by default) for future
 # productions where we want rare-fire coverage without exclusion.
@@ -889,10 +864,19 @@ def _classify_alts(alts: list[Alternative]) -> tuple[list[int], list[int], list[
     return common, soft, leaf
 
 
+def _quote(s: str) -> str:
+    # Emit a double-quoted Python string literal so the codegen output matches `ruff format`'s preference;
+    # otherwise lint-staged keeps reverting the regen on commit. Fall back to `repr` for content that needs
+    # escaping (none of the grammar's keyword literals do today, but it costs nothing to be safe).
+    if any(c in s for c in '"\\') or any(ord(c) < 32 or ord(c) > 126 for c in s):
+        return repr(s)
+    return f'"{s}"'
+
+
 def _emit_literal_list(literals: list[str]) -> str:
     if len(literals) == 1:
-        return repr(literals[0])
-    return "draw(st.sampled_from([" + ", ".join(repr(s) for s in literals) + "]))"
+        return _quote(literals[0])
+    return "draw(st.sampled_from([" + ", ".join(_quote(s) for s in literals) + "]))"
 
 
 _EMITTED_FILE_HEADER = f'''\
@@ -1314,6 +1298,20 @@ LEXER_GRAMMAR = REPO_ROOT / "posthog" / "hogql" / "grammar" / "HogQLLexer.common
 OUTPUT_PATH = REPO_ROOT / "posthog" / "hogql" / "test" / "_generated_grammar_strategies.py"
 
 
+def _ruff_format(source: str) -> str:
+    # Pipe `source` through `ruff format -` so the codegen output exactly matches what `bin/hogli format:python`
+    # produces. Without this, lint-staged keeps reverting the regen on commit (it formats then sees no diff).
+    # Runs ruff via the same venv that's already importing this module, so no PATH gymnastics needed.
+    result = subprocess.run(
+        ["ruff", "format", "-"],
+        input=source,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1323,7 +1321,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    source = generate(str(PARSER_GRAMMAR), str(LEXER_GRAMMAR))
+    source = _ruff_format(generate(str(PARSER_GRAMMAR), str(LEXER_GRAMMAR)))
 
     if args.check:
         if not OUTPUT_PATH.exists():

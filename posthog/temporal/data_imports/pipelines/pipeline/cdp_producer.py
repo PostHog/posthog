@@ -19,8 +19,8 @@ from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 class CDPProducer:

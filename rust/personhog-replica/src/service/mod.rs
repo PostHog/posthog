@@ -698,7 +698,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_groups_batch"))?;
 
         // Build a map of found groups
-        let found: HashMap<(i64, i32, String), storage::Group> = results
+        let mut found: HashMap<(i64, i32, String), storage::Group> = results
             .into_iter()
             .map(|(k, g)| ((k.team_id, k.group_type_index, k.group_key), g))
             .collect();
@@ -715,7 +715,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                         group_type_index: k.group_type_index,
                         group_key: k.group_key,
                     }),
-                    group: found.get(&key).cloned().map(Into::into),
+                    group: found.remove(&key).map(Into::into),
                 }
             })
             .collect();

@@ -30,6 +30,7 @@ tools:
             - description
             - is_materialized
             - data_freshness_seconds
+            - tags
     endpoint-delete:
         operation: endpoints_destroy
         enabled: true
@@ -72,7 +73,7 @@ tools:
             Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
             materialization is possible, current status, last run time, and any errors. Supports ?version=N.
     endpoint-openapi-spec:
-        operation: endpoints_openapi.json_retrieve
+        operation: endpoints_openapi_spec_retrieve
         enabled: true
         scopes:
             - endpoint:read
@@ -133,6 +134,7 @@ tools:
             - is_materialized
             - data_freshness_seconds
             - version
+            - tags
     endpoint-versions:
         operation: endpoints_versions_list
         enabled: true

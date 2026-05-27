@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -67,6 +68,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+# Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
+assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
+    "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
+)
+
 # Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
@@ -120,13 +126,24 @@ def resolve_types_from_table(
     return resolve_types(expr, context, dialect, [select_node_with_types.type])
 
 
+ResolverFactory = Callable[
+    [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
+    "Resolver",
+]
+
+
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST:
-    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+    if resolver_factory is None:
+        resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    else:
+        resolver = resolver_factory(context, dialect, scopes)
+    return resolver.visit(node)
 
 
 class AliasCollector(TraversingVisitor):

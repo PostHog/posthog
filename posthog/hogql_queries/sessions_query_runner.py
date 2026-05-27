@@ -20,11 +20,13 @@ from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Action, Person
+from posthog.models import Person
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.models.property import Property
 from posthog.utils import relative_date_parse
+
+from products.actions.backend.models.action import Action
 
 COLUMN_COMMENT_SEPARATOR = " -- "
 VALID_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
@@ -610,6 +612,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             query_type="SessionsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
