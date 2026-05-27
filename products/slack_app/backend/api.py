@@ -299,6 +299,45 @@ def lookup_slack_user_id_by_email(
     return slack_user_id
 
 
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Your team has used its monthly PostHog AI credits. "
+    "Top up at https://us.posthog.com/organization/billing to continue."
+)
+
+
+def post_quota_exhausted_denial(
+    *,
+    integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-credits denial message into a Slack thread.
+
+    Called by the workflow's quota gate after it determines the team is over
+    quota. Lives in this module so the Slack-posting helpers and the message
+    text stay co-located; the quota check itself lives in the temporal layer
+    (which is the only side allowed to import ``ee.billing``).
+    """
+    logger.info(
+        "posthog_code_slack_blocked_by_quota",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
+
+
 def _post_slack_user_feedback(
     slack: SlackIntegration,
     channel: str,
@@ -1034,7 +1073,7 @@ def classify_task_needs_repo(
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
     )
     try:
-        client = get_llm_client("slack-posthog-code")
+        client = get_llm_client("slack_app_routing")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
