@@ -41,6 +41,7 @@ import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
@@ -79,6 +80,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
+from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
     ClusteringJobViewSet,
@@ -160,8 +162,6 @@ from . import (
     event_definition,
     event_schema,
     exports,
-    feature_flag,
-    flag_value,
     health_issue,
     hog,
     hog_function,
@@ -175,7 +175,6 @@ from . import (
     object_media_preview,
     organization,
     organization_domain,
-    organization_feature_flag,
     organization_integration,
     organization_invite,
     organization_member,
@@ -188,7 +187,6 @@ from . import (
     quick_filters,
     resource_transfer,
     role_external_reference,
-    scheduled_change,
     schema_property_group,
     search,
     sharing,
@@ -333,6 +331,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+projects_router.register(
+    r"wizard/sessions",
+    wizard_sessions.WizardSessionViewSet,
+    "project_wizard_sessions",
     ["project_id"],
 )
 # Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
@@ -1155,6 +1159,12 @@ signal_reports_router.register(
     r"tasks",
     signals.SignalReportTaskViewSet,
     "environment_signal_report_tasks",
+    ["team_id", "report_id"],
+)
+signal_reports_router.register(
+    r"artefacts",
+    signals.SignalReportArtefactViewSet,
+    "environment_signal_report_artefacts",
     ["team_id", "report_id"],
 )
 projects_router.register(

@@ -103,6 +103,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools",
@@ -114,6 +115,7 @@ path = "products.actions"
 depends_on = [
     "posthog",
     "products.experiments",
+    "products.feature_flags",
 ]
 layer = "modules"
 
@@ -238,7 +240,7 @@ layer = "modules"
 [[modules]]
 path = "products.early_access_features"
 depends_on = [
-    "posthog",
+    "posthog", "products.feature_flags",
 ]
 layer = "modules"
 
@@ -277,7 +279,7 @@ depends_on = [
     "products.event_definitions",
     "products.notifications",
     "products.product_tours",
-    "products.surveys",
+    "products.surveys", "products.feature_flags",
 ]
 layer = "modules"
 
@@ -285,7 +287,7 @@ layer = "modules"
 path = "products.feature_flags"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.surveys", "products.dashboards", "products.early_access_features", "products.product_tours", "products.experiments",
 ]
 layer = "modules"
 
@@ -431,7 +433,7 @@ layer = "modules"
 path = "products.product_tours"
 depends_on = [
     "posthog",
-    "products.surveys",
+    "products.surveys", "products.feature_flags",
 ]
 layer = "modules"
 
@@ -489,7 +491,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
-    "products.product_tours",
+    "products.product_tours", "products.feature_flags",
 ]
 layer = "modules"
 
@@ -504,7 +506,7 @@ depends_on = [
     "products.mcp_store",
     "products.posthog_ai",
     "products.signals",
-    "products.slack_app",
+    "products.slack_app", "products.feature_flags",
 ]
 layer = "modules"
 
@@ -685,4 +687,18 @@ expose = [
 ]
 from = [
     "products.business_knowledge",
+]
+
+[[modules]]
+path = "products.wizard"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.wizard",
 ]
