@@ -521,6 +521,45 @@ describe('Tool Filtering - AI Consent', () => {
     })
 })
 
+describe('Tool Filtering - Scoped Teams', () => {
+    // Tools whose `required_scopes` include an `organization:*` (or
+    // `organization_member:*`, etc.) scope can't be exercised with a
+    // project-scoped key — the backend 403s them. Hide from `tools/list` for
+    // sessions whose token carries `scoped_teams`, surface them otherwise.
+    it('hides tools requiring an org-scoped scope when scopedTeams is non-empty', () => {
+        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        expect(tools).not.toContain('roles-list') // organization:read
+        expect(tools).not.toContain('org-members-list') // organization_member:read
+        expect(tools).not.toContain('organizations-list') // organization:read
+        expect(tools).not.toContain('organization-get') // organization:read
+        expect(tools).not.toContain('projects-get') // organization:read
+    })
+
+    it('keeps project-scoped tools visible when scopedTeams is non-empty', () => {
+        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('feature-flag-get-all')
+    })
+
+    it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
+        const tools = getToolsForFeatures({ scopedTeams: [] })
+        expect(tools).toContain('roles-list')
+        expect(tools).toContain('organization-get')
+    })
+
+    it('keeps org-scope tools visible when scopedTeams is undefined', () => {
+        const tools = getToolsForFeatures({ scopedTeams: undefined })
+        expect(tools).toContain('roles-list')
+        expect(tools).toContain('organization-get')
+    })
+
+    it('combines scopedTeams with feature filtering', () => {
+        const tools = getToolsForFeatures({ features: ['workspace'], scopedTeams: [42] })
+        expect(tools).not.toContain('organizations-list')
+        expect(tools).not.toContain('organization-get')
+    })
+})
+
 describe('Tool Filtering - Read-Only Mode', () => {
     it('should only return read-only tools when readOnly is true', () => {
         const tools = getToolsForFeatures({ readOnly: true })
@@ -644,9 +683,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
+                'replay-vision',
             ])
         )
-        expect(flags).toHaveLength(7)
+        expect(flags).toHaveLength(8)
     })
 
     // Test the filtering logic with a direct unit test approach using

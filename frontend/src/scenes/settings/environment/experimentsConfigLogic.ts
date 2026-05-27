@@ -14,6 +14,7 @@ export interface ExperimentsConfig {
     default_experiment_stats_method: string | null
     default_only_count_matured_users: boolean
     default_cuped_enabled: boolean
+    default_cuped_lookback_days: number | null
     default_minimum_detectable_effect: number
 }
 

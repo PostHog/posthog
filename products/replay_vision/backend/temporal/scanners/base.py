@@ -16,12 +16,7 @@ class BaseScannerOutput(BaseModel, frozen=True):
     confidence: float = Field(
         ge=0,
         le=1,
-        description=(
-            "Calibrated confidence, 0.0 to 1.0 with one decimal; use the full range — most answers fall in 0.6-0.9. "
-            "Ask: could a reasonable alternative answer be defended on the same evidence? If yes, cap at 0.7. "
-            "Reserve 0.9+ for unambiguous evidence with no plausible alternative. "
-            "1.0 should be exceedingly rare — pick 0.95 instead."
-        ),
+        description="Calibrated confidence, 0.0 to 1.0 with one decimal. Apply the calibration rules from the system prompt.",
     )
 
     def to_event_properties(self) -> dict[str, Any]:
