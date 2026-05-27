@@ -20,19 +20,33 @@
  *   - If the runner is alive but the turn is mid-LLM-call, the
  *     additional `/send` does NOT interrupt — it queues.
  */
+import { resolve } from 'node:path'
+
+import { bundleAndUpload } from '../../harness/bundle'
 import { post, readSessionRow, send, waitForAwaitingInput, waitForStatus } from '../../harness/clients'
-import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
+import { type AgentCluster, getMockAnthropic, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-chat-queue-team-secret'
+const FIXTURE_DIR = resolve(__dirname, '../../../fixtures/mock-slow')
 
 describe('persistent-chat: queued follow-ups during an in-flight turn', () => {
     let cluster: AgentCluster
+    let bundleS3Key: string
+    let bundleSha256: string
 
     beforeAll(async () => {
         cluster = await openSharedCluster()
+        await getMockAnthropic()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
-    }, 30_000)
+        const uploaded = await bundleAndUpload(cluster.cleanup, FIXTURE_DIR)
+        const slow = uploaded.find((b) => b.agentSlug === 'e2e-mock-slow')
+        if (!slow) {
+            throw new Error('bundleAndUpload returned no e2e-mock-slow')
+        }
+        bundleS3Key = slow.bundleS3Key
+        bundleSha256 = slow.bundleSha256
+    }, 60_000)
 
     afterAll(async () => {
         await cluster?.cleanup.runAll()
@@ -41,12 +55,11 @@ describe('persistent-chat: queued follow-ups during an in-flight turn', () => {
     it('a /send during a slow turn appends to pendingInputs in DB and is NOT dropped', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'chat-queue-one',
-            // chat-slow: holds the turn for ~3s, then echoes + awaiting_input.
-            // Override to a shorter 800ms so the test runs fast — long
-            // enough to land a /send during the turn but short enough
-            // not to dominate the suite's wall time.
             auth: { type: 'pat' },
-            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow', __TEST_CHAT_SLEEP_MS: '800' },
+            // mock-slow agent: SDK call sleeps ~1.5s before responding —
+            // long enough to land a /send mid-turn, short enough not to
+            // dominate the suite's wall time.
+            bundle: { s3Key: bundleS3Key, sha256: bundleSha256 },
         })
 
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'first' } })
@@ -77,7 +90,7 @@ describe('persistent-chat: queued follow-ups during an in-flight turn', () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'chat-queue-three',
             auth: { type: 'pat' },
-            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow', __TEST_CHAT_SLEEP_MS: '800' },
+            bundle: { s3Key: bundleS3Key, sha256: bundleSha256 },
         })
 
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'go' } })
@@ -113,7 +126,7 @@ describe('persistent-chat: queued follow-ups during an in-flight turn', () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'chat-queue-early',
             auth: { type: 'pat' },
-            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow', __TEST_CHAT_SLEEP_MS: '300' },
+            bundle: { s3Key: bundleS3Key, sha256: bundleSha256 },
         })
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'kick' } })
         const sessionId = run.body.sessionId as string

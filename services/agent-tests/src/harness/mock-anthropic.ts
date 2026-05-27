@@ -306,25 +306,31 @@ function anthropicErrorFor(spec: string): { status: number; body: Record<string,
 }
 
 /**
- * Sleep `ms` milliseconds OR until the request fires `close` (i.e. the
- * client aborted). Returns `true` if the abort fired, `false` if the
- * sleep completed normally. Used by `mock-slow` so /cancel doesn't
- * pay the full sleep budget.
+ * Sleep `ms` milliseconds OR until the underlying socket closes (the
+ * client disconnected — typically the SDK's AbortController firing on
+ * `/cancel`). Returns `true` if the abort fired, `false` if the sleep
+ * completed normally.
+ *
+ * Watches the SOCKET, not the request stream — `req.on('close')` fires
+ * on every normal request completion (after the body is read) and
+ * would short-circuit the sleep every time. The socket's `close`
+ * event fires only when the connection actually goes away.
  */
 function sleepUntilAborted(ms: number, req: import('node:http').IncomingMessage): Promise<boolean> {
-    if (req.destroyed) {
+    const socket = req.socket
+    if (!socket || socket.destroyed) {
         return Promise.resolve(true)
     }
     return new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
-            req.removeListener('close', onClose)
+            socket.removeListener('close', onClose)
             resolve(false)
         }, ms)
         const onClose = (): void => {
             clearTimeout(timer)
             resolve(true)
         }
-        req.once('close', onClose)
+        socket.once('close', onClose)
     })
 }
 
