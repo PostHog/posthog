@@ -111,6 +111,7 @@ def _make_id_jag(
     SITE_URL=_SITE_URL,
     ID_JAG_ACCESS_TOKEN_TTL_SECONDS=300,
     ID_JAG_CLOCK_SKEW_SECONDS=30,
+    CORS_ALLOW_ALL_ORIGINS=True,
 )
 class TestIdJagTokenEndpoint(APIBaseTest):
     CONFIG_AUTO_LOGIN = False

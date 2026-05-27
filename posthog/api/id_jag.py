@@ -266,7 +266,6 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
                 signing_key.key,
                 algorithms=["RS256", "RS384", "RS512"],
                 audience=expected_audience,
-                issuer=expected_issuer,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
                     "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
@@ -275,7 +274,10 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
                     "verify_nbf": True,
                     "verify_iat": True,
                     "verify_aud": True,
-                    "verify_iss": True,
+                    # We verify `iss` manually below so the comparison is
+                    # trailing-slash-tolerant — PyJWT's built-in check is
+                    # strict string equality.
+                    "verify_iss": False,
                 },
             ),
         )
@@ -288,12 +290,14 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         raise InvalidGrantError(f"ID-JAG is not yet valid (clock-skew window exceeded): {e}")
     except jwt.InvalidAudienceError:
         raise InvalidGrantError("ID-JAG aud doesn't match this Auth Server's URL")
-    except jwt.InvalidIssuerError:
-        raise InvalidGrantError("ID-JAG iss is not valid")
     except jwt.MissingRequiredClaimError as e:
         raise InvalidGrantError(f"ID-JAG is missing required claim: {e.claim}")
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG signature verification failed: {e}")
+
+    claim_issuer = (claims.get("iss") or "").rstrip("/")
+    if claim_issuer != expected_issuer:
+        raise InvalidGrantError("ID-JAG iss does not match the IdP configured for this email's domain")
 
     resource = claims.get("resource")
     if not resource:
@@ -448,7 +452,7 @@ def issue_access_token(
     claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
 
     if request_client_id and request_client_id != claims.get("client_id"):
-        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client", error_code="invalid_client")
+        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
     id_jag_scopes = _parse_scope_list(claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
