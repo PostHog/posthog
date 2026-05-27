@@ -152,7 +152,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     # these apart from fully hydrated persons.
                     actor_data["is_unresolved"] = True
                 if events_distinct_id_lookup is not None:
-                    actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
+                    # Default to [] to keep the stub shape consistent — downstream CSV
+                    # flattening calls len() on this and would crash on None.
+                    actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id) or []
                 new_row[actor_column_index] = actor_data
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (

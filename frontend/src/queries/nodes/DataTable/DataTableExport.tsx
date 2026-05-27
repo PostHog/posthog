@@ -86,10 +86,14 @@ export async function startDownload(
         }
 
         if (columns.includes('person')) {
-            // Expand the `person` column to both `person.id` (canonical UUID, always populated)
-            // and `person.distinct_ids.0` (may be blank when the person can't be hydrated).
-            // The id column makes every exported row identifiable even when distinct_ids is missing.
-            columns = columns.flatMap((c: string) => (c === 'person' ? ['person.id', 'person.distinct_ids.0'] : [c]))
+            // Expand the `person` column to `person.id` (canonical UUID, always populated),
+            // `person.distinct_ids.0` (may be blank when the person can't be hydrated), and
+            // `person.is_unresolved` (true for merged/deleted persons whose Postgres row is
+            // missing). The id keeps every row identifiable; is_unresolved must be listed
+            // explicitly so the backend's user_columns filter doesn't drop it.
+            columns = columns.flatMap((c: string) =>
+                c === 'person' ? ['person.id', 'person.distinct_ids.0', 'person.is_unresolved'] : [c]
+            )
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
