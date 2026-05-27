@@ -1,6 +1,8 @@
 from posthog.hogql import ast
+from posthog.hogql.base import Expr
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
@@ -16,6 +18,21 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
+
+
+class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """PostgresTable variant for FK-only junction tables that lack a `team_id` column.
+
+    The framework's auto-injected `team_id = X` guard is bypassed because the column
+    doesn't exist. Security is preserved instead via a predicate (set on the class) that
+    scopes through `account_id`, relying on the framework re-applying its team_id guard
+    to the inner `system.accounts` reference.
+
+    Only intended for use by AccountsQueryRunner. Direct top-level SELECT remains safe
+    because the predicate prunes rows whose FK doesn't resolve to a team-scoped account.
+    """
+
+    predicates: list[Expr] = [parse_expr("account_id IN (SELECT id FROM system.accounts)")]
 
 
 class IngestionWarningsTable(Table):
@@ -1142,10 +1159,43 @@ sandbox_environments: PostgresTable = PostgresTable(
 )
 
 
+tags: PostgresTable = PostgresTable(
+    name="tags",
+    postgres_table_name="posthog_tag",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+    },
+)
+
+_account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+    name="_account_tagged_items",
+    postgres_table_name="posthog_taggeditem",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "tag_id": UUIDDatabaseField(name="tag_id"),
+        "account_id": UUIDDatabaseField(name="account_id", nullable=True),
+    },
+)
+
+_account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+    name="_account_resource_notebooks",
+    postgres_table_name="posthog_resourcenotebook",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "notebook_id": StringDatabaseField(name="notebook_id"),
+        "account_id": UUIDDatabaseField(name="account_id", nullable=True),
+    },
+)
+
+
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
+        "_account_tagged_items": TableNode(name="_account_tagged_items", table=_account_tagged_items),
+        "_account_resource_notebooks": TableNode(name="_account_resource_notebooks", table=_account_resource_notebooks),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
@@ -1206,6 +1256,7 @@ class SystemTables(TableNode):
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),
+        "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
