@@ -441,6 +441,21 @@ def account_requests(request: Request) -> Response:
     )
 
 
+def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplication) -> bool:
+    """True if the user has any live OAuth credential issued to this partner.
+
+    "Live" = unexpired access token or non-revoked refresh token. PersonalAPIKey has no
+    partner attribution today, so it's excluded from this check; in practice PATs are
+    minted alongside OAuth tokens at provisioning time, so the OAuth-only check matches.
+    """
+    now = timezone.now()
+    if OAuthAccessToken.objects.filter(user=user, application=partner, expires__gt=now).exists():
+        return True
+    if OAuthRefreshToken.objects.filter(user=user, application=partner, revoked__isnull=True).exists():
+        return True
+    return False
+
+
 def _handle_existing_user(
     request_id: str,
     user: User,
@@ -453,7 +468,24 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
-    if partner and not partner.provisioning_skip_existing_user_consent:
+    # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
+    # skip_existing_user_consent=True can only mint silently if they already hold live
+    # credentials on the account. Otherwise the user must confirm via the consent screen.
+    silent_blocked_post_review = (
+        partner is not None
+        and partner.provisioning_skip_existing_user_consent
+        and user.credentials_reviewed_at is not None
+        and not _user_has_existing_credentials_from_partner(user, partner)
+    )
+
+    if silent_blocked_post_review and partner is not None:
+        _capture_provisioning_event(
+            "account_request",
+            "silent_blocked_post_review",
+            partner_id=str(partner.id),
+        )
+
+    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
         if not code_challenge:
             return Response(
                 {

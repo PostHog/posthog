@@ -12,7 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.response import Response
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -400,3 +400,149 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_request"
         assert "code_challenge" in res.json()["error"]["message"]
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
+    """Once a user has reviewed their credentials, a partner with
+    skip_existing_user_consent=True can only re-mint silently when it already
+    holds live OAuth credentials on that user — otherwise the consent screen
+    is required. Closes the server-side half of the pre-hijacking defense."""
+
+    def setUp(self):
+        super().setUp()
+        self.partner = OAuthApplication.objects.create(
+            client_id="silent-partner",
+            name="Silent Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            provisioning_skip_existing_user_consent=True,
+        )
+        self.other_partner = OAuthApplication.objects.create(
+            client_id="other-partner",
+            name="Other Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            provisioning_skip_existing_user_consent=True,
+        )
+
+    def _post_as_partner(self, data: dict, client_id: str = "silent-partner"):
+        payload = {**data, "client_id": client_id}
+        body = json.dumps(payload).encode()
+        return self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data=body,
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+
+    def _account_request_payload(self, **overrides):
+        payload = {
+            "id": "acctreq_silent_test",
+            "email": "existing@example.com",
+            "scopes": ["query:read"],
+            "confirmation_secret": "cs_test",
+            "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "code_challenge_method": "S256",
+            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+            "orchestrator": {"type": "test", "account": "acct_123"},
+        }
+        payload.update(overrides)
+        return payload
+
+    def _make_user(self, *, credentials_reviewed: bool) -> User:
+        user = User.objects.create_and_join(
+            organization=self.organization,
+            email="existing@example.com",
+            password="testpass",
+            first_name="Existing",
+        )
+        user.credentials_reviewed_at = timezone.now() if credentials_reviewed else None
+        user.save(update_fields=["credentials_reviewed_at"])
+        return user
+
+    def _make_live_access_token(self, user: User, partner: OAuthApplication) -> OAuthAccessToken:
+        return OAuthAccessToken.objects.create(
+            user=user,
+            application=partner,
+            token=f"tok_{user.id}_{partner.id}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="query:read",
+        )
+
+    def _make_revoked_refresh_token(self, user: User, partner: OAuthApplication) -> OAuthRefreshToken:
+        return OAuthRefreshToken.objects.create(
+            user=user,
+            application=partner,
+            token=f"rtok_{user.id}_{partner.id}",
+            revoked=timezone.now(),
+        )
+
+    def test_unreviewed_user_silent_path_still_works(self):
+        self._make_user(credentials_reviewed=False)
+        res = self._post_as_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+
+    def test_reviewed_user_with_live_token_from_caller_silent_still_works(self):
+        user = self._make_user(credentials_reviewed=True)
+        self._make_live_access_token(user, self.partner)
+        res = self._post_as_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+
+    def test_reviewed_user_with_no_credentials_falls_through_to_consent(self):
+        self._make_user(credentials_reviewed=True)
+        res = self._post_as_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "url" in data["requires_auth"]
+        assert "/api/agentic/authorize" in data["requires_auth"]["url"]
+        assert "oauth" not in data
+
+        url = data["requires_auth"]["url"]
+        state = parse_qs(urlparse(url).query)["state"][0]
+        pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
+        assert pending is not None
+        assert pending["partner_id"] == str(self.partner.id)
+
+    def test_reviewed_user_credential_from_different_partner_is_blocked(self):
+        user = self._make_user(credentials_reviewed=True)
+        self._make_live_access_token(user, self.other_partner)
+        res = self._post_as_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
+
+    def test_reviewed_user_with_only_revoked_token_from_caller_is_blocked(self):
+        user = self._make_user(credentials_reviewed=True)
+        self._make_revoked_refresh_token(user, self.partner)
+        res = self._post_as_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
