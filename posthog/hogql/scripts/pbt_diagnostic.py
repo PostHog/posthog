@@ -22,7 +22,10 @@ Distinct from the pytest PBT in several ways:
    typical PBT failures from 200+ chars to <50.
 4. **Optional JSONL persistence (`--write-divergences PATH`).** Drop
    one JSON line per failing example for cross-run analysis or
-   regression-corpus extraction.
+   regression-corpus extraction. Add `--dedup-stream` to emit only the
+   first example per distinct shape (one shrunk repro per shape, streamed
+   as found) instead of every occurrence — the background-grind feed for a
+   foreground fixer.
 5. **Reject categorization.** Group `candidate_reject` queries by the
    error message + leading-token signature so recurring shapes
    surface even though there's no AST to diff against.
@@ -42,18 +45,6 @@ Distinct from the pytest PBT in several ways:
    Hypothesis `event()` and the run-end summary prints Hypothesis's own
    statistics (event distribution + best `target()` scores), captured from
    a CLI run via `hypothesis.statistics.collector`.
-9. **Streaming native-shrink mode (`--stream-shrunk`).** Instead of one
-   non-raising survey pass, drive Hypothesis `find()` in a loop: each call
-   returns one MINIMAL example (Hypothesis's own structure-aware shrinker)
-   exhibiting a divergence shape not yet seen, which is streamed and the shape
-   added to a seen set, until a full budget turns up nothing new. `find()` runs
-   the `condition` inside its build context, so the condition calls `target()`
-   (same k-path + depth signal) and with `Phase.target` on the search steers
-   toward the long tail exactly like the survey. Background-friendly: pair with
-   `--write-divergences`. Targets the stable `_shape_for` classes; crashes (no
-   stable shape) stay in survey mode. Needs a larger `--n` than the survey,
-   since `find()` restarts per shape and feature-specific (non-depth-correlated)
-   divergences only surface at their base rate.
 
 The shared parse / AST-diff / divergence-shape vocabulary lives in
 `_diagnostic_common.py` alongside this script.
@@ -86,11 +77,6 @@ Typical usage:
     # that gets killed still leaves its divergences on disk:
     PYTHONPATH=. .flox/cache/venv/bin/python posthog/hogql/scripts/pbt_diagnostic.py \\
         --rule program --grammar-mutate --n 10000 --write-divergences /tmp/div.jsonl
-
-    # Streaming native-shrink: emit one MINIMAL divergence per unseen shape as
-    # it's found, ideal for a background grind feeding a foreground fixer:
-    PYTHONPATH=. .flox/cache/venv/bin/python posthog/hogql/scripts/pbt_diagnostic.py \\
-        --stream-shrunk --rule select --n 5000 --write-divergences /tmp/div.jsonl
 """
 
 # ruff: noqa: T201 (this is a CLI script — print is the output channel)
@@ -113,9 +99,8 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from hypothesis import Phase, assume, event, find, given, settings, target
-from hypothesis.database import DirectoryBasedExampleDatabase, InMemoryExampleDatabase
-from hypothesis.errors import NoSuchExample
+from hypothesis import assume, event, given, settings, target
+from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.statistics import collector, describe_statistics
 
 from posthog.hogql.scripts._diagnostic_common import (
@@ -239,157 +224,22 @@ def _print_failure_sample(
             print(_format_diff_path(diff_steps))
 
 
-# ---------------------------------------------------------------------------
-# Streaming native-shrink mode
-# ---------------------------------------------------------------------------
-#
-# `@given` shrinks ONCE at the end and reports a single minimal example per
-# distinct interesting-origin — and every divergence here is the same
-# AssertionError, so it collapses to one bug. Wrong shape for a survey. Instead
-# we drive Hypothesis's own engine via `find()` in a loop: each call returns a
-# MINIMAL query exhibiting a divergence shape we haven't seen, we stream it, add
-# the shape to the seen set, and loop until a full budget turns up nothing new
-# (`NoSuchExample`). So: native structure-aware shrinker, one minimal repro per
-# shape, streamed as found, background-friendly.
-#
-# The non-obvious part: `find()` runs our `condition` INSIDE its internal
-# `@given` test context, so `condition` can call `target()` and — with
-# `Phase.target` enabled — the engine steers toward the structurally-novel,
-# deeply-nested long tail just like the survey. Without that, plain `find()`
-# generation hits the (now very low) base divergence rate and finds nothing. A
-# shared in-memory database with a stable key warm-starts each call from the
-# prior coverage front. Targets the three stable `_shape_for` divergence classes;
-# crashes (no stable shape) stay in survey mode.
-
-
-def _make_streamed_condition(
-    rule: str,
-    oracle: str,
-    candidate: str,
-    seen: frozenset[DivergenceShape],
-    seen_kpaths: set[tuple[str, ...]],
-    kpath_k: int,
-) -> Any:
-    """Build the `find()` predicate: steer via `target()` on the oracle AST, and
-    return true iff the query diverges in a shape not in `seen`. `seen` is a frozen
-    per-call snapshot; `seen_kpaths` is the live cross-call novelty accumulator."""
-
-    def condition(query: str) -> bool:
-        o_status, o_ast, _ = _safe_parse(query, rule, oracle)
-        if o_status == "crash":
-            return False
-        if o_status == "ok":
-            # Steering (#3): novelty + depth -> target(). Valid here because
-            # find() calls this inside its @given build context.
-            kpaths = ast_kpaths(o_ast, kpath_k)
-            target(float(len(kpaths - seen_kpaths)), label="novel_kpaths")
-            seen_kpaths.update(kpaths)
-            target(float(ast_depth(o_ast)), label="ast_depth")
-        c_status, c_ast, c_detail = _safe_parse(query, rule, candidate)
-        if o_status == "reject":
-            shape = DivergenceShape(kind="candidate_accepts_oracle_reject") if c_status == "ok" else None
-        elif c_status == "reject":
-            shape = DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
-        elif c_status == "crash" or o_ast == c_ast:
-            shape = None
-        else:
-            shape = _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
-        return shape is not None and shape not in seen
-
-    return condition
-
-
-def _classify_minimal(query: str, rule: str, oracle: str, candidate: str) -> tuple[str, dict[str, Any]]:
-    """Recompute the divergence kind + record detail for an already-minimal query.
-    Only called when a divergence is known to exist."""
-    o_status, o_ast, _ = _safe_parse(query, rule, oracle)
-    c_status, c_ast, c_detail = _safe_parse(query, rule, candidate)
-    if o_status == "reject":
-        return "candidate_accepts_oracle_reject", {"candidate_root": _node_type(c_ast)}
-    if c_status == "reject":
-        return "candidate_reject", {"reject_signature": c_detail}
-    return "ast_mismatch", {
-        "oracle_root": _node_type(o_ast),
-        "candidate_root": _node_type(c_ast),
-        "diff_path": _diff_path(o_ast, c_ast),
-    }
-
-
-def run_streaming_shrink(args: argparse.Namespace, oracle: str, candidate: str, strategy: Any) -> int:
-    """Loop `find()`, streaming one minimal divergence per newly-seen shape until a
-    full budget turns up nothing new. Returns a process exit code."""
-    rule = args.rule
-    # find() forces suppress_health_check + report_multiple_bugs itself. We add
-    # the budget, kill the deadline (parses are slow), and KEEP Phase.target so
-    # the target() calls in the condition actually steer. A shared in-memory db
-    # under a stable key persists the coverage front across calls (Phase.reuse
-    # replays it), so each find() warm-starts instead of cold-searching.
-    mem_db = InMemoryExampleDatabase()
-    db_key = f"pbt-stream-{rule}".encode()
-    find_settings = settings(
-        max_examples=args.n,
-        deadline=None,
-        database=mem_db,
-        phases=(Phase.reuse, Phase.generate, Phase.target, Phase.shrink),
-    )
-    seen: set[DivergenceShape] = set()
-    seen_kpaths: set[tuple[str, ...]] = set()
-    counts: Counter[str] = Counter()
-    jsonl_file = open(args.write_divergences, "w") if args.write_divergences else None  # noqa: SIM115 — closed in finally
-    n_found = 0
-    try:
-        while args.max_shapes <= 0 or n_found < args.max_shapes:
-            condition = _make_streamed_condition(rule, oracle, candidate, frozenset(seen), seen_kpaths, args.kpath_k)
-            try:
-                minimal = find(strategy, condition, settings=find_settings, database_key=db_key)
-            except NoSuchExample:
-                print(f"\n=== no new divergence shape in {args.n} examples; stopping after {n_found} shape(s) ===")
-                break
-            shape = _shape_for(minimal, rule, oracle, candidate)
-            if shape is None:
-                # Snapshot predicate matched during the search but the shape now
-                # reads clean (e.g. a nondeterministic backend). Skip; the loop's
-                # next snapshot is unchanged, so guard against an infinite spin.
-                print(f"  (skipped a now-clean example: {minimal!r})")
-                break
-            seen.add(shape)
-            n_found += 1
-            kind, detail = _classify_minimal(minimal, rule, oracle, candidate)
-            counts[kind] += 1
-            if jsonl_file is not None:
-                rec: dict[str, Any] = {
-                    "kind": kind,
-                    "rule": rule,
-                    "oracle": oracle,
-                    "candidate": candidate,
-                    "query": minimal,
-                    "query_shrunk": minimal,
-                    **detail,
-                }
-                if "diff_path" in rec:
-                    rec["diff_path"] = [list(s) if isinstance(s, tuple) else s for s in rec["diff_path"]]
-                jsonl_file.write(json.dumps(rec) + "\n")
-                jsonl_file.flush()  # stream each finding to a foreground fixer in real time
-            print(f"[{n_found}] {kind}: {minimal!r}")
-            if kind == "ast_mismatch":
-                print(_format_diff_path(detail["diff_path"]))
-    except Exception:
-        traceback.print_exc()
-        return 1
-    finally:
-        if jsonl_file is not None:
-            jsonl_file.close()
-
-    print()
-    print(
-        f"=== streaming native-shrink: rule={rule} oracle={oracle} candidate={candidate} "
-        f"max_examples={args.n} shapes_found={n_found} ==="
-    )
-    for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
-        print(f"  {k:32s} {v}")
-    if args.write_divergences:
-        print(f"=== streamed {n_found} minimal divergence(s) to {args.write_divergences} ===")
-    return 0
+def _stream_dedup_key(rec: dict) -> tuple[Any, ...]:
+    """Stable per-shape key for `--dedup-stream`, derived from a divergence
+    record's identifying fields. ast_mismatch dedups at the (oracle_root,
+    candidate_root) pair — the same granularity as the summary's mismatch
+    buckets — and the reject / over-accept / crash kinds dedup by their
+    signature or root, so the streamed feed carries one example per shape."""
+    kind = rec.get("kind")
+    if kind == "candidate_reject":
+        return (kind, rec.get("reject_signature"))
+    if kind == "candidate_crash":
+        return (kind, rec.get("crash_signature"))
+    if kind == "candidate_accepts_oracle_reject":
+        return (kind, rec.get("candidate_root"))
+    if kind == "ast_mismatch":
+        return (kind, rec.get("oracle_root"), rec.get("candidate_root"))
+    return (kind,)
 
 
 # ---------------------------------------------------------------------------
@@ -457,30 +307,23 @@ def main() -> int:
     parser.add_argument(
         "--shrink-failures",
         action="store_true",
-        help="(survey mode) Run the built-in token reducer on each printed failure for a minimal repro",
-    )
-    parser.add_argument(
-        "--stream-shrunk",
-        action="store_true",
-        help=(
-            "Streaming native-shrink mode: loop Hypothesis find() (target-steered, same k-path + "
-            "depth signal as the survey) to emit one MINIMAL natively-shrunk divergence per unseen "
-            "shape, streamed as found, until no new shape turns up within --n examples. "
-            "Background-friendly; pair with --write-divergences. Replaces the survey grind. Targets "
-            "ast_mismatch / candidate_reject / candidate_accepts_oracle_reject (crashes stay in survey mode)."
-        ),
-    )
-    parser.add_argument(
-        "--max-shapes",
-        type=int,
-        default=0,
-        help="(stream mode) Stop after this many distinct minimal divergences (0 = until exhausted)",
+        help="Run an auto-shrinker on each printed failure to produce a minimal repro",
     )
     parser.add_argument(
         "--write-divergences",
         metavar="PATH",
         default=None,
         help="Write JSONL with one entry per failing example (query + diff path), flushed per line so a background grind streams findings to a foreground fixer",
+    )
+    parser.add_argument(
+        "--dedup-stream",
+        action="store_true",
+        help=(
+            "Stream only the FIRST divergence per distinct shape to --write-divergences "
+            "(reject signature, over-accept root, or ast_mismatch root pair), so a background "
+            "grind emits one (shrunk, with --shrink-failures) repro per shape instead of every "
+            "occurrence. The end-of-run summary still counts/samples everything."
+        ),
     )
     parser.add_argument(
         "--steer",
@@ -577,23 +420,26 @@ def main() -> int:
     if args.mutate:
         strategy = strategy.flatmap(_apply_mutation)
 
-    # Streaming native-shrink mode is a different control flow from the survey
-    # below: it drives find() in a loop rather than one @given pass, so it
-    # short-circuits here with its own JSONL streaming.
-    if args.stream_shrunk:
-        return run_streaming_shrink(args, oracle, candidate, strategy)
-
     # Stream JSONL during the run rather than collecting everything in
     # memory. Opened in the try-block below so the strategy
     # construction and decorator application above have no chance to
     # leak the handle.
     jsonl_file: Any = None
     jsonl_count = 0
+    # `--dedup-stream`: keys of shapes already streamed, so each distinct shape
+    # is written to the JSONL at most once (the summary buckets below are
+    # unaffected — they still see every occurrence).
+    seen_stream_keys: set[tuple[Any, ...]] = set()
 
     def write_record(rec: dict, shrunk: str | None) -> None:
         nonlocal jsonl_count
         if jsonl_file is None:
             return
+        if args.dedup_stream:
+            key = _stream_dedup_key(rec)
+            if key in seen_stream_keys:
+                return
+            seen_stream_keys.add(key)
         if shrunk is not None:
             rec["query_shrunk"] = shrunk
         if "diff_path" in rec:

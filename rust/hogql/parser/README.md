@@ -260,8 +260,9 @@ works and nothing churns. Knobs:
 ```bash
 --no-steer            # disable target()-guided steering (uniform sampling)
 --kpath-k 3           # k-path window for the coverage signal (default 2)
---stream-shrunk       # streaming native-shrink mode (see below)
---max-shapes N        # (stream mode) stop after N distinct minimal divergences
+--shrink-failures     # token-reduce each divergence to a minimal repro
+--write-divergences X # stream one flushed JSON line per finding to X
+--dedup-stream        # stream only the first repro per distinct shape (see below)
 --update-corpus       # write read-write straight to the committed dir (opt-in seed)
 --corpus-dir PATH     # use an explicit read-write db dir instead (e.g. an ephemeral /tmp run)
 --no-database         # disable the example database entirely
@@ -271,24 +272,31 @@ To opt into a shared seed, populate it with `--update-corpus` and commit the
 new blobs; see the corpus
 [README](../../../posthog/hogql/test/parser_pbt_corpus/README.md).
 
-**Streaming native-shrink mode (`--stream-shrunk`).** The default survey shrinks
-each divergence with a built-in token reducer. `--stream-shrunk` instead drives
-Hypothesis `find()` in a loop, so each divergence is reduced by Hypothesis's own
-structure-aware shrinker, and one MINIMAL example per unseen shape is streamed
-as found (to `--write-divergences`) rather than the run fail-fasting on the
-first. `find()` runs the divergence check inside its build context, so the same
-`target()` steering applies and the search still climbs the long tail. It needs
-a larger `--n` than the survey (`find()` restarts per shape, and feature-specific
-divergences only surface at their base rate), which suits a background grind
-feeding a foreground fixer. Targets the stable divergence classes; crashes stay
-in survey mode.
-
 The run-end summary prints Hypothesis's own statistics — the per-outcome
 `event()` distribution and the best `target()` score per label (peak
-k-path novelty and AST depth reached). `--write-divergences PATH` is
-unchanged: it remains the streaming, agent-readable feed (one flushed
-JSON line per finding, as found), complementary to the opaque-blob
-example database.
+k-path novelty and AST depth reached). `--write-divergences PATH` is the
+streaming, agent-readable feed (one flushed JSON line per finding, as found),
+complementary to the opaque-blob example database.
+
+**Background grind feeding a foreground fixer.** The grind is non-raising — it
+surveys the whole divergence space in one steered pass rather than fail-fasting
+on the first divergence — so `--shrink-failures --write-divergences X` already
+streams a token-shrunk repro per finding as it goes. Add `--dedup-stream` to
+collapse that to one repro per distinct shape (reject signature, over-accept
+root, or ast_mismatch root pair), so the fixer sees each bug once instead of
+every occurrence:
+
+```bash
+PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \
+    --rule select --n 20000 --shrink-failures --dedup-stream \
+    --write-divergences /tmp/divergences.jsonl
+```
+
+(An earlier `find()`-driven "streaming native-shrink" mode was tried and
+dropped: Hypothesis's structure-aware shrinker can't reduce an
+externally-discovered query without re-deriving it, and re-finding a specific
+rare shape from scratch is infeasible, so it reduced to this same
+survey-plus-token-shrink path with no added value.)
 
 ### Real-query corpora via `log_corpus_diagnostic.py` / `hog_corpus_diagnostic.py`
 
