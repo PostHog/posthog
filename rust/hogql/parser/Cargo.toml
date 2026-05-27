@@ -1,9 +1,7 @@
 [package]
 name = "hogql_parser_rs"
-# Track the cpp parser in `common/hogql_parser/setup.py` — both ship as
-# wheels named after the same HogQL grammar revision, so versions move in
-# lockstep.
-version = "1.3.72"
+# Versioned independently from the cpp parser in `common/hogql_parser/setup.py`. Both started from the same HogQL grammar revision, but the Rust port is bumped on its own whenever the hand-rolled parser changes (cpp is currently 1.3.69, this is 1.3.75); each ships as its own PyPI wheel.
+version = "1.3.75"
 edition = "2021"
 publish = false
 

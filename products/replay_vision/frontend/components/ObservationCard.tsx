@@ -4,6 +4,7 @@ import { LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ScannerTypeEnumApi, ReplayObservationApi } from '../generated/api.schemas'
+import { failureKindDescription, parseFailureReason, parseIneligibleReason } from '../replay_scanners/types'
 
 const SCANNER_TYPE_LABEL: Record<ScannerTypeEnumApi, string> = {
     monitor: 'Monitor',
@@ -19,6 +20,10 @@ export function ObservationStatusTag({ status }: { status: ReplayObservationApi[
     }
     if (status === 'failed') {
         return <LemonTag type="danger">Failed</LemonTag>
+    }
+    if (status === 'ineligible') {
+        // Muted, not danger — the session was skipped at the gate, not a scanner failure.
+        return <LemonTag type="muted">Ineligible</LemonTag>
     }
     if (status === 'running') {
         return (
@@ -37,11 +42,26 @@ function readResult(observation: ReplayObservationApi): Record<string, unknown> 
 
 /** Compact, single-cell preview of an observation result for the Vision scene's observations table. */
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'failed') {
+    if (observation.status === 'ineligible') {
+        const parsed = parseIneligibleReason(observation.error_reason)
+        const label = parsed?.label ?? 'Ineligible'
+        const detail = parsed?.message ?? observation.error_reason
         return (
-            <Tooltip title={observation.error_reason || 'Unknown error'}>
+            <Tooltip title={detail || label}>
+                <span className="text-muted text-sm">{label}</span>
+            </Tooltip>
+        )
+    }
+    if (observation.status === 'failed') {
+        const parsed = parseFailureReason(observation.error_reason)
+        const label = parsed?.label ?? 'Failed'
+        const description = parsed ? failureKindDescription(parsed.kind) : null
+        const detail = parsed?.message ?? observation.error_reason
+        const tooltip = [description, detail].filter(Boolean).join('\n\n') || 'Unknown error'
+        return (
+            <Tooltip title={tooltip}>
                 <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {observation.error_reason || 'Failed'}
+                    <IconWarning /> {label}
                 </span>
             </Tooltip>
         )
@@ -154,6 +174,33 @@ function ObservationResult({
     )
 }
 
+function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
+    const parsed = parseFailureReason(errorReason)
+    if (!parsed) {
+        return <div className="text-danger text-sm">{errorReason}</div>
+    }
+    return (
+        <div className="space-y-1">
+            <div className="font-semibold text-danger text-sm">{parsed.label}</div>
+            <div className="text-muted text-xs">{failureKindDescription(parsed.kind)}</div>
+            {parsed.message && <div className="text-muted text-xs font-mono">{parsed.message}</div>}
+        </div>
+    )
+}
+
+function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element {
+    const parsed = parseIneligibleReason(errorReason)
+    if (!parsed) {
+        return <div className="text-muted text-sm">{errorReason}</div>
+    }
+    return (
+        <div className="space-y-1">
+            <div className="font-semibold text-sm">{parsed.label}</div>
+            {parsed.message && <div className="text-muted text-xs">{parsed.message}</div>}
+        </div>
+    )
+}
+
 /** In-progress state for a pending/running observation. */
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     return (
@@ -183,7 +230,11 @@ export function ObservationCard({ observation }: { observation: ReplayObservatio
             </div>
 
             {observation.status === 'failed' && observation.error_reason && (
-                <div className="text-danger text-sm">{observation.error_reason}</div>
+                <FailureDetail errorReason={observation.error_reason} />
+            )}
+
+            {observation.status === 'ineligible' && observation.error_reason && (
+                <IneligibleDetail errorReason={observation.error_reason} />
             )}
 
             {observation.status === 'succeeded' && scannerType && result && (

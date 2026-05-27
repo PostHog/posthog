@@ -13,7 +13,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.insight_snapshot import (
@@ -34,6 +33,7 @@ from posthog.temporal.subscriptions.types import (
 )
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
