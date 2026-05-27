@@ -385,6 +385,11 @@ async def test_file_download_list_returns_run_ids_and_statuses(
         status=BatchExportRun.Status.COMPLETED,
     )
 
+    running_run.created_at = dt.datetime(2026, 1, 1, 1, 1, 0, tzinfo=dt.UTC)
+    await running_run.asave(update_fields=["created_at"])
+    completed_run.created_at = dt.datetime(2026, 1, 1, 1, 1, 1, tzinfo=dt.UTC)
+    await completed_run.asave(update_fields=["created_at"])
+
     await async_client.aforce_login(user)
 
     response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
