@@ -2,14 +2,17 @@
 Redis pub/sub fanout for wizard session updates.
 
 Publish happens inside `transaction.on_commit` so subscribers never see
-uncommitted state. Subscribers (SSE endpoint) consume via `subscribe()`.
+uncommitted state. Subscribers (SSE endpoint) use the async client so each
+idle connection is a coroutine on the event loop, not a thread pinning the
+asgiref pool.
 """
 
 from __future__ import annotations
 
+import re
 import dataclasses
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -19,7 +22,7 @@ from django.db import transaction
 import orjson
 import structlog
 
-from posthog.redis import get_client
+from posthog.redis import get_async_client, get_client
 
 from products.wizard.backend.facade.contracts import WizardSessionDTO
 
@@ -27,31 +30,57 @@ logger = structlog.get_logger(__name__)
 
 CHANNEL_PREFIX = "wizard_sessions"
 
+# workflow_id / skill_id appear unescaped in Redis channel names / patterns;
+# reject anything that could be a glob metacharacter (`*?[]\`) or the `:` delimiter.
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,255}$")
+
+
+def _validate_id(value: str, name: str) -> None:
+    if not _SAFE_ID_RE.match(value):
+        raise ValueError(f"{name} must match {_SAFE_ID_RE.pattern}; got {value!r}")
+
 
 def channel_name(team_id: int, workflow_id: str, skill_id: str) -> str:
+    _validate_id(workflow_id, "workflow_id")
+    _validate_id(skill_id, "skill_id")
     return f"{CHANNEL_PREFIX}:team:{team_id}:workflow:{workflow_id}:skill:{skill_id}"
 
 
 def channel_pattern(team_id: int, workflow_id: str) -> str:
     """Pattern for subscribing to all skills under a (team, workflow_id)."""
+    _validate_id(workflow_id, "workflow_id")
     return f"{CHANNEL_PREFIX}:team:{team_id}:workflow:{workflow_id}:skill:*"
 
 
-def publish_session_update(dto: WizardSessionDTO) -> None:
-    """Schedule a Redis publish for after the current transaction commits.
+def serialize_dto(dto: WizardSessionDTO) -> bytes:
+    return orjson.dumps(dto, default=_json_default)
 
-    Safe to call outside a transaction (publishes immediately).
+
+def publish_session_update(dto: WizardSessionDTO) -> None:
+    """Schedule a Redis publish after the current transaction commits.
+
+    Publish failures are logged and swallowed — fanout is best-effort and
+    must not fail the already-committed upsert.
     """
-    payload = orjson.dumps(dto, default=_json_default)
+    payload = serialize_dto(dto)
     channel = channel_name(dto.team_id, dto.workflow_id, dto.skill_id)
 
     def _publish() -> None:
-        receivers = get_client().publish(channel, payload)
-        logger.info(
+        try:
+            receivers = get_client().publish(channel, payload)
+        except Exception:
+            logger.exception(
+                "wizard_sessions publish failed",
+                channel=channel,
+                session_id=dto.session_id,
+                payload_bytes=len(payload),
+            )
+            return
+        logger.debug(
             "wizard_sessions publish",
             channel=channel,
             session_id=dto.session_id,
-            run_phase=dto.run_phase.value if hasattr(dto.run_phase, "value") else str(dto.run_phase),
+            run_phase=dto.run_phase.value,
             payload_bytes=len(payload),
             receivers=receivers,
         )
@@ -59,36 +88,50 @@ def publish_session_update(dto: WizardSessionDTO) -> None:
     transaction.on_commit(_publish)
 
 
-@contextmanager
-def subscribe(team_id: int, workflow_id: str, skill_id: str | None = None) -> Iterator[Any]:
+@asynccontextmanager
+async def subscribe(team_id: int, workflow_id: str, skill_id: str | None = None) -> AsyncIterator[Any]:
     """Subscribe to wizard-session events.
 
-    If `skill_id` is provided, subscribes to the exact channel for that
-    (team, workflow, skill). If omitted, pattern-subscribes to every skill
-    under that (team, workflow). Pattern messages arrive as `{type: 'pmessage', ...}`;
-    direct messages as `{type: 'message', ...}`. Callers should accept both.
+    With `skill_id`, subscribes to the exact `(team, workflow, skill)` channel.
+    Without it, pattern-subscribes to every skill under `(team, workflow)`;
+    messages arrive as `{type: 'pmessage', ...}` instead of `{type: 'message'}`.
     """
-    redis = get_client()
-    pubsub = redis.pubsub(ignore_subscribe_messages=True)
-    if skill_id:
+    if skill_id is not None:
         target = channel_name(team_id, workflow_id, skill_id)
-        pubsub.subscribe(target)
-        logger.info("wizard_sessions subscribe", channel=target)
+        is_pattern = False
     else:
         target = channel_pattern(team_id, workflow_id)
-        pubsub.psubscribe(target)
-        logger.info("wizard_sessions subscribe", pattern=target)
+        is_pattern = True
+
+    redis = get_async_client()
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    try:
+        if is_pattern:
+            await pubsub.psubscribe(target)
+        else:
+            await pubsub.subscribe(target)
+    except Exception:
+        try:
+            await pubsub.close()
+        except Exception:
+            pass
+        raise
+
     try:
         yield pubsub
     finally:
-        logger.info("wizard_sessions unsubscribe", target=target)
         try:
-            if skill_id:
-                pubsub.unsubscribe(target)
+            if is_pattern:
+                await pubsub.punsubscribe(target)
             else:
-                pubsub.punsubscribe(target)
+                await pubsub.unsubscribe(target)
+        except Exception:
+            logger.warning("wizard_sessions unsubscribe failed", target=target)
         finally:
-            pubsub.close()
+            try:
+                await pubsub.close()
+            except Exception:
+                logger.warning("wizard_sessions pubsub close failed", target=target)
 
 
 def _json_default(value: Any) -> Any:

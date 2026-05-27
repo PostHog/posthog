@@ -6,16 +6,12 @@ returns DTO-shaped responses. No model imports.
 """
 
 import time
-import asyncio
-import dataclasses
 from collections.abc import AsyncIterator
-from datetime import datetime
-from enum import Enum
 from typing import Any
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 
-import orjson
 import structlog
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -45,14 +41,7 @@ logger = structlog.get_logger(__name__)
 
 
 class EventStreamRenderer(BaseRenderer):
-    """SSE pass-through renderer.
-
-    DRF's content negotiation 406s any request whose Accept header doesn't match
-    a registered renderer. EventSource sends `Accept: text/event-stream`, which
-    nothing else in PostHog handles, so we register a minimal renderer that
-    advertises the media type. The actual response body comes from
-    StreamingHttpResponse — this renderer is never invoked to render.
-    """
+    """Satisfies DRF content negotiation for `Accept: text/event-stream`; never actually invoked."""
 
     media_type = "text/event-stream"
     format = "event-stream"
@@ -63,12 +52,6 @@ class EventStreamRenderer(BaseRenderer):
 
 
 def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> None:
-    """Debug-only dump of how the incoming wizard_sessions request authenticated.
-
-    Fires only at DEBUG level — kept around for diagnosing 401/403 chains during
-    rollout. Once the wizard CLI auth flow is stable, this can be removed
-    entirely.
-    """
     if not logger.isEnabledFor(10):  # logging.DEBUG
         return
 
@@ -110,6 +93,7 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
+SSE_MAX_DURATION_SECONDS = 30 * 60
 
 
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -118,12 +102,11 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "session_id"
-    lookup_value_regex = r"[^/]+"
+    # Negative lookahead so a session_id of `stream` can't collide with the
+    # `@action(url_path="stream")` detail-vs-action route.
+    lookup_value_regex = r"(?!stream$)[^/]+"
 
     def check_permissions(self, request: Request) -> None:
-        """Log the auth state before DRF decides allow/deny. Fires for both 200 and 403."""
-        # team_id is a cached_property that can raise on malformed URLs — don't
-        # let the diagnostic logger mask a clean 4xx with a 500.
         try:
             team_id = self.team_id
         except (KeyError, ValidationError, NotFound, AttributeError):
@@ -164,8 +147,6 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             offset=page_offset,
             limit=page_limit,
         )
-        # `sessions` is already a bounded slice; DRF's paginator can still wrap
-        # it so the response shape (count/next/previous) stays consistent.
         page = self.paginate_queryset(sessions)
         if page is not None:
             return self.get_paginated_response(WizardSessionSerializer(page, many=True).data)
@@ -225,11 +206,27 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Server-Sent Events stream of wizard session updates for a "
             "(workflow_id, skill_id) pair. On connect, the current latest "
             "session (if any) is emitted as the first event; subsequent "
-            "upserts are streamed in real time."
+            "upserts are streamed in real time. The server closes the "
+            f"connection after {SSE_MAX_DURATION_SECONDS} seconds with an "
+            "`event: end` line so the client (EventSource) can reconnect.\n\n"
+            "**SDK consumers**: do not call the generated fetch wrapper for "
+            "this path — it will buffer the entire infinite stream. Use the "
+            "URL builder (`getWizardSessionsStreamRetrieveUrl`) with the "
+            "browser's `EventSource` API instead."
         ),
         parameters=[
-            OpenApiParameter(name="workflow_id", required=True, type=str),
-            OpenApiParameter(name="skill_id", required=False, type=str),
+            OpenApiParameter(
+                name="workflow_id",
+                required=True,
+                type=str,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="skill_id",
+                required=False,
+                type=str,
+                location=OpenApiParameter.QUERY,
+            ),
         ],
         responses={
             (200, "text/event-stream"): {
@@ -240,6 +237,10 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], url_path="stream", renderer_classes=[EventStreamRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        # The generator is `async def` — WSGI can't consume an async iterator.
+        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
+            raise RuntimeError("wizard_sessions.stream requires ASGI.")
+
         workflow_id = request.query_params.get("workflow_id")
         skill_id = request.query_params.get("skill_id") or None
         if not workflow_id:
@@ -249,58 +250,61 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.team_id,
             workflow_id=workflow_id,
             skill_id=skill_id,
+            request=request,
         )
         return StreamingHttpResponse(
             generator,
             status=status.HTTP_200_OK,
             content_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-transform",
                 "X-Accel-Buffering": "no",
             },
         )
 
 
 async def _wizard_session_event_stream(
-    team_id: int, workflow_id: str, skill_id: str | None = None
+    team_id: int,
+    workflow_id: str,
+    skill_id: str | None,
+    request: Request | None = None,
 ) -> AsyncIterator[bytes]:
-    """Yield SSE-formatted bytes for a wizard session subscription.
+    """Stream SSE bytes for a wizard session subscription.
 
-    If `skill_id` is provided, scope to that exact pair. Otherwise pattern-
-    subscribe to all skills under (team, workflow_id).
-
-    Emits the current latest session (if any) first, then forwards Redis
-    pub/sub messages. Yields heartbeat comments roughly every
-    SSE_HEARTBEAT_INTERVAL_SECONDS so proxies don't time the connection out.
-
-    Async-iterator on purpose: Django's ASGI handler collects sync iterators
-    into a list before serving (see StreamingHttpResponse.__aiter__'s sync
-    fallback). With our infinite loop that never completes, so no bytes ever
-    reach the client. An async generator lets Django stream chunk-by-chunk.
-
-    Blocking Redis calls are dispatched through sync_to_async so the event
-    loop stays responsive. The fail-closed `TeamScopedManager` is re-entered
-    inside each sync helper because team_scope is a thread-local that doesn't
-    survive the request boundary.
+    Subscribes first, then fetches initial state, so publishes that race the
+    snapshot are buffered on the pubsub socket and drained on the next tick.
     """
+    started_at = time.monotonic()
 
-    def _get_initial() -> WizardSessionDTO | None:
-        with team_scope(team_id):
-            return wizard_facade.get_latest(team_id, workflow_id, skill_id)
+    async with wizard_facade.subscribe_to_updates(team_id, workflow_id, skill_id) as pubsub:
 
-    latest = await sync_to_async(_get_initial, thread_sensitive=False)()
-    if latest is not None:
-        yield _format_event(latest)
+        def _get_initial() -> WizardSessionDTO | None:
+            with team_scope(team_id):
+                return wizard_facade.get_latest(team_id, workflow_id, skill_id)
 
-    pubsub_cm = wizard_facade.subscribe_to_updates(team_id, workflow_id, skill_id)
-    pubsub = await sync_to_async(pubsub_cm.__enter__, thread_sensitive=False)()
-    try:
+        latest = await sync_to_async(_get_initial, thread_sensitive=False)()
+        if latest is not None:
+            yield b"data: " + wizard_facade.serialize_dto(latest) + b"\n\n"
+
         last_heartbeat = time.monotonic()
         while True:
-            message = await sync_to_async(pubsub.get_message, thread_sensitive=False)(timeout=SSE_POLL_TIMEOUT_SECONDS)
+            if time.monotonic() - started_at >= SSE_MAX_DURATION_SECONDS:
+                yield b"event: end\ndata: reconnect\n\n"
+                return
+
+            if request is not None:
+                is_disconnected = getattr(request, "is_disconnected", None)
+                if is_disconnected is not None:
+                    try:
+                        if await is_disconnected():
+                            return
+                    except Exception:
+                        pass
+
+            message = await pubsub.get_message(timeout=SSE_POLL_TIMEOUT_SECONDS)
             now = time.monotonic()
 
-            # `message` type is direct-channel; `pmessage` is pattern subscribe.
+            # `pmessage` arrives via pattern subscribe; `message` via exact.
             if message and message.get("type") in ("message", "pmessage"):
                 yield b"data: " + message["data"] + b"\n\n"
                 last_heartbeat = now
@@ -309,23 +313,3 @@ async def _wizard_session_event_stream(
             if now - last_heartbeat >= SSE_HEARTBEAT_INTERVAL_SECONDS:
                 yield b": ping\n\n"
                 last_heartbeat = now
-
-            # Cooperate with the event loop so other ASGI work can progress.
-            await asyncio.sleep(0)
-    finally:
-        await sync_to_async(pubsub_cm.__exit__, thread_sensitive=False)(None, None, None)
-
-
-def _format_event(dto: WizardSessionDTO) -> bytes:
-    payload = orjson.dumps(dto, default=_json_default)
-    return b"data: " + payload + b"\n\n"
-
-
-def _json_default(value: Any) -> Any:
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return dataclasses.asdict(value)
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, datetime):
-        return value.isoformat()
-    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")

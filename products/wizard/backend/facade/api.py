@@ -8,8 +8,8 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
@@ -17,12 +17,7 @@ from products.wizard.backend.logic import pubsub, sessions
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
-    """Upsert a session and report whether the row was newly created.
-
-    Returns `(dto, created)` so consumers can distinguish 201 from 200 in
-    their response semantics, and so retry-aware clients can short-circuit
-    after the first successful write.
-    """
+    """Returns `(dto, created)` so callers can pick 201 vs 200."""
     return sessions.upsert_session(params)
 
 
@@ -42,12 +37,6 @@ def list_for_team(
     offset: int = 0,
     limit: int | None = None,
 ) -> list[WizardSessionDTO]:
-    """List sessions for a team, ordered by started_at desc.
-
-    `offset`/`limit` are applied at the SQL layer; callers should pass a
-    bounded `limit` for any user-facing list endpoint so the read cost stays
-    bounded regardless of per-team row count.
-    """
     return sessions.list_sessions(
         team_id,
         workflow_id=workflow_id,
@@ -57,16 +46,15 @@ def list_for_team(
     )
 
 
-@contextmanager
-def subscribe_to_updates(
+@asynccontextmanager
+async def subscribe_to_updates(
     team_id: int,
     workflow_id: str,
     skill_id: str | None = None,
-) -> Iterator[Any]:
-    """Subscribe to wizard-session pub/sub updates for SSE fanout.
-
-    Exposed through the facade so the presentation layer doesn't import
-    from `logic` directly (enforced by import-linter).
-    """
-    with pubsub.subscribe(team_id, workflow_id, skill_id) as ps:
+) -> AsyncIterator[Any]:
+    async with pubsub.subscribe(team_id, workflow_id, skill_id) as ps:
         yield ps
+
+
+def serialize_dto(dto: WizardSessionDTO) -> bytes:
+    return pubsub.serialize_dto(dto)
