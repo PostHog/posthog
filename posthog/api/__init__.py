@@ -63,6 +63,7 @@ from products.data_warehouse.backend.api import (
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
+from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -1426,6 +1427,13 @@ projects_router.register(
     r"visual_review/runs",
     VisualReviewRunViewSet,
     "project_visual_review_runs",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"engineering_analytics",
+    EngineeringAnalyticsViewSet,
+    "project_engineering_analytics",
     ["project_id"],
 )
 

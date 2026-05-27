@@ -4451,6 +4451,21 @@
             "readOnlyHint": true
         }
     },
+    "pr-lifecycle": {
+        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". metric_quality is \"partial\" — it covers CI events only; review and comment events are not yet available.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "PR lifecycle timeline",
+        "title": "PR lifecycle timeline",
+        "required_scopes": ["engineering_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "project-get": {
         "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
         "category": "Core",
@@ -5475,6 +5490,21 @@
             "readOnlyHint": false
         }
     },
+    "time-to-merge": {
+        "description": "How long pull requests take from open to merge over a time window: median and p95 seconds plus a PR count, either overall or split per author. Bots and drafts are excluded. Use this to answer \"how long are PRs sitting before they merge\" or to compare an author's throughput to the baseline. metric_quality is \"coarse\" — it measures open-to-merge, combining draft and ready-for-review time, because the warehouse holds current PR state rather than a transition history.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "PR time to merge",
+        "title": "PR time to merge",
+        "required_scopes": ["engineering_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",
         "category": "Feature flags",
@@ -6280,6 +6310,21 @@
         "summary": "Summarize web analytics",
         "title": "Summarize web analytics",
         "required_scopes": ["web_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflow-report": {
+        "description": "Report on GitHub Actions workflow health over a time window: per workflow, the run count, success rate (0.0–1.0), median and p95 duration in seconds, and the last failure time, sorted slowest median first. Use this to answer \"what is slow or flaky in CI right now\" or to check whether a known long-pole workflow is holding up a pull request. metric_quality is always \"precise\" — computed directly from CI run records.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "CI workflow report",
+        "title": "CI workflow report",
+        "required_scopes": ["engineering_analytics:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

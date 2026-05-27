@@ -74,6 +74,7 @@ depends_on = [
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
+    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
