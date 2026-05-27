@@ -94,6 +94,12 @@ class MarkObservationFailedInputs(BaseModel, frozen=True):
     error_reason: str
 
 
+class MarkObservationIneligibleInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    # `kind:message` — kind is one of IneligibleSessionKind values.
+    error_reason: str
+
+
 class FetchSessionEventsInputs(BaseModel, frozen=True):
     observation_id: UUID
     team_id: int

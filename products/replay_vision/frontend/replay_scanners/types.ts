@@ -1,15 +1,89 @@
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
-import type { PatchedReplayScannerApi, ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
+import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+
+const INELIGIBLE_KIND_LABELS: Record<IneligibleKind, string> = {
+    no_recording: 'No recording',
+    too_short: 'Too short',
+    too_inactive: 'Too inactive',
+    too_long: 'Too long',
+    no_events: 'No events',
+}
+
+export type FailureKind =
+    | 'provider_transient'
+    | 'provider_rejected'
+    | 'rasterization_failed'
+    | 'validation_failed'
+    | 'internal_error'
+
+const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
+    provider_transient: {
+        label: 'AI provider unavailable',
+        description: 'The AI provider was temporarily unreachable. PostHog will retry on the next schedule fire.',
+    },
+    provider_rejected: {
+        label: 'AI provider rejected video',
+        description: "The AI provider couldn't process this recording. Other recordings should work.",
+    },
+    rasterization_failed: {
+        label: 'Rasterization failed',
+        description: "PostHog couldn't render this recording into a video. Other recordings should work.",
+    },
+    validation_failed: {
+        label: 'AI output invalid',
+        description:
+            "The AI's response didn't match the scanner schema after several attempts. Try simplifying the scanner prompt.",
+    },
+    internal_error: {
+        label: 'Internal error',
+        description: 'An unexpected PostHog error occurred. Please contact support.',
+    },
+}
+
+const FAILURE_KIND_LABELS = Object.fromEntries(
+    Object.entries(FAILURE_KINDS).map(([kind, meta]) => [kind, meta.label])
+) as Record<FailureKind, string>
+
+export type ParsedReason<K extends string> = { kind: K; label: string; message: string }
+
+function parseKindReason<K extends string>(error_reason: string, labels: Record<K, string>): ParsedReason<K> | null {
+    // The backend formats `error_reason` as `kind:human message`; fall back to a generic label on drift.
+    const idx = error_reason.indexOf(':')
+    if (idx <= 0) {
+        return null
+    }
+    const kind = error_reason.slice(0, idx)
+    if (!(kind in labels)) {
+        return null
+    }
+    return {
+        kind: kind as K,
+        label: labels[kind as K],
+        message: error_reason.slice(idx + 1).trim(),
+    }
+}
+
+export function parseIneligibleReason(error_reason: string): ParsedReason<IneligibleKind> | null {
+    return parseKindReason(error_reason, INELIGIBLE_KIND_LABELS)
+}
+
+export function parseFailureReason(error_reason: string): ParsedReason<FailureKind> | null {
+    return parseKindReason(error_reason, FAILURE_KIND_LABELS)
+}
+
+export function failureKindDescription(kind: FailureKind): string {
+    return FAILURE_KINDS[kind].description
+}
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL = 'gemini-3-flash'
+export const DEFAULT_MODEL = 'gemini-3-flash-preview'
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
@@ -17,8 +91,8 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 ]
 
 export const MODEL_OPTIONS: { value: string; label: string }[] = [
-    { value: 'gemini-3-flash', label: 'Gemini 3 Flash' },
-    { value: 'gemini-3-flash-lite', label: 'Gemini 3 Flash Lite' },
+    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3 Flash Lite' },
 ]
 
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [
@@ -162,27 +236,4 @@ export function scannerToPatchedApiBody(
     scanner: Partial<ReplayScanner> | Record<string, unknown>
 ): PatchedReplayScannerApi {
     return scanner as unknown as PatchedReplayScannerApi
-}
-
-export function observationsFromApi(apis: readonly ReplayObservationApi[]): ReplayObservation[] {
-    return apis.map((api) => api as unknown as ReplayObservation)
-}
-
-export interface ReplayObservation {
-    id: string
-    scanner_id: string
-    session_id: string
-    status: ObservationStatus
-    error_reason: string
-    workflow_id: string
-    scanner_version: number
-    scanner_config_snapshot: Record<string, unknown>
-    model_used: string
-    provider_used: string
-    triggered_by: 'schedule' | 'on_demand'
-    triggered_by_user: { id: number; first_name: string } | null
-    result: Record<string, unknown> | null
-    created_at: string
-    started_at: string | null
-    completed_at: string | null
 }

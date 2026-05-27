@@ -1,1 +1,1 @@
-0005_alter_mcpsession_duration_seconds_and_more
+0006_alter_mcpsession_distinct_id_and_more

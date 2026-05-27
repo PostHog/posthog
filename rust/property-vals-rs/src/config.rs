@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+use std::convert::Infallible;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::{num::ParseIntError, str::FromStr};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -44,6 +47,9 @@ pub struct Config {
     #[envconfig(default = "100")]
     pub rollout_percentage: u8,
 
+    #[envconfig(default = "")]
+    pub excluded_property_keys: ExcludedPropertyKeys,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
@@ -68,6 +74,32 @@ impl FromStr for TeamList {
             teams.push(team.parse()?);
         }
         Ok(TeamList { teams })
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ExcludedPropertyKeys {
+    pub keys: Arc<HashSet<String>>,
+}
+
+impl ExcludedPropertyKeys {
+    pub fn contains(&self, key: &str) -> bool {
+        self.keys.contains(key)
+    }
+}
+
+impl FromStr for ExcludedPropertyKeys {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let keys: HashSet<String> = s
+            .split(',')
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect();
+        Ok(ExcludedPropertyKeys {
+            keys: Arc::new(keys),
+        })
     }
 }
 

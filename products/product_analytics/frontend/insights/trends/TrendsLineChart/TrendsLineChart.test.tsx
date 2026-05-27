@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
@@ -17,6 +17,10 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
+
+// The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
+// the default 1s waitFor / findBy timeout is too tight and flakes randomly.
+configure({ asyncUtilTimeout: 5000 })
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -469,6 +473,32 @@ describe('TrendsLineChart', () => {
             expect(labels).not.toContain('8')
             // Pageview labels should still be there.
             expect(labels).toContain('210')
+        })
+    })
+
+    describe('axis labels', () => {
+        it.each([
+            {
+                name: 'renders custom axis titles from the trends filter',
+                trendsFilter: { xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' },
+                expectedX: 'Signup date',
+                expectedY: 'Unique users',
+            },
+            {
+                name: 'renders no axis titles when the trends filter omits them',
+                trendsFilter: undefined,
+                expectedX: null,
+                expectedY: null,
+            },
+        ])('$name', async ({ trendsFilter, expectedX, expectedY }) => {
+            renderInsight({
+                query: buildTrendsQuery({ trendsFilter }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(getHogChart().xAxisLabel()).toBe(expectedX)
+            expect(getHogChart().yAxisLabel()).toBe(expectedY)
         })
     })
 

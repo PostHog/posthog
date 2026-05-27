@@ -1,10 +1,15 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
-import type { MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
+import {
+    mcpAnalyticsSessionsGenerateIntent,
+    mcpAnalyticsSessionsList,
+    mcpAnalyticsSessionsToolCalls,
+} from '../generated/api'
+import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
 import type { mcpSessionsLogicType } from './mcpSessionsLogicType'
 
 export interface MCPSessionsFilters {
@@ -112,9 +117,30 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return []
                     }
-                    const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    // session_id comes from untrusted event properties — encode it so path/query
+                    // delimiters can't redirect this request to another same-origin endpoint.
+                    const response = await mcpAnalyticsSessionsToolCalls(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId)
+                    )
                     breakpoint()
                     return [...(response.results ?? [])]
+                },
+            },
+        ],
+        generatedIntent: [
+            null as MCPSessionIntentApi | null,
+            {
+                generateIntent: async (sessionId: string) => {
+                    if (!values.currentProjectId || !sessionId) {
+                        return null
+                    }
+                    // session_id comes from untrusted event properties — encode it so path/query
+                    // delimiters can't redirect this POST to another same-origin endpoint.
+                    return await mcpAnalyticsSessionsGenerateIntent(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId)
+                    )
                 },
             },
         ],
@@ -147,6 +173,23 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 loadSessions: () => false,
             },
         ],
+        intentOverrides: [
+            {} as Record<string, string>,
+            {
+                generateIntentSuccess: (state, { generatedIntent }) =>
+                    generatedIntent?.intent
+                        ? { ...state, [generatedIntent.session_id]: generatedIntent.intent }
+                        : state,
+            },
+        ],
+        generatingSessionId: [
+            null as string | null,
+            {
+                generateIntent: (_, sessionId) => sessionId,
+                generateIntentSuccess: () => null,
+                generateIntentFailure: () => null,
+            },
+        ],
     }),
     selectors({
         selectedSession: [
@@ -157,6 +200,22 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 }
                 return sessions.find((session) => session.session_id === selectedSessionId) ?? null
             },
+        ],
+        selectedSessionIntent: [
+            (s) => [s.selectedSession, s.intentOverrides, s.selectedSessionId],
+            (selectedSession, intentOverrides, selectedSessionId): string => {
+                if (selectedSessionId && intentOverrides[selectedSessionId]) {
+                    return intentOverrides[selectedSessionId]
+                }
+                return selectedSession?.intent ?? ''
+            },
+        ],
+        // True only while a generation for the *currently selected* session is running, so a
+        // generation kicked off for another session never shows a spinner on this one.
+        isSelectedSessionGenerating: [
+            (s) => [s.generatedIntentLoading, s.generatingSessionId, s.selectedSessionId],
+            (generatedIntentLoading, generatingSessionId, selectedSessionId): boolean =>
+                generatedIntentLoading && generatingSessionId === selectedSessionId,
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -171,6 +230,11 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             if (sessionId) {
                 actions.loadToolCalls(sessionId)
             }
+        },
+        // The button just resets to its idle state on failure; surface a toast so the user
+        // knows the request failed (e.g. a 503 when intent generation is unavailable).
+        generateIntentFailure: () => {
+            lemonToast.error('Could not generate the session intent. Please try again.')
         },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.
