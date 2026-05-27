@@ -1296,6 +1296,36 @@ export interface PatchedBatchExportRequestApi {
 }
 
 /**
+ * Typed output for view set `list`.
+ */
+export interface ListOutputApi {
+    /** ID of the file download batch export run. */
+    id: string
+    /** Current status of the file download batch export run.
+
+  * `Cancelled` - Cancelled
+  * `Completed` - Completed
+  * `ContinuedAsNew` - Continued As New
+  * `Failed` - Failed
+  * `FailedRetryable` - Failed Retryable
+  * `FailedBilling` - Failed Billing
+  * `Terminated` - Terminated
+  * `TimedOut` - Timedout
+  * `Running` - Running
+  * `Starting` - Starting */
+    status: BatchExportRunStatusEnumApi
+}
+
+export interface PaginatedListOutputListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ListOutputApi[]
+}
+
+/**
  * Typed configuration for a FileDownload batch-export destination.
  */
 export interface FileDownloadDestinationFileConfigApi {
@@ -1663,6 +1693,17 @@ export type BatchExportsLogsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type FileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type FileDownloadBatchExportsLogsRetrieveParams = {
