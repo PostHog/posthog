@@ -44,9 +44,10 @@ pub fn parse_expr(src: &str, is_internal: bool) -> Result<Value, ParseError> {
 pub fn parse_expr_with_emit<E: Emitter + Clone>(
     emit: E,
     src: &str,
-    _is_internal: bool,
+    is_internal: bool,
 ) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
+    p.suppress_pos = is_internal;
     // Bare-list lambda `IDENT (, IDENT)* -> body` is only valid at the
     // outermost expression level; inside an argument list each item parses
     // independently and the commas are separators. So we try it here
@@ -304,6 +305,12 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     pub(crate) is_ascii_src: bool,
     /// Live recursive-descent depth shared across expression / subquery / statement nesting; bumped on entry to each recursive entry point, decremented on exit. Enforces `MAX_RECURSION_DEPTH`.
     pub(crate) recursion_depth: u32,
+    /// When set, every node is emitted position-less (`pos_obj` returns
+    /// `null`). Mirrors cpp's `is_internal` flag, which gates every
+    /// `addPositionInfo(json, ctx)` call: a synthetic fragment parsed with
+    /// `start=None` (e.g. an injected database `ExpressionField`) carries no
+    /// meaningful source spans, so cpp emits none and we must match.
+    pub(crate) suppress_pos: bool,
     /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,
 }
@@ -343,6 +350,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
             recursion_depth: 0,
+            suppress_pos: false,
             emit,
         })
     }
@@ -462,6 +470,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// character-based, so byte offsets need converting through `src`
     /// slicing for any source containing non-ASCII bytes.
     pub(crate) fn pos_obj(&self, byte_offset: usize) -> E::Value {
+        // `is_internal` parses (cpp's term) emit no positions at all — every
+        // node stays at its dataclass `start`/`end` default. Returning `null`
+        // here is the single chokepoint: `with_pos` / `replace_pos` then leave
+        // the node bare (json `start:null` → None; py setattr of None is a
+        // no-op on the already-None default), matching cpp's `!is_internal`
+        // gate on `addPositionInfo`.
+        if self.suppress_pos {
+            return self.emit.null();
+        }
         let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
         // ASCII fast path: byte == char in every dimension. Avoid the
         // `byte_to_char_index` binary search and the line-slice chars

@@ -11,7 +11,7 @@ import hashlib
 from typing import Any, Optional, cast
 
 import pytest
-from posthog.test.base import BaseTest, MemoryLeakTestMixin
+from posthog.test.base import BaseTest, MemoryLeakTestMixin, no_memory_leak_check
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -4877,6 +4877,33 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
             for src in cases:
                 self._assert_ast(src, "select")
+
+        def test_values_clause_in_from_carries_positions(self):
+            # `tableExpr: LPAREN valuesClause RPAREN` — the ValuesQuery node spans the
+            # inner `VALUES (...)` (cpp's valuesClause ctx), not the stripped outer
+            # parens. Pinned with positions so a regression that drops the span (or
+            # wraps the outer parens) fails here on rust / rust-py.
+            cases = (
+                "SELECT * FROM (VALUES (1, 'a'))",
+                "SELECT * FROM (VALUES (1, 'a')) AS v(id, name)",
+                "SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))",
+            )
+            for src in cases:
+                self._assert_ast(src, "select")
+
+        @no_memory_leak_check  # re-clears positions per run (allocates); correctness pin, runs once
+        def test_internal_parse_emits_no_positions(self):
+            # `parse_expr(..., start=None)` is cpp's `is_internal` mode: a synthetic
+            # fragment (e.g. an injected database `ExpressionField`) has no meaningful
+            # source span, so cpp gates off every `addPositionInfo` and every node is
+            # position-less. All backends must match — a backend that emits spans here
+            # diverges from cpp on the many queries that join through person overrides.
+            src = "if(not(empty(override.distinct_id)), override.person_id, event_person_id)"
+            internal = parse_expr(src, start=None, backend=backend)
+            positioned = parse_expr(src, start=0, backend=backend)
+            self.assertEqual(internal, clear_locations(positioned))
+            self.assertIsNone(internal.start)
+            self.assertIsNone(internal.end)
 
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.

@@ -15937,6 +15937,153 @@
   }
   '''
 # ---
+# name: test_values_clause_in_from_carries_positions[SELECT_FROM_VALUES_1_a-487411e6]
+  '''
+  {
+    end: 31
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 31
+      start: 14
+      table: {
+        end: 30
+        rows: [
+          [
+            {
+              end: 24
+              start: 23
+              value: 1
+            },
+            {
+              end: 29
+              start: 26
+              value: "a"
+            }
+          ]
+        ]
+        start: 15
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_values_clause_in_from_carries_positions[SELECT_FROM_VALUES_1_a_AS_v_id_name-49f6b2eb]
+  '''
+  {
+    end: 46
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      alias: "v"
+      column_aliases: [
+        "id",
+        "name"
+      ]
+      end: 46
+      start: 14
+      table: {
+        end: 30
+        rows: [
+          [
+            {
+              end: 24
+              start: 23
+              value: 1
+            },
+            {
+              end: 29
+              start: 26
+              value: "a"
+            }
+          ]
+        ]
+        start: 15
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_values_clause_in_from_carries_positions[SELECT_FROM_VALUES_1_george_created_2_jack_deleted-4f07d09a]
+  '''
+  {
+    end: 71
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 71
+      start: 14
+      table: {
+        end: 70
+        rows: [
+          [
+            {
+              end: 24
+              start: 23
+              value: 1
+            },
+            {
+              end: 34
+              start: 26
+              value: "george"
+            },
+            {
+              end: 45
+              start: 36
+              value: "created"
+            }
+          ],
+          [
+            {
+              end: 50
+              start: 49
+              value: 2
+            },
+            {
+              end: 58
+              start: 52
+              value: "jack"
+            },
+            {
+              end: 69
+              start: 60
+              value: "deleted"
+            }
+          ]
+        ]
+        start: 15
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
 # name: test_window_frame_between_falls_back_to_field[select_1_from_a_window_w_as_range_between_1_preceding_and_2_-74bc5cc4]
   '''
   {
