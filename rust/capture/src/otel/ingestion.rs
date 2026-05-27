@@ -85,8 +85,9 @@ pub fn parse_request(
 
         patch_otel_json(&mut json_value);
 
-        serde_json::from_value(json_value)
-            .map_err(|e| CaptureError::RequestParsingError(format!("Invalid OTLP trace format: {e}")))
+        serde_json::from_value(json_value).map_err(|e| {
+            CaptureError::RequestParsingError(format!("Invalid OTLP trace format: {e}"))
+        })
     } else {
         Err(CaptureError::RequestDecodingError(
             "Content-Type must be application/x-protobuf or application/json".to_string(),

@@ -591,11 +591,13 @@ fn process_event_part(
     }
 
     // Parse the event JSON
-    let event_json_str = std::str::from_utf8(&field_data)
-        .map_err(|_| CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string()))?;
+    let event_json_str = std::str::from_utf8(&field_data).map_err(|_| {
+        CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string())
+    })?;
 
-    let event_json = serde_json::from_str(event_json_str)
-        .map_err(|_| CaptureError::RequestParsingError("Event part must be valid JSON".to_string()))?;
+    let event_json = serde_json::from_str(event_json_str).map_err(|_| {
+        CaptureError::RequestParsingError("Event part must be valid JSON".to_string())
+    })?;
 
     let part_info = PartInfo {
         name: "event".to_string(),
@@ -709,9 +711,11 @@ async fn retrieve_multipart_parts(
     accepted_parts.push(event_metadata.event_part_info);
 
     // Parse each part
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}")))?
+    {
         part_count += 1;
 
         // Extract all field information before consuming the field
