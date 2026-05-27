@@ -245,6 +245,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
             )
 
+        tag_contains_user_hogql()
         select: list[ast.Expr] = [
             ast.Alias(
                 alias="timestamp",

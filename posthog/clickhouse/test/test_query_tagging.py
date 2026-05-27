@@ -307,6 +307,18 @@ def test_tag_contains_user_hogql_is_idempotent():
     assert get_query_tag_value("contains_user_hogql") is True
 
 
+def test_tag_contains_user_hogql_short_circuits_after_first_call():
+    # Repeated calls (recursive property_to_expr, breakdown loops, @property accessors)
+    # must skip the model_copy(deep=True) inside tag_queries after the first call.
+    reset_query_tags()
+    tag_contains_user_hogql()
+    first_tags = get_query_tags()
+    tag_contains_user_hogql()
+    tag_contains_user_hogql()
+    # Same object — no fresh copy was set by the no-op calls
+    assert get_query_tags() is first_tags
+
+
 def test_contains_user_hogql_excluded_from_json_when_none():
     qt = QueryTags(git_commit="test", container_hostname="test", service_name="test")
     assert "contains_user_hogql" not in qt.to_json()
