@@ -32,7 +32,7 @@ export function ObservationStatusTag({ status }: { status: ReplayObservationApi[
     return <LemonTag type="default">Pending</LemonTag>
 }
 
-function readResult(observation: ReplayObservationApi): Record<string, unknown> | null {
+export function readResult(observation: ReplayObservationApi): Record<string, unknown> | null {
     const output = observation.scanner_result?.model_output
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
@@ -90,7 +90,7 @@ export function CitedText({ observation, text }: { observation: ReplayObservatio
     return <>{parts}</>
 }
 
-function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
+export function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
     const config = snapshot?.scanner_config
     return config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
 }
@@ -143,28 +143,38 @@ export function ObservationPrimaryOutput({
     }
 
     if (scannerType === 'classifier') {
-        const tags = Array.isArray(result.tags) ? (result.tags as string[]) : []
-        const fixedTags = new Set(Array.isArray(config.tags) ? (config.tags as string[]) : [])
+        const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
+        const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
+        const empty = fixedTags.length === 0 && freeformTags.length === 0
         return (
             <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap gap-1">
-                    {tags.length === 0 ? (
+                    {empty ? (
                         <span className="text-muted text-sm">No tags</span>
                     ) : (
-                        tags.map((tag) => {
-                            const isFixed = fixedTags.has(tag)
-                            return (
+                        <>
+                            {fixedTags.map((tag) => (
                                 <LemonTag
-                                    key={tag}
+                                    key={`fixed-${tag}`}
                                     size="medium"
-                                    type={isFixed ? 'option' : 'default'}
-                                    icon={isFixed ? undefined : <IconSparkles />}
-                                    title={isFixed ? 'From the configured tag list' : 'Free-form tag from the model'}
+                                    type="option"
+                                    title="From the configured tag list"
                                 >
                                     {tag}
                                 </LemonTag>
-                            )
-                        })
+                            ))}
+                            {freeformTags.map((tag) => (
+                                <LemonTag
+                                    key={`freeform-${tag}`}
+                                    size="medium"
+                                    type="default"
+                                    icon={<IconSparkles />}
+                                    title="Free-form tag from the model"
+                                >
+                                    {tag}
+                                </LemonTag>
+                            ))}
+                        </>
                     )}
                 </div>
                 {prompt && <span className={promptClass}>{prompt}</span>}

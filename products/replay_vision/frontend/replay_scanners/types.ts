@@ -155,6 +155,7 @@ export interface ClassifierScannerConfig {
     prompt: string
     tags: string[]
     multi_label: boolean
+    allow_freeform_tags?: boolean
 }
 
 export interface ScorerScannerConfig {

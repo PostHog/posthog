@@ -21,8 +21,9 @@ import {
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
+    readConfig,
+    readResult,
 } from '../components/ObservationCard'
-import type { ReplayObservationApi } from '../generated/api.schemas'
 import { modelLabel, scannerTypeLabel } from '../replay_scanners/types'
 import { replayObservationLogic } from './replayObservationLogic'
 import { ReplayObservationSceneLogicProps, replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -31,11 +32,6 @@ export const scene: SceneExport<ReplayObservationSceneLogicProps> = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-function readResult(observation: ReplayObservationApi): Record<string, unknown> | null {
-    const output = observation.scanner_result?.model_output
-    return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
 export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): JSX.Element {
@@ -77,10 +73,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                 ? `On demand · ${observation.triggered_by_user.first_name || observation.triggered_by_user.email}`
                 : 'On demand'
             : 'Schedule'
-    const snapshotConfig =
-        snapshot?.scanner_config && typeof snapshot.scanner_config === 'object'
-            ? (snapshot.scanner_config as Record<string, unknown>)
-            : {}
+    const snapshotConfig = readConfig(snapshot ?? null)
     const prompt = typeof snapshotConfig.prompt === 'string' ? snapshotConfig.prompt : null
     const configuredTags =
         scannerType === 'classifier' && Array.isArray(snapshotConfig.tags)
