@@ -47,7 +47,10 @@ KAFKA_PRODUCE_FLUSH_TIMEOUT_S = 30
 # typical). The 4-minute ceiling absorbs CH replica failover / one slow shard /
 # a Kafka leader election.
 SCORE_CHUNK_ACTIVITY_TIMEOUT = timedelta(minutes=4)
-SCORE_CHUNK_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
+# Must be > CH_FEATURE_QUERY_TIMEOUT_S — we don't heartbeat while the CH
+# SELECT is in flight, so a tied timeout races CH max_execution_time
+# against Temporal's heartbeat watchdog.
+SCORE_CHUNK_HEARTBEAT_TIMEOUT = timedelta(seconds=90)
 LIST_CHUNKS_ACTIVITY_TIMEOUT = timedelta(seconds=30)
 
 # Parent workflow has to outlive its longest in-flight chunk activity, but

@@ -1,29 +1,4 @@
-"""ClickHouse integration tests for `fetch_features_sql` / `count_unscored_sql`.
-
-Targets the invariants that keep the chunked feature fetch correct after the
-move from `raw_sessions_v3` to `session_replay_events`:
-
-1. Primary-key-seek-friendly filter. `session_replay_features` is ordered by
-   `(team_id, session_id)`, so the GLOBAL IN must filter on the full tuple
-   (`(team_id, session_id) GLOBAL IN ...`) — not just `session_id`.
-
-2. Deterministic chunking. CH inlines `WITH ... AS` as a subquery, so
-   `eligible_sessions` is evaluated twice. Without `ORDER BY` before LIMIT, the two
-   evaluations can return different subsets and the inner join silently drops
-   the difference.
-
-3. Tenant isolation. The final JOIN must include both `team_id` AND `session_id`
-   — losing team_id wastes the index prefix AND creates a tenant-leak surface.
-
-The shape tests guard against silent regressions in the SQL string. The CH
-integration tests prove the join actually returns rows for matching IDs and
-zero rows for cross-tenant scenarios.
-
-Note: the previous reinterpretAsUUID byte-swap dance disappeared when we
-moved off raw_sessions_v3.session_id_v7 (UInt128) and onto
-session_replay_events.session_id (hyphenated UUID String) — the join is
-now direct String-to-String.
-"""
+"""ClickHouse tests for `fetch_features_sql` / `count_unscored_sql`."""
 
 from __future__ import annotations
 
@@ -41,27 +16,12 @@ from posthog.temporal.tests.session_replay.surfacing_scoring_sweep.ch_insert_hel
 
 
 class TestFetchFeaturesSqlShape:
-    """Regression-proof the SQL string against re-introduction of past bugs."""
-
-    def test_targets_session_replay_events_not_raw_sessions_v3(self) -> None:
+    def test_targets_session_replay_events(self) -> None:
         sql = fetch_features_sql()
-        # Score lives on session_replay_events now — see migration
-        # 0259_add_surfacing_score_to_session_replay_events.py.
         assert "FROM session_replay_events" in sql
-        assert "raw_sessions_v3" not in sql
-
-    def test_no_byte_swap_dance(self) -> None:
-        sql = fetch_features_sql()
-        # session_id is a String on session_replay_events; the prior
-        # reinterpretAsUUID(bitOr(bitShiftLeft, bitShiftRight)) workaround for
-        # UInt128 storage on raw_sessions_v3 should be gone.
-        assert "reinterpretAsUUID" not in sql
-        assert "bitShiftLeft" not in sql
 
     def test_global_in_filters_on_team_id_and_session_id_tuple(self) -> None:
         sql = fetch_features_sql()
-        # session_replay_features is ORDER BY (team_id, session_id) — tuple lookup
-        # is what enables granule skipping.
         assert "(f.team_id, f.session_id) GLOBAL IN" in sql
 
     def test_eligible_sessions_orders_before_limit(self) -> None:
@@ -75,20 +35,12 @@ class TestFetchFeaturesSqlShape:
 
     def test_final_join_uses_team_id_and_session_id(self) -> None:
         sql = fetch_features_sql()
-        # Joining on session_id alone is theoretically safe (UUIDs are unique-ish)
-        # but losing the team_id check both wastes the index prefix and creates a
-        # tenant-leak surface — keep the assertion strict.
         assert "rf.team_id = e.team_id AND rf.session_id = e.session_id" in sql
 
     def test_surfaces_distinct_id_and_min_first_timestamp(self) -> None:
-        """The producer needs distinct_id (for shard routing) and min_first_timestamp
-        (for identity-value Kafka payload) — see `_build_partial_row` for why.
-        """
         sql = fetch_features_sql()
-        # In the eligible_sessions CTE
         assert "any(distinct_id) AS distinct_id" in sql
         assert "min(min_first_timestamp) AS min_first_timestamp" in sql
-        # Carried into the final SELECT
         assert "e.distinct_id," in sql
         assert "e.min_first_timestamp," in sql
 
@@ -100,15 +52,6 @@ class TestFetchFeaturesSqlShape:
 
 
 class TestEligibleSessionsJoinClickhouse(ClickhouseTestMixin, BaseTest):
-    """End-to-end check that the (team_id, session_id) join lines up against
-    real CH and that the HAVING-based unscored filter actually skips scored rows.
-
-    Inserts into ``sharded_session_replay_events`` (with explicit ``argMinState``
-    for aggregate columns) and ``writable_session_replay_features``. We don't
-    run the full ``fetch_features_sql`` here — the eligibility join is what
-    we're guarding.
-    """
-
     SESSION_ID = "01939d3e-7c80-7b56-bf8d-1e74e5c3b3a1"
 
     def setUp(self) -> None:
@@ -137,11 +80,6 @@ class TestEligibleSessionsJoinClickhouse(ClickhouseTestMixin, BaseTest):
 
     @staticmethod
     def _eligible_sessions_join_sql() -> str:
-        """A trimmed copy of fetch_features_sql's eligible_sessions + INNER JOIN.
-
-        We can't run the full `fetch_features_sql` against the live CH schema in
-        this trimmed query — the CTE → join is exactly where past bugs lived.
-        """
         return """
         WITH eligible_sessions AS (
             SELECT
@@ -179,38 +117,29 @@ class TestEligibleSessionsJoinClickhouse(ClickhouseTestMixin, BaseTest):
         assert event_count == 42
 
     def test_team_id_isolation_in_join(self) -> None:
-        """Same UUID used by two teams must not cross over via the join."""
         other_team_id = self.team.id + 9999
         self._insert_session_replay_event(team_id=self.team.id, session_id=self.SESSION_ID)
-        # Features row only for the OTHER team — querying as our team must miss.
         self._insert_replay_features(team_id=other_team_id, session_id=self.SESSION_ID)
 
         rows = sync_execute(self._eligible_sessions_join_sql(), {"team_id": self.team.id})
         assert rows == []
 
     def test_having_excludes_scored_sessions(self) -> None:
-        """A row with a non-NULL surfacing_score must drop out of eligible_sessions."""
         scored_session = "01939d3e-7c80-7b56-bf8d-1e74e5c3b3a2"
         self._insert_session_replay_event(team_id=self.team.id, session_id=self.SESSION_ID)
         self._insert_session_replay_event(team_id=self.team.id, session_id=scored_session, surfacing_score=0.5)
-        # Features for both, so the unscored one definitely lands.
         self._insert_replay_features(team_id=self.team.id, session_id=self.SESSION_ID)
         self._insert_replay_features(team_id=self.team.id, session_id=scored_session)
 
         rows = sync_execute(self._eligible_sessions_join_sql(), {"team_id": self.team.id})
-        # Exactly the unscored session lands; the scored one is filtered by HAVING.
         assert len(rows) == 1
         assert rows[0][1] == self.SESSION_ID
 
     def test_count_unscored_excludes_scored_sessions(self) -> None:
-        """Score one of two sessions; `count_unscored_sql` should report the other one."""
         scored_session = "01939d3e-7c80-7b56-bf8d-1e74e5c3b3a2"
         self._insert_session_replay_event(team_id=self.team.id, session_id=self.SESSION_ID)
         self._insert_session_replay_event(team_id=self.team.id, session_id=scored_session, surfacing_score=0.5)
 
-        # `of_chunks=1` makes the modulo trivially match every row, so we count
-        # all unscored sessions in the lookback window.
         rows = sync_execute(count_unscored_sql(), {"lookback_days": 365, "of_chunks": 1})
-        # Other tests might leave behind unscored sessions; assert ours is included
-        # rather than equality to avoid false-flake on shared CH state.
+        # Other tests may leave residual unscored sessions on shared CH state.
         assert rows[0][0] >= 1

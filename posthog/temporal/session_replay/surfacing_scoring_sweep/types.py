@@ -55,8 +55,6 @@ class ChunkResult:
 
     chunk_id: int
     scored: int = 0
-    skipped_no_features: int = 0
-    failed: int = 0
 
 
 @dataclass
@@ -64,7 +62,5 @@ class ScoreSessionsBatchResult:
     """Aggregated result of one tick. Useful for Temporal UI / metrics surface."""
 
     total_scored: int = 0
-    total_skipped: int = 0
-    total_failed: int = 0
     chunks_dispatched: int = 0
     chunks_failed: int = 0

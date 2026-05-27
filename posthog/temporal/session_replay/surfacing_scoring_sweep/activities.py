@@ -29,7 +29,7 @@ Idempotency guarantees:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import numpy as np
@@ -88,9 +88,10 @@ def _count_unscored_in_one_bucket(lookback_days: int, of_chunks: int) -> int:
 async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksResult:
     """Build the chunk fan-out plan for one tick.
 
-    Runs a cheap COUNT against a single hash bucket to estimate total backlog.
-    If the estimate is zero we return an empty plan so the parent workflow
-    can short-circuit instead of dispatching N empty score activities.
+    We always dispatch the full fan-out: a zero sample on bucket 0 doesn't
+    mean an empty backlog (other buckets can still have work — common on
+    low-volume deploys). Empty buckets no-op cheaply via the chunk's own
+    `if df.empty` guard. The sample is only used for the log field.
     """
     lookback_days = SCORE_LOOKBACK_DAYS
     of_chunks = DEFAULT_OF_CHUNKS
@@ -98,10 +99,6 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
 
     sampled = await sync_to_async(_count_unscored_in_one_bucket, thread_sensitive=False)(lookback_days, of_chunks)
     estimated_total = sampled * of_chunks  # extrapolate from one bucket
-
-    if estimated_total == 0:
-        logger.info("surfacing_scoring_sweep.list_chunks.empty", lookback_days=lookback_days)
-        return ListChunksResult(chunks=[], estimated_unscored_sessions=0)
 
     chunks = [
         ChunkSpec(
@@ -174,10 +171,11 @@ def _build_partial_row(
       route this partial row to a different shard than the real session rows,
       forcing every read on this session into a cross-shard merge.
     """
-ts = min_first_timestamp + timedelta(microseconds=1)
-  if ts.tzinfo is None:
-      ts = ts.replace(tzinfo=timezone.utc)
-  partial_ts = format_clickhouse_timestamp(ts)
+    ts = min_first_timestamp + timedelta(microseconds=1)
+    # Force UTC: naive datetimes get interpreted in the worker's local TZ.
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    partial_ts = format_clickhouse_timestamp(ts)
     return {
         "session_id": session_id,
         "team_id": team_id,

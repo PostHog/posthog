@@ -85,7 +85,7 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
                 # Two attempts: the second is the next 5-min tick's natural retry.
                 # Higher attempts bleed into the next tick's wall-time budget.
                 maximum_attempts=2,
-                non_retryable_error_types=["FeatureValidationError"],
+                non_retryable_error_types=["FeatureValidationError", "ScoreRangeError"],
             ),
         )
 
@@ -107,8 +107,6 @@ def _summarize(chunks: list[ChunkSpec], results: list[ChunkResult | BaseExceptio
                 )
             continue
         summary.total_scored += r.scored
-        summary.total_skipped += r.skipped_no_features
-        summary.total_failed += r.failed
     workflow.logger.info(
         "surfacing_scoring_sweep.tick_done",
         chunks_dispatched=summary.chunks_dispatched,
