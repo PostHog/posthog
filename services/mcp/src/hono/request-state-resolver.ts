@@ -62,7 +62,7 @@ export class RequestStateResolver {
         const reqCtx = new RequestContext(this.redis, this.env, props)
         const context = await reqCtx.getContext()
 
-        const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = props
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = props
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -125,16 +125,18 @@ export class RequestStateResolver {
             oauthClientName,
         })
 
-        const { useSingleExec, version } = resolveModeAndVersion({
-            mode,
+        const {
+            mode: resolvedMode,
+            useSingleExec,
+            version,
+        } = await this.resolveSessionModeAndVersion({
+            reqCtx,
+            props,
             clientProfile,
             flagVersion,
             clientVersion,
         })
-
-        if (!props.mode) {
-            props.mode = useSingleExec ? 'cli' : 'tools'
-        }
+        props.mode = resolvedMode
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
@@ -186,5 +188,46 @@ export class RequestStateResolver {
         } catch {
             return {}
         }
+    }
+
+    private async resolveSessionModeAndVersion(args: {
+        reqCtx: RequestContext
+        props: RequestProperties
+        clientProfile: MCPClientProfile
+        flagVersion: number | undefined
+        clientVersion: number | undefined
+    }): Promise<{ mode: McpMode; useSingleExec: boolean; version: number }> {
+        const { reqCtx, props, clientProfile, flagVersion, clientVersion } = args
+        const explicitMode = props.mode
+        const candidate = resolveModeAndVersion({
+            mode: explicitMode,
+            clientProfile,
+            flagVersion,
+            clientVersion,
+        })
+        const candidateMode: McpMode = candidate.useSingleExec ? 'cli' : 'tools'
+
+        if (explicitMode) {
+            return { mode: explicitMode, useSingleExec: candidate.useSingleExec, version: candidate.version }
+        }
+
+        let resolvedMode = candidateMode
+        if (props.mcpSessionId) {
+            const cachedMode = await reqCtx.sessionCache.get('mcpMode')
+            if (cachedMode) {
+                resolvedMode = cachedMode
+            } else {
+                await reqCtx.sessionCache.set('mcpMode', candidateMode)
+            }
+        }
+
+        const { useSingleExec, version } = resolveModeAndVersion({
+            mode: resolvedMode,
+            clientProfile,
+            flagVersion,
+            clientVersion,
+        })
+
+        return { mode: resolvedMode, useSingleExec, version }
     }
 }

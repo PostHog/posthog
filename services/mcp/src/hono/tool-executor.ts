@@ -71,7 +71,7 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
-        if (state.useSingleExec && toolName === 'exec') {
+        if (toolName === 'exec') {
             return this.callExecTool(params, props, state)
         }
 

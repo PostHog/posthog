@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseRequestProperties } from '@/lib/request-properties'
 import { parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 
 function parseIdFromRequest(
@@ -204,9 +205,15 @@ describe('URL Routing', () => {
                 expected: undefined,
             },
             {
-                description: 'header takes precedence over query param',
+                description: 'query param takes precedence over header',
                 headers: { 'x-posthog-mcp-mode': 'cli' },
                 params: '?mode=tools',
+                expected: 'tools' as const,
+            },
+            {
+                description: 'invalid query param falls back to header',
+                headers: { 'x-posthog-mcp-mode': 'cli' },
+                params: '?mode=banana',
                 expected: 'cli' as const,
             },
         ]
@@ -216,8 +223,21 @@ describe('URL Routing', () => {
             const headerValue = headers['x-posthog-mcp-mode'] ?? null
             const queryValue = url.searchParams.get('mode')
 
-            // Mirrors the merge order in `src/index.ts` — header wins over query param.
-            expect(parseMcpMode(headerValue || queryValue)).toBe(expected)
+            // Mirrors the merge order in `src/index.ts` — a valid query param wins over the header.
+            expect(parseMcpMode(queryValue) || parseMcpMode(headerValue)).toBe(expected)
+        })
+    })
+
+    describe('shared request property mode parsing', () => {
+        it('uses URL mode before header mode', () => {
+            const request = new Request('https://example.com/mcp?mode=tools', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-posthog-mcp-mode': 'cli',
+                },
+            })
+
+            expect(parseRequestProperties(request, {}).mode).toBe('tools')
         })
     })
 

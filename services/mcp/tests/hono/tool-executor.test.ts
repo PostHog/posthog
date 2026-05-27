@@ -11,11 +11,11 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import type { RequestProperties } from '@/lib/request-properties'
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { InstructionsBuilder } from '@/hono/instructions'
+import type { RequestProperties } from '@/lib/request-properties'
 import type {} from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -131,6 +131,24 @@ describe('ToolExecutor', () => {
 
             expect(result).not.toBeNull()
             expect(result.content).not.toBeNull()
+        })
+
+        it('accepts cached exec calls even when the current session is in tools mode', async () => {
+            const filteredTools = catalog
+                .getFilteredTools({ version: 2, scopes: ['*'] })
+                .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools' } },
+                makeProps({ mode: 'tools' }),
+                makeState(filteredTools, { useSingleExec: false, version: 2 })
+            )) as any
+
+            expect(result.isError).toBeFalsy()
+            const text = result.content?.[0]?.text ?? ''
+            expect(text).toContain('execute-sql')
+            expect(text).toContain('organization-get')
+            expect(text).not.toContain('feature-flag-get-all')
         })
     })
 

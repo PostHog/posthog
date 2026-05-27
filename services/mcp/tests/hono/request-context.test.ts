@@ -9,7 +9,7 @@ vi.mock('@/api/client', () => ({
 }))
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { RequestContext } from '@/hono/request-context'
+import { RequestContext, SESSION_CACHE_TTL_SECONDS } from '@/hono/request-context'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -32,6 +32,16 @@ function fakeRedis(): RedisLike {
             return n
         },
         scan: async () => ['0', [...store.keys()]],
+        ...makeRedisRateLimitStubs(),
+    }
+}
+
+function spyRedis(): RedisLike {
+    return {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del: vi.fn(async () => 0),
+        scan: vi.fn(async () => ['0', []] as [string, string[]]),
         ...makeRedisRateLimitStubs(),
     }
 }
@@ -185,6 +195,34 @@ describe('RequestContext', () => {
         it('returns the same cache instance on repeated access', () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
             expect(ctx.cache).toBe(ctx.cache)
+        })
+
+        it('uses a 14 day TTL for MCP session cache entries', async () => {
+            const redis = spyRedis()
+            const ctx = new RequestContext(redis, env, makeProps({ mcpSessionId: 'mcp-session-1' }))
+
+            await ctx.sessionCache.set('mcpMode', 'cli')
+
+            expect(redis.set).toHaveBeenCalledWith(
+                expect.stringMatching(/^mcp:session:/),
+                JSON.stringify('cli'),
+                'EX',
+                SESSION_CACHE_TTL_SECONDS
+            )
+        })
+
+        it('keeps token cache entries on the default 7 day TTL', async () => {
+            const redis = spyRedis()
+            const ctx = new RequestContext(redis, env, makeProps())
+
+            await ctx.tokenCache.set('distinctId', 'user-123')
+
+            expect(redis.set).toHaveBeenCalledWith(
+                'mcp:token:test-user:distinctId',
+                JSON.stringify('user-123'),
+                'EX',
+                7 * 24 * 60 * 60
+            )
         })
     })
 })

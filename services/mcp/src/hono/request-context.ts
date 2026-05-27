@@ -1,21 +1,23 @@
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
-import { hash } from '@/lib/utils'
+import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { getPostHogClient } from '@/lib/posthog'
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
+import { hash } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl } from './constants'
+
+export const SESSION_CACHE_TTL_SECONDS = 14 * 24 * 60 * 60
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
@@ -49,7 +51,12 @@ export class RequestContext {
             throw new Error('Session ID is required to use the session cache')
         }
         if (!this.sessionCacheInstance) {
-            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
+            this.sessionCacheInstance = new RedisCache<State>(
+                hash(this.props.mcpSessionId),
+                this.redis,
+                'session',
+                SESSION_CACHE_TTL_SECONDS
+            )
         }
         return this.sessionCacheInstance
     }

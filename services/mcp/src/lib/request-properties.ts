@@ -76,7 +76,7 @@ export function parseRequestProperties(
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
-        mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
+        mode: parseMcpMode(params.get('mode')) || parseMcpMode(header(request, 'x-posthog-mcp-mode')),
         transport,
         requestStartTime: Date.now(),
     }

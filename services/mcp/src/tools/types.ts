@@ -7,6 +7,7 @@ import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
+import type { McpMode } from '@/lib/utils'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 
 export type CloudRegion = 'us' | 'eu'
@@ -29,6 +30,7 @@ export type State = {
     mcpClientName: string | undefined
     mcpClientVersion: string | undefined
     mcpProtocolVersion: string | undefined
+    mcpMode: McpMode | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
