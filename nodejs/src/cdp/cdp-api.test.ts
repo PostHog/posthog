@@ -536,6 +536,9 @@ describe('CDP API', () => {
 
         const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
         expect(allLogText).not.toContain(SECRET_TOKEN)
+        // Confirm the sanitization path actually ran rather than the test passing by virtue of
+        // no fetch log being emitted at all.
+        expect(allLogText).toContain('***REDACTED***')
     })
 
     describe('transformations', () => {

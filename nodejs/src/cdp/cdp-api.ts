@@ -41,8 +41,12 @@ import { NativeDestinationExecutorService } from './services/native-destination-
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { sanitizeLogMessage } from './utils'
-import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
+import {
+    convertToHogFunctionInvocationGlobals,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+    sanitizeLogMessage,
+} from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
