@@ -19,11 +19,10 @@ from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyO
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import Filter, Insight, Team, User
+from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
@@ -34,6 +33,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.models.rbac.access_control import AccessControl
 

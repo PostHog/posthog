@@ -1,1 +1,1 @@
-1182_migrate_feature_flags_models
+1184_migrate_product_analytics_models

@@ -57,7 +57,6 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.team.team import Team
@@ -76,6 +75,7 @@ from products.feature_flags.backend.api.feature_flag import (
     warn_if_missing_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation

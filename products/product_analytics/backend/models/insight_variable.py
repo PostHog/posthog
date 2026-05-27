@@ -11,7 +11,7 @@ class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaF
         LIST = "List", "List"
         DATE = "Date", "Date"
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     code_name = models.CharField(max_length=400, null=True, blank=True)
     type = models.CharField(max_length=128, choices=Type)
@@ -19,3 +19,6 @@ class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaF
     values = models.JSONField(null=True, blank=True)
 
     __repr__ = sane_repr("id")
+
+    class Meta:
+        db_table = "posthog_insightvariable"
