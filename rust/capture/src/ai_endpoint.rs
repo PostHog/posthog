@@ -408,10 +408,7 @@ async fn retrieve_event_metadata(
     let field = multipart
         .next_field()
         .await
-        .map_err(|e| {
-            warn!("Multipart parsing error: {}", e);
-            CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
-        })?
+        .map_err(|e| CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}")))?
         .ok_or_else(|| {
             CaptureError::RequestParsingError(
                 "Missing required 'event' part in multipart data".to_string(),
@@ -435,7 +432,6 @@ async fn retrieve_event_metadata(
 
     // Read the field data
     let field_data = field.bytes().await.map_err(|e| {
-        warn!("Failed to read event field data: {}", e);
         CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
     })?;
 
@@ -520,7 +516,7 @@ fn build_kafka_event(
 
     // Serialize the event to JSON (this is what goes in the "data" field)
     let data = serde_json::to_string(&parsed.event).map_err(|e| {
-        warn!("Failed to serialize AI event: {}", e);
+        error!("Failed to serialize AI event: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
@@ -720,7 +716,6 @@ async fn retrieve_multipart_parts(
 
     // Parse each part
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        warn!("Multipart parsing error: {}", e);
         CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
     })? {
         part_count += 1;
@@ -748,7 +743,6 @@ async fn retrieve_multipart_parts(
 
         // Read the field data to get the length (this consumes the field)
         let field_data = field.bytes().await.map_err(|e| {
-            warn!("Failed to read field data for '{}': {}", field_name, e);
             CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
         })?;
 
