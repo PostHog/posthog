@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-19 20:29:55 UTC
+// Generated at: 2026-05-26 20:36:55 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -21,14 +21,12 @@ export type CanonicalProvider =
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
-    | 'arcee-ai-prime'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp8'
-    | 'baseten-2'
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-fp4'
@@ -69,7 +67,6 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'infermatic-bf16'
     | 'inflection'
-    | 'io-net-bf16'
     | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-fp8'
@@ -108,6 +105,7 @@ export type CanonicalProvider =
     | 'perceptron'
     | 'perplexity'
     | 'phala'
+    | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
@@ -115,7 +113,6 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sambanova'
     | 'sambanova-bf16'
-    | 'sambanova-dedicated'
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'seed-fp8'

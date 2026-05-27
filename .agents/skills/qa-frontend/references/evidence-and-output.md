@@ -17,7 +17,8 @@ The upload script loads the repo `.env` through `python-dotenv`, so no manual
 sourcing is needed when invoking it through `uv run`.
 
 If `CLOUDINARY_URL` is missing, tell the user that evidence cannot be uploaded
-and the PR comment will reference local paths only. Continue the QA run.
+and the PR comment will omit local evidence links. Continue the QA run and
+render a text-only evidence note instead of exposing local filesystem paths.
 
 Before upload, show the user the exact upload set and ask for approval. Pick only
 human-facing evidence:
@@ -33,13 +34,14 @@ Invoke with the active skill directory:
 ```bash
 uv run python "<skill_dir>/scripts/upload-evidence.py" \
   --pr "$PR_NUMBER" \
+  --run-dir ".qa-frontend/runs/<run-id>" \
   --output ".qa-frontend/runs/<run-id>/upload-manifest.json" \
   --file ".qa-frontend/runs/<run-id>/frontend-qa.gif:flow-overview" \
   --file ".qa-frontend/runs/<run-id>/<screenshot>.png:<kebab-finding-description>"
 ```
 
 If the upload script is unreachable at the expected path, do not write a custom
-uploader. Surface the issue and fall back to local-path evidence.
+uploader. Surface the issue and omit evidence links from the PR comment.
 
 The script emits a manifest JSON with `uploaded`, `failed`, and
 `skipped_no_env` fields. Exit codes:
@@ -52,8 +54,9 @@ The script emits a manifest JSON with `uploaded`, `failed`, and
 Substitute uploaded URLs into the PR comment using the `url` field from each
 `uploaded` entry. Do not reconstruct URLs from `public_id`.
 
-For failed or skipped files, fall back to the local path and note
-`(upload failed)`. Never block the run on upload failure.
+For failed or skipped files, omit local paths from PR comments and note
+`evidence captured locally; upload failed or was skipped`. Never block the run
+on upload failure. Local reports may still reference local relative paths.
 
 Never echo `CLOUDINARY_URL`, the API secret, or raw upload response bodies into
 evidence files or PR comments.

@@ -7,8 +7,7 @@ qa-frontend convention, signs a Cloudinary `/image/upload` POST, and writes a
 JSON manifest mapping local paths to the returned `secure_url`.
 
 If `CLOUDINARY_URL` is missing, exits with code 2 and prints a non-blocking
-warning so the calling skill can degrade to local-path evidence in the PR
-comment.
+warning so the calling skill can render a PR comment without evidence links.
 """
 
 from __future__ import annotations
@@ -27,9 +26,15 @@ from pathlib import Path
 
 import requests
 
+try:
+    from dotenv import load_dotenv as load_dotenv_file
+except ImportError:
+    load_dotenv_file = None
+
 EXIT_NO_CREDENTIALS = 2
 EXIT_FATAL = 3
 MAX_DESCRIPTION_LEN = 60
+EVIDENCE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
 
 
 def _repo_root() -> Path | None:
@@ -61,11 +66,9 @@ def _load_repo_dotenv() -> None:
     env_path = repo_root / ".env"
     if not env_path.is_file():
         return
-    try:
-        from dotenv import load_dotenv  # noqa: PLC0415 - keeps the dep on the optional path
-    except ImportError:
+    if load_dotenv_file is None:
         return
-    load_dotenv(env_path, override=False)
+    load_dotenv_file(env_path, override=False)
 
 
 @dataclass
@@ -136,10 +139,11 @@ def upload_one(cloud_name: str, api_key: str, api_secret: str, file_path: Path, 
     # refused, socket timeout) returns (0, "<error description>") so the
     # caller records a failed manifest entry instead of crashing the run.
     timestamp = str(int(time.time()))
-    sign_params = {"public_id": public_id, "timestamp": timestamp}
+    sign_params = {"overwrite": "false", "public_id": public_id, "timestamp": timestamp}
     signature = cloudinary_signature(sign_params, api_secret)
     fields = {
         "api_key": api_key,
+        "overwrite": "false",
         "timestamp": timestamp,
         "public_id": public_id,
         "signature": signature,
@@ -176,21 +180,111 @@ def parse_file_arg(raw: str) -> tuple[Path, str]:
     if ":" not in raw:
         raise argparse.ArgumentTypeError(f"--file expects '<path>:<description>', got: {raw}")
     path_str, description = raw.rsplit(":", 1)
-    path = Path(path_str).expanduser()
-    if not path.is_file():
-        raise argparse.ArgumentTypeError(f"file not found: {path}")
     if not description.strip():
         raise argparse.ArgumentTypeError(f"empty description in: {raw}")
-    return path, description
+    return Path(path_str), description
 
 
-def public_id_for(repo: str, pr: int, sha: str, index: int, description: str) -> str:
-    return f"qa-{kebab(repo)}-pr{pr}-{sha}-{index:03d}-{kebab(description)}"
+def repo_path(path: Path, repo_root: Path) -> Path:
+    path = path.expanduser()
+    if path.is_absolute():
+        return path
+    return repo_root / path
+
+
+def path_has_symlink(path: Path, root: Path) -> bool:
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+
+    current = root
+    for part in relative_parts:
+        current = current / part
+        try:
+            if current.is_symlink():
+                return True
+        except OSError:
+            return True
+    return False
+
+
+def path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def validate_run_dir(raw_run_dir: Path, repo_root: Path) -> Path:
+    run_dir = repo_path(raw_run_dir, repo_root)
+    runs_root = (repo_root / ".qa-frontend" / "runs").resolve(strict=False)
+
+    if path_has_symlink(run_dir, repo_root):
+        raise RuntimeError("run directory must not contain symlinks")
+
+    try:
+        resolved_run_dir = run_dir.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"run directory not found: {raw_run_dir}") from exc
+
+    if resolved_run_dir.parent != runs_root:
+        raise RuntimeError("run directory must be a direct child of .qa-frontend/runs")
+    return resolved_run_dir
+
+
+def validate_output(raw_output: Path | None, repo_root: Path, run_dir: Path) -> Path | None:
+    if raw_output is None:
+        return None
+
+    output = repo_path(raw_output, repo_root)
+    if path_has_symlink(output, repo_root):
+        raise RuntimeError("output manifest path must not contain symlinks")
+
+    try:
+        output_parent = output.parent.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"output directory not found: {raw_output.parent}") from exc
+
+    if output_parent != run_dir:
+        raise RuntimeError("output manifest must be written inside the active run directory")
+    return output
+
+
+def validate_file(raw_file: Path, repo_root: Path, run_dir: Path) -> Path:
+    file_path = repo_path(raw_file, repo_root)
+    if file_path.suffix.lower() not in EVIDENCE_EXTENSIONS:
+        allowed = ", ".join(sorted(EVIDENCE_EXTENSIONS))
+        raise RuntimeError(f"unsupported evidence file type for {raw_file}; allowed extensions: {allowed}")
+    if path_has_symlink(file_path, repo_root):
+        raise RuntimeError(f"evidence path must not contain symlinks: {raw_file}")
+
+    try:
+        resolved_file = file_path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"file not found: {raw_file}") from exc
+
+    if not resolved_file.is_file():
+        raise RuntimeError(f"not a file: {raw_file}")
+    if not path_is_relative_to(resolved_file, run_dir):
+        raise RuntimeError("evidence files must live under the active .qa-frontend/runs/<run-id> directory")
+    return resolved_file
+
+
+def public_id_for(repo: str, pr: int, sha: str, run_id: str, index: int, description: str) -> str:
+    return f"qa-{kebab(repo)}-pr{pr}-{kebab(run_id)}-{sha}-{index:03d}-{kebab(description)}"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pr", type=int, required=True, help="PR number")
+    parser.add_argument(
+        "--run-dir",
+        type=Path,
+        required=True,
+        help="Active evidence directory, usually .qa-frontend/runs/<run-id>",
+    )
     parser.add_argument(
         "--file",
         dest="files",
@@ -206,15 +300,29 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    repo_root = _repo_root()
+    if repo_root is None:
+        sys.stderr.write("qa-frontend upload: setup failed: must run inside a git checkout\n")
+        return EXIT_FATAL
+    repo_root = repo_root.resolve(strict=True)
+
+    try:
+        run_dir = validate_run_dir(args.run_dir, repo_root)
+        output_path = validate_output(args.output, repo_root, run_dir)
+        files = [(validate_file(local_path, repo_root, run_dir), description) for local_path, description in args.files]
+    except RuntimeError as exc:
+        sys.stderr.write(f"qa-frontend upload: validation failed: {exc}\n")
+        return EXIT_FATAL
+
     _load_repo_dotenv()
     cloudinary_url = os.environ.get("CLOUDINARY_URL")
     if not cloudinary_url:
         manifest = Manifest(skipped_no_env=True)
         sys.stderr.write(
-            "qa-frontend upload: CLOUDINARY_URL not set; skipping upload. PR comment will use local paths.\n"
+            "qa-frontend upload: CLOUDINARY_URL not set; skipping upload. PR comment must omit local evidence links.\n"
         )
-        if args.output:
-            args.output.write_text(manifest.to_json())
+        if output_path:
+            output_path.write_text(manifest.to_json())
         sys.stdout.write(manifest.to_json() + "\n")
         return EXIT_NO_CREDENTIALS
 
@@ -228,9 +336,9 @@ def main() -> int:
 
     manifest = Manifest()
 
-    for index, (local_path, description) in enumerate(args.files, start=1):
-        pid = public_id_for(repo, args.pr, sha, index, description)
-        result = UploadResult(local=str(local_path), public_id=pid)
+    for index, (local_path, description) in enumerate(files, start=1):
+        pid = public_id_for(repo, args.pr, sha, run_dir.name, index, description)
+        result = UploadResult(local=str(local_path.relative_to(repo_root)), public_id=pid)
 
         status, body = upload_one(cloud_name, api_key, api_secret, local_path, pid)
         if status in (200, 201):
@@ -249,8 +357,8 @@ def main() -> int:
             manifest.failed.append(result)
 
     serialized = manifest.to_json()
-    if args.output:
-        args.output.write_text(serialized)
+    if output_path:
+        output_path.write_text(serialized)
     sys.stdout.write(serialized + "\n")
     return 0 if not manifest.failed else 1
 

@@ -7,8 +7,11 @@ import { EventDefinition, PropertyDefinition, RawAnnotationType } from '~/types'
 import {
     actionDefinitions,
     eventDefinitions as defaultEventDefs,
+    type FunnelStepData,
+    funnelTrendsSteps,
     lookupActors,
     lookupCompareSeries,
+    lookupFunnelActors,
     lookupSeries,
     personProperties,
     propertyDefinitions as defaultPropDefs,
@@ -27,12 +30,17 @@ export interface QueryBody {
     [key: string]: unknown
 }
 
+interface FunnelsQueryResponseLike {
+    results: FunnelStepData[]
+}
+
 export interface MockResponse {
     match: (query: QueryBody) => boolean
     response:
         | TrendsQueryResponse
         | ActorsQueryResponse
-        | ((query: QueryBody) => TrendsQueryResponse | ActorsQueryResponse)
+        | FunnelsQueryResponseLike
+        | ((query: QueryBody) => TrendsQueryResponse | ActorsQueryResponse | FunnelsQueryResponseLike)
 }
 
 /** Build an ActorsQueryResponse shaped like the server response, with one row
@@ -80,6 +88,32 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
     } as TrendsQueryResponse
 }
 
+/** Stickiness shares the TrendResult shape with trends, but uses integer-day labels
+ *  ("1 day", "2 days", …) and numeric `days` (1, 2, …). The mock reuses the canned
+ *  trends series for value diversity and re-keys the x-axis to stickiness form. */
+function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
+    return {
+        results: series.map((s, i) => {
+            const buckets = s.data.length
+            return {
+                action: {
+                    id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                    type: 'events',
+                    name: s.label,
+                    order: i,
+                },
+                label: s.label,
+                count: s.data.reduce((a, b) => a + b, 0),
+                aggregated_value: s.data.reduce((a, b) => a + b, 0),
+                data: s.data,
+                labels: Array.from({ length: buckets }, (_, j) => `${j + 1} day${j === 0 ? '' : 's'}`),
+                days: Array.from({ length: buckets }, (_, j) => j + 1),
+                breakdown_value: s.breakdown_value,
+            }
+        }),
+    } as TrendsQueryResponse
+}
+
 /** Pull the bits of an ActorsQuery we use to look up canned actors. */
 interface ActorsQueryBodyShape {
     source?: {
@@ -97,6 +131,35 @@ function resolveActors(query: QueryBody): Array<{ email: string }> {
         breakdown: insightSource?.breakdown,
         day: insightSource?.day,
     })
+}
+
+/** Funnels in trends-viz mode return a flat `FunnelStep[]` — one entry per series, or per breakdown value. */
+function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
+    const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
+    if (breakdownProp && funnelTrendsSteps.byBreakdown[breakdownProp]) {
+        return { results: funnelTrendsSteps.byBreakdown[breakdownProp] }
+    }
+    return { results: [funnelTrendsSteps.default] }
+}
+
+interface FunnelsActorsQueryShape {
+    kind?: string
+    funnelTrendsEntrancePeriodStart?: string | null
+    funnelStepBreakdown?: string | number | null
+}
+
+// PersonsModalLogic wraps the FunnelsActorsQuery in an ActorsQuery, so the funnel fields
+// sit one level deeper at body.source.*.
+function isFunnelsActorsQuery(query: QueryBody): boolean {
+    const source = (query as { source?: FunnelsActorsQueryShape }).source
+    return source?.kind === NodeKind.FunnelsActorsQuery
+}
+
+function resolveFunnelActors(query: QueryBody): Array<{ email: string }> {
+    const source = (query as { source?: FunnelsActorsQueryShape }).source ?? {}
+    // Actors are keyed by calendar date; the query sends a full 'YYYY-MM-DD HH:mm:ss' timestamp.
+    const day = source.funnelTrendsEntrancePeriodStart?.split(' ')[0] ?? null
+    return lookupFunnelActors({ day, breakdown: source.funnelStepBreakdown ?? null })
 }
 
 function resolveSeriesData(query: QueryBody): SeriesData[] {
@@ -153,6 +216,19 @@ export function setupInsightMocks({
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
             response: (query) => buildTrendsResponse(resolveSeriesData(query)),
+        },
+        {
+            match: (query) => query.kind === NodeKind.StickinessQuery,
+            response: (query) => buildStickinessResponse(resolveSeriesData(query)),
+        },
+        {
+            match: (query) => query.kind === NodeKind.FunnelsQuery,
+            response: (query) => buildFunnelsResponse(query),
+        },
+        // Must precede the generic ActorsQuery matcher so funnel actor queries route to lookupFunnelActors.
+        {
+            match: (query) => query.kind === NodeKind.ActorsQuery && isFunnelsActorsQuery(query),
+            response: (query) => buildActorsResponse(resolveFunnelActors(query)),
         },
         {
             match: (query) => query.kind === NodeKind.ActorsQuery,

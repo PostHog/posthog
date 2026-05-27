@@ -62,7 +62,19 @@
             "type": "string"
         },
         "query": {
-            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}"
+            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT * FROM events LIMIT 100\"}",
+            "properties": {
+                "kind": {
+                    "default": "HogQLQuery",
+                    "enum": ["HogQLQuery"],
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                }
+            },
+            "required": ["query"],
+            "type": "object"
         },
         "soft_update": {
             "anyOf": [
@@ -76,6 +88,6 @@
             "description": "If true, skip column inference and validation. For saving drafts."
         }
     },
-    "required": ["id", "name"],
+    "required": ["id", "name", "query"],
     "type": "object"
 }

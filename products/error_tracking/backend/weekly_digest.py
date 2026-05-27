@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -62,15 +63,38 @@ def get_exception_summary_for_team(team: Team) -> dict:
     }
 
 
-def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> bool:
+ELIGIBLE_ROLES_FOR_AUTO_DIGEST = {"engineering", "data", "founder"}
+
+
+def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, dict]) -> bool:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
-    and persist the selection to their notification settings"""
+    and persist the selection to their notification settings.
+
+    Only auto-enrolls users with engineering, data, or founder roles. Users with other roles
+    (marketing, sales, leadership, product, other, None) are marked as "processed" with an empty
+    project map so auto-selection doesn't run again - they can still opt in manually via settings.
+    """
+    from posthog.models.user import User
     from posthog.tasks.email_utils import auto_select_digest_project
+
+    setting_key = "error_tracking_weekly_digest_project_enabled"
+    current_settings = user.partial_notification_settings or {}
+    if setting_key in current_settings:
+        return False
+
+    if not team_exception_counts:
+        return False
+
+    role = (user.role_at_organization or "").lower()
+    if role not in ELIGIBLE_ROLES_FOR_AUTO_DIGEST:
+        current_settings[setting_key] = {}
+        User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
+        return True
 
     return auto_select_digest_project(
         user=user,
         team_data=team_exception_counts,
-        setting_key="error_tracking_weekly_digest_project_enabled",
+        setting_key=setting_key,
         sort_key=lambda d: d["exception_count"],
     )
 

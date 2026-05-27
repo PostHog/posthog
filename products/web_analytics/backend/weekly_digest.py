@@ -15,12 +15,13 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_goals import NoActionsError, WebGoalsQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.tasks.email_utils import compute_week_over_week_change
+
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError, WebGoalsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 logger = structlog.get_logger(__name__)
 

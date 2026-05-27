@@ -241,7 +241,7 @@ function PromptExperimentImplementation({
                                 },
                             ]}
                         />
-                        <Link subtle to="https://posthog.com/docs/llm-analytics/prompt-management" target="_blank">
+                        <Link subtle to="https://posthog.com/docs/prompt-management" target="_blank">
                             See the docs for prompt management.
                         </Link>
                     </div>

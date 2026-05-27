@@ -8,15 +8,13 @@ from unittest.mock import patch
 
 from posthog.models import ActivityLog
 
-from products.data_warehouse.backend.models import (
-    DataModelingJob,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryFolder,
-    DataWarehouseTable,
-)
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestSavedQuery(APIBaseTest):
@@ -296,6 +294,30 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+    def test_create_with_query_as_string_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view_bad_payload",
+                "query": '{"kind": "HogQLQuery", "query": "SELECT 1"}',
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.content
+        response_json = response.json()
+        assert "JSON object" in response_json.get("detail", "")
+
+    def test_create_with_query_missing_query_key_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view_missing_key",
+                "query": {"kind": "HogQLQuery"},
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.content
 
     def test_create_using_placeholders(self):
         response = self.client.post(

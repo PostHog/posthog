@@ -1,1 +1,1 @@
-1168_migrate_alerts_actions_models
+1184_migrate_product_analytics_models

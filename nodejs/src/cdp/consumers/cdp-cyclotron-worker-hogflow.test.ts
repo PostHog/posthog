@@ -1,3 +1,5 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
@@ -73,7 +75,8 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
-        processor = new CdpCyclotronWorkerHogFlow(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+        processor = new CdpCyclotronWorkerHogFlow(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         hogFlows = []
         hogFlows.push(

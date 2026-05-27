@@ -8,9 +8,13 @@
             "command": "uv",
             "args": ["run", "python", "tools/traffic-sim/mcp_server.py"]
         },
+        "posthog-local": {
+            "type": "http",
+            "url": "http://localhost:8787/mcp"
+        },
         "playwright": {
             "command": "npx",
-            "args": ["-y", "@playwright/mcp@latest"]
+            "args": ["-y", "@playwright/mcp@0.0.75"]
         }
     }
 }

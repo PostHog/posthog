@@ -299,13 +299,13 @@ flow and one still per finding. Do not paste the full local screenshot
 inventory.
 
 When `upload-manifest.json` reports `skipped_no_env: true` or lists files
-under `failed`, fall back to local paths and append `(upload failed)`:
+under `failed`, do not include local paths in a PR comment. Use a text-only
+evidence note:
 
 ```markdown
 **Evidence**
 
-- GIF: `.qa-frontend/runs/<run-id>/frontend-qa.gif` (upload failed)
-- Still: `.qa-frontend/runs/<run-id>/011-detail.png` (upload failed)
+- Evidence captured locally but not uploaded (`CLOUDINARY_URL` missing or upload failed).
 ```
 
 Local mode always uses local paths. Do not invent external URLs when no

@@ -116,8 +116,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
-    const canExportAllColumns =
-        (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
+    const canExportAllColumns = isEventsQuery(source) && source.select.includes('*')
     const showExportClipboardButtons =
         isPersonsNode(source) ||
         isEventsQuery(source) ||

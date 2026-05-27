@@ -23,6 +23,10 @@
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
+- image: property-vals-rs
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
 - image: cymbal
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
