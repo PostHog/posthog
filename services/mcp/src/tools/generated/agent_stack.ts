@@ -24,6 +24,62 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AgentApplicationsDisableRevisionCreateSchema = AgentApplicationsDisableRevisionCreateParams.omit({
+    project_id: true,
+}).extend(AgentApplicationsDisableRevisionCreateBody.shape)
+
+const agentApplicationsDisableRevisionCreate = (): ToolBase<
+    typeof AgentApplicationsDisableRevisionCreateSchema,
+    Schemas.AgentApplicationRevision
+> => ({
+    name: 'agent-applications-disable-revision-create',
+    schema: AgentApplicationsDisableRevisionCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsDisableRevisionCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision_id !== undefined) {
+            body['revision_id'] = params.revision_id
+        }
+        const result = await context.api.request<Schemas.AgentApplicationRevision>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/disable_revision/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AgentApplicationsEnvPartialUpdateSchema = AgentApplicationsEnvPartialUpdateParams.omit({
+    project_id: true,
+}).extend(AgentApplicationsEnvPartialUpdateBody.shape)
+
+const agentApplicationsEnvPartialUpdate = (): ToolBase<
+    typeof AgentApplicationsEnvPartialUpdateSchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-env-partial-update',
+    schema: AgentApplicationsEnvPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsEnvPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.slug !== undefined) {
+            body['slug'] = params.slug
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/env/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AgentApplicationsListSchema = AgentApplicationsListQueryParams
 
 const agentApplicationsList = (): ToolBase<
@@ -43,6 +99,56 @@ const agentApplicationsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/agent_applications')
+    },
+})
+
+const AgentApplicationsPreviewCreateSchema = AgentApplicationsPreviewCreateParams.omit({ project_id: true }).extend(
+    AgentApplicationsPreviewCreateBody.shape
+)
+
+const agentApplicationsPreviewCreate = (): ToolBase<
+    typeof AgentApplicationsPreviewCreateSchema,
+    Schemas.AgentApplicationRevision
+> => ({
+    name: 'agent-applications-preview-create',
+    schema: AgentApplicationsPreviewCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision_id !== undefined) {
+            body['revision_id'] = params.revision_id
+        }
+        const result = await context.api.request<Schemas.AgentApplicationRevision>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AgentApplicationsPromoteCreateSchema = AgentApplicationsPromoteCreateParams.omit({ project_id: true }).extend(
+    AgentApplicationsPromoteCreateBody.shape
+)
+
+const agentApplicationsPromoteCreate = (): ToolBase<
+    typeof AgentApplicationsPromoteCreateSchema,
+    Schemas.AgentApplicationRevision
+> => ({
+    name: 'agent-applications-promote-create',
+    schema: AgentApplicationsPromoteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPromoteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision_id !== undefined) {
+            body['revision_id'] = params.revision_id
+        }
+        const result = await context.api.request<Schemas.AgentApplicationRevision>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/promote/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -105,76 +211,16 @@ const agentApplicationsRevisionsRetrieve = (): ToolBase<
     },
 })
 
-const AgentApplicationsDisableRevisionCreateSchema = AgentApplicationsDisableRevisionCreateParams.omit({
-    project_id: true,
-}).extend(AgentApplicationsDisableRevisionCreateBody.shape)
+const AgentApplicationsSessionsCancelSchema = AgentApplicationsSessionsCancelParams.omit({ project_id: true })
 
-const agentApplicationsDisableRevisionCreate = (): ToolBase<
-    typeof AgentApplicationsDisableRevisionCreateSchema,
-    Schemas.AgentApplicationRevision
-> => ({
-    name: 'agent-applications-disable-revision-create',
-    schema: AgentApplicationsDisableRevisionCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsDisableRevisionCreateSchema>) => {
+const agentApplicationsSessionsCancel = (): ToolBase<typeof AgentApplicationsSessionsCancelSchema, unknown> => ({
+    name: 'agent-applications-sessions-cancel',
+    schema: AgentApplicationsSessionsCancelSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSessionsCancelSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.revision_id !== undefined) {
-            body['revision_id'] = params.revision_id
-        }
-        const result = await context.api.request<Schemas.AgentApplicationRevision>({
+        const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/disable_revision/`,
-            body,
-        })
-        return result
-    },
-})
-
-const AgentApplicationsPromoteCreateSchema = AgentApplicationsPromoteCreateParams.omit({ project_id: true }).extend(
-    AgentApplicationsPromoteCreateBody.shape
-)
-
-const agentApplicationsPromoteCreate = (): ToolBase<
-    typeof AgentApplicationsPromoteCreateSchema,
-    Schemas.AgentApplicationRevision
-> => ({
-    name: 'agent-applications-promote-create',
-    schema: AgentApplicationsPromoteCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPromoteCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.revision_id !== undefined) {
-            body['revision_id'] = params.revision_id
-        }
-        const result = await context.api.request<Schemas.AgentApplicationRevision>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/promote/`,
-            body,
-        })
-        return result
-    },
-})
-
-const AgentApplicationsPreviewCreateSchema = AgentApplicationsPreviewCreateParams.omit({ project_id: true }).extend(
-    AgentApplicationsPreviewCreateBody.shape
-)
-
-const agentApplicationsPreviewCreate = (): ToolBase<
-    typeof AgentApplicationsPreviewCreateSchema,
-    Schemas.AgentApplicationRevision
-> => ({
-    name: 'agent-applications-preview-create',
-    schema: AgentApplicationsPreviewCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.revision_id !== undefined) {
-            body['revision_id'] = params.revision_id
-        }
-        const result = await context.api.request<Schemas.AgentApplicationRevision>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview/`,
-            body,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/sessions/${encodeURIComponent(String(params.id))}/cancel/`,
         })
         return result
     },
@@ -195,36 +241,6 @@ const agentApplicationsSessionsList = (): ToolBase<typeof AgentApplicationsSessi
     },
 })
 
-const AgentApplicationsSessionsRetrieveSchema = AgentApplicationsSessionsRetrieveParams.omit({ project_id: true })
-
-const agentApplicationsSessionsRetrieve = (): ToolBase<typeof AgentApplicationsSessionsRetrieveSchema, unknown> => ({
-    name: 'agent-applications-sessions-retrieve',
-    schema: AgentApplicationsSessionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSessionsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/sessions/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const AgentApplicationsSessionsCancelSchema = AgentApplicationsSessionsCancelParams.omit({ project_id: true })
-
-const agentApplicationsSessionsCancel = (): ToolBase<typeof AgentApplicationsSessionsCancelSchema, unknown> => ({
-    name: 'agent-applications-sessions-cancel',
-    schema: AgentApplicationsSessionsCancelSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSessionsCancelSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/sessions/${encodeURIComponent(String(params.id))}/cancel/`,
-        })
-        return result
-    },
-})
-
 const AgentApplicationsSessionsLogsSchema = AgentApplicationsSessionsLogsParams.omit({ project_id: true })
 
 const agentApplicationsSessionsLogs = (): ToolBase<typeof AgentApplicationsSessionsLogsSchema, unknown> => ({
@@ -240,48 +256,32 @@ const agentApplicationsSessionsLogs = (): ToolBase<typeof AgentApplicationsSessi
     },
 })
 
-const AgentApplicationsEnvPartialUpdateSchema = AgentApplicationsEnvPartialUpdateParams.omit({
-    project_id: true,
-}).extend(AgentApplicationsEnvPartialUpdateBody.shape)
+const AgentApplicationsSessionsRetrieveSchema = AgentApplicationsSessionsRetrieveParams.omit({ project_id: true })
 
-const agentApplicationsEnvPartialUpdate = (): ToolBase<
-    typeof AgentApplicationsEnvPartialUpdateSchema,
-    Schemas.AgentApplication
-> => ({
-    name: 'agent-applications-env-partial-update',
-    schema: AgentApplicationsEnvPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsEnvPartialUpdateSchema>) => {
+const agentApplicationsSessionsRetrieve = (): ToolBase<typeof AgentApplicationsSessionsRetrieveSchema, unknown> => ({
+    name: 'agent-applications-sessions-retrieve',
+    schema: AgentApplicationsSessionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSessionsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.slug !== undefined) {
-            body['slug'] = params.slug
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        const result = await context.api.request<Schemas.AgentApplication>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/env/`,
-            body,
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/sessions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'agent-applications-disable-revision-create': agentApplicationsDisableRevisionCreate,
+    'agent-applications-env-partial-update': agentApplicationsEnvPartialUpdate,
     'agent-applications-list': agentApplicationsList,
+    'agent-applications-preview-create': agentApplicationsPreviewCreate,
+    'agent-applications-promote-create': agentApplicationsPromoteCreate,
     'agent-applications-retrieve': agentApplicationsRetrieve,
     'agent-applications-revisions-list': agentApplicationsRevisionsList,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
-    'agent-applications-disable-revision-create': agentApplicationsDisableRevisionCreate,
-    'agent-applications-promote-create': agentApplicationsPromoteCreate,
-    'agent-applications-preview-create': agentApplicationsPreviewCreate,
-    'agent-applications-sessions-list': agentApplicationsSessionsList,
-    'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
     'agent-applications-sessions-cancel': agentApplicationsSessionsCancel,
+    'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-logs': agentApplicationsSessionsLogs,
-    'agent-applications-env-partial-update': agentApplicationsEnvPartialUpdate,
+    'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
 }
