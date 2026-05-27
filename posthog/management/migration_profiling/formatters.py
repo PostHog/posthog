@@ -38,6 +38,10 @@ class ProfileRun:
     # captures state_forwards + project_state cloning + database_forwards.
     # Keyed by (app_label, migration_name) → apply_duration_ms.
     migration_summaries: dict[tuple[str, str], float] = field(default_factory=dict)
+    # Per-state-op timings (`_kind: state_op` records from the profiler). Kept
+    # separate from `ops` because they lack `sql_count`/`sql_statements` and
+    # would break the database_forwards-centric aggregators.
+    state_ops: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def database(self) -> str:
@@ -47,6 +51,7 @@ class ProfileRun:
 def load_run(path: Path) -> ProfileRun:
     meta: dict[str, Any] = {}
     ops: list[dict[str, Any]] = []
+    state_ops: list[dict[str, Any]] = []
     summaries: dict[tuple[str, str], float] = {}
     with open(path) as fp:
         for line_no, raw in enumerate(fp, start=1):
@@ -61,9 +66,11 @@ def load_run(path: Path) -> ProfileRun:
                 meta = record["_meta"]
             elif record.get("_kind") == "migration_summary":
                 summaries[(record["app_label"], record["migration_name"])] = record["apply_duration_ms"]
+            elif record.get("_kind") == "state_op":
+                state_ops.append(record)
             else:
                 ops.append(record)
-    return ProfileRun(meta=meta, ops=ops, migration_summaries=summaries)
+    return ProfileRun(meta=meta, ops=ops, migration_summaries=summaries, state_ops=state_ops)
 
 
 def _fmt_ms(ms: float) -> str:
