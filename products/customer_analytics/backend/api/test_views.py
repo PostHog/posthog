@@ -14,6 +14,7 @@ from posthog.models.user import User
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountAssignment
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -1008,8 +1009,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         )
 
     def test_list_returns_only_notebooks_for_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         account_notebook = Notebook.objects.create(
             team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1030,8 +1029,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(short_ids, [account_notebook.short_id])
 
     def test_retrieve_returns_notebook_for_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Note", content={"foo": "bar"}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1057,8 +1054,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     def test_destroy_notebook_for_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1089,8 +1084,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     def test_internal_account_notebooks_do_not_appear_in_notebooks_list(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1115,8 +1108,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
                 self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_list_excludes_non_internal_notebooks_linked_to_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         internal_notebook = Notebook.objects.create(
             team=self.team, title="Internal", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1214,8 +1205,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
 
     def test_notebook_detail_includes_parent_resource_for_linked_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1233,8 +1222,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         )
 
     def test_notebook_detail_parent_resource_is_null_for_standalone(self):
-        from products.notebooks.backend.models import Notebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Standalone", content={}, visibility=Notebook.Visibility.DEFAULT
         )
