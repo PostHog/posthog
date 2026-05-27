@@ -4,6 +4,8 @@ import { useEffect } from 'react'
 import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -30,9 +32,11 @@ export function HogFlowFunctionConfiguration({
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
+    const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
@@ -125,7 +129,7 @@ export function HogFlowFunctionConfiguration({
                 sampleGlobalsWithInputs={sampleGlobals}
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
-            {isEmailStep && !engagementEventsEnabled && (
+            {isEmailStep && engagementEventsAvailable && !engagementEventsEnabled && (
                 <p className="text-xs text-muted-alt italic px-1">
                     Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. To also capture
                     these as PostHog events for use in insights and funnels,{' '}
