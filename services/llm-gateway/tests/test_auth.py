@@ -106,6 +106,7 @@ class TestAuthService:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 
@@ -131,6 +132,7 @@ class TestAuthService:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 101,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 
@@ -206,6 +208,7 @@ class TestPersonalApiKeyAuthenticator:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 
@@ -307,6 +310,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 
@@ -392,6 +396,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 
@@ -415,6 +420,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 
@@ -441,6 +447,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": None,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
 

@@ -5,13 +5,19 @@ from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 
 
-def make_user(user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token") -> AuthenticatedUser:
+def make_user(
+    user_id: int = 1,
+    team_id: int = 1,
+    auth_method: str = "oauth_access_token",
+    scoped_team_ids: list[int] | None = None,
+) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
         team_id=team_id,
         auth_method=auth_method,
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
+        scoped_team_ids=scoped_team_ids,
     )
 
 
@@ -894,6 +900,58 @@ class TestTeamRateLimitMultipliers:
 
         assert (await throttle.get_status(team_99_ctx)).used_usd == pytest.approx(0.0)
         assert (await throttle.get_status(team_2_ctx)).used_usd == pytest.approx(4_000.0)
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_token_scoped_to_multiplier_team_keeps_boost_when_current_team_swaps(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Production failure mode: a PostHog employee scopes their personal API key (or
+        consents an OAuth token) to team 2, but their `current_team_id` is swapped to a
+        customer's team because they were investigating that customer in the UI. Before
+        this fix the multiplier resolved off `current_team_id` and the employee silently
+        lost the 25x boost — manifesting as 429s the chart was supposed to prevent.
+
+        With the token's `scoped_team_ids` plumbed through, the multiplier resolves off
+        the *token* (which is stable) instead of the *user's current UI selection*."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostBurstThrottle
+
+        # Token is scoped to team 2; user is currently viewing customer team 56923.
+        user = make_user(user_id=999, team_id=56923, scoped_team_ids=[2])
+        context = make_context(user=user, product="posthog_code")
+
+        burst = UserCostBurstThrottle(redis=None)
+        # Default posthog_code burst is $200/24h; 25x = $5000. Spending $1000 is well
+        # past the unmultiplied cap but a fraction of the multiplied cap.
+        await burst.record_cost(context, 1_000.0)
+        assert (await burst.allow_request(context)).allowed is True
+
+        # And the bucket gets the tm25 suffix even though the user's current_team_id is a customer team.
+        key = burst._get_cache_key(context)
+        assert key.endswith(":tm25"), f"expected scoped multiplier suffix, got {key}"
+
+        # ProductCostThrottle picks up the same scoped-team multiplier.
+        product_throttle = ProductCostThrottle(redis=None)
+        product_key = product_throttle._get_cache_key(context)
+        assert product_key.endswith(":tm25"), f"expected scoped multiplier suffix, got {product_key}"
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_unscoped_token_still_uses_current_team_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unscoped token (no scoped_team_ids set) is fine to use `current_team_id` —
+        this is the unchanged behavior. PostHog employees who never scope their keys
+        and have current_team_id=2 still get the boost."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        user = make_user(user_id=42, team_id=2, scoped_team_ids=None)
+        context = make_context(user=user, product="posthog_code")
+
+        throttle = UserCostBurstThrottle(redis=None)
+        assert throttle._get_cache_key(context).endswith(":tm25")
         get_settings.cache_clear()
 
 

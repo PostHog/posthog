@@ -47,7 +47,7 @@ class CostThrottle(Throttle):
         self._limiters: dict[str, CostRateLimiter] = {}
 
     def _get_team_multiplier(self, context: ThrottleContext) -> int:
-        return get_team_multiplier(context.user.team_id)
+        return get_team_multiplier(context.user.team_id, context.user.scoped_team_ids)
 
     @abstractmethod
     def _get_cache_key(self, context: ThrottleContext) -> str: ...

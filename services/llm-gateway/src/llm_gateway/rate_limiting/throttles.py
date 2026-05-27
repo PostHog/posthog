@@ -1,17 +1,35 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
 
 
-def get_team_multiplier(team_id: int | None) -> int:
-    if team_id is None:
-        return 1
+def get_team_multiplier(team_id: int | None, scoped_team_ids: Iterable[int] | None = None) -> int:
+    """Resolve the rate-limit multiplier for an authenticated user.
 
-    return get_settings().team_rate_limit_multipliers.get(team_id, 1)
+    `team_id` is the user's `current_team_id`, which can swap as the user changes
+    teams in the UI (so it's not stable across requests with the same key). When the
+    bearer token (personal API key or OAuth access token) is scoped to a fixed set
+    of teams, we resolve the multiplier across both: the token's scoped teams AND
+    the user's current team. The highest multiplier wins — a token scoped to a
+    multiplier team (e.g. team 2 at 25x) keeps its boost even if the user is
+    currently viewing a different team.
+    """
+    multipliers = get_settings().team_rate_limit_multipliers
+    if not multipliers:
+        return 1
+    candidates: list[int] = []
+    if scoped_team_ids:
+        candidates.extend(scoped_team_ids)
+    if team_id is not None:
+        candidates.append(team_id)
+    if not candidates:
+        return 1
+    return max((multipliers.get(t, 1) for t in candidates), default=1)
 
 
 @dataclass

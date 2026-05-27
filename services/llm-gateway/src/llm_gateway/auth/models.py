@@ -11,6 +11,13 @@ class AuthenticatedUser:
     scopes: list[str] | None = None
     token_expires_at: datetime | None = None
     application_id: str | None = None
+    # Teams the bearer token (personal API key or OAuth access token) is scoped to.
+    # `team_id` itself is the user's `current_team_id` and can swap when the user
+    # switches teams in the UI — that's unreliable for resolving the rate-limit
+    # multiplier. `scoped_team_ids` is set on the token and stable for its lifetime,
+    # so we use it as the authoritative source for multiplier resolution when set.
+    # None / empty means unscoped (no constraint), and we fall back to `team_id`.
+    scoped_team_ids: list[int] | None = None
 
 
 def resolve_distinct_id(auth_user: AuthenticatedUser, end_user_id: str | None) -> str:

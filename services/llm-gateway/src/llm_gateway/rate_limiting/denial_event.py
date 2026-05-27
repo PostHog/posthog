@@ -42,6 +42,8 @@ class PosthogDenialCapturer:
         }
         if auth_user.team_id is not None:
             properties["team_id"] = auth_user.team_id
+        if auth_user.scoped_team_ids:
+            properties["scoped_team_ids"] = auth_user.scoped_team_ids
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,

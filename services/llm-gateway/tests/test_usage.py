@@ -68,6 +68,7 @@ class TestUsageEndpoint:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
+                "scoped_teams": None,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)

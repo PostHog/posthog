@@ -185,3 +185,46 @@ class TestGetTeamMultiplier:
         assert get_team_multiplier(2) == 10
         assert get_team_multiplier(5) == 5
         get_settings.cache_clear()
+
+    def test_scoped_team_ids_unlocks_multiplier_when_current_team_does_not(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The production failure mode: a PostHog employee's `current_team_id` swaps to a
+        customer's team when they investigate that customer, so passing only team_id
+        loses the multiplier. With the token's `scoped_teams` field passed through, the
+        multiplier still applies because the *token* is scoped to team 2."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        # current_team_id = 56923 (some customer's team), token scoped to [2]
+        assert get_team_multiplier(56923, scoped_team_ids=[2]) == 25
+        get_settings.cache_clear()
+
+    def test_scoped_team_ids_keeps_multiplier_when_current_team_also_matches(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(2, scoped_team_ids=[2]) == 25
+        get_settings.cache_clear()
+
+    def test_max_multiplier_wins_across_scoped_teams(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25, "5": 10}')
+        get_settings.cache_clear()
+        # Token scoped to both 2 and 5 — should land on the more generous 25x.
+        assert get_team_multiplier(99, scoped_team_ids=[5, 2]) == 25
+        get_settings.cache_clear()
+
+    def test_empty_scoped_teams_falls_back_to_team_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(2, scoped_team_ids=None) == 25
+        assert get_team_multiplier(2, scoped_team_ids=[]) == 25
+        get_settings.cache_clear()
+
+    def test_none_scoped_team_in_multipliers_still_uses_team_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If the token is scoped to teams that aren't in the multiplier list but the
+        user's current team IS, we should still apply the current-team multiplier."""
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 25}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(2, scoped_team_ids=[99, 100]) == 25
+        get_settings.cache_clear()
