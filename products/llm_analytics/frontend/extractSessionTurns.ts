@@ -2,7 +2,15 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
-import { normalizeMessage, normalizeMessages } from './utils'
+import {
+    eventLabel,
+    formatAiErrorForDisplay,
+    getToolNamesCalled,
+    normalizeMessage,
+    normalizeMessages,
+    readAiInput,
+    readAiOutput,
+} from './utils'
 
 // Heuristic mirrors the LLMA skill script `print_summary.py` at
 // `products/llm_analytics/skills/exploring-llm-traces/scripts/` — keep in sync.
@@ -14,7 +22,7 @@ import { normalizeMessage, normalizeMessages } from './utils'
  * implementation detail callers should treat as opaque. A future opt-in
  * `$ai_user_visible: true` convention would change how this picks. Wrong
  * for traces where the last generation is a logging/cleanup call; the
- * "Show reasoning" affordance is the user's fallback.
+ * "Show steps" affordance is the user's fallback.
  */
 export function pickUserVisibleTurn(trace: LLMTrace | undefined): LLMTraceEvent | undefined {
     if (!trace?.events?.length) {
@@ -59,6 +67,13 @@ export function buildInputSourceIndices(rawInput: unknown, tools: unknown): numb
     return indices
 }
 
+export interface SessionTurnError {
+    /** Human-readable label for *what* failed — `$ai_span_name`, `$ai_model`, or the raw event type as a last resort. */
+    label: string
+    /** Extracted error message. For `$ai_error` objects we surface `.message` directly; everything else is JSON-stringified. */
+    message: string
+}
+
 export interface SessionTurn {
     /** The trace this turn corresponds to. */
     trace: LLMTrace
@@ -68,10 +83,65 @@ export interface SessionTurn {
     newInputs: CompatMessage[]
     /** Output messages from this turn's last generation. */
     outputs: CompatMessage[]
-    /** Maps each `newInputs[i]` back to its source index in the raw `$ai_input` array. */
-    newInputSourceIndices: number[]
-    /** The event sourced by `pickUserVisibleTurn` — used for model, error, latency, and the id passed to `ConversationMessagesDisplay`. */
+    /** The event sourced by `pickUserVisibleTurn` — used for model, error, latency, and the id passed to renderers. */
     userVisibleTurn?: LLMTraceEvent
+    /**
+     * Distinct tool names called in this turn, in first-appearance order. Pulled
+     * from both `$ai_span_name` on instrumented `$ai_span` events and from
+     * `tool_calls` / `tool_use` parts in generation outputs.
+     */
+    tools: string[]
+    /**
+     * Distinct errors in the trace, deduped by `label + message` and ordered by
+     * first chronological occurrence. Retries of the same failure collapse to a
+     * single entry; truly distinct failures all appear. `trace.errorCount` still
+     * reflects total error events (including retries); `errors.length` is the
+     * count of UNIQUE kinds.
+     */
+    errors: SessionTurnError[]
+}
+
+function getToolNamesCalledUnique(events: LLMTraceEvent[]): string[] {
+    // `Set` insertion order preserves first-appearance
+    return Array.from(new Set(getToolNamesCalled(events)))
+}
+
+/**
+ * Distinct errors keyed by `label + message`, in chronological first-appearance
+ * order. Retries of the same failure collapse to one entry. The chip already
+ * shows the raw event count (including retries); listing *distinct kinds* of
+ * failures inline reads more usefully than listing every retry.
+ */
+function collectDistinctErrors(events: LLMTraceEvent[]): SessionTurnError[] {
+    const sorted = [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    const seen = new Set<string>()
+    const ordered: SessionTurnError[] = []
+    for (const event of sorted) {
+        // A populated `$ai_error` payload is the authoritative signal — if it's
+        // there, treat the event as an error regardless of `$ai_is_error`.
+        // (Note that PostHog SDKs serialize booleans as strings)
+        const hasErrorPayload = !!event.properties.$ai_error
+        const isErrorFlag = event.properties.$ai_is_error
+        const isError = hasErrorPayload || isErrorFlag === true || isErrorFlag === 'true'
+        if (!isError) {
+            continue
+        }
+        const label = eventLabel(event)
+        const rawError = event.properties.$ai_error
+        const message =
+            typeof rawError === 'object' &&
+            rawError !== null &&
+            'message' in rawError &&
+            typeof rawError.message === 'string'
+                ? rawError.message
+                : formatAiErrorForDisplay(rawError)
+        const key = `${label}::${message}`
+        if (!seen.has(key)) {
+            seen.add(key)
+            ordered.push({ label, message })
+        }
+    }
+    return ordered
 }
 
 /**
@@ -93,9 +163,12 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
                 isLoaded: false,
                 newInputs: [],
                 outputs: [],
-                newInputSourceIndices: [],
+                tools: [],
+                errors: [],
             }
         }
+        const tools = getToolNamesCalledUnique(fullTrace.events ?? [])
+        const errors = collectDistinctErrors(fullTrace.events ?? [])
         const userVisibleTurn = pickUserVisibleTurn(fullTrace)
         if (!userVisibleTurn) {
             return {
@@ -103,32 +176,30 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
                 isLoaded: true,
                 newInputs: [],
                 outputs: [],
-                newInputSourceIndices: [],
+                tools,
+                errors,
             }
         }
         const { properties } = userVisibleTurn
-        const rawInput = properties.$ai_input ?? properties.$ai_input_state
-        const rawOutput = properties.$ai_output_choices ?? properties.$ai_output_state ?? properties.$ai_output
-        const tools = properties.$ai_tools
+        const rawInput = readAiInput(properties)
+        const rawOutput = readAiOutput(properties)
+        const aiTools = properties.$ai_tools
 
-        const inputMessages = normalizeMessages(rawInput, 'user', tools)
+        const inputMessages = normalizeMessages(rawInput, 'user', aiTools)
         const outputMessages = normalizeMessages(rawOutput, 'assistant')
-        const sourceIndices = buildInputSourceIndices(rawInput, tools)
 
         const newInputs: CompatMessage[] = []
-        const newInputSourceIndices: number[] = []
         const msgCountThisTurn = new Map<string, number>()
-        inputMessages.forEach((message, i) => {
+        for (const message of inputMessages) {
             const sig = messageSignature(message)
             const turnCount = (msgCountThisTurn.get(sig) ?? 0) + 1
             msgCountThisTurn.set(sig, turnCount)
             const shownCount = msgCountShown.get(sig) ?? 0
             if (turnCount > shownCount) {
                 newInputs.push(message)
-                newInputSourceIndices.push(sourceIndices[i] ?? i)
                 msgCountShown.set(sig, turnCount)
             }
-        })
+        }
         for (const message of outputMessages) {
             const sig = messageSignature(message)
             msgCountShown.set(sig, (msgCountShown.get(sig) ?? 0) + 1)
@@ -139,8 +210,9 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
             isLoaded: true,
             newInputs,
             outputs: outputMessages,
-            newInputSourceIndices,
             userVisibleTurn,
+            tools,
+            errors,
         }
     })
 }

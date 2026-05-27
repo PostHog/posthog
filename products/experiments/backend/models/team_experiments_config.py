@@ -62,6 +62,17 @@ class TeamExperimentsConfig(models.Model):
         ),
     )
 
+    default_cuped_lookback_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
+        help_text=(
+            "Default lookback window (in days) for CUPED variance reduction. "
+            "Overridden by the experiment-level `stats_config.cuped.lookback_days` setting when set. "
+            "Must be between 1 and 30 days."
+        ),
+    )
+
     default_minimum_detectable_effect = models.PositiveSmallIntegerField(
         null=True,
         blank=True,

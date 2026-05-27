@@ -1037,6 +1037,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
         if ctx.settingsClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.settingsClause()")
+        # `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
+        if ctx.sampleClause():
+            raise NotImplementedError(f"Unsupported: SelectStmt.sampleClause()")
 
         return select_query
 
