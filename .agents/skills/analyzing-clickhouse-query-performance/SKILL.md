@@ -96,8 +96,9 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
    `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable bucket.
 7. **Examples + write-up.** Capture `query_id` + `event_date` for the worst offenders in each finding,
    then write the report (structure below). Because `system.query_log` retention is short, examples are
-   resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the Metabase
-   lookup card.
+   resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the old Metabase
+   lookup card. Link each example to a shareable self-contained Metabase URL (the `query_link` recipe in
+   `references/query-patterns.md`) so a reader clicks straight through to the query.
 
 ## Interpreting the results
 
@@ -119,8 +120,9 @@ A report should contain, in order:
 1. One-line scope: region, window, and the slow definition / exclusions used.
 2. Headline numbers table + the two-populations caveat.
 3. Daily distribution table (flag any incident window).
-4. Findings, worst first. **Every finding needs at least one concrete `query_id` + `event_date`** so a
-   reader can pull the exact query. Group findings by what they are: a per-tenant incident, the
+4. Findings, worst first. **Every finding needs at least one concrete `query_id` + `event_date`,
+   linked via the shareable `query_link` URL** (see `references/query-patterns.md`) so a reader clicks
+   straight through to the exact query. Group findings by what they are: a per-tenant incident, the
    heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
 5. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
    make pipeline Y incremental, ...).

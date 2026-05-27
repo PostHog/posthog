@@ -193,3 +193,37 @@ miss anything older than a few hours):
 SELECT * FROM posthog.query_log_archive
 WHERE query_id = '<id>' AND event_date = '<YYYY-MM-DD>' AND is_initial_query
 ```
+
+### Shareable link to a single query
+
+For each example in a report, link to a self-contained Metabase URL that carries the SQL in its hash
+fragment, so a reader clicks straight through to the query in `query_log_archive`. This survives the
+short `system.query_log` retention (unlike the old `795-look-up-query-by-query-id` card). Build it by
+base64-encoding the native-query payload:
+
+```python
+import base64, json
+
+BASE = {"us": "https://metabase.prod-us.posthog.dev", "eu": "https://metabase.prod-eu.posthog.dev"}
+
+def query_link(query_id, event_date, region="us", database_id=43):
+    # database_id is a ClickHouse connection on the cluster (US 43). IDs can change when Metabase's
+    # metadata is rebuilt — rediscover with `hogli metabase:databases` and any ClickHouse id works,
+    # since query_log_archive is a Distributed table. EU needs its own id.
+    sql = (f"  SELECT lc_query__query FROM posthog.query_log_archive\n"
+           f"  WHERE query_id = '{query_id}'\n"
+           f"    AND event_date = '{event_date}' AND is_initial_query")
+    payload = {
+        "dataset_query": {"type": "native", "native": {"query": sql, "template-tags": {}}, "database": database_id},
+        "display": "table", "parameters": [], "visualization_settings": {},
+    }
+    blob = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+    return f"{BASE[region]}/question#{blob}"
+```
+
+`SELECT lc_query__query` shows the originating product query; widen the SELECT (e.g. `*`, or `query`
+for the executed ClickHouse SQL) if you want more detail in the linked view. Example output:
+
+```text
+https://metabase.prod-us.posthog.dev/question#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJ...
+```
