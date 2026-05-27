@@ -121,7 +121,7 @@ def is_stale_filter(
     return is_stale(team, filter.date_to, interval, last_refresh)
 
 
-# enum legacy, default, lazy
+# enum default, lazy, ai
 class ThresholdMode(Enum):
     DEFAULT = "default"
     LAZY = "lazy"
