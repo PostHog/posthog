@@ -93,7 +93,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         ],
         actions: [
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
-            ['openConversation', 'startNewConversation', 'setQuestion'],
+            ['openConversation', 'startNewConversation', 'setQuestion', 'askMax'],
             handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['enterHandsFree'],
             sceneLogic,
@@ -150,6 +150,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             false,
             {
                 submitQuery: (_, { mode }) => mode === 'ai',
+                // Entering AI mode via the "/" or "@" trigger opens command mode without submitting a
+                // query, so there's no thread yet — reset, so a stale flag can't show an empty thread.
+                enterAiMode: () => false,
+                // Once a message is actually sent (e.g. a /init slash command submitted through Max's
+                // input), askMax fires on the homepage tab and the thread must become visible —
+                // otherwise the conversation streams into a blank, hidden thread.
+                askMax: () => true,
                 returnToIdle: () => false,
             },
         ],
