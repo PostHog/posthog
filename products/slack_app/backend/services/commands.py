@@ -17,9 +17,6 @@ def _handle_help(slack: SlackIntegration, channel: str, thread_ts: str) -> None:
             '`@PostHog rules add "description" org/repo` — Add a routing rule\n'
             '`@PostHog rules add "description"` — Add a routing rule (pick repo from list)\n'
             "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
-            "`@PostHog default repo set org/repo` — Set your default repository for this channel\n"
-            "`@PostHog default repo show` — Show your default repository for this channel\n"
-            "`@PostHog default repo clear` — Clear your default repository for this channel\n"
             "`@PostHog project` — Show which PostHog project your mentions route to in this workspace\n"
             "`@PostHog project <id>` — Set the PostHog project your mentions route to in this workspace\n"
             "`@PostHog help` — Show this message\n\n"
@@ -140,100 +137,6 @@ def _handle_rules_remove(
         thread_ts=thread_ts,
         text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
     )
-
-
-def _handle_default_repo_set(
-    slack: SlackIntegration,
-    integration: Integration,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-    repository: str,
-) -> None:
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
-
-    all_repos = _get_full_repo_names(integration)
-    matched_repo = _extract_explicit_repo(repository, all_repos)
-    if not matched_repo:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Repository `{repository}` is not connected to this project.",
-        )
-        return
-
-    UserRepoPreference.set_default(
-        team_id=integration.team_id,
-        user_id=user_id,
-        scope_type="slack_channel",
-        scope_id=channel,
-        repository=matched_repo,
-    )
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=f"Default repository for this channel set to `{matched_repo}`.",
-    )
-
-
-def _handle_default_repo_show(
-    slack: SlackIntegration,
-    integration: Integration,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-) -> None:
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    default = UserRepoPreference.get_default(
-        team_id=integration.team_id,
-        user_id=user_id,
-        scope_type="slack_channel",
-        scope_id=channel,
-    )
-    if default:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Your default repository for this channel is `{default}`.",
-        )
-    else:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="No default repository set for this channel. Use `@PostHog default repo set org/repo` to set one.",
-        )
-
-
-def _handle_default_repo_clear(
-    slack: SlackIntegration,
-    integration: Integration,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-) -> None:
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    cleared = UserRepoPreference.clear_default(
-        team_id=integration.team_id,
-        user_id=user_id,
-        scope_type="slack_channel",
-        scope_id=channel,
-    )
-    if cleared:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Default repository for this channel has been cleared.",
-        )
-    else:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="No default repository was set for this channel.",
-        )
 
 
 def _handle_project_show(
@@ -443,12 +346,6 @@ def dispatch_rules_command(
             )
     elif command.action == "remove":
         _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_numbers)
-    elif command.action == "default_set":
-        _handle_default_repo_set(slack, integration, channel, thread_ts, user_id, command.repository or "")
-    elif command.action == "default_show":
-        _handle_default_repo_show(slack, integration, channel, thread_ts, user_id)
-    elif command.action == "default_clear":
-        _handle_default_repo_clear(slack, integration, channel, thread_ts, user_id)
     elif command.action == "project_show":
         _handle_project_show(
             slack,
