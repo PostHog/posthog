@@ -92,12 +92,9 @@ interface CookielessConfig {
 }
 
 /**
- * Everything a server needs to instantiate a CookielessManager and its Redis pool —
- * the manager's own config keys plus the Redis connection knobs read by
- * `createCookielessRedisConnectionConfig`. Use this in service config slices instead
- * of redeclaring the cookieless keys inline.
+ * The cookieless-related keys a CookielessManager needs from the consumer config.
  */
-export type CookielessServerConfig = Pick<
+export type CookielessManagerConfig = Pick<
     IngestionConsumerConfig,
     | 'COOKIELESS_DISABLED'
     | 'COOKIELESS_FORCE_STATELESS_MODE'
@@ -106,9 +103,16 @@ export type CookielessServerConfig = Pick<
     | 'COOKIELESS_SALT_TTL_SECONDS'
     | 'COOKIELESS_SESSION_INACTIVITY_MS'
     | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
-    | 'COOKIELESS_REDIS_HOST'
-    | 'COOKIELESS_REDIS_PORT'
 >
+
+/**
+ * Everything a server needs to instantiate a CookielessManager and its Redis pool —
+ * the manager's own config plus the Redis connection knobs read by
+ * `createCookielessRedisConnectionConfig`. Use this in service config slices instead
+ * of redeclaring the cookieless keys inline.
+ */
+export type CookielessServerConfig = CookielessManagerConfig &
+    Pick<IngestionConsumerConfig, 'COOKIELESS_REDIS_HOST' | 'COOKIELESS_REDIS_PORT'>
 
 export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
@@ -118,19 +122,7 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(
-        config: Pick<
-            IngestionConsumerConfig,
-            | 'COOKIELESS_DISABLED'
-            | 'COOKIELESS_FORCE_STATELESS_MODE'
-            | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
-            | 'COOKIELESS_SESSION_TTL_SECONDS'
-            | 'COOKIELESS_SALT_TTL_SECONDS'
-            | 'COOKIELESS_SESSION_INACTIVITY_MS'
-            | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
-        >,
-        redis: GenericPool<Redis.Redis>
-    ) {
+    constructor(config: CookielessManagerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
