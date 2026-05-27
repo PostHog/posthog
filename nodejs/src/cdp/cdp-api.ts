@@ -41,6 +41,7 @@ import { NativeDestinationExecutorService } from './services/native-destination-
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
+import { sanitizeLogMessage } from './utils'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
@@ -405,9 +406,14 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
+                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                        invocation.hogFunction,
+                        invocation.state.globals.inputs ?? {}
+                    )
                     const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
                         mock_async_functions,
-                        logs
+                        logs,
+                        sensitiveValues
                     )
 
                     let response: any = null
@@ -930,7 +936,8 @@ export class CdpApi {
 
 const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
-    logs: MinimalLogEntry[]
+    logs: MinimalLogEntry[],
+    sensitiveValues?: string[]
 ): HogExecutorExecuteAsyncOptions => {
     let mockFunctions: Record<string, (...args: any[]) => any> | undefined
 
@@ -938,7 +945,23 @@ const buildHogExecutorAsyncOptions = (
         mockFunctions = {}
         for (const name of getRegisteredAsyncFunctionNames()) {
             const handler = getAsyncFunctionHandler(name)!
-            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+            mockFunctions[name] = (...args: any[]) => {
+                // Mock async-function handlers push log entries directly into `logs`, bypassing the
+                // executor's print → sanitizeLogMessage pipeline. Capture how many entries existed
+                // before the handler runs and sanitize anything it appended so any secret-flagged
+                // input values that show up in fetch headers/body etc. don't leak into test logs.
+                const startIndex = logs.length
+                const result = handler.mock(args, logs)
+                if (sensitiveValues?.length) {
+                    for (let i = startIndex; i < logs.length; i++) {
+                        logs[i] = {
+                            ...logs[i],
+                            message: sanitizeLogMessage([logs[i].message], sensitiveValues),
+                        }
+                    }
+                }
+                return result
+            }
         }
     }
 

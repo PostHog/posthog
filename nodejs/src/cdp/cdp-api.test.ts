@@ -492,6 +492,57 @@ describe('CDP API', () => {
         `)
     })
 
+    it('redacts secret input values in mocked async function logs', async () => {
+        // Regression test for a leak in the "Test" panel: when mock_async_functions=true the
+        // mock fetch handler pushes log entries directly to the logs array without running them
+        // through sanitizeLogMessage, so secret-flagged inputs that appear in fetch headers/body
+        // (e.g. Bearer tokens in destinations like WhatsApp/Twilio/Slack) end up in plaintext
+        // in the test logs.
+        const SECRET_TOKEN = 'super-secret-bearer-token-xyz'
+
+        const hogFunctionWithSecret = await insertHogFunction({
+            name: 'test hog function with secret in headers',
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+                {
+                    key: 'method',
+                    type: 'choice',
+                    label: 'HTTP Method',
+                    secret: false,
+                    choices: [
+                        { label: 'POST', value: 'POST' },
+                        { label: 'GET', value: 'GET' },
+                    ],
+                    required: true,
+                },
+                { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+                { key: 'body', type: 'json', label: 'Body', secret: false, required: true },
+            ],
+            inputs: {
+                url: { value: 'https://example.com/posthog-webhook' },
+                access_token: { value: SECRET_TOKEN },
+                method: { value: 'POST' },
+                headers: { value: { Authorization: `Bearer ${SECRET_TOKEN}` } },
+                body: { value: {} },
+            },
+        })
+
+        const res = await supertest(app)
+            .post(
+                `/api/projects/${hogFunctionWithSecret.team_id}/hog_functions/${hogFunctionWithSecret.id}/invocations`
+            )
+            .send({ globals, mock_async_functions: true })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
+
+        const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(allLogText).not.toContain(SECRET_TOKEN)
+    })
+
     describe('transformations', () => {
         let configuration: HogFunctionType
 
