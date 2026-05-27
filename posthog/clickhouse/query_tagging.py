@@ -412,10 +412,7 @@ class QueryTags(BaseModel):
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
 
-    # True when the query embeds any HogQL string supplied by the end user — set via
-    # ``tag_contains_user_hogql()`` at each parse site (see that function for the full
-    # caller list). Used to triage ClickHouse errors: a failure is likely caused by user
-    # input when this is true, and by the platform when it is false or absent.
+    # True when the query embeds a user-supplied HogQL string; used to split user vs platform errors in system.query_log.
     contains_user_hogql: Optional[bool] = None
 
     hogql_features: Optional[HogQLFeatures] = None
@@ -532,21 +529,11 @@ def tag_queries(**kwargs) -> None:
 
 
 def tag_contains_user_hogql() -> None:
-    """Mark the current query as containing user-supplied HogQL.
+    """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
 
-    Call this at any site that hands user-controlled HogQL string input to ``parse_expr``,
-    ``parse_order_expr``, or ``parse_select``. Current callers include the full-SQL editor
-    (``HogQLQuery.query``), ``HogQLPropertyFilter.key``, ``math_hogql``, ``breakdown`` when
-    ``breakdown_type='hogql'``, ``EventsQuery``/``ActorsQuery``/``SessionsQuery``
-    ``select``/``where``/``orderBy``, ``funnelAggregateByHogQL``, ``pathsHogQLExpression``,
-    and the field-expression strings on ``DataWarehouseNode`` / ``ExperimentDataWarehouseNode``
-    (timestamp/aggregation-target/created-at/join-key/math_property).
-
-    The tag exists to separate user errors from platform errors in ClickHouse
-    ``system.query_log``. Idempotent: skips the ``model_copy(deep=True)`` inside
-    ``tag_queries`` on every call after the first per query context, so it's cheap to call
-    inside hot loops (recursive ``property_to_expr``, breakdown iteration, ``@property``
-    accessors).
+    Idempotent — safe to call inside hot loops (recursive ``property_to_expr``, breakdown
+    iteration, ``@property`` accessors) since the early-return skips the ``model_copy``
+    inside ``tag_queries`` after the first call per query context.
     """
     if get_query_tag_value("contains_user_hogql"):
         return

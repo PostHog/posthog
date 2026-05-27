@@ -308,9 +308,9 @@ class Breakdown:
 
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
-            if breakdown_type == "hogql":
-                tag_contains_user_hogql()
             left = strip_user_aliases(parse_expr(breakdown_value))
         else:
             left = ast.Field(
@@ -421,9 +421,9 @@ class Breakdown:
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
-            if breakdown_type == "hogql":
-                tag_contains_user_hogql()
             inner = strip_user_aliases(parse_expr(cast(str, value)))
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(inner))
 

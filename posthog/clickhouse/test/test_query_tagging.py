@@ -483,8 +483,6 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["product"] == Product.PRODUCT_ANALYTICS.value
 
     def test_hogql_query_runner_marks_contains_user_hogql(self):
-        # A query routed through `HogQLQueryRunner` is, by definition, user-written SQL;
-        # the flag must land in `system.query_log` so log triage can split user vs platform errors.
         from posthog.schema import HogQLQuery
 
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -500,7 +498,6 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment.get("contains_user_hogql") is True
 
     def test_platform_query_does_not_mark_contains_user_hogql(self):
-        # Plain sync_execute from platform code must NOT set the flag.
         marker = str(uuid.uuid4())
         reset_query_tags()
         tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query", product=Product.INTERNAL)

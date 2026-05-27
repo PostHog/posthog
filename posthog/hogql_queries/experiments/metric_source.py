@@ -75,6 +75,7 @@ class MetricSourceInfo:
         """
         if isinstance(source, ExperimentDataWarehouseNode):
             # Datawarehouse sources always use their own join key, ignore entity_key parameter
+            # `data_warehouse_join_key` is the user-supplied HogQL parsed below.
             tag_contains_user_hogql()
             return cls(
                 kind="datawarehouse",
