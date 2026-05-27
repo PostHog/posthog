@@ -150,6 +150,24 @@ describe('experimentActivityDescriber', () => {
                 expected: 'excluded variants test-2, test-3 from analysis',
             },
             {
+                name: 'multiple variants removed from exclusion list',
+                before: { excluded_variants: ['test-2', 'test-3'] },
+                after: { excluded_variants: [] },
+                expected: 're-included variants test-2, test-3 in analysis',
+            },
+            {
+                name: 'simultaneous add and remove',
+                before: { excluded_variants: ['test-2'] },
+                after: { excluded_variants: ['test-3'] },
+                expected: 'excluded variant test-3 from analysis and re-included variant test-2 in analysis',
+            },
+            {
+                name: 'falls back to updated parameters when excluded_variants is unchanged',
+                before: { excluded_variants: ['test-2'] },
+                after: { excluded_variants: ['test-2'] },
+                expected: 'updated parameters',
+            },
+            {
                 name: 'handles null before payload (fresh record case)',
                 before: null,
                 after: { excluded_variants: ['test-2'] },
