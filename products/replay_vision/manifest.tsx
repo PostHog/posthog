@@ -24,9 +24,17 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
+        ReplayVisionObservation: {
+            name: 'Replay vision observation',
+            import: () => import('./frontend/observations/ReplayObservation'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
     },
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
+        '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {},
@@ -34,6 +42,7 @@ export const manifest: ProductManifest = {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+        replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

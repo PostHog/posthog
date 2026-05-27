@@ -14,7 +14,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs

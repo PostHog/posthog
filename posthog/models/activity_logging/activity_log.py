@@ -85,6 +85,7 @@ ActivityScope = Literal[
     "LogsExclusionRule",
     "ProductTour",
     "Ticket",
+    "InstanceSetting",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -349,6 +350,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     {
         "scope": "Role",
         "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Instance-setting changes are staff-only operations and must not leak into the
+        # org-scoped activity log endpoints, which are visible to organization admins.
+        "scope": "InstanceSetting",
+        "activities": ["updated"],
         "exclude_when": {},
         "allow_staff": True,
     },

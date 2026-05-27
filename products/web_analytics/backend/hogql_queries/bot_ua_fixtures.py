@@ -45,6 +45,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; MistralAI-User/1.0; +https://mistral.ai/mistralai-user)",
         "Mozilla/5.0 (compatible; Manus-User/1.0; +https://manus.im/bot)",
         "Mozilla/5.0 (compatible; Google-NotebookLM/1.0; +https://notebooklm.google)",
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Shap-User/0.1.0",
         "posthog/desktop.hog.dev; version: 1.0.0",
         "posthog/mobile.hog.dev; version: 1.0.0",
         "posthog/agent.hog.dev; version: 1.0.0",
@@ -61,6 +62,11 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)",
         "Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Yeti/1.1; +https://naver.me/spd) Chrome/144.0.0.0 Safari/537.36",
+        "YisouSpider",
+        "Sogou web spider/4.0(+http://www.sogou.com/docs/help/webmasters.htm#07)",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; Google-Food) Chrome/146.0.7680.177 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; pageburst) Chrome/148.0.7778.96 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0; 360Spider",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -71,6 +77,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)",
         "Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Chrome-Lighthouse",
+        "MeltwaterNews www.meltwater.com",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -91,6 +98,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Site24x7 (https://www.site24x7.com)",
         "Mozilla/5.0 (compatible; StatusCake)",
         "Datadog/Synthetics",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 GrafanaSyntheticMonitoring",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 DMBrowser/2.1 (UV)",
+        "DigitalOcean Uptime Probe 0.28.0 (https://digitalocean.com)",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",
@@ -107,6 +117,15 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Apache-HttpClient/4.5.14 (Java/17.0.1)",
         "libwww-perl/6.67",
         "Scrapy/2.9.0 (+https://scrapy.org)",
+        "PlayStore-Google",
+        "Amazon CloudFront",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 (compatible; AmazonProductDiscovery/1.0; +https://vendorcentral.amazon.com/help/202172930)",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; Google-BusinessLinkVerification) Chrome/146.0.7680.177 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64; Storebot-Google/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36 (compatible; Google-Read-Aloud; +https://support.google.com/webmasters/answer/1061943)",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; Google-Appointments) Chrome/146.0.7680.177 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Actions) Chrome/114.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.199 Safari/537.36;OneTrust;",
     ],
     "headless_browser": [
         "Mozlila/5.0 (Linux; Android 7.0; SM-G892A Bulid/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/60.0.3112.107 Moblie Safari/537.36",
@@ -124,20 +143,6 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
     ],
-}
-
-# Category -> expected traffic_type mapping
-CATEGORY_TO_TRAFFIC_TYPE: dict[str, str] = {
-    "ai_crawler": "AI Agent",
-    "ai_search": "AI Agent",
-    "ai_assistant": "AI Agent",
-    "search_crawler": "Bot",
-    "seo_crawler": "Bot",
-    "social_crawler": "Bot",
-    "monitoring": "Bot",
-    "http_client": "Automation",
-    "headless_browser": "Automation",
-    "regular_browser": "Regular",
 }
 
 # Category -> expected traffic_category mapping (the $virt_traffic_category value)

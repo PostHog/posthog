@@ -54,6 +54,7 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
+            "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
             "collect_posthog_code_thread_messages_activity",

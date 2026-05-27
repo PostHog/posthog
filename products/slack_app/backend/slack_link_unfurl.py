@@ -7,11 +7,11 @@ from urllib.parse import urlparse
 
 import structlog
 
-from posthog.models import Insight
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 

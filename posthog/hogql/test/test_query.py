@@ -37,12 +37,12 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
