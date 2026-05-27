@@ -33,6 +33,8 @@ design; do not abort local-mode runs for either reason.
 Ask for explicit approval in the current conversation before:
 
 - Starting, stopping, or restarting the local PostHog dev stack.
+- Switching away from a dirty selected checkout or using a different checkout
+  than the current repo.
 - Posting any GitHub PR comment, review, or issue comment.
 - Pushing commits, force-pushing, deleting branches, or renaming branches.
 - Rerunning or canceling GitHub Actions.
@@ -41,6 +43,23 @@ Ask for explicit approval in the current conversation before:
 - Accepting or updating snapshots.
 
 Read-only GitHub and git inspection commands are allowed.
+
+## Checkout Selection
+
+Prefer the current repo checkout. If the user names a repo and branch from a
+workspace root, use that repo's primary checkout and switch branches there when
+the tree is clean. Do not silently use a sibling review worktree, old project
+copy, or temporary checkout just because it already has the requested branch.
+
+If several checkouts could be correct, or the selected checkout is dirty and
+would need a branch switch, ask before choosing. A local-mode run includes
+committed, staged, unstaged, and untracked changes from the selected checkout,
+so choosing the wrong checkout changes what is under test.
+
+If `.agents/skills/qa-frontend/` appears in the local-mode changed-file set and
+the user did not explicitly ask to QA this skill, stop and ask whether those
+skill edits are intentional. Do not treat self-edits to this skill as ordinary
+product QA input without confirmation.
 
 ## Local Stack Control
 

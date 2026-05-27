@@ -41,30 +41,34 @@ instructions, and explicit user approval in the current conversation.
 ## Quick Use
 
 1. Decide mode (PR vs local) from the user prompt and presence of a PR ref.
-2. In PR mode, require a clean working tree before doing anything else.
-3. Require a reachable local stack and working Playwright MCP session. Reuse the
+2. Resolve the target repo and branch. Prefer the current repo checkout; if the
+   user names a repo and branch from a workspace root, use that repo's primary
+   checkout and switch branches there when safe. Do not silently choose a
+   sibling review worktree just because it is already on the branch.
+3. In PR mode, require a clean working tree before doing anything else.
+4. Require a reachable local stack and working Playwright MCP session. Reuse the
    developer's current stack by default. If nothing is reachable, ask how the
    user wants to run PostHog: they can start it themselves, provide another
    `BASE_URL`, or explicitly approve agent-managed detached startup. If the
    agent starts it, stop it during cleanup unless the user asks to keep it
    running.
-4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
+5. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
-5. Design behavior-focused test cases from the diff, then map each case to a
+6. Design behavior-focused test cases from the diff, then map each case to a
    frontend route.
-6. Run frontend browser and visual checks through Playwright MCP, capturing evidence.
-7. Confirm every candidate issue with one retry before calling it a finding.
-8. In PR mode, apply at most 3 confident fixes, only inside files already
+7. Run frontend browser and visual checks through Playwright MCP, capturing evidence.
+8. Confirm every candidate issue with one retry before calling it a finding.
+9. In PR mode, apply at most 3 confident fixes, only inside files already
    changed by the PR. In local mode, default to suggested patches, only edit
    after explicit approval, and never stage or commit those edits.
-9. Create a slow GIF from captured screenshots when `ffmpeg` or another
-   existing local GIF tool is available.
-10. PR mode only: after approval, upload selected evidence if configured,
+10. Create a slow GIF from captured screenshots when `ffmpeg` or another
+    existing local GIF tool is available.
+11. PR mode only: after approval, upload selected evidence if configured,
     verify PR comment connectivity, and post one final PR comment for every
     completed run, including clean runs. Push only after explicit approval.
-11. Local mode only: write the rendered report to stdout and to
+12. Local mode only: write the rendered report to stdout and to
     `.qa-frontend/runs/<run-id>/report.md`. No upload, no PR comment, no push.
-12. In PR mode, restore the original branch in a finally-style cleanup.
+13. In PR mode, restore the original branch in a finally-style cleanup.
 
 Supported invocation forms:
 
@@ -73,6 +77,7 @@ Supported invocation forms:
 /qa-frontend <PR URL or PR number> --login-username <email> --login-password <password>
 /qa-frontend                           # local mode: QA current branch + uncommitted
 /qa-frontend --base <branch-or-sha>     # local mode: diff against an explicit base
+/qa-frontend posthog branch <branch> --base <branch-or-sha>
 ```
 
 The skill is conversational, not a rigid CLI. The agent should infer mode and
@@ -125,12 +130,46 @@ Parse `$ARGUMENTS` into:
 - `LOCAL_BASE_REF`: value after `--base` or `--base-ref`. Only applies in
   local mode. Default `origin/master`, or the repo default branch if that is
   different.
+- `TARGET_REPO`: value after `--repo`, or a repo name mentioned in natural
+  language such as "repo posthog". Optional.
+- `TARGET_BRANCH`: value after `--branch`, or a branch name mentioned in natural
+  language such as "branch my-feature". Optional in local mode.
 - `AUTO_PUSH_FIXES`: boolean. True if `$ARGUMENTS` contains `--auto-push` or
   natural-language equivalents like "auto push fixes", "push fixes
   automatically", "no need to ask before pushing". Default false.
 
 Do not print, log, or include `LOGIN_PASSWORD` in evidence or comments.
 Reject unknown options only if they prevent identifying `PR_REF`.
+
+### Repository and branch selection
+
+Resolve where the QA run happens before reading skill references, checking
+stack readiness, or collecting diffs.
+
+Default to the current git repository:
+
+```bash
+git rev-parse --show-toplevel
+git branch --show-current
+```
+
+If the current directory is not inside a git repository and `TARGET_REPO` is
+known, look for a direct child checkout named `TARGET_REPO` from the current
+workspace directory. Do not do broad recursive searches through review
+worktrees, old project folders, or temporary checkouts. If more than one
+checkout could be correct, ask the user which repo checkout to use.
+
+If `TARGET_BRANCH` is known and the selected checkout is not on that branch:
+
+- If the working tree is clean, switch the selected checkout to
+  `TARGET_BRANCH`.
+- If the working tree is dirty, ask before switching or choose a different
+  checkout only after the user confirms.
+
+Do not silently move the run to a sibling worktree because it already has
+`TARGET_BRANCH` checked out. Local mode tests the selected checkout's current
+state, so silently selecting a different checkout can include unrelated staged
+or unstaged changes.
 
 ### Run identity
 
@@ -207,6 +246,11 @@ Record:
 
 Treat the changed-file set as the only files an autonomous fix may touch.
 Apply the same lockfile/migration warning rules as PR mode.
+
+If the changed-file set includes `.agents/skills/qa-frontend/` and the user did
+not explicitly ask to QA changes to this skill, stop and ask whether to include
+those skill edits or clean/switch to a checkout without them. Do not silently
+treat staged or unstaged edits to this skill as product changes.
 
 ## Stack Readiness
 
