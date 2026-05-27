@@ -118,7 +118,7 @@ import {
     convertCurrentURLFilter,
     hasURLSearchParams,
 } from './constants'
-import { FOCUS_MODE_TILE_IDS, getHiddenTilesForFocusConcerns } from './focus-mode/focusModeMapping'
+import { FOCUS_MODE_TILE_IDS, computeFocusHiddenTiles } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern } from './focus-mode/types'
 import { webAnalyticsHealthLogic } from './health'
 import { IncludeHostToggle } from './IncludeHostToggle'
@@ -2832,14 +2832,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
                     return
                 }
-                const focusModeTileSet = new Set<TileId>(FOCUS_MODE_TILE_IDS)
-                const nonFocusHiddenTiles = values.hiddenTiles.filter((tileId) => !focusModeTileSet.has(tileId))
-                const focusHiddenTiles = getHiddenTilesForFocusConcerns(values.focusModeConcerns)
-                actions.setHiddenTiles([...nonFocusHiddenTiles, ...focusHiddenTiles])
+                actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeConcerns))
                 actions.setFocusModeEnabled(true)
             },
             exitFocusMode: () => {
-                actions.resetTileVisibility()
+                const focusModeTileSet = new Set<TileId>(FOCUS_MODE_TILE_IDS)
+                actions.setHiddenTiles(values.hiddenTiles.filter((tileId) => !focusModeTileSet.has(tileId)))
                 actions.setFocusModeEnabled(false)
             },
             applyFocusMode: () => {
@@ -2847,10 +2845,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return
                 }
                 actions.setFocusModeConcerns(values.focusModeDraftConcerns)
-                const focusModeTileSet = new Set<TileId>(FOCUS_MODE_TILE_IDS)
-                const nonFocusHiddenTiles = values.hiddenTiles.filter((tileId) => !focusModeTileSet.has(tileId))
-                const focusHiddenTiles = getHiddenTilesForFocusConcerns(values.focusModeDraftConcerns)
-                actions.setHiddenTiles([...nonFocusHiddenTiles, ...focusHiddenTiles])
+                actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeDraftConcerns))
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
             },

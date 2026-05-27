@@ -43,3 +43,10 @@ export const getHiddenTilesForFocusConcerns = (concerns: WebAnalyticsConcern[]):
     const visibleTiles = getTilesForFocusConcerns(concerns)
     return FOCUS_MODE_TILE_IDS.filter((tileId) => !visibleTiles.has(tileId))
 }
+
+export const computeFocusHiddenTiles = (currentHiddenTiles: TileId[], concerns: WebAnalyticsConcern[]): TileId[] => {
+    const focusModeTileSet = new Set<TileId>(FOCUS_MODE_TILE_IDS)
+    const nonFocusHiddenTiles = currentHiddenTiles.filter((tileId) => !focusModeTileSet.has(tileId))
+    const focusHiddenTiles = getHiddenTilesForFocusConcerns(concerns)
+    return [...nonFocusHiddenTiles, ...focusHiddenTiles]
+}

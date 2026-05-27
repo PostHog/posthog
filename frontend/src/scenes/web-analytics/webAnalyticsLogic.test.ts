@@ -97,6 +97,23 @@ describe('webAnalyticsLogic focus mode', () => {
         })
     })
 
+    it('exits focus mode and preserves manually-hidden non-focus tiles', async () => {
+        enableFocusMode()
+        logic.actions.setTileVisibility(TileId.WEB_VITALS, false)
+        logic.actions.openFocusModeModal()
+        logic.actions.toggleFocusModeConcern(WebAnalyticsConcern.RETENTION)
+        logic.actions.applyFocusMode()
+
+        await expectLogic(logic, () => {
+            logic.actions.exitFocusMode()
+        }).toMatchValues({
+            focusModeConcerns: [WebAnalyticsConcern.RETENTION],
+            focusModeEnabled: false,
+            hiddenTiles: [TileId.WEB_VITALS],
+            isFocusModeActive: false,
+        })
+    })
+
     it('re-enters focus mode using saved concerns', async () => {
         enableFocusMode()
         logic.actions.setFocusModeConcerns([WebAnalyticsConcern.RETENTION])
