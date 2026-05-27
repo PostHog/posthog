@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
 
-import { type ActivityEntry, wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+
+import { type ActivityEntry, type DisplayState, wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
 
 /**
  * Wizard takeover panel — a "terminal in the browser" feel for the live
@@ -92,11 +95,6 @@ function TerminalHeader(): JSX.Element {
                     50.01%, 100% { opacity: 0; }
                 }
                 .wizard-caret { animation: wizard-caret-blink 1s steps(1) infinite; }
-                @keyframes wizard-task-active {
-                    0%, 100% { opacity: 1; }
-                    50% { opacity: 0.45; }
-                }
-                .wizard-task-active-icon { animation: wizard-task-active 1.2s ease-in-out infinite; }
                 @keyframes wizard-task-row-glow {
                     0%, 100% { background-color: rgba(245, 78, 0, 0.06); }
                     50% { background-color: rgba(245, 78, 0, 0.12); }
@@ -113,23 +111,39 @@ function StatusSubhead(): JSX.Element {
         return <></>
     }
 
-    const headline =
-        displayState === 'completed'
-            ? "PostHog's wired into your project."
-            : displayState === 'error'
-              ? 'The wizard ran into trouble.'
-              : displayState === 'connecting'
-                ? 'Reconnecting to the wizard…'
-                : "The wizard's installing PostHog for you."
-
     return (
-        <div className="px-4 py-2 text-xs text-neutral-400 border-t border-neutral-800/60">
-            {headline}{' '}
-            <span className="text-neutral-500">
-                Detected: <span className="text-neutral-300">{latestSession.skill_id}</span>
-            </span>
+        <div className="px-4 py-2.5 border-t border-neutral-800/60 space-y-1">
+            <div className="text-xs text-neutral-300">
+                <Headline displayState={displayState} />{' '}
+                <span className="text-neutral-500">
+                    Detected: <span className="text-neutral-300">{latestSession.skill_id}</span>
+                </span>
+            </div>
+            {displayState === 'running' || displayState === 'connecting' ? (
+                <div className="text-[11px] text-neutral-500 leading-relaxed">
+                    Usually 5–10 minutes — feel free to step away. Your code and credentials stay on your machine; we
+                    cover the AI cost.
+                </div>
+            ) : null}
         </div>
     )
+}
+
+function Headline({ displayState }: { displayState: DisplayState }): JSX.Element {
+    switch (displayState) {
+        case 'completed':
+            return <span className="text-neutral-100">PostHog is set up. You can keep going.</span>
+        case 'error':
+            return (
+                <span className="text-neutral-100">The wizard couldn't finish. You can retry or set up manually.</span>
+            )
+        case 'connecting':
+            return <span className="text-neutral-100">Reconnecting to the wizard…</span>
+        default:
+            return (
+                <span className="text-neutral-100">The CLI is installing PostHog for you — no action needed here.</span>
+            )
+    }
 }
 
 function TaskList(): JSX.Element {
@@ -138,11 +152,13 @@ function TaskList(): JSX.Element {
 
     if (tasks.length === 0) {
         return (
-            <div className="text-neutral-400">
-                <span aria-hidden className="text-brand-red">
-                    ▶
-                </span>{' '}
-                analyzing project<span className="wizard-caret">_</span>
+            <div className="text-neutral-400 flex items-center gap-2">
+                <span className="text-brand-red inline-flex items-center">
+                    <Spinner textColored speed="0.9s" />
+                </span>
+                <span>
+                    analyzing project<span className="wizard-caret">_</span>
+                </span>
             </div>
         )
     }
@@ -183,26 +199,16 @@ function TaskList(): JSX.Element {
 }
 
 function TaskIcon({ status }: { status: string }): JSX.Element {
-    const symbol =
-        status === 'completed'
-            ? '✓'
-            : status === 'in_progress'
-              ? '▶'
-              : status === 'failed'
-                ? '✗'
-                : status === 'canceled'
-                  ? '⊘'
-                  : '☐'
-    const color =
-        status === 'completed'
-            ? 'text-success'
-            : status === 'failed'
-              ? 'text-brand-red'
-              : status === 'in_progress'
-                ? 'text-brand-red'
-                : 'text-neutral-600'
-    const animation = status === 'in_progress' ? 'wizard-task-active-icon' : ''
-    return <span className={`inline-block w-4 ${color} ${animation}`}>{symbol}</span>
+    if (status === 'in_progress') {
+        return (
+            <span className="inline-flex items-center justify-center w-4 text-brand-red">
+                <Spinner textColored speed="0.9s" />
+            </span>
+        )
+    }
+    const symbol = status === 'completed' ? '✓' : status === 'failed' ? '✗' : status === 'canceled' ? '⊘' : '☐'
+    const color = status === 'completed' ? 'text-success' : status === 'failed' ? 'text-brand-red' : 'text-neutral-600'
+    return <span className={`inline-block w-4 ${color}`}>{symbol}</span>
 }
 
 function ActivityLog(): JSX.Element {
@@ -237,29 +243,41 @@ function Footer({ onManualSetup }: { onManualSetup?: () => void }): JSX.Element 
             ? (latestSession.error as { type?: string; message?: string })
             : null
 
-    if (!showManualLink && !errorPayload) {
-        return <></>
-    }
+    const feedbackHref = `mailto:hey@posthog.com?subject=${encodeURIComponent('Onboarding wizard feedback')}`
 
     return (
-        <div className="px-4 py-2.5 border-t border-neutral-800 text-xs flex items-center justify-between gap-3">
-            {errorPayload ? (
-                <div className="text-brand-red min-w-0">
-                    <span className="font-semibold">{errorPayload.type}: </span>
-                    <span className="text-neutral-300">{errorPayload.message}</span>
-                </div>
-            ) : (
-                <span />
-            )}
-            {showManualLink ? (
-                <button
-                    type="button"
-                    onClick={onManualSetup}
-                    className="text-neutral-500 hover:text-neutral-300 transition-colors shrink-0"
+        <div className="px-4 py-2.5 border-t border-neutral-800 text-xs flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0 flex items-center gap-3 flex-wrap">
+                {errorPayload ? (
+                    <span className="text-brand-red min-w-0">
+                        <span className="font-semibold">{errorPayload.type}: </span>
+                        <span className="text-neutral-300">{errorPayload.message}</span>
+                    </span>
+                ) : null}
+                {displayState === 'completed' ? (
+                    <span className="text-neutral-400">
+                        Hit <span className="text-neutral-200">Continue</span> below to finish onboarding.
+                    </span>
+                ) : null}
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+                <Link
+                    to={feedbackHref}
+                    className="text-neutral-500 hover:text-neutral-300 transition-colors"
+                    target="_blank"
                 >
-                    set up manually →
-                </button>
-            ) : null}
+                    feedback?
+                </Link>
+                {showManualLink ? (
+                    <button
+                        type="button"
+                        onClick={onManualSetup}
+                        className="text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                        set up manually →
+                    </button>
+                ) : null}
+            </div>
         </div>
     )
 }
