@@ -305,7 +305,7 @@ QUOTA_EXHAUSTED_MESSAGE = (
 )
 
 
-def block_if_team_over_quota(
+def post_quota_exhausted_denial(
     *,
     integration: Integration,
     slack: SlackIntegration,
@@ -313,25 +313,14 @@ def block_if_team_over_quota(
     thread_ts: str,
     slack_user_id: str,
     context: str,
-) -> bool:
-    """Refuse a Slack-bot turn when the team is over its AI credits quota.
+) -> None:
+    """Post the AI-credits denial message into a Slack thread.
 
-    Mirrors PHAI's enforcement (ee/api/conversation.py): every user-initiated
-    turn — webhook mention, task-creation activity, or follow-up reply — is
-    gated against the same Redis-backed ``QuotaResource.AI_CREDITS`` set.
-    Returns True when the team is blocked and posts a friendly in-thread
-    denial as a side effect. ``context`` is a free-form label that the call
-    site uses to disambiguate itself in structured logs.
+    Called by the workflow's quota gate after it determines the team is over
+    quota. Lives in this module so the Slack-posting helpers and the message
+    text stay co-located; the quota check itself lives in the temporal layer
+    (which is the only side allowed to import ``ee.billing``).
     """
-    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-
-    if not is_team_limited(
-        integration.team.api_token,
-        QuotaResource.AI_CREDITS,
-        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-    ):
-        return False
-
     logger.info(
         "posthog_code_slack_blocked_by_quota",
         context=context,
@@ -347,7 +336,6 @@ def block_if_team_over_quota(
         QUOTA_EXHAUSTED_MESSAGE,
         prefer_thread_message=True,
     )
-    return True
 
 
 def _post_slack_user_feedback(
