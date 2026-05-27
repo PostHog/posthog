@@ -49,19 +49,21 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         summary="Get a team's quota-limit state",
         description=(
-            "Return the current quota-limit state for the team identified in the URL. "
-            "Used by the LLM gateway to gate billable products on AI credits exhaustion."
+            "Return the current quota-limit state for the team identified in the URL, "
+            "keyed by `QuotaResource` value. Used by the LLM gateway to gate billable "
+            "products on AI credits exhaustion."
         ),
         responses={200: QuotaLimitsResponseSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         limited = {
-            QuotaResource.AI_CREDITS.value: {
+            resource.value: {
                 "limited": is_team_limited(
                     self.team.api_token,
-                    QuotaResource.AI_CREDITS,
+                    resource,
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 ),
-            },
+            }
+            for resource in QuotaResource
         }
         return Response(QuotaLimitsResponseSerializer({"limited": limited}).data)

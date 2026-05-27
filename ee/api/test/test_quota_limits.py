@@ -134,6 +134,21 @@ class TestQuotaLimitsAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_response_includes_every_quota_resource(self) -> None:
+        # Limiting one resource must not hide the unlimited state of the rest.
+        self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)
+
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        limited = response.json()["limited"]
+        expected_keys = {resource.value for resource in QuotaResource}
+        self.assertEqual(set(limited.keys()), expected_keys)
+        self.assertTrue(limited["ai_credits"]["limited"])
+        for resource in QuotaResource:
+            if resource is QuotaResource.AI_CREDITS:
+                continue
+            self.assertFalse(limited[resource.value]["limited"], resource.value)
+
     def test_multi_team_user_gets_per_team_answers(self) -> None:
         # Same user belongs to two teams in their org; each team's quota is independent.
         # This is the regression that "me" couldn't model — `user.team` (current team)
