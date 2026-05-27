@@ -429,24 +429,38 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
             min_timestamp_inner_expr = self.get_first_time_anchor_expr(self.start_event)
+            min_timestamp_expr = self.query_date_range.date_to_start_of_interval_hogql(min_timestamp_inner_expr)
 
-            start_event_timestamps = parse_expr(
-                """
-                    if(
-                        has(
-                            {start_event_timestamps} as _start_event_timestamps,
-                            {min_timestamp}
-                        ),
-                        _start_event_timestamps,
-                        []
-                    )
-                """,
-                {
-                    "start_event_timestamps": start_event_timestamps,
-                    # cast this to start of interval as well so we can compare with the timestamps fetched above
-                    "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(min_timestamp_inner_expr),
-                },
-            )
+            if shared_event_timestamps_alias is not None:
+                # When the source is the hoisted SELECT alias, reference it twice directly instead of
+                # using the inline `expr as _start_event_timestamps` rename. Aliasing a SELECT-level
+                # alias inside an expression is brittle in ClickHouse, and the alias is already a
+                # cheap repeated reference (no recomputation).
+                start_event_timestamps = parse_expr(
+                    "if(has({s}, {min_timestamp}), {s}, [])",
+                    {
+                        "s": ast.Field(chain=["_shared_event_timestamps"]),
+                        "min_timestamp": min_timestamp_expr,
+                    },
+                )
+            else:
+                start_event_timestamps = parse_expr(
+                    """
+                        if(
+                            has(
+                                {start_event_timestamps} as _start_event_timestamps,
+                                {min_timestamp}
+                            ),
+                            _start_event_timestamps,
+                            []
+                        )
+                    """,
+                    {
+                        "start_event_timestamps": start_event_timestamps,
+                        # cast this to start of interval as well so we can compare with the timestamps fetched above
+                        "min_timestamp": min_timestamp_expr,
+                    },
+                )
             # interval must be same as first interval of in which start event happened
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         retention_value_expr: ast.Expr | None
