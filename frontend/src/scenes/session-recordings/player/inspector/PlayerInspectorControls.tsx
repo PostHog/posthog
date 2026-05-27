@@ -28,8 +28,7 @@ import {
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
+import { urls } from 'scenes/urls'
 
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
@@ -142,7 +141,6 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { currentTeam } = useValues(teamLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const hasNetworkItems = allItemsByItemType['network']?.length > 0
 
@@ -167,12 +165,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
                                       icon={<IconGear />}
                                       fullWidth
                                       size="xsmall"
-                                      onClick={() =>
-                                          openSettingsPanel({
-                                              sectionId: 'project-replay',
-                                              settingId: 'replay-network',
-                                          })
-                                      }
+                                      to={urls.settings('project-replay', 'replay-network')}
                                   >
                                       Configure network capture in settings.
                                   </LemonButton>
@@ -189,7 +182,6 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { currentTeam } = useValues(teamLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const hasConsoleItems = allItemsByItemType['console']?.length > 0
 
@@ -214,12 +206,7 @@ function ConsoleFilterSettingsButton(): JSX.Element {
                                       icon={<IconGear />}
                                       fullWidth
                                       size="xsmall"
-                                      onClick={() =>
-                                          openSettingsPanel({
-                                              sectionId: 'project-replay',
-                                              settingId: 'replay',
-                                          })
-                                      }
+                                      to={urls.settings('project-replay', 'replay')}
                                   >
                                       Configure console log capture in settings.
                                   </LemonButton>

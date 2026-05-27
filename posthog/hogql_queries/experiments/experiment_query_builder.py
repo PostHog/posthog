@@ -12,6 +12,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentMetricOutlierHandling,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
@@ -246,30 +247,36 @@ class ExperimentQueryBuilder:
 
     def _get_maturity_window_seconds(self) -> int:
         """
-        Returns the total maturity window in seconds.
-        For retention metrics: conversion_window + retention_window_end.
-        For other metrics: conversion_window.
-        Returns 0 if no conversion window is configured.
+        Returns the maturity window in seconds for non-retention metrics.
+        Retention metrics use _get_retention_maturity_seconds and apply maturity
+        in the start_events CTE, anchored on start_event timestamp.
         """
-        conversion_window_seconds = self._get_conversion_window_seconds()
-        if conversion_window_seconds == 0:
-            return 0
+        return self._get_conversion_window_seconds()
 
-        if isinstance(self.metric, ExperimentRetentionMetric):
-            retention_window_end_seconds = conversion_window_to_seconds(
-                self.metric.retention_window_end,
-                self.metric.retention_window_unit,
-            )
-            return conversion_window_seconds + retention_window_end_seconds
-
-        return conversion_window_seconds
+    def _get_retention_maturity_seconds(self) -> int:
+        """
+        Returns the maturity window in seconds for retention metrics.
+        Equals retention_window_end converted to seconds; conversion_window does
+        not contribute because retention maturity is anchored on start_event.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+        return conversion_window_to_seconds(
+            self.metric.retention_window_end,
+            self.metric.retention_window_unit,
+        )
 
     def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
         """
         Returns a HAVING clause expression to filter out users whose conversion window
         hasn't elapsed yet, or None if the feature is not enabled.
+
+        Retention metrics handle maturity separately in their own start_events CTE
+        via _build_retention_maturity_having_clause; this function intentionally
+        returns None for them.
         """
         if self.metric is None:
+            return None
+        if isinstance(self.metric, ExperimentRetentionMetric):
             return None
         if not self.only_count_matured_users:
             return None
@@ -282,6 +289,36 @@ class ExperimentQueryBuilder:
         return parse_expr(
             f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
             placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
+
+    def _build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
+        """
+        Returns a HAVING clause for the retention query's start_events CTE that
+        filters out users whose retention window has not yet fully elapsed since
+        their start_event.
+
+        Anchored on the user's start_event timestamp (min or max of start event
+        timestamps, depending on start_handling).
+        """
+        if not isinstance(self.metric, ExperimentRetentionMetric):
+            return None
+        if not self.only_count_matured_users:
+            return None
+
+        maturity_seconds = self._get_retention_maturity_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        start_timestamp_expr = self._build_start_event_timestamp_expr()
+
+        return parse_expr(
+            "{start_ts} + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            placeholders={
+                "start_ts": start_timestamp_expr,
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),
             },
@@ -1124,16 +1161,192 @@ class ExperimentQueryBuilder:
         """
         Builds query for ratio metrics.
 
-        Optimized structure using combined_events to reduce join operations:
+        Dispatches to the winsorized variant when outlier handling is configured for
+        either the numerator or the denominator.
+        """
+        assert isinstance(self.metric, ExperimentRatioMetric)
+
+        if self._ratio_needs_winsorization():
+            return self._build_ratio_query_with_winsorization()
+
+        common_ctes, placeholders = self._get_ratio_query_common()
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.numerator_value) AS total_sum,
+                sum(power(entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
+                sum(entity_metrics.denominator_value) AS denominator_sum,
+                sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
+                sum(entity_metrics.numerator_value * entity_metrics.denominator_value) AS numerator_denominator_sum_product
+                -- breakdown columns added programmatically below
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
+            -- breakdown columns added programmatically below
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        if self.breakdown_injector:
+            self.breakdown_injector.inject_ratio_breakdown_columns(query)
+
+        return query
+
+    def _ratio_needs_winsorization(self) -> bool:
+        """Whether either component of a ratio metric has outlier handling configured."""
+        assert isinstance(self.metric, ExperimentRatioMetric)
+        for outlier_handling in (
+            self.metric.numerator_outlier_handling,
+            self.metric.denominator_outlier_handling,
+        ):
+            if outlier_handling is not None and (
+                outlier_handling.lower_bound_percentile is not None
+                or outlier_handling.upper_bound_percentile is not None
+            ):
+                return True
+        return False
+
+    def _build_winsorization_bound_exprs(
+        self,
+        outlier_handling: ExperimentMetricOutlierHandling | None,
+        value_field: str,
+    ) -> tuple[ast.Expr, ast.Expr]:
+        """
+        Build (lower_bound, upper_bound) expressions over entity_metrics.<value_field>.
+
+        When a bound is not configured the threshold falls back to min()/max() so the
+        least(greatest(...)) clamp becomes a no-op for that side. This lets the numerator
+        and denominator be capped independently — a binomial denominator simply leaves its
+        outlier handling unset and is never clamped.
+
+        value_field is an internal column name (numerator_value / denominator_value), never
+        user input, so interpolating it into the expression string is safe.
+        """
+        lower_pct = outlier_handling.lower_bound_percentile if outlier_handling else None
+        upper_pct = outlier_handling.upper_bound_percentile if outlier_handling else None
+        ignore_zeros = bool(outlier_handling.ignore_zeros) if outlier_handling else False
+
+        if lower_pct is not None:
+            lower_bound_expr = parse_expr(
+                f"quantileExact({{level}})(entity_metrics.{value_field})",
+                placeholders={"level": ast.Constant(value=lower_pct)},
+            )
+        else:
+            lower_bound_expr = parse_expr(f"min(entity_metrics.{value_field})")
+
+        if upper_pct is not None:
+            if ignore_zeros:
+                upper_bound_expr = parse_expr(
+                    f"quantileExact({{level}})(if(entity_metrics.{value_field} != 0, entity_metrics.{value_field}, null))",
+                    placeholders={"level": ast.Constant(value=upper_pct)},
+                )
+            else:
+                upper_bound_expr = parse_expr(
+                    f"quantileExact({{level}})(entity_metrics.{value_field})",
+                    placeholders={"level": ast.Constant(value=upper_pct)},
+                )
+        else:
+            upper_bound_expr = parse_expr(f"max(entity_metrics.{value_field})")
+
+        return lower_bound_expr, upper_bound_expr
+
+    def _build_ratio_query_with_winsorization(self) -> ast.SelectQuery:
+        """
+        Builds query for ratio metrics with winsorization (outlier handling).
+
+        The numerator and denominator are capped independently, each as if it were its own
+        mean metric: percentile thresholds are computed separately for each component (pooled
+        across all variations) and the per-entity numerator and denominator values are clamped
+        against their own bounds. The capped components flow into the same aggregate columns
+        (including the cross-product) so the delta-method variance stays consistent with the
+        capped point estimate.
+        """
+        assert isinstance(self.metric, ExperimentRatioMetric)
+
+        common_ctes, placeholders = self._get_ratio_query_common()
+
+        num_lower_bound, num_upper_bound = self._build_winsorization_bound_exprs(
+            self.metric.numerator_outlier_handling, "numerator_value"
+        )
+        denom_lower_bound, denom_upper_bound = self._build_winsorization_bound_exprs(
+            self.metric.denominator_outlier_handling, "denominator_value"
+        )
+
+        placeholders["numerator_lower_bound"] = num_lower_bound
+        placeholders["numerator_upper_bound"] = num_upper_bound
+        placeholders["denominator_lower_bound"] = denom_lower_bound
+        placeholders["denominator_upper_bound"] = denom_upper_bound
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes},
+
+            percentiles AS (
+                SELECT
+                    {{numerator_lower_bound}} AS numerator_lower_bound,
+                    {{numerator_upper_bound}} AS numerator_upper_bound,
+                    {{denominator_lower_bound}} AS denominator_lower_bound,
+                    {{denominator_upper_bound}} AS denominator_upper_bound
+                    -- breakdown columns added programmatically below
+                FROM entity_metrics
+                -- GROUP BY added programmatically below if breakdowns exist
+            ),
+
+            winsorized_entity_metrics AS (
+                SELECT
+                    entity_metrics.entity_id AS entity_id,
+                    entity_metrics.variant AS variant,
+                    least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
+                    least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
+                    -- breakdown columns added programmatically below
+                FROM entity_metrics
+                CROSS JOIN percentiles
+                -- JOIN conditions added programmatically below if breakdowns exist
+            )
+
+            SELECT
+                winsorized_entity_metrics.variant AS variant,
+                count(winsorized_entity_metrics.entity_id) AS num_users,
+                sum(winsorized_entity_metrics.numerator_value) AS total_sum,
+                sum(power(winsorized_entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
+                sum(winsorized_entity_metrics.denominator_value) AS denominator_sum,
+                sum(power(winsorized_entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
+                sum(winsorized_entity_metrics.numerator_value * winsorized_entity_metrics.denominator_value) AS numerator_denominator_sum_product
+                -- breakdown columns added programmatically below
+            FROM winsorized_entity_metrics
+            GROUP BY winsorized_entity_metrics.variant
+            -- breakdown columns added programmatically below
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        if self.breakdown_injector:
+            self.breakdown_injector.inject_ratio_breakdown_columns(query, winsorized=True)
+
+        return query
+
+    def _get_ratio_query_common(self) -> tuple[str, dict[str, ast.Expr]]:
+        """
+        Builds the shared CTE chain and placeholders for ratio metric queries.
+
+        Optimized structure using pre-aggregation to reduce join operations:
         - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
-        - numerator_events: events for numerator metric with value
-        - denominator_events: events for denominator metric with value
-        - combined_events: UNION ALL of numerator and denominator events with NULL for non-applicable columns
-        - entity_metrics: single join of exposures to combined_events, aggregating both metrics in one pass
-        - Final SELECT: aggregated statistics per variant
+        - numerator_events / denominator_events: events for each component with value
+        - numerator_agg / denominator_agg: per-entity aggregates joined to exposures
+        - entity_metrics: single row per entity carrying numerator_value and denominator_value
 
         This approach reduces memory pressure by joining exposures to events only once
-        instead of separately for numerator and denominator.
+        per component instead of fanning out the raw event rows.
         """
         assert isinstance(self.metric, ExperimentRatioMetric)
 
@@ -1262,59 +1475,31 @@ class ExperimentQueryBuilder:
             )
         """
 
-        query = parse_select(
-            f"""
-            WITH {common_ctes}
+        placeholders: dict[str, ast.Expr] = {
+            "exposure_select_query": exposure_query,
+            "num_entity_key": num_entity_field,
+            "denom_entity_key": denom_entity_field,
+            "num_timestamp_field": ast.Field(chain=[num_timestamp_field]),
+            "num_table": ast.Field(chain=[num_table]),
+            "denom_timestamp_field": ast.Field(chain=[denom_timestamp_field]),
+            "denom_table": ast.Field(chain=[denom_table]),
+            "numerator_predicate": self._build_metric_predicate(source=self.metric.numerator, table_alias=num_table),
+            "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
+            "numerator_agg": self._build_value_aggregation_expr(
+                source=self.metric.numerator, events_alias="numerator_events", column_name="value"
+            ),
+            "numerator_conversion_window": self._build_conversion_window_predicate_for_events("numerator_events"),
+            "denominator_predicate": self._build_metric_predicate(
+                source=self.metric.denominator, table_alias=denom_table
+            ),
+            "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
+            "denominator_agg": self._build_value_aggregation_expr(
+                source=self.metric.denominator, events_alias="denominator_events", column_name="value"
+            ),
+            "denominator_conversion_window": self._build_conversion_window_predicate_for_events("denominator_events"),
+        }
 
-            SELECT
-                entity_metrics.variant AS variant,
-                count(entity_metrics.entity_id) AS num_users,
-                sum(entity_metrics.numerator_value) AS total_sum,
-                sum(power(entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
-                sum(entity_metrics.denominator_value) AS denominator_sum,
-                sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
-                sum(entity_metrics.numerator_value * entity_metrics.denominator_value) AS numerator_denominator_sum_product
-                -- breakdown columns added programmatically below
-            FROM entity_metrics
-            GROUP BY entity_metrics.variant
-            -- breakdown columns added programmatically below
-            """,
-            placeholders={
-                "exposure_select_query": exposure_query,
-                "num_entity_key": num_entity_field,
-                "denom_entity_key": denom_entity_field,
-                "num_timestamp_field": ast.Field(chain=[num_timestamp_field]),
-                "num_table": ast.Field(chain=[num_table]),
-                "denom_timestamp_field": ast.Field(chain=[denom_timestamp_field]),
-                "denom_table": ast.Field(chain=[denom_table]),
-                "numerator_predicate": self._build_metric_predicate(
-                    source=self.metric.numerator, table_alias=num_table
-                ),
-                "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
-                "numerator_agg": self._build_value_aggregation_expr(
-                    source=self.metric.numerator, events_alias="numerator_events", column_name="value"
-                ),
-                "numerator_conversion_window": self._build_conversion_window_predicate_for_events("numerator_events"),
-                "denominator_predicate": self._build_metric_predicate(
-                    source=self.metric.denominator, table_alias=denom_table
-                ),
-                "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
-                "denominator_agg": self._build_value_aggregation_expr(
-                    source=self.metric.denominator, events_alias="denominator_events", column_name="value"
-                ),
-                "denominator_conversion_window": self._build_conversion_window_predicate_for_events(
-                    "denominator_events"
-                ),
-            },
-        )
-
-        assert isinstance(query, ast.SelectQuery)
-
-        # Inject breakdown columns into the query AST
-        if self.breakdown_injector:
-            self.breakdown_injector.inject_ratio_breakdown_columns(query)
-
-        return query
+        return common_ctes, placeholders
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """
@@ -2631,6 +2816,18 @@ class ExperimentQueryBuilder:
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject maturity HAVING clause into the start_events CTE, anchored on
+        # the user's start_event timestamp so users whose retention window has
+        # not yet elapsed are excluded from the denominator.
+        retention_maturity = self._build_retention_maturity_having_clause()
+        if retention_maturity is not None and query.ctes and "start_events" in query.ctes:
+            start_events_cte = query.ctes["start_events"]
+            if isinstance(start_events_cte, ast.CTE) and isinstance(start_events_cte.expr, ast.SelectQuery):
+                if start_events_cte.expr.having is None:
+                    start_events_cte.expr.having = retention_maturity
+                else:
+                    start_events_cte.expr.having = ast.And(exprs=[start_events_cte.expr.having, retention_maturity])
 
         # Inject breakdown columns if breakdown filter is present
         if self.breakdown_injector:

@@ -113,6 +113,7 @@ export enum FeatureFlagsTab {
     SCHEDULE = 'schedule',
     FEEDBACK = 'feedback',
     EXPERIMENTS = 'experiments',
+    TESTING = 'testing',
 }
 
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {

@@ -14,7 +14,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.subscription import Subscription, SubscriptionDelivery
@@ -22,6 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -596,86 +596,6 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "AI summary context" in response.json()["detail"]
 
-    @parameterized.expand(
-        [
-            ("flag_disabled_rejects", False, status.HTTP_403_FORBIDDEN, "Hourly subscriptions"),
-            ("flag_enabled_allows", True, status.HTTP_201_CREATED, "hourly"),
-        ]
-    )
-    def test_hourly_subscription_create_respects_feature_flag(
-        self,
-        _case_name: str,
-        flag_value: bool,
-        expected_status: int,
-        expected_fragment: str,
-    ):
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=flag_value):
-            response = self._create_subscription(frequency="hourly")
-
-        assert response.status_code == expected_status, response.content
-        if expected_status == status.HTTP_201_CREATED:
-            assert response.json()["frequency"] == expected_fragment
-        else:
-            assert expected_fragment in response.json()["detail"]
-
-    @parameterized.expand(
-        [
-            ("create_below_cap", 4, status.HTTP_201_CREATED),
-            ("create_at_cap", 5, status.HTTP_400_BAD_REQUEST),
-            ("create_over_cap_grandfathered", 7, status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    def test_hourly_subscription_create_respects_org_cap(
-        self,
-        _name: str,
-        existing_active: int,
-        expected_status: int,
-    ):
-        self._seed_active_hourly_subscriptions(existing_active)
-
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            response = self._create_subscription(frequency="hourly", title="new hourly")
-
-        assert response.status_code == expected_status, response.content
-        if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert "up to 5 active hourly subscriptions" in str(response.json())
-
-    def test_can_replace_hourly_subscription_after_disable(self):
-        seeded = self._seed_active_hourly_subscriptions(5)
-
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            # Disable one of the seeded hourly subscriptions — it should free up an org slot.
-            patch_response = self.client.patch(
-                f"/api/projects/{self.team.id}/subscriptions/{seeded[0].id}",
-                {"enabled": False},
-            )
-            assert patch_response.status_code == status.HTTP_200_OK
-
-            response = self._create_subscription(frequency="hourly", title="replacement hourly")
-
-        assert response.status_code == status.HTTP_201_CREATED
-
-    def test_hourly_cap_hit_emits_telemetry(self):
-        cache.clear()
-        self._seed_active_hourly_subscriptions(5)
-
-        with (
-            patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
-            patch("ee.api.subscription.posthoganalytics.capture") as mock_capture,
-        ):
-            response = self._create_subscription(frequency="hourly", title="cap-buster hourly")
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        cap_hit_calls = [
-            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "subscription_hourly_cap_hit"
-        ]
-        assert len(cap_hit_calls) == 1
-        props = cap_hit_calls[0].kwargs["properties"]
-        assert props["organization_id"] == str(self.organization.id)
-        assert props["is_create"] is True
-        assert props["active_count"] == 5
-        assert props["limit"] == 5
-
     def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
         # Build raw rows so we can place an org over its tier cap to exercise
         # grandfathering paths without going through the enforced API.
@@ -691,24 +611,6 @@ class TestSubscriptionTemporal(APILicensedTest):
                 title=f"existing {i}",
                 created_by=self.user,
                 summary_enabled=True,
-            )
-            for i in range(count)
-        ]
-
-    def _seed_active_hourly_subscriptions(self, count: int) -> list[Subscription]:
-        # Build raw rows so we can place an org at or above the hourly cap
-        # without going through the enforced API.
-        return [
-            Subscription.objects.create(
-                team=self.team,
-                insight=self.insight,
-                target_type="email",
-                target_value=f"existing-hourly-{i}@posthog.com",
-                frequency="hourly",
-                interval=1,
-                start_date=datetime(2022, 1, 1, tzinfo=UTC),
-                title=f"existing hourly {i}",
-                created_by=self.user,
             )
             for i in range(count)
         ]

@@ -186,6 +186,7 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.stats_config,
             self.metric,
             team_default_enabled=self._team_experiments_config.default_cuped_enabled,
+            team_default_lookback_days=self._team_experiments_config.default_cuped_lookback_days,
         )
 
         self.clickhouse_sql: str | None = None
@@ -405,7 +406,6 @@ class ExperimentQueryRunner(QueryRunner):
 
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,
-            enable_analyzer=True,
             max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
         )
         # Mean metric queries join exposures with a potentially large metric-events table and
@@ -418,6 +418,7 @@ class ExperimentQueryRunner(QueryRunner):
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,

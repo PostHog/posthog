@@ -250,7 +250,7 @@ export class StateManager {
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (cached !== undefined && !this.isCacheStale(fetchedAt)) {
+        if (!this.isCacheStale(fetchedAt)) {
             return cached
         }
 
@@ -263,6 +263,7 @@ export class StateManager {
             return data as State[D]
         } catch (error) {
             this._reportException(error, `get_or_fetch_${opts.name}`)
+            await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
     }
@@ -278,18 +279,18 @@ export class StateManager {
     }
 
     async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
+        const apiKey = await this.getApiKey()
+        // `/api/organizations/{id}/` is not project-nested. Backend permission
+        // checks reject project-scoped tokens there even when they carry
+        // `organization:read` or `*`, so skip the best-effort fetch entirely.
+        if (apiKey.scoped_teams.length > 0 || !hasScope(apiKey.scopes, 'organization:read')) {
+            return undefined
+        }
+
         // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
         // consent checks treat "no org" as "skip", not as a hard error.
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
-            return undefined
-        }
-        // `/api/organizations/{id}/` requires `organization:read`. Project-scoped
-        // personal API keys do not carry that scope, so the fetch would 403 on
-        // every session init and dogpile error tracking. Mirror the `group:read`
-        // gate in `mcp.ts` and skip the fetch when the scope is absent.
-        const apiKey = await this.getApiKey()
-        if (!hasScope(apiKey.scopes, 'organization:read')) {
             return undefined
         }
         return this.getOrFetchCached({

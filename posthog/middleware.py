@@ -40,7 +40,7 @@ from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_h
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
+from posthog.models import Cohort, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -52,8 +52,11 @@ from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import _is_valid_ip_address
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -1185,6 +1188,13 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
     # while Django's URL config accepts both via opt_slash_path — match both forms.
     re.compile(r"^/logout/?$"),
+    # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
+    # Scopes minted while read-only impersonation is active are filtered through
+    # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
+    # resulting tokens can't grant write access. Tokens minted here are also tagged with
+    # the impersonator and revoked when impersonation ends.
+    re.compile(r"^/oauth/authorize/?$"),
+    re.compile(r"^/oauth/token/?$"),
 ]
 
 

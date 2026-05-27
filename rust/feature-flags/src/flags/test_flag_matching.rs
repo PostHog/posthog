@@ -208,6 +208,77 @@ mod tests {
         );
     }
 
+    // The injected `distinct_id` case passes `Some(HashMap::new())` so the
+    // only way the override can be populated is the matcher's own injection
+    // of `self.distinct_id`.
+    #[rstest::rstest]
+    #[case::injected_from_request("request_only_user", "request_only_user", None)]
+    #[case::explicit_override_wins("request_user", "explicit_user", Some("explicit_user"))]
+    #[tokio::test]
+    async fn test_distinct_id_flag_matches_locally(
+        #[case] matcher_distinct_id: &str,
+        #[case] flag_value: &str,
+        #[case] explicit_override: Option<&str>,
+    ) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: mock!(crate::properties::property_models::PropertyFilter,
+                key: "distinct_id".mock_into(),
+                value: Some(json!(flag_value)),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            matcher_distinct_id.to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        let overrides = match explicit_override {
+            Some(value) => HashMap::from([("distinct_id".to_string(), json!(value))]),
+            None => HashMap::new(),
+        };
+
+        reset_fetch_calls_count();
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                Some(overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "distinct_id-only filter should evaluate without a DB property fetch"
+        );
+    }
+
     #[tokio::test]
     async fn test_person_only_flags_succeed_without_group_type_mappings() {
         let context = TestContext::new(None).await;
@@ -4692,14 +4763,23 @@ mod tests {
             None,
         );
 
-        matcher
-            .prepare_flag_evaluation_state(&[&flag])
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await
             .unwrap();
-
-        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
-        assert!(match_result.matches);
-        assert_eq!(match_result.variant, None);
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get("flag1").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
     }
 
     fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {

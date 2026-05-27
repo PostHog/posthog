@@ -402,6 +402,78 @@ class GitHubIntegrationBase:
             raise ValueError(f"GitHub integration account name is not a string: {name}")
         return name
 
+    def list_teams(self, *, search: str = "", limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], bool]:
+        """List GitHub teams for the integration account organization with bounded API calls."""
+        account = self.integration.config.get("account", {})
+        organization = account.get("name", "") if isinstance(account, dict) else ""
+        if not organization:
+            return [], False
+
+        per_page = 100
+        search_lower = search.lower().strip()
+
+        if search_lower:
+            # GitHub's org teams endpoint does not support server-side search.
+            # Keep calls bounded and shift the fetch window by offset.
+            max_pages = 10
+            first_page = offset // per_page + 1
+            last_page = first_page + max_pages - 1
+            start = 0
+            end = limit + 1
+        else:
+            requested = limit + 1
+            first_page = offset // per_page + 1
+            last_page = (offset + requested) // per_page + 1
+            start = offset % per_page
+            end = start + requested
+
+        teams: list[dict[str, Any]] = []
+
+        for page in range(first_page, last_page + 1):
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/orgs/{organization}/teams?page={page}&per_page={per_page}",
+                endpoint="/orgs/{org}/teams",
+            )
+            if response is None or response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration: list_teams failed",
+                    integration_id=self.integration.id,
+                    organization=organization,
+                    status_code=response.status_code if response is not None else None,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_teams failed")
+
+            body = response.json()
+            if not isinstance(body, list):
+                logger.warning(
+                    "GitHubIntegration: list_teams invalid payload",
+                    integration_id=self.integration.id,
+                    organization=organization,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_teams invalid payload")
+
+            for team in body:
+                if not isinstance(team, dict):
+                    continue
+                team_id = team.get("id")
+                slug = team.get("slug")
+                name = team.get("name")
+                if not isinstance(team_id, int) or not isinstance(slug, str) or not isinstance(name, str):
+                    continue
+                teams.append({"id": team_id, "slug": slug, "name": name})
+
+            if len(body) < per_page:
+                break
+
+        if search_lower:
+            teams = [
+                team for team in teams if search_lower in team["slug"].lower() or search_lower in team["name"].lower()
+            ]
+
+        window = teams[start:end]
+        has_more = len(window) > limit
+        return window[:limit], has_more
+
     # --- Repository operations ---
 
     def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:

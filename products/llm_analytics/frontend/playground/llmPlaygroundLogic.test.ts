@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -1695,6 +1698,81 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             expect(llmPlaygroundPromptsLogic.values.sourceSetupLoading).toBe(false)
+        })
+
+        it('syncs source param via replace, not push (regression for pageview loop)', async () => {
+            // Previously `finishSourceSetup` used `router.actions.push`, which adds a history
+            // entry and fires a `$pageview` on every setup. If `urlToAction` re-entered the
+            // setup path (e.g. because multiple keyed logic instances were mounted), each
+            // iteration pushed another history entry, producing thousands of pageviews per
+            // minute on the AI observability playground. Switching to `replace` keeps history
+            // bounded so a single missed dedup cannot snowball.
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-1',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate.' },
+                    },
+                },
+            })
+
+            const initialHistoryLength = window.history.length
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-1',
+            })
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-1')
+            expect(window.history.length).toBe(initialHistoryLength)
+        })
+
+        it('urlToAction skips setup for non-active-tab instances (regression for default-instance fall-through)', async () => {
+            // Before the fix, the guard `if (props.tabId && ...)` short-circuited to false
+            // when `props.tabId` was undefined, so the unkeyed `'default'` instance also
+            // ran URL-driven setup alongside the active tab. Multiple instances each
+            // dispatching `setupPlaygroundFromEvent` + `finishSourceSetup` writing back
+            // to the URL is what turned a missed dedup into a runaway pageview loop.
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-2',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate.' },
+                    },
+                },
+            })
+
+            const findMountedSpy = jest.spyOn(sceneLogic, 'findMounted').mockReturnValue({
+                values: { activeTabId: 'tab-A', tabs: [] },
+            } as any)
+
+            const activeInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-A' })
+            activeInstance.mount()
+            const inactiveInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-B' })
+            inactiveInstance.mount()
+
+            try {
+                router.actions.push(`${urls.llmAnalyticsPlayground()}?source_evaluation_id=eval-2&_=${Date.now()}`)
+                await expectLogic(activeInstance).toFinishAllListeners()
+                await expectLogic(inactiveInstance).toFinishAllListeners()
+                await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+                expect(activeInstance.values.linkedSource).toMatchObject({
+                    type: 'evaluation',
+                    evaluationId: 'eval-2',
+                })
+                expect(inactiveInstance.values.linkedSource.type).toBeNull()
+                expect(llmPlaygroundPromptsLogic.values.linkedSource.type).toBeNull()
+            } finally {
+                activeInstance.unmount()
+                inactiveInstance.unmount()
+                findMountedSpy.mockRestore()
+            }
         })
     })
 

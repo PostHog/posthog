@@ -73,6 +73,25 @@ tools:
             alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required.
             Calling this multiple times is safe: existing share links are reused.
         feature_flag: user-interviews
+    user-interview-topics-interviewees-bulk-create:
+        operation: user_interview_topics_interviewees_bulk_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create many per-interviewee context rows at once
+        description: >
+            Create up to 500 per-interviewee context rows for a topic in a single request. Each item is
+            (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are
+            skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller
+            can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over
+            `user-interview-topics-interviewees-create` when adding many rows.
+        include_params:
+            - items
+        feature_flag: user-interviews
     user-interview-topics-interviewees-create:
         operation: user_interview_topics_interviewees_create
         enabled: true
@@ -88,7 +107,8 @@ tools:
             background it should know about this specific person — e.g. "uses the replay product but has never used
             summarization". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in
             the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic,
-            interviewee_identifier) — calling create twice for the same pair will conflict.
+            interviewee_identifier) — calling create twice for the same pair will conflict. Prefer
+            `user-interview-topics-interviewees-bulk-create` when adding many rows at once.
         include_params:
             - interviewee_identifier
             - agent_context
@@ -147,6 +167,22 @@ tools:
     user-interview-topics-interviewees-update:
         operation: user_interview_topics_interviewees_update
         enabled: false
+    user-interview-topics-links-csv:
+        operation: user_interview_topics_links_csv_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Export interview links for a topic as CSV
+        description: >
+            Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a
+            downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`.
+            Use this when the human plans to mail-merge the links into their own email tooling rather than letting
+            PostHog send the invites.
+        feature_flag: user-interviews
     user-interview-topics-list:
         operation: user_interview_topics_list
         enabled: true
@@ -238,6 +274,9 @@ tools:
             - reply_to
             - send_async
         feature_flag: user-interviews
+    user-interview-topics-test-link-retrieve:
+        operation: user_interview_topics_test_link_retrieve
+        enabled: false
     user-interview-topics-update:
         operation: user_interview_topics_update
         enabled: false

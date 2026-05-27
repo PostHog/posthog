@@ -72,9 +72,11 @@ def run_sql_with_exceptions(
     # Store original node_roles for validation purposes before debug override
     original_node_roles = node_roles_list
 
-    if settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT:
+    if (settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT) and not settings.MULTINODE_CLICKHOUSE:
         # In E2E tests, debug mode and hobby deployments, we run migrations on ALL nodes
-        # because we don't have different ClickHouse topologies yet in Docker
+        # because we don't have different ClickHouse topologies yet in Docker.
+        # MULTINODE_CLICKHOUSE opts back into role-based routing so the smoke-test
+        # stack can verify migrations actually land on the correct cluster.
         node_roles_list = [NodeRole.ALL]
 
     def run_migration():
@@ -83,7 +85,9 @@ def run_sql_with_exceptions(
         query = Query(sql)
 
         if sharded and is_alter_on_replicated_table:
-            is_local_or_test = settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
+            is_local_or_test = (
+                settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
+            ) and not settings.MULTINODE_CLICKHOUSE
             single_role = node_roles_list[0] if len(node_roles_list) == 1 else None
             assert is_local_or_test or (single_role is not None and single_role in DATA_NODE_ROLES), (
                 "When running migrations on sharded tables, node_roles must be exactly one of "
@@ -107,6 +111,9 @@ def run_sql_with_exceptions(
     # Use original_node_roles (before debug override) for validation purposes
     operation._sql = sql
     operation._node_roles = original_node_roles
+    # node_roles_list reflects the debug/hobby override (e.g. collapsed to NodeRole.ALL),
+    # i.e. the roles this migration actually targets under the current settings.
+    operation._effective_node_roles = node_roles_list
     operation._sharded = sharded
     operation._is_alter_on_replicated_table = is_alter_on_replicated_table
 

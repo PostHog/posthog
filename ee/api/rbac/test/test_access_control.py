@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -14,6 +13,7 @@ from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 
 from ee.api.test.base import APILicensedTest
@@ -150,8 +150,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
         """Test that action access level cannot be set below minimum 'viewer'"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 
@@ -165,8 +164,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 

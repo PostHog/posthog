@@ -66,17 +66,15 @@ from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_me
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
-from products.data_warehouse.backend.models import (
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    get_s3_client,
-)
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.s3 import ensure_bucket_exists
+from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
+from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -358,6 +356,8 @@ async def handle_model_ready(
 
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
+            if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+                await database_sync_to_async(prepare_executable_query)(saved_query)
 
             await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(
@@ -839,7 +839,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_client(enable_analyzer=1) as client:
+    async with get_client() as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -900,7 +900,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
-    async with get_client(enable_analyzer=1) as client:
+    async with get_client() as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
 
@@ -994,7 +994,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     # Set max block size to 50,000 rows
-    async with get_client(max_block_size=50_000, enable_analyzer=1) as client:
+    async with get_client(max_block_size=50_000) as client:
         batches = []
         batches_size = 0
         batch_count = 0

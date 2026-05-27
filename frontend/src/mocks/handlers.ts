@@ -184,6 +184,12 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
+        '/api/login/dev': {
+            users: [
+                { email: 'test@posthog.com', is_staff: true, label: 'Default test user' },
+                { email: 'staff@posthog.com', is_staff: true, label: null },
+            ],
+        },
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
@@ -242,6 +248,8 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/integrations/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/quick_filters/': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,

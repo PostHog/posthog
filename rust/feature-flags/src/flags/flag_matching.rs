@@ -356,6 +356,22 @@ impl FlagSnapshot {
     }
 }
 
+/// Mirrors Python's `add_local_person_and_group_properties` so flag conditions
+/// matching on `distinct_id` evaluate without a DB lookup. Always injects the
+/// request `distinct_id` (including `""`) unless an explicit
+/// `person_property_overrides["distinct_id"]` is already present, in which case
+/// the explicit override wins.
+fn merge_distinct_id_into_person_properties(
+    distinct_id: &str,
+    overrides: Option<HashMap<String, Value>>,
+) -> HashMap<String, Value> {
+    let mut overrides = overrides.unwrap_or_default();
+    overrides
+        .entry("distinct_id".to_string())
+        .or_insert_with(|| Value::String(distinct_id.to_string()));
+    overrides
+}
+
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -453,6 +469,11 @@ impl FeatureFlagMatcher {
         optimize_experience_continuity_lookups: bool,
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
+
+        let person_property_overrides = Some(merge_distinct_id_into_person_properties(
+            &self.distinct_id,
+            person_property_overrides,
+        ));
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -2382,5 +2403,54 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    #[rstest::rstest]
+    #[case::injects_when_overrides_absent("user_42", None, "user_42", vec![])]
+    #[case::injects_when_overrides_lack_distinct_id(
+        "user_42",
+        Some(vec![("email", "a@x.com")]),
+        "user_42",
+        vec![("email", "a@x.com")],
+    )]
+    #[case::explicit_override_wins(
+        "user_42",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    #[case::injects_empty_string_when_overrides_absent("", None, "", vec![])]
+    #[case::injects_empty_string_when_overrides_lack_distinct_id(
+        "",
+        Some(vec![("foo", "bar")]),
+        "",
+        vec![("foo", "bar")],
+    )]
+    #[case::explicit_override_wins_over_empty_request_distinct_id(
+        "",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    fn test_merge_distinct_id_into_person_properties(
+        #[case] request_distinct_id: &str,
+        #[case] overrides: Option<Vec<(&str, &str)>>,
+        #[case] expected_distinct_id: &str,
+        #[case] expected_extras: Vec<(&str, &str)>,
+    ) {
+        let overrides = overrides.map(|kvs| {
+            kvs.into_iter()
+                .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
+                .collect::<HashMap<_, _>>()
+        });
+        let result = merge_distinct_id_into_person_properties(request_distinct_id, overrides);
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String(expected_distinct_id.to_string())),
+        );
+        for (k, v) in &expected_extras {
+            assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
+        }
+        assert_eq!(result.len(), 1 + expected_extras.len());
     }
 }

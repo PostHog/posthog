@@ -8,7 +8,8 @@ use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
-    EventRestrictionService, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+    EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
+    RestrictionType,
 };
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
@@ -85,11 +86,13 @@ async fn setup_recordings_router_with_restriction(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+    let service =
+        EventRestrictionService::new(vec![Pipeline::SessionRecordings], Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
-    manager.restrictions.insert(
-        token.to_string(),
+    manager.insert_restrictions(
+        Pipeline::SessionRecordings,
+        token,
         vec![Restriction {
             restriction_type,
             scope: RestrictionScope::AllEvents,
@@ -126,6 +129,7 @@ async fn setup_recordings_router_with_restriction(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     (router, sink_clone)
@@ -451,11 +455,13 @@ async fn setup_recordings_router_with_redirect_to_topic(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+    let service =
+        EventRestrictionService::new(vec![Pipeline::SessionRecordings], Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
-    manager.restrictions.insert(
-        token.to_string(),
+    manager.insert_restrictions(
+        Pipeline::SessionRecordings,
+        token,
         vec![Restriction {
             restriction_type: RestrictionType::RedirectToTopic,
             scope: RestrictionScope::AllEvents,
@@ -492,6 +498,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     (router, sink_clone)

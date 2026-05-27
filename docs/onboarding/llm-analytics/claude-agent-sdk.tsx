@@ -44,10 +44,10 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
                             These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
-                            you will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
-                            details.
+                            background to send the data. You can also use AI observability with other SDKs or our API,
+                            but you will need to capture the data in the right format. See the schema in the [manual
+                            capture section](https://posthog.com/docs/ai-observability/installation/manual-capture) for
+                            more details.
                         </Markdown>
                     </CalloutBox>
                 </>
