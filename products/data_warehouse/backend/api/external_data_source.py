@@ -1042,12 +1042,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
         )
 
-        # CDC: create slot + publication for PostHog-managed sources
         cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
-            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
-            if cdc_result is not None:
-                return cdc_result
 
         source_schemas = source.get_schemas(source_config, self.team_id)
         if is_direct_postgres:
@@ -1113,6 +1108,39 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                             schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                             if schema_name is not None:
                                 pk_columns_by_table[schema_name] = primary_key_columns
+
+            # CDC (logical replication) cannot identify rows for UPDATE/DELETE without a primary
+            # key. Reject up front rather than letting the schema enter streaming mode and fail
+            # silently downstream. Must run before `_setup_cdc_slot` so we don't create a
+            # replication slot + publication on the source for a doomed config.
+            tables_missing_pk = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                    and not pk_columns_by_table.get(schema["name"])
+                }
+            )
+            if tables_missing_pk:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "CDC requires a primary key on each table. "
+                            f"The following tables have no primary key: {', '.join(tables_missing_pk)}."
+                        )
+                    },
+                )
+
+        # CDC: create slot + publication for PostHog-managed sources. Runs after PK validation so
+        # we don't leave replication state on the source for a config that's about to be rejected.
+        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
+            if cdc_result is not None:
+                return cdc_result
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:

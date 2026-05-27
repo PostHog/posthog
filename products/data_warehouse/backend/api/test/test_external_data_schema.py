@@ -320,6 +320,125 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
+    def test_update_schema_to_cdc_persists_primary_key(self):
+        # Switching to CDC must look up and persist the source PK so the CDC consumer
+        # has the merge key without needing to re-query at runtime.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="quotes",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"schema_metadata": {"source_schema": "public", "source_table_name": "quotes"}},
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection"
+            ) as mock_conn,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns",
+                return_value={"quotes": ["id"]},
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            mock_conn.return_value.__enter__.return_value = object()
+            mock_conn.return_value.__exit__.return_value = None
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+
+    def test_update_schema_to_cdc_rejects_table_without_primary_key(self):
+        # CDC (logical replication) cannot identify rows on UPDATE/DELETE without a primary
+        # key. Reject up front so the schema doesn't enter streaming mode and get stuck.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="tracking_link",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={
+                "schema_metadata": {"source_schema": "public", "source_table_name": "tracking_link"},
+            },
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection"
+            ) as mock_conn,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns",
+                return_value={},
+            ),
+        ):
+            mock_conn.return_value.__enter__.return_value = object()
+            mock_conn.return_value.__exit__.return_value = None
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "primary key" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
+        # Schemas already in CDC mode with an empty primary_key_columns (created before the
+        # API gate landed) must not be re-enabled until a PK is added on the source side.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="tracking_link",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "snapshot", "primary_key_columns": []},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"should_sync": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "primary key" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
     @parameterized.expand(
         [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
     )

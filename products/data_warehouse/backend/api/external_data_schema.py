@@ -417,6 +417,32 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             cdc_table_mode = data.get("cdc_table_mode")
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
+
+            # CDC (logical replication) cannot identify rows for UPDATE/DELETE without a primary
+            # key. Verify a PK exists on the source table and persist it before allowing the
+            # schema to enter CDC. The CDC consumer's fallback lookup would otherwise leave the
+            # schema stuck in streaming mode with an unrecoverable error.
+            if instance.source.source_type == ExternalDataSourceType.POSTGRES:
+                from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
+                from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns
+
+                schema_metadata = instance.schema_metadata or {}
+                source_schema = schema_metadata.get("source_schema") or (instance.source.job_inputs or {}).get(
+                    "schema", "public"
+                )
+                source_table_name = schema_metadata.get("source_table_name") or instance.name
+
+                with cdc_pg_connection(instance.source) as conn:
+                    queried_pks = get_primary_key_columns(conn, source_schema, [source_table_name])
+
+                pk_columns = queried_pks.get(source_table_name) or []
+                if not pk_columns:
+                    raise ValidationError(
+                        f"CDC requires a primary key on table '{source_schema}.{source_table_name}'. "
+                        "Add a primary key on the source table and retry."
+                    )
+                payload["primary_key_columns"] = pk_columns
+
             validated_data["sync_type_config"] = payload
         else:
             # For CDC schemas where sync_type isn't being changed, still allow cdc_table_mode updates
@@ -461,6 +487,23 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
+
+        # Block enabling sync on a CDC schema with no primary key — covers schemas created with
+        # should_sync=False and an empty PK, then flipped on later. The setup-time gate doesn't
+        # fire for that path because sync_type isn't changing here.
+        effective_sync_type = sync_type or instance.sync_type
+        if (
+            should_sync is True
+            and not instance.should_sync
+            and effective_sync_type == ExternalDataSchema.SyncType.CDC
+            and not (validated_data.get("sync_type_config") or instance.sync_type_config or {}).get(
+                "primary_key_columns"
+            )
+        ):
+            raise ValidationError(
+                f"CDC requires a primary key on table '{instance.name}'. "
+                "Add a primary key on the source table and retry."
+            )
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
