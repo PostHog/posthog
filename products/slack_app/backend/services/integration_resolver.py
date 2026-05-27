@@ -79,8 +79,15 @@ def resolve_from_candidates(
             )
         )
         defaults.sort(key=lambda d: d.slack_user_id is None)
+        candidate_ids = {c.id for c in candidates}
         for default in defaults:
             if accessible_team_ids is not None and default.default_integration.team_id not in accessible_team_ids:
+                continue
+            # Refuse a stale default whose target is no longer in the candidate
+            # set — e.g. the integration's kind was changed away from the one
+            # we were asked to resolve, or it was deleted+recreated. The user
+            # can overwrite the row at any time with `@PostHog project <id>`.
+            if default.default_integration.id not in candidate_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
             return ResolutionResult(integration=default.default_integration, source=source, candidates=accessible)

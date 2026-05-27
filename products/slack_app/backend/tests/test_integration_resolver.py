@@ -121,6 +121,32 @@ class TestResolveIntegration:
         assert result.source == "needs_picker"
         assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
+    def test_user_default_ignored_when_target_kind_changed(self):
+        # Stored default points at integration_a, but its kind was switched
+        # away from "slack-posthog-code" (e.g. it became a plain notifications
+        # "slack" install). The default must silently fall through rather than
+        # routing the user to the wrong-kind integration.
+        SlackSettings.objects.create(
+            default_integration=self.integration_a,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+        self.integration_a.kind = "slack"
+        self.integration_a.save(update_fields=["kind"])
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack-posthog-code"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+        )
+
+        # integration_a is no longer in the candidate set (kind filter excludes
+        # it), so the stale default is ignored. integration_b is the sole
+        # remaining accessible candidate.
+        assert result.source == "sole_candidate"
+        assert result.integration == self.integration_b
+
     def test_user_default_wins_over_workspace_default(self):
         SlackSettings.objects.create(
             default_integration=self.integration_a,
