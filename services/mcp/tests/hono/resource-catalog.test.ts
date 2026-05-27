@@ -154,30 +154,30 @@ describe('ResourceCatalog', () => {
             expect(result.contents).toEqual([])
         })
 
-        it('returns empty contents and triggers a refresh when a body is missing', async () => {
+        it('returns empty contents when a body has aged out without triggering a refresh', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('doc')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            // Evict the body key but keep the manifest in place. The body lookup
-            // misses, so the read returns empty and fires a fire-and-forget
-            // refresh under the hood.
+            // Drop the body key. The read should acknowledge the removal —
+            // the resource has aged out — without triggering any upstream
+            // refresh. The slim manifest is left in place; the LLM client's
+            // context-window cache is the source of truth for what it knows.
             for (const key of Array.from(redis._store.keys())) {
                 if (key.startsWith('mcp:shared-blob:context-mill:body:')) {
                     redis._store.delete(key)
                 }
             }
             vi.mocked(fetchAndExtractEntries).mockClear()
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('doc')])
 
             const result = await catalog.readResource({ uri: 'posthog://doc' })
             expect(result.contents).toEqual([])
 
-            // Allow the fire-and-forget refresh to settle and re-publish bodies.
+            // No refresh fired on the miss path.
             await new Promise((r) => setTimeout(r, 20))
-            expect(vi.mocked(fetchAndExtractEntries)).toHaveBeenCalled()
+            expect(vi.mocked(fetchAndExtractEntries)).not.toHaveBeenCalled()
         })
     })
 

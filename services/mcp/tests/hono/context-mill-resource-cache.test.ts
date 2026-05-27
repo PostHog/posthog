@@ -46,12 +46,12 @@ const MANIFEST_BYTES_KEY = 'mcp:shared-blob:context-mill:manifest:bytes'
 const MANIFEST_FRESH_KEY = 'mcp:shared-blob:context-mill:manifest:fresh'
 const MANIFEST_LOCK_KEY = 'mcp:shared-blob:context-mill:manifest:lock'
 
-function bodyKey(uri: string, gen: string): string {
+function bodyKey(uri: string): string {
     const hash = createHash('sha256').update(uri).digest('hex')
-    return `mcp:shared-blob:context-mill:body:${gen}:${hash}`
+    return `mcp:shared-blob:context-mill:body:${hash}`
 }
 
-function makeEntry(suffix: string): ContextMillResource {
+function makeEntry(suffix: string, text?: string): ContextMillResource {
     return {
         id: `entry-${suffix}`,
         name: `name-${suffix}`,
@@ -59,7 +59,7 @@ function makeEntry(suffix: string): ContextMillResource {
         resource: {
             mimeType: 'text/markdown',
             description: `desc-${suffix}`,
-            text: `# body ${suffix}`,
+            text: text ?? `# body ${suffix}`,
         },
     }
 }
@@ -88,7 +88,7 @@ describe('ContextMillResourceCache', () => {
         const manifestIdx = redis._setCalls.indexOf(MANIFEST_BYTES_KEY)
         expect(manifestIdx).toBeGreaterThan(-1)
         for (const e of entries) {
-            const bodyIdx = redis._setCalls.indexOf(bodyKey(e.uri, slim.gen))
+            const bodyIdx = redis._setCalls.indexOf(bodyKey(e.uri))
             expect(bodyIdx).toBeGreaterThan(-1)
             expect(bodyIdx).toBeLessThan(manifestIdx)
         }
@@ -106,30 +106,58 @@ describe('ContextMillResourceCache', () => {
         expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
     })
 
-    it('reads a body by uri + gen', async () => {
+    it('reads a body by uri', async () => {
         const cache = new ContextMillResourceCache(redis)
         const entry = makeEntry('a')
-        const slim = await cache.loadOrRefresh(async () => [entry])
+        await cache.loadOrRefresh(async () => [entry])
 
-        const body = await cache.readBody(entry.uri, slim.gen)
+        const body = await cache.readBody(entry.uri)
         expect(body).toEqual({ mimeType: 'text/markdown', text: '# body a' })
-    })
-
-    it('returns null when the body gen does not match', async () => {
-        const cache = new ContextMillResourceCache(redis)
-        const entry = makeEntry('a')
-        const slim = await cache.loadOrRefresh(async () => [entry])
-
-        const body = await cache.readBody(entry.uri, `${slim.gen}-stale`)
-        expect(body).toBeNull()
     })
 
     it('returns null when the body is missing entirely', async () => {
         const cache = new ContextMillResourceCache(redis)
-        const slim = await cache.loadOrRefresh(async () => [makeEntry('a')])
+        await cache.loadOrRefresh(async () => [makeEntry('a')])
 
-        const body = await cache.readBody('posthog://skill/never-published', slim.gen)
+        const body = await cache.readBody('posthog://skill/never-published')
         expect(body).toBeNull()
+    })
+
+    it('overwrites bodies in place so the latest publish is served immediately', async () => {
+        const cache = new ContextMillResourceCache(redis)
+
+        await cache.loadOrRefresh(async () => [makeEntry('a', 'old content')])
+        const beforeRefresh = await cache.readBody('posthog://skill/a')
+        expect(beforeRefresh!.text).toBe('old content')
+
+        // Second publish for the same URI with new content. With URI-keyed
+        // bodies, the new value lands at the same Redis key — readers see
+        // the update on the next GET, no gen check or in-memory refresh
+        // required. Invalidate first so the publish actually runs upstream
+        // (otherwise SharedBlobCache short-circuits on a fresh manifest).
+        await cache.invalidate()
+        await cache.loadOrRefresh(async () => [makeEntry('a', 'new content')])
+        const afterRefresh = await cache.readBody('posthog://skill/a')
+        expect(afterRefresh!.text).toBe('new content')
+    })
+
+    it('leaves removed-upstream bodies in place to age out via TTL', async () => {
+        const cache = new ContextMillResourceCache(redis)
+
+        await cache.loadOrRefresh(async () => [makeEntry('keeper'), makeEntry('removed')])
+
+        const removedBodyKey = bodyKey('posthog://skill/removed')
+        expect(redis._store.has(removedBodyKey)).toBe(true)
+
+        // Second publish drops one entry. We should NOT delete the removed
+        // body — clients holding the old URI can still resolve it until the
+        // TTL expires naturally.
+        await cache.invalidate()
+        await cache.loadOrRefresh(async () => [makeEntry('keeper')])
+
+        expect(redis._store.has(removedBodyKey)).toBe(true)
+        const orphanedBody = await cache.readBody('posthog://skill/removed')
+        expect(orphanedBody).not.toBeNull()
     })
 
     it('only one writer fetches upstream when many callers race on cold cache', async () => {
@@ -153,7 +181,7 @@ describe('ContextMillResourceCache', () => {
         expect(results.every((r) => r.entries[0]!.uri === entries[0]!.uri)).toBe(true)
     })
 
-    it('serves stale manifest and triggers a background republish with a fresh gen', async () => {
+    it('serves stale manifest and triggers a background republish', async () => {
         const cache = new ContextMillResourceCache(redis, {
             freshSeconds: 0,
             waitIntervalMs: 5,
@@ -180,7 +208,6 @@ describe('ContextMillResourceCache', () => {
 
         const third = await cache.loadOrRefresh(upstream)
         expect(third.entries).toHaveLength(2)
-        expect(third.gen).not.toBe(first.gen)
     })
 
     it('does not leave the manifest lock held after a successful publish', async () => {

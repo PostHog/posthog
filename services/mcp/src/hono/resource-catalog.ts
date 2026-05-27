@@ -29,7 +29,6 @@ export class ResourceCatalog {
     private uiAppReadEntries = new Map<string, TextResourceContents>()
     private allResources: Resource[] = []
     private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
-    private contextMillGen: string | undefined
 
     constructor(env: Env, redis?: RedisLike) {
         this.env = env
@@ -66,17 +65,15 @@ export class ResourceCatalog {
         }
 
         const slimEntry = this.contextMillEntriesByUri.get(uri)
-        if (!slimEntry || !this.contextMillCache || !this.contextMillGen) {
+        if (!slimEntry || !this.contextMillCache) {
             return { contents: [] }
         }
-        const body = await this.contextMillCache.readBody(uri, this.contextMillGen)
+        const body = await this.contextMillCache.readBody(uri)
         if (!body) {
-            // Eviction, partial state, or generation drift. Invalidate the
-            // slim manifest so the background refresh actually re-fetches
-            // upstream (a plain refresh would short-circuit on the still-fresh
-            // manifest), and let subsequent requests resolve once the new
-            // generation is published.
-            void this.contextMillCache.invalidate().then(() => this.refreshContextMill())
+            // Body has aged out (resource removed upstream + TTL elapsed) or
+            // was evicted. Ack the removal and let the slim manifest catch up
+            // on the next natural refresh; the client's context window has
+            // already cached what it needs from the prior resources/list.
             return { contents: [] }
         }
         return {
@@ -123,7 +120,6 @@ export class ResourceCatalog {
             })
         }
         this.contextMillEntriesByUri = nextEntriesByUri
-        this.contextMillGen = slim.gen
         this.resources = nextResources
         this.allResources = [...this.resources, ...this.uiAppResources]
     }
