@@ -218,11 +218,14 @@ for route in product_routes:
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
-        # Tell Django's test runner to create an independent test database and run
-        # migrations (via the router). Without this, test databases are created
-        # but left empty. Reader shares the writer's test database so reads inside
-        # a write transaction see uncommitted data.
-        DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
+        # MIGRATE:False makes pytest-django create the empty product test DB but skip the full
+        # Django migrate, which would otherwise walk and record all ~1,300 repo migrations against
+        # it on every shard (~300s of pure overhead, scaling with migration count). The product
+        # app's own (self-contained) migrations are applied explicitly by conftest._django_db_setup
+        # via `migrate <app_label>` — faithful, including non-model-expressible schema (e.g.
+        # PARTITION BY RANGE tables / views). Reader shares the writer's test database so reads
+        # inside a write transaction see uncommitted data.
+        DATABASES[writer_alias]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
 
     if DISABLE_SERVER_SIDE_CURSORS:

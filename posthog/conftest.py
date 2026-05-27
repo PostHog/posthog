@@ -293,6 +293,28 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Run sqlx migrations to create posthog_person_new and related tables
     run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
+    # Build product DB schemas explicitly. settings sets TEST={"MIGRATE": False} for product
+    # writer DBs so pytest-django creates the empty DB but skips the full Django migrate walk
+    # (~1,300 migrations). Here we apply each product app's own self-contained migrations — the
+    # real schema, including non-model-expressible DDL (e.g. PARTITION BY RANGE tables / views).
+    from django.core.management import call_command
+
+    from posthog.product_db_router import enable_product_migrations
+
+    with django_db_blocker.unblock():
+        for route in load_product_db_routes(settings.BASE_DIR):
+            writer_alias = f"{route.database}_db_writer"
+            if writer_alias not in settings.DATABASES:
+                continue
+            try:
+                connections[writer_alias].ensure_connection()
+            except Exception:
+                # pytest-django didn't provision this product's test DB on this shard
+                # (no collected test declared it) — nothing to migrate.
+                continue
+            with enable_product_migrations():
+                call_command("migrate", route.app_label, database=writer_alias, run_syncdb=False, verbosity=0)
+
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,

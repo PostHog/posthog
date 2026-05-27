@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 
 from django.conf import settings
@@ -7,6 +9,26 @@ from django.core.checks import Error, register
 
 from posthog.product_db_config import ProductDBRoute, load_product_db_routes
 from posthog.settings.base_variables import TEST
+
+# Test-only gate. Product test databases use TEST={"MIGRATE": False} so pytest-django skips the
+# full Django migrate walk (all ~1,300 migrations) against them. During create_test_db that flag
+# makes Django run `migrate --run-syncdb`, which would otherwise build the product app's tables
+# from model state — wrong for non-model-expressible schemas (e.g. PARTITION BY RANGE / views)
+# and colliding with the explicit, faithful `migrate <app>` that conftest runs. We block the
+# product app's DDL on its own DB during that window and only allow it while conftest is running
+# the real migrations, wrapped in enable_product_migrations(). No effect in production (TEST False).
+_product_migrations_enabled = False
+
+
+@contextmanager
+def enable_product_migrations() -> Iterator[None]:
+    global _product_migrations_enabled
+    previous = _product_migrations_enabled
+    _product_migrations_enabled = True
+    try:
+        yield
+    finally:
+        _product_migrations_enabled = previous
 
 
 @lru_cache(maxsize=1)
@@ -57,7 +79,12 @@ class ProductDBRouter:
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         for route in self.routes:
             if app_label == route.app_label:
-                return db in (f"{route.database}_db_writer", f"{route.database}_db_direct")
+                on_product_db = db in (f"{route.database}_db_writer", f"{route.database}_db_direct")
+                if on_product_db and TEST and not _product_migrations_enabled:
+                    # Block run_syncdb during pytest-django's MIGRATE:False setup window;
+                    # conftest._django_db_setup applies the real migrations explicitly.
+                    return False
+                return on_product_db
 
         if db in self._product_db_aliases:
             return False
