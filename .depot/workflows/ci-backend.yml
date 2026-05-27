@@ -217,7 +217,7 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: ./.depot/actions/setup-sqlx-cli
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Add service hostnames to /etc/hosts
@@ -350,7 +350,7 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: ./.depot/actions/setup-sqlx-cli
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@v6
@@ -639,7 +639,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: ./.depot/actions/setup-sqlx-cli
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
               id: hogql-parser-diff
@@ -1033,7 +1033,7 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: ./.depot/actions/setup-sqlx-cli
             - name: Install python dependencies
               shell: bash
               run: |
