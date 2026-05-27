@@ -236,7 +236,7 @@ class ConversationRedisStream:
         delay_increment = 0.15  # Increment by 150ms each attempt
         max_delay = 2.0  # Cap at 2 seconds
         timeout = 60.0  # 60 seconds timeout
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         last_iteration_time = None
         attempts = 0
 
@@ -252,7 +252,7 @@ class ConversationRedisStream:
                 last_iteration_time = current_time
                 attempts += 1
 
-                elapsed_time = asyncio.get_event_loop().time() - start_time
+                elapsed_time = asyncio.get_running_loop().time() - start_time
                 if elapsed_time >= timeout:
                     logger.debug(
                         f"Stream creation timeout after {elapsed_time:.2f}s",
@@ -294,7 +294,7 @@ class ConversationRedisStream:
             RedisStreamEvent
         """
         current_id = start_id
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         last_iteration_time = None
 
         while True:
@@ -304,7 +304,7 @@ class ConversationRedisStream:
                 REDIS_READ_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
             last_iteration_time = current_time
 
-            if asyncio.get_event_loop().time() - start_time > self._timeout:
+            if asyncio.get_running_loop().time() - start_time > self._timeout:
                 raise StreamError("Stream timeout - conversation took too long to complete")
 
             try:

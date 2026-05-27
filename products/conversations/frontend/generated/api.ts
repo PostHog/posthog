@@ -111,6 +111,24 @@ export const conversationsRetrieve = async (
     })
 }
 
+export const getConversationsDestroyUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/`
+}
+
+/**
+ * Delete a conversation.
+ */
+export const conversationsDestroy = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsDestroyUrl(projectId, conversation), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/append_message/`
 }

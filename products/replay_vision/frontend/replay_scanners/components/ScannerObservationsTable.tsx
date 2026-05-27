@@ -1,124 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { ObservationCard, ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
+import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerType, ObservationStatus, ReplayObservation } from '../types'
-
-function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
-    if (status === 'succeeded') {
-        return <LemonTag type="success">Succeeded</LemonTag>
-    }
-    if (status === 'failed') {
-        return <LemonTag type="danger">Failed</LemonTag>
-    }
-    if (status === 'running') {
-        return (
-            <LemonTag type="warning">
-                <Spinner className="mr-1" /> Running
-            </LemonTag>
-        )
-    }
-    return <LemonTag type="default">Pending</LemonTag>
-}
-
-function ResultPreview({
-    scannerType,
-    observation,
-}: {
-    scannerType: ScannerType
-    observation: ReplayObservation
-}): JSX.Element {
-    if (observation.status === 'failed') {
-        return (
-            <Tooltip title={observation.error_reason || 'Unknown error'}>
-                <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {observation.error_reason || 'Failed'}
-                </span>
-            </Tooltip>
-        )
-    }
-    if (observation.status !== 'succeeded' || !observation.result) {
-        return <span className="text-muted text-sm">—</span>
-    }
-    const r = observation.result
-    if (scannerType === 'monitor') {
-        const verdict = Boolean(r.verdict)
-        return (
-            <div className="flex flex-col gap-1 max-w-md">
-                <LemonTag type={verdict ? 'success' : 'default'}>{verdict ? 'Yes' : 'No'}</LemonTag>
-                {typeof r.reasoning === 'string' && <span className="text-muted text-xs truncate">{r.reasoning}</span>}
-            </div>
-        )
-    }
-    if (scannerType === 'summarizer') {
-        return (
-            <div className="flex flex-col max-w-md">
-                {typeof r.title === 'string' && <span className="font-semibold text-sm truncate">{r.title}</span>}
-                {typeof r.summary === 'string' && <span className="text-muted text-xs line-clamp-2">{r.summary}</span>}
-            </div>
-        )
-    }
-    if (scannerType === 'classifier') {
-        const tags = Array.isArray(r.tags) ? (r.tags as string[]) : []
-        return (
-            <div className="flex flex-wrap gap-1 max-w-md">
-                {tags.length === 0 ? (
-                    <span className="text-muted text-sm">No tags</span>
-                ) : (
-                    tags.map((t) => (
-                        <LemonTag key={t} type="option">
-                            {t}
-                        </LemonTag>
-                    ))
-                )}
-            </div>
-        )
-    }
-    if (scannerType === 'scorer') {
-        const score = typeof r.score === 'number' ? r.score : null
-        const label = typeof r.label === 'string' ? r.label : null
-        return (
-            <div className="flex items-baseline gap-2">
-                <span className="font-semibold text-lg tabular-nums">{score ?? '—'}</span>
-                {label && <span className="text-muted text-xs">{label}</span>}
-            </div>
-        )
-    }
-    if (scannerType === 'indexer') {
-        const keywords = Array.isArray(r.keywords) ? (r.keywords as string[]) : []
-        return (
-            <div className="flex flex-col max-w-md">
-                {typeof r.summary === 'string' && <span className="text-sm truncate">{r.summary}</span>}
-                {keywords.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                        {keywords.slice(0, 5).map((k) => (
-                            <LemonTag key={k} type="option" size="small">
-                                {k}
-                            </LemonTag>
-                        ))}
-                        {keywords.length > 5 && <span className="text-muted text-xs">+{keywords.length - 5}</span>}
-                    </div>
-                )}
-            </div>
-        )
-    }
-    return <span className="text-muted text-sm">—</span>
-}
 
 export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId, tabId })
-    const { scanner, observations, observationsLoading } = useValues(logic)
+    const { observations, observationsLoading, hasObservationsInFlight } = useValues(logic)
     const { loadObservations } = useActions(logic)
-
-    if (!scanner) {
-        return <div className="text-muted">Loading…</div>
-    }
 
     const stats = observations.reduce(
         (acc, o) => {
@@ -127,34 +23,39 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                 acc.succeeded += 1
             } else if (o.status === 'failed') {
                 acc.failed += 1
+            } else if (o.status === 'ineligible') {
+                acc.ineligible += 1
             } else {
-                acc.running += 1
+                acc.inFlight += 1
             }
             return acc
         },
-        { total: 0, succeeded: 0, failed: 0, running: 0 }
+        { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0 }
     )
-    const successRate = stats.total > 0 ? Math.round((stats.succeeded / stats.total) * 100) : null
+    // Success rate excludes ineligible — those weren't scanner failures, they were skipped at the gate.
+    const scored = stats.succeeded + stats.failed
+    const successRate = scored > 0 ? Math.round((stats.succeeded / scored) * 100) : null
 
-    const columns: LemonTableColumns<ReplayObservation> = [
+    const columns: LemonTableColumns<ReplayObservationApi> = [
         {
             title: 'Session',
             key: 'session',
+            width: 300,
             render: (_, obs) => (
-                <Link to={urls.replaySingle(obs.session_id)} className="font-mono text-xs text-primary">
-                    {obs.session_id.slice(0, 12)}…
+                <Link to={urls.replaySingle(obs.session_id)} className="font-mono text-xs text-primary truncate block">
+                    {obs.session_id}
                 </Link>
             ),
         },
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <StatusTag status={obs.status} />,
+            render: (_, obs) => <ObservationStatusTag status={obs.status} />,
         },
         {
             title: 'Result',
             key: 'result',
-            render: (_, obs) => <ResultPreview scannerType={scanner.scanner_type} observation={obs} />,
+            render: (_, obs) => <ObservationResultSummary observation={obs} />,
         },
         {
             title: 'Triggered by',
@@ -168,7 +69,9 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
         {
             title: 'Model',
             key: 'model',
-            render: (_, obs) => <span className="font-mono text-xs text-muted">{obs.model_used || '—'}</span>,
+            render: (_, obs) => (
+                <span className="font-mono text-xs text-muted">{obs.scanner_snapshot?.model || '—'}</span>
+            ),
         },
         {
             title: 'Created',
@@ -203,23 +106,37 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                                     <div className="text-muted">Failed</div>
                                 </div>
                             )}
-                            {stats.running > 0 && (
+                            {stats.ineligible > 0 && (
                                 <div className="text-center">
-                                    <div className="font-semibold text-lg">{stats.running}</div>
+                                    <div className="font-semibold text-lg">{stats.ineligible}</div>
+                                    <div className="text-muted">Ineligible</div>
+                                </div>
+                            )}
+                            {stats.inFlight > 0 && (
+                                <div className="text-center">
+                                    <div className="font-semibold text-lg">{stats.inFlight}</div>
                                     <div className="text-muted">In flight</div>
                                 </div>
                             )}
                         </div>
                     )}
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        onClick={() => loadObservations()}
-                        loading={observationsLoading}
+                    <Tooltip
+                        title={
+                            hasObservationsInFlight
+                                ? 'Auto-refreshing while observations are in flight'
+                                : 'Refresh observations'
+                        }
                     >
-                        Refresh
-                    </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => loadObservations()}
+                            loading={observationsLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </Tooltip>
                 </div>
             </div>
             <LemonTable
@@ -229,11 +146,20 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                 rowKey="id"
                 pagination={{ pageSize: 50 }}
                 nouns={['observation', 'observations']}
+                expandable={{
+                    rowExpandable: (obs) =>
+                        obs.status === 'succeeded' || obs.status === 'failed' || obs.status === 'ineligible',
+                    expandedRowRender: (obs) => (
+                        <div className="p-2">
+                            <ObservationCard observation={obs} />
+                        </div>
+                    ),
+                }}
                 emptyState={
-                    <span className="text-muted">
-                        No observations yet. Once this scanner runs against matching recordings, results will appear
-                        here.
-                    </span>
+                    <div className="p-6 text-center text-muted">
+                        No observations yet. Observations appear here once the scanner runs on a schedule, or when you
+                        observe a recording from the session replay page.
+                    </div>
                 }
             />
         </div>

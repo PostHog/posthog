@@ -9,15 +9,15 @@ impl From<storage::Group> for Group {
             team_id: group.team_id,
             group_type_index: group.group_type_index,
             group_key: group.group_key,
-            group_properties: serde_json::to_vec(&group.group_properties).unwrap_or_default(),
+            group_properties: group.group_properties.into_bytes(),
             created_at: group.created_at.timestamp_millis(),
             properties_last_updated_at: group
                 .properties_last_updated_at
-                .map(|v| serde_json::to_vec(&v).unwrap_or_default())
+                .map(|v| v.into_bytes())
                 .unwrap_or_default(),
             properties_last_operation: group
                 .properties_last_operation
-                .map(|v| serde_json::to_vec(&v).unwrap_or_default())
+                .map(|v| v.into_bytes())
                 .unwrap_or_default(),
             version: group.version,
         }
