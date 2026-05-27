@@ -174,7 +174,10 @@ def _build_partial_row(
       route this partial row to a different shard than the real session rows,
       forcing every read on this session into a cross-shard merge.
     """
-    partial_ts = format_clickhouse_timestamp(min_first_timestamp + timedelta(microseconds=1))
+ts = min_first_timestamp + timedelta(microseconds=1)
+  if ts.tzinfo is None:
+      ts = ts.replace(tzinfo=timezone.utc)
+  partial_ts = format_clickhouse_timestamp(ts)
     return {
         "session_id": session_id,
         "team_id": team_id,
