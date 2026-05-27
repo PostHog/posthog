@@ -192,8 +192,9 @@ def cli(ctx: click.Context) -> None:
             telemetry.show_first_run_notice_if_needed()
 
     # Fire early so long-running commands (e.g. hogli start) are always counted
-    # even if the process is killed without a clean exit.
-    if ctx.invoked_subcommand and ctx.invoked_subcommand != "telemetry:off":
+    # even if the process is killed without a clean exit. Gated identically to
+    # command_completed so the two events form matched pairs.
+    if _should_track(ctx.invoked_subcommand):
         telemetry.track(
             "command_started", {"command": ctx.invoked_subcommand, **_env_properties(ctx.invoked_subcommand)}
         )
@@ -512,13 +513,12 @@ _load_boot_modules()
 
 def _env_properties(command: str | None = None) -> dict[str, Any]:
     """Static environment properties shared across telemetry events."""
-    ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
     props: dict[str, Any] = {
         "terminal_width": shutil.get_terminal_size().columns,
         "os": platform.system(),
         "arch": platform.machine(),
         "python_version": platform.python_version(),
-        "is_ci": any(os.environ.get(v) for v in ci_env_vars),
+        "is_ci": telemetry.is_ci(),
     }
     for hook in telemetry_property_hooks:
         try:
@@ -528,20 +528,45 @@ def _env_properties(command: str | None = None) -> dict[str, Any]:
     return props
 
 
+# Telemetry commands manage telemetry itself; tracking them would pollute the
+# dataset with self-referential noise, so they emit no command events.
+_TELEMETRY_META_COMMANDS = frozenset({"telemetry:on", "telemetry:off", "telemetry:status"})
+
+
+def _should_track(command: str | None) -> bool:
+    """Whether a subcommand should emit command_started / command_completed.
+
+    Requires a real subcommand (so bare ``hogli`` / ``--help`` don't fire a
+    completed event with no matching started event) and excludes the telemetry
+    management commands.
+    """
+    return bool(command) and command not in _TELEMETRY_META_COMMANDS
+
+
+def _outcome(exit_code: int) -> str:
+    """Classify an exit code so signal kills are distinct from real failures."""
+    if exit_code == 0:
+        return "success"
+    # Killed by a signal: negative (subprocess) or 128 + signum (e.g. 130 SIGINT).
+    if exit_code < 0 or exit_code >= 128:
+        return "interrupted"
+    return "error"
+
+
 def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
     """Send a command_completed telemetry event. Never raises."""
     command = ctx.invoked_subcommand
-    # Skip when CLI itself errors before reaching a subcommand (e.g. bad flag)
-    if command is None and exit_code != 0:
+    if not _should_track(command):
         return
     try:
         start_time: float = ctx.meta.get("hogli.start_time", 0.0)
         duration_s = _time.monotonic() - start_time
         props: dict[str, Any] = {
             "command": command,
-            "command_category": get_category_for_command(command) if command else None,
+            "command_category": get_category_for_command(command),
             "duration_s": round(duration_s, 3),
             "exit_code": exit_code,
+            "outcome": _outcome(exit_code),
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
             **_env_properties(command),
         }
