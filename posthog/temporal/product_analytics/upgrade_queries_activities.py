@@ -7,9 +7,10 @@ from django.db import connection
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.models import Insight
 from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.schema_migrations.upgrade import upgrade
+
+from products.product_analytics.backend.models.insight import Insight
 
 LOGGER = get_logger(__name__)
 

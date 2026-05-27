@@ -222,6 +222,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     key = serializers.CharField()
     label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
+    # For `choice` inputs: render as a searchable select on the frontend.
+    searchable = serializers.BooleanField(required=False)
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)

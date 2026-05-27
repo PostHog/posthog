@@ -277,13 +277,20 @@ def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
     return _event_count_query_template(extra_filter), params
 
 
-def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
+_STATS_MAX_EXECUTION_TIME = 300
+
+
+def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int | None = None) -> dict:
     """Run event count + parts size queries against ClickHouse.
 
     The same predicate is spliced into both queries: the row count against the
     Distributed ``events`` proxy, and the parts inspection against the local
     ``sharded_events``. The HogQL predicate emits unqualified column references,
     so it works in both contexts.
+
+    ``user_id`` is threaded into the query tag so the acting staff user is
+    visible in ``system.query_log`` (the kill-switch + tag annotator pick it up
+    automatically via :class:`QueryTags`).
     """
     from posthog.clickhouse.client import sync_execute
 
@@ -291,6 +298,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
         team_id=team_id,
+        user_id=user_id,
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
@@ -301,12 +309,14 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
         )
 
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
         team_id=team_id,
+        user_id=user_id,
         workload=Workload.OFFLINE,
         query_type="delete_part_count",
     ):
@@ -338,6 +348,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
         )
 
     return {
@@ -350,27 +361,27 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
     }
 
 
-def fetch_event_deletion_stats(obj: DataDeletionRequest):
+def fetch_event_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
     """Count events and affected parts for an event removal request."""
     extra_filter, params = _build_event_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params)
+    return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
 
 
-def fetch_property_deletion_stats(obj: DataDeletionRequest):
+def fetch_property_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
     """Count events with matching properties and affected parts for a property removal request."""
     if not obj.properties and not obj.person_properties:
         raise ValueError(
             "Cannot fetch stats for a property removal request with no properties or person_properties specified."
         )
     extra_filter, params = _build_property_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params)
+    return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
 
 
-def fetch_deletion_stats(obj: DataDeletionRequest):
+def fetch_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
     """Dispatch to the appropriate stats function based on request type."""
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
-        return fetch_property_deletion_stats(obj)
-    return fetch_event_deletion_stats(obj)
+        return fetch_property_deletion_stats(obj, user_id=user_id)
+    return fetch_event_deletion_stats(obj, user_id=user_id)
 
 
 @admin.register(DataDeletionRequest)
@@ -599,6 +610,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 name="posthog_datadeletionrequest_fetch_stats",
             ),
             path(
+                "<path:object_id>/preview-stats/",
+                self.admin_site.admin_view(self.preview_stats_view),
+                name="posthog_datadeletionrequest_preview_stats",
+            ),
+            path(
                 "<path:object_id>/approve/",
                 self.admin_site.admin_view(self.approve_view),
                 name="posthog_datadeletionrequest_approve",
@@ -670,6 +686,12 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.success(request, "Request submitted and is now pending.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        is_clickhouse_team = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+        preview_stats = request.session.pop("data_deletion_preview_stats", None)
+        if preview_stats and str(preview_stats.get("obj_pk")) != str(obj.pk):
+            # Belongs to a different request — drop it rather than mislead the operator.
+            preview_stats = None
+
         context = {
             **self.admin_site.each_context(request),
             "obj": obj,
@@ -679,6 +701,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
             "fetch_stats_url": reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk]),
+            "preview_stats_url": reverse("admin:posthog_datadeletionrequest_preview_stats", args=[obj.pk]),
+            "is_clickhouse_team": is_clickhouse_team,
+            "preview_stats": preview_stats,
             "opts": self.model._meta,
             "title": f"Submit deletion request {obj.pk}",
         }
@@ -702,7 +727,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
 
         try:
-            stats = fetch_deletion_stats(obj)
+            stats = fetch_deletion_stats(obj, user_id=request.user.id)
             obj.count = stats["count"]
             obj.part_count = stats["part_count"]
             obj.parts_size = stats["parts_size"]
@@ -726,6 +751,56 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.success(request, f"Stats fetched: {stats['count']:,} matching events found.")
         except Exception as e:
             messages.error(request, f"Failed to fetch stats: {e}")
+
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+    def preview_stats_view(self, request, object_id):
+        """ClickHouse-Team-only ephemeral stats run.
+
+        Runs the same ClickHouse queries as ``fetch_stats_view`` but does **not**
+        persist anything to the model — useful while iterating on a predicate.
+        Results are stashed in the session and rendered on the next submit page
+        render under a separate "Preview (not saved)" block.
+        """
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can preview stats.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        if obj.request_type == RequestType.PERSON_REMOVAL:
+            count = len(obj.person_uuids) + len(obj.person_distinct_ids)
+            request.session["data_deletion_preview_stats"] = {
+                "obj_pk": str(obj.pk),
+                "count": count,
+                "calculated_at": timezone.now().isoformat(),
+            }
+            messages.info(request, f"Preview selector count: {count} person target(s). Not saved.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        try:
+            stats = fetch_deletion_stats(obj, user_id=request.user.id)
+            request.session["data_deletion_preview_stats"] = {
+                "obj_pk": str(obj.pk),
+                "count": stats["count"],
+                "part_count": stats["part_count"],
+                "parts_size": stats["parts_size"],
+                "parts_row_count": stats["parts_row_count"],
+                "min_timestamp": stats["min_timestamp"].isoformat() if stats["min_timestamp"] else None,
+                "max_timestamp": stats["max_timestamp"].isoformat() if stats["max_timestamp"] else None,
+                "calculated_at": timezone.now().isoformat(),
+            }
+            messages.info(
+                request,
+                f"Preview stats: {stats['count']:,} matching events. Not saved to the request.",
+            )
+        except Exception as e:
+            messages.error(request, f"Failed to preview stats: {e}")
 
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
 
