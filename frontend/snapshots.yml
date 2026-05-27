@@ -1956,6 +1956,10 @@ snapshots:
         hash: v1.k794b7964.d669cc7bd939e7cd9bae4003a228e194a6c383d827feb04baf491a89dfc0b698.eD11DZ4cr8p1GMBdBaTW1doXInEVj9CIhnyMP8RNpFo
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
+    insights-stickinesslinechart--area--dark:
+        hash: v1.k794b7964.c8f70afcdd044f3df9c45bd8f83a5f7b9b6c2ff56fd36da9f74f196ebc0b56b9.0zlUNlGlxnyFebgcM3MlWfSHhFSI2YJb2jxigbCMjkQ
+    insights-stickinesslinechart--area--light:
+        hash: v1.k794b7964.5d7b49d8f4ebb24543f100ed4014d0f8a5832a5db40525f482fb096eadd7acb4.DMdwu1bhfT1dAJWNVYf72l00l5XMKia53ratuSW3CyE
     insights-stickinesslinechart--default--dark:
         hash: v1.k794b7964.41390e8fbafc9d75682179e198664c729a05ed3439fb99ad516fe1b1032cf6c0.dmsgYkZeOieitZlRh1HAveS5ej1pzamiMVQQdBstzIg
     insights-stickinesslinechart--default--light:
@@ -4735,9 +4739,9 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
-        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.gaL7vRk-pWoOUkiPi-NGCd1W72x-M5l9jk5Qu-UcjwI
+        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.xupnP9sdcp25xPBOMzrhSHwtRpKPLKHaqLDBncapvQA
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
-        hash: v1.k794b7964.6c391cbc05b64230fbd8defdbb960b131fd433409817497873fb9ffc705cd360.dtIb8VK_HAoAvzi8YbVjGpt2Y8yONsVV7mEiD9DrclQ
+        hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.3gc3UBg-8GVo4HkNBH7UrogK2q1uh9pXPDjTdYGT8nc
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
         hash: v1.k794b7964.dad9df902a133cafd6b3314a3800fcb45dabbbb59a0766c87c226549392104fc.u8mciTuIKrwI-d3yiUx6dVpr3oLoJJ7tgvRU7hutwhU
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--light:
