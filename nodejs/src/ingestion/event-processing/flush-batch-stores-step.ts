@@ -41,16 +41,15 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
     const { personsStore, groupStore, outputs } = config
 
     return async function flushBatchStoresStep(input) {
+        let personsStoreMessages: FlushResult[] = []
         try {
             // Flush both stores in parallel (DB operations, still blocking).
             // Stores own their own metric-emission lifecycle (periodic timer
             // started in their constructors, drained by shutdown()), so this
             // step no longer touches reset/reportBatch — caches persist across
             // batches by design under concurrentBatches > 1.
-            const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
-
-            personsStore.releaseBatch(input.batchId)
-            groupStore.releaseBatch(input.batchId)
+            const [_groupResults, messages] = await Promise.all([groupStore.flush(), personsStore.flush()])
+            personsStoreMessages = messages
 
             logger.info('🔄', 'flushBatchStoresStep: Flushed stores', {
                 batchSize: input.elements.length,
@@ -69,6 +68,10 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
                 batchSize: input.elements.length,
             })
             throw error
+        } finally {
+            // Always release the batch to prevent refcount leaks, even on flush failure.
+            personsStore.releaseBatch(input.batchId)
+            groupStore.releaseBatch(input.batchId)
         }
     }
 }

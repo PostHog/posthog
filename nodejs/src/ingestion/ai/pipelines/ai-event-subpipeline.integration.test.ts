@@ -111,7 +111,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
 }
 
 function createInput(event: PluginEvent): AiEventSubpipelineInput {
-    return { message, event, team, headers }
+    return { message, event, team, headers, batchId: 0 }
 }
 
 type AiOutputs =

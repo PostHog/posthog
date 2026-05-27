@@ -24,11 +24,13 @@ describe('flush-batch-stores-step', () => {
         mockPersonsStore = {
             flush: jest.fn(),
             shutdown: jest.fn(),
+            releaseBatch: jest.fn(),
         } as any
 
         mockGroupStore = {
             flush: jest.fn(),
             shutdown: jest.fn(),
+            releaseBatch: jest.fn(),
         } as any
 
         mockOutputs = createMockIngestionOutputs<
@@ -242,11 +244,26 @@ describe('flush-batch-stores-step', () => {
             await expect(step(makeInput())).rejects.toThrow('Database connection failed')
         })
 
-        it('throws if persons store flush fails', async () => {
+        it('calls releaseBatch on both stores with the correct batchId after a successful flush', async () => {
+            mockPersonsStore.flush.mockResolvedValue([])
+            mockGroupStore.flush.mockResolvedValue([])
+
+            const input = makeInput()
+            await step(input)
+
+            expect(mockPersonsStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
+            expect(mockGroupStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
+        })
+
+        it('calls releaseBatch on both stores even when flush throws', async () => {
             mockPersonsStore.flush.mockRejectedValue(new Error('DB error'))
             mockGroupStore.flush.mockResolvedValue([])
 
-            await expect(step(makeInput())).rejects.toThrow('DB error')
+            const input = makeInput()
+            await expect(step(input)).rejects.toThrow('DB error')
+
+            expect(mockPersonsStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
+            expect(mockGroupStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
         })
 
         it('should handle null values in messages', async () => {

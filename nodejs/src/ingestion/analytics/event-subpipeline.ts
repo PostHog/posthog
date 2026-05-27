@@ -30,6 +30,7 @@ export interface EventSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
+    batchId: number
 }
 
 export interface EventSubpipelineConfig {

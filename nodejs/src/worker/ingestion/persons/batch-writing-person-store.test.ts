@@ -2995,16 +2995,63 @@ describe('BatchWritingPersonStore', () => {
             expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(false)
         })
 
-        it('preserves dirty person update entries in personUpdateCache on eviction', () => {
+        it('defers eviction of dirty person update entries until after flush', async () => {
             const personUpdate = { ...fromInternalPerson(person, 'user-a'), needs_write: true }
             personStore.setCachedPersonForUpdate(teamId, 'user-a', personUpdate, 0)
 
             personStore.releaseBatch(0)
 
-            // distinctId lookup is cleared so the person can't be found by distinct ID
-            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'user-a')).toBeUndefined()
-            // But the personUpdateCache entry survives because it has a pending write
+            // Both the cache entry AND the distinctId mapping are kept alive while dirty —
+            // evicting the mapping would orphan the cache entry after the next flush.
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'user-a')).toBeDefined()
             expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeDefined()
+
+            // After flush clears needs_write, processDeferredEvictions() runs and
+            // cleans up both the cache entry and the mapping.
+            await personStore.flush()
+
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'user-a')).toBeUndefined()
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
+        })
+
+        it('deferred eviction is skipped if entry is re-dirtied during the DB write', async () => {
+            // properties_to_set must be non-empty so getPersonUpdateOutcome returns 'changed'
+            // and the entry is included in the batch (otherwise the mock is never called).
+            const personUpdate = {
+                ...fromInternalPerson(person, 'user-a'),
+                needs_write: true,
+                properties_to_set: { new_prop: 'new_value' },
+            }
+            personStore.setCachedPersonForUpdate(teamId, 'user-a', personUpdate, 0)
+            personStore.releaseBatch(0)
+
+            // Simulate a concurrent batch re-dirtying the entry during the async DB write
+            // (i.e., after the linearization point clears needs_write but before processDeferredEvictions).
+            // kafkaMessage must be truthy to avoid the fallback individual-update path.
+            mockRepo.updatePersonsBatch.mockImplementationOnce((updates: any[]) => {
+                const results = new Map()
+                for (const update of updates) {
+                    results.set(update.uuid, { success: true, version: update.version + 1, kafkaMessage: {} })
+                }
+                // getCachedPersonForUpdateByPersonId returns a deep copy, so we must access the
+                // internal map directly to simulate a concurrent batch re-dirtying the entry.
+                const cache: Map<string, any> = (personStore as any)['personUpdateCache']
+                const actualUpdate = cache.get(`${teamId}:${person.id}`)
+                if (actualUpdate) {
+                    actualUpdate.needs_write = true
+                }
+                return Promise.resolve(results)
+            })
+
+            await personStore.flush()
+
+            // Entry is still alive because it was re-dirtied during the DB write
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeDefined()
+
+            // A second flush clears it properly
+            await personStore.flush()
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'user-a')).toBeUndefined()
         })
 
         it('evicts clean person update entries from personUpdateCache', () => {

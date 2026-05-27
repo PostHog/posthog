@@ -223,7 +223,10 @@ describe('PersonState.processEvent()', () => {
             createPersonOutputs(kafkaProducer),
             personsStore,
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false,
+            0
         )
         const processor = new PersonEventProcessor(
             context,
@@ -258,7 +261,10 @@ describe('PersonState.processEvent()', () => {
             createPersonOutputs(kafkaProducer),
             personsStore,
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false,
+            0
         )
         context.updateIsIdentified = updateIsIdentified
         return new PersonPropertyService(context)
@@ -293,7 +299,10 @@ describe('PersonState.processEvent()', () => {
             createPersonOutputs(kafkaProducer),
             personsStore,
             0,
-            mergeMode
+            mergeMode,
+            false,
+            false,
+            0
         )
         return new PersonMergeService(context)
     }
@@ -1360,7 +1369,10 @@ describe('PersonState.processEvent()', () => {
                     createPersonOutputs(kafkaProducer),
                     sharedPersonsStore,
                     0,
-                    createDefaultSyncMergeMode()
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false,
+                    0
                 )
                 return new PersonEventProcessor(
                     context,
@@ -1532,7 +1544,10 @@ describe('PersonState.processEvent()', () => {
                     createPersonOutputs(kafkaProducer),
                     sharedPersonsStore,
                     0,
-                    createDefaultSyncMergeMode()
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false,
+                    0
                 )
                 return new PersonEventProcessor(
                     context,
@@ -1643,7 +1658,10 @@ describe('PersonState.processEvent()', () => {
                     createPersonOutputs(kafkaProducer),
                     sharedPersonsStore,
                     0,
-                    createDefaultSyncMergeMode()
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false,
+                    0
                 )
                 return new PersonEventProcessor(
                     context,
@@ -4298,7 +4316,10 @@ describe('PersonState.processEvent()', () => {
                         createPersonOutputs(kafkaProducer),
                         personsStore,
                         0,
-                        mergeMode
+                        mergeMode,
+                        false,
+                        false,
+                        0
                     )
                     const processor = new PersonEventProcessor(
                         context,

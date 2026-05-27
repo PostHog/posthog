@@ -13,4 +13,9 @@ export interface BatchWritingStore {
      * are only evicted when all referencing batches have completed.
      */
     releaseBatch(batchId: number): void
+
+    /*
+     * Stops background work and flushes remaining metrics. Called on graceful shutdown.
+     */
+    shutdown(): Promise<void>
 }

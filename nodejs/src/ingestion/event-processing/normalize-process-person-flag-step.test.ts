@@ -26,6 +26,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         event: baseEvent,
         team,
         headers: createTestEventHeaders(),
+        batchId: 0,
     }
 
     const normalizeStep = createNormalizeProcessPersonFlagStep()

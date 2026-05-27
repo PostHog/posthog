@@ -141,6 +141,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private batchDistinctKeys = new Map<number, Set<string>>()
     // Reference count per distinctCacheKey: how many active batches reference this key
     private distinctKeyRefCount = new Map<string, number>()
+    // Distinct keys that were released while their personUpdateCache was dirty.
+    // processDeferredEvictions() re-checks these after each flush and evicts them once clean.
+    private deferredEvictions = new Set<string>()
     // Periodic metric emitter — emits accumulated per-distinct_id metrics on
     // a fixed cadence rather than at batch boundaries (which are unreliable
     // under concurrentBatches > 1).
@@ -304,6 +307,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (batchSize === 0) {
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, 0)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
+            this.processDeferredEvictions()
             return []
         }
 
@@ -333,6 +337,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
 
+            this.processDeferredEvictions()
             return allKafkaMessages
         } catch (error) {
             // Record failed flush
@@ -1021,7 +1026,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
         // Update the batch results cache so processPersonlessStep knows this was merged
         if (isMerged) {
-            this.personlessBatchResults.set(`${teamId}|${distinctId}`, true)
+            this.personlessBatchResults.set(this.getDistinctCacheKey(teamId, distinctId), true)
         }
         return isMerged
     }
@@ -1039,16 +1044,17 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         const results = await this.personRepository.addPersonlessDistinctIdsBatch(entries)
-        // Only store merged distinct IDs - these need force_upgrade handling
-        for (const [key, isMerged] of results) {
-            if (isMerged) {
-                this.personlessBatchResults.set(key, true)
+        // Only store merged distinct IDs - these need force_upgrade handling.
+        // Iterate entries (not result keys) to use the ':' cache key format consistently.
+        for (const { teamId, distinctId } of entries) {
+            if (results.get(`${teamId}|${distinctId}`)) {
+                this.personlessBatchResults.set(this.getDistinctCacheKey(teamId, distinctId), true)
             }
         }
     }
 
     getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.personlessBatchResults.get(`${teamId}|${distinctId}`)
+        return this.personlessBatchResults.get(this.getDistinctCacheKey(teamId, distinctId))
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
@@ -1791,13 +1797,36 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             const update = this.personUpdateCache.get(personIdKey)
             if (!update || !update.needs_write) {
                 this.personUpdateCache.delete(personIdKey)
+                this.distinctIdToPersonId.delete(distinctKey)
+            } else {
+                // Entry is dirty: keep both the cache and the distinctId→personId mapping alive
+                // so the personUpdateCache isn't orphaned after the next flush.
+                // processDeferredEvictions() will retry after needs_write is cleared.
+                this.deferredEvictions.add(distinctKey)
             }
-            this.distinctIdToPersonId.delete(distinctKey)
         }
 
         this.personCheckCache.delete(distinctKey)
-        // personlessBatchResults uses '|' as separator vs ':' for distinctCacheKey
-        this.personlessBatchResults.delete(distinctKey.replace(':', '|'))
+        this.personlessBatchResults.delete(distinctKey)
+    }
+
+    private processDeferredEvictions(): void {
+        for (const distinctKey of this.deferredEvictions) {
+            const colonIdx = distinctKey.indexOf(':')
+            const teamId = Number(distinctKey.slice(0, colonIdx))
+            const personId = this.distinctIdToPersonId.get(distinctKey)
+            if (personId === undefined) {
+                this.deferredEvictions.delete(distinctKey)
+                continue
+            }
+            const personIdKey = this.getPersonIdCacheKey(teamId, personId)
+            const update = this.personUpdateCache.get(personIdKey)
+            if (!update || !update.needs_write) {
+                this.personUpdateCache.delete(personIdKey)
+                this.distinctIdToPersonId.delete(distinctKey)
+                this.deferredEvictions.delete(distinctKey)
+            }
+        }
     }
 
     /**

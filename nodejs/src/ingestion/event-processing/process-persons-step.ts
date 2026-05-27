@@ -19,7 +19,7 @@ export type ProcessPersonsInput = {
     team: Team
     timestamp: DateTime
     personlessPerson?: Person
-    batchId?: number
+    batchId: number
 }
 
 export type ProcessPersonsOutput = {

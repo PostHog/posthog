@@ -99,6 +99,7 @@ describe('createProcessPersonsStep', () => {
         normalizedEvent: pluginEvent,
         team,
         timestamp,
+        batchId: 0,
         ...overrides,
     })
 

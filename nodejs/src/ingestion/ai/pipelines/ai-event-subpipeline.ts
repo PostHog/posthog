@@ -33,6 +33,7 @@ export interface AiEventSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
+    batchId: number
 }
 
 export interface AiEventSubpipelineConfig {

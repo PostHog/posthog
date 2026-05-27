@@ -51,7 +51,10 @@ describe('PersonCreateService', () => {
             mockOutputs,
             mockPersonStore,
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false,
+            0
         )
 
         personCreateService = new PersonCreateService(personContext)
@@ -184,7 +187,7 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
-            expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
+            expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id', 0)
         })
 
         it('should throw error when creation conflict occurs but person cannot be fetched', async () => {
