@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import type { RedisLike } from './RedisCache'
 
 const DEFAULT_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days — hard expiry
@@ -16,17 +14,15 @@ export interface SharedBlobCacheOptions {
     waitTimeoutMs?: number
 }
 
-export type BlobUpstream = () => Promise<Uint8Array>
-
 /**
- * Redis-backed cache for an arbitrary binary blob, shared across instances.
+ * Redis-backed helpers for an arbitrary binary blob, shared across instances.
  *
- * - Only the writer that wins the `SET NX EX` race fetches upstream and writes
- *   back the cache. Other concurrent callers either wait for the writer to
- *   publish (cold cache) or serve the previously cached value while a refresh
- *   runs in the background (stale-while-revalidate).
+ * - Callers can coordinate single-writer refreshes with the `SET NX EX` lock,
+ *   wait for another writer to publish on cold cache misses, and read/write
+ *   the shared bytes plus freshness marker.
  * - Hard TTL keeps the cache available across long writer outages; a separate
- *   freshness timestamp triggers a background refresh after the soft window.
+ *   freshness timestamp lets callers decide when to refresh after the soft
+ *   window.
  *
  * Each blob lives under a caller-supplied namespace, so one Redis can host
  * many independent shared blobs (e.g. context-mill archive, future bundles)
@@ -44,7 +40,7 @@ export class SharedBlobCache {
     private waitTimeoutMs: number
 
     constructor(
-        private readonly redis: RedisLike,
+        protected readonly redis: RedisLike,
         namespace: string,
         opts: SharedBlobCacheOptions = {}
     ) {
@@ -60,49 +56,7 @@ export class SharedBlobCache {
         this.waitTimeoutMs = opts.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
     }
 
-    /**
-     * Return the cached blob bytes, fetching upstream via the single-writer
-     * lock when the cache is cold or stale.
-     */
-    async fetch(upstream: BlobUpstream): Promise<Uint8Array> {
-        const cached = await this.readCache()
-
-        if (cached && cached.fresh) {
-            return cached.bytes
-        }
-
-        if (cached) {
-            // Stale-while-revalidate: serve what we have and try to refresh in
-            // the background. The lock guarantees only one instance refreshes
-            // even if many requests race here.
-            void this.refreshInBackground(upstream)
-            return cached.bytes
-        }
-
-        // Cold cache — race for the writer lock.
-        const token = randomUUID()
-        if (await this.acquireLock(token)) {
-            try {
-                const bytes = await upstream()
-                await this.writeCache(bytes)
-                return bytes
-            } finally {
-                await this.releaseLock(token)
-            }
-        }
-
-        // Another writer holds the lock — wait for them to publish.
-        const waited = await this.waitForCache()
-        if (waited) {
-            return waited
-        }
-
-        // Writer never published in time. Fetch ourselves without writing so
-        // we don't trample whatever the lock holder eventually produces.
-        return upstream()
-    }
-
-    private async readCache(): Promise<{ bytes: Uint8Array; fresh: boolean } | null> {
+    protected async readCache(): Promise<{ bytes: Uint8Array; fresh: boolean } | null> {
         const [raw, freshUntilStr] = await Promise.all([this.redis.get(this.cacheKey), this.redis.get(this.freshKey)])
         if (raw === null) {
             return null
@@ -114,7 +68,7 @@ export class SharedBlobCache {
         return { bytes, fresh }
     }
 
-    private async writeCache(bytes: Uint8Array): Promise<void> {
+    protected async writeCache(bytes: Uint8Array): Promise<void> {
         const b64 = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64')
         const freshUntil = Date.now() + this.freshSeconds * 1000
         await Promise.all([
@@ -123,12 +77,12 @@ export class SharedBlobCache {
         ])
     }
 
-    private async acquireLock(token: string): Promise<boolean> {
+    protected async acquireLock(token: string): Promise<boolean> {
         const result = await this.redis.set(this.lockKey, token, 'NX', 'EX', this.lockTtlSeconds)
         return result === 'OK'
     }
 
-    private async releaseLock(_token: string): Promise<void> {
+    protected async releaseLock(_token: string): Promise<void> {
         // Best-effort. The lock TTL bounds the worst case (another writer's
         // entry being deleted on top); a Lua CAS could close that window but
         // would require widening the RedisLike interface.
@@ -139,7 +93,7 @@ export class SharedBlobCache {
         }
     }
 
-    private async waitForCache(): Promise<Uint8Array | null> {
+    protected async waitForCache(): Promise<Uint8Array | null> {
         const start = Date.now()
         while (Date.now() - start < this.waitTimeoutMs) {
             await sleep(this.waitIntervalMs)
@@ -149,21 +103,6 @@ export class SharedBlobCache {
             }
         }
         return null
-    }
-
-    private async refreshInBackground(upstream: BlobUpstream): Promise<void> {
-        const token = randomUUID()
-        if (!(await this.acquireLock(token))) {
-            return
-        }
-        try {
-            const bytes = await upstream()
-            await this.writeCache(bytes)
-        } catch (err) {
-            console.error(`[SharedBlobCache:${this.lockKey}] background refresh failed:`, err)
-        } finally {
-            await this.releaseLock(token)
-        }
     }
 }
 

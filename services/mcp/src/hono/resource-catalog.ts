@@ -10,7 +10,6 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPromptsFromManifest } from '@/resources'
-import { fetchAndExtractEntries } from '@/resources/internals'
 import { buildAppStubHtml } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
@@ -20,7 +19,7 @@ import type { RedisLike } from './cache/RedisCache'
 
 export class ResourceCatalog {
     private readonly env: Env
-    private readonly contextMillCache: ContextMillResourceCache | undefined
+    private readonly contextMillCache: ContextMillResourceCache
 
     private resources: Resource[] = []
     private prompts: Prompt[] = []
@@ -30,9 +29,10 @@ export class ResourceCatalog {
     private allResources: Resource[] = []
     private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
 
-    constructor(env: Env, redis?: RedisLike) {
+    constructor(env: Env, redis: RedisLike) {
         this.env = env
-        this.contextMillCache = redis ? new ContextMillResourceCache(redis) : undefined
+        const localUrl = this.contextMillLocalUrl()
+        this.contextMillCache = new ContextMillResourceCache(redis, localUrl ? { localUrl } : {})
     }
 
     get contextMillEntries(): readonly SlimManifestEntry[] {
@@ -65,7 +65,7 @@ export class ResourceCatalog {
         }
 
         const slimEntry = this.contextMillEntriesByUri.get(uri)
-        if (!slimEntry || !this.contextMillCache) {
+        if (!slimEntry) {
             return { contents: [] }
         }
         const body = await this.contextMillCache.readBody(uri)
@@ -101,12 +101,7 @@ export class ResourceCatalog {
     }
 
     private async refreshContextMill(): Promise<void> {
-        if (!this.contextMillCache) {
-            return
-        }
-        const localUrlRaw = (this.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
-        const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
-        const slim = await this.contextMillCache.loadOrRefresh(() => fetchAndExtractEntries(localUrl))
+        const slim = await this.contextMillCache.loadOrRefresh()
 
         const nextEntriesByUri = new Map<string, SlimManifestEntry>()
         const nextResources: Resource[] = []
@@ -122,6 +117,11 @@ export class ResourceCatalog {
         this.contextMillEntriesByUri = nextEntriesByUri
         this.resources = nextResources
         this.allResources = [...this.resources, ...this.uiAppResources]
+    }
+
+    private contextMillLocalUrl(): string | undefined {
+        const localUrlRaw = (this.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+        return localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
     }
 
     private async warmupResources(): Promise<void> {

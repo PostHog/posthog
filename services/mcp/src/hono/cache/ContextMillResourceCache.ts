@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
+import { fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
 import type { RedisLike } from './RedisCache'
@@ -28,6 +29,7 @@ export interface ResourceBody {
 
 export interface ContextMillResourceCacheOptions extends SharedBlobCacheOptions {
     bodyTtlSeconds?: number
+    localUrl?: string
 }
 
 /**
@@ -35,7 +37,7 @@ export interface ContextMillResourceCacheOptions extends SharedBlobCacheOptions 
  *
  * Splits storage into two layers:
  *
- * - A small slim manifest blob (handled by the inner `SharedBlobCache`) that
+ * - A small slim manifest blob (handled by the base `SharedBlobCache`) that
  *   carries `{ entries: [{ uri, name, mimeType, description }] }` — used by
  *   `resources/list` and warmup. Cheap to fetch on every cold pod.
  * - One body key per resource (`mcp:shared-blob:context-mill:body:<sha256(uri)>`)
@@ -52,38 +54,95 @@ export interface ContextMillResourceCacheOptions extends SharedBlobCacheOptions 
  * holding stale URIs graceful access to the previous content until the body
  * fully expires.
  */
-export class ContextMillResourceCache {
-    private readonly manifestCache: SharedBlobCache
+export class ContextMillResourceCache extends SharedBlobCache {
     private readonly bodyTtlSeconds: number
+    private readonly localUrl: string | undefined
 
-    constructor(
-        private readonly redis: RedisLike,
-        opts: ContextMillResourceCacheOptions = {}
-    ) {
-        this.manifestCache = new SharedBlobCache(redis, `${NAMESPACE}:manifest`, opts)
+    constructor(redis: RedisLike, opts: ContextMillResourceCacheOptions = {}) {
+        super(redis, `${NAMESPACE}:manifest`, opts)
+        this.localUrl = opts.localUrl
         this.bodyTtlSeconds = opts.bodyTtlSeconds ?? DEFAULT_BODY_TTL_SECONDS
     }
 
     /**
-     * Returns the slim manifest. Cold/stale paths run `upstream` inside the
+     * Returns the slim manifest. Cold/stale paths load entries inside the
      * SharedBlobCache writer lock, publish every body key, and only then write
      * back the slim manifest.
      */
-    async loadOrRefresh(upstream: () => Promise<ContextMillResource[]>): Promise<SlimManifest> {
-        const bytes = await this.manifestCache.fetch(async () => {
-            const entries = await upstream()
-            await this.writeBodies(entries)
-            const slim: SlimManifest = {
-                entries: entries.map((e) => ({
-                    uri: e.uri,
-                    name: e.name,
-                    mimeType: e.resource.mimeType,
-                    description: e.resource.description,
-                })),
-            }
-            return new TextEncoder().encode(JSON.stringify(slim))
-        })
+    async loadOrRefresh(): Promise<SlimManifest> {
+        const bytes = await this.fetch()
         return JSON.parse(new TextDecoder().decode(bytes)) as SlimManifest
+    }
+
+    private async fetch(): Promise<Uint8Array> {
+        const cached = await this.readCache()
+
+        if (cached && cached.fresh) {
+            return cached.bytes
+        }
+
+        if (cached) {
+            // Stale-while-revalidate: serve what we have and try to refresh in
+            // the background. The lock guarantees only one instance refreshes
+            // even if many requests race here.
+            void this.refreshInBackground()
+            return cached.bytes
+        }
+
+        // Cold cache — race for the writer lock.
+        const token = randomUUID()
+        if (await this.acquireLock(token)) {
+            try {
+                const bytes = await this.loadBlob()
+                await this.writeCache(bytes)
+                return bytes
+            } finally {
+                await this.releaseLock(token)
+            }
+        }
+
+        // Another writer holds the lock — wait for them to publish.
+        const waited = await this.waitForCache()
+        if (waited) {
+            return waited
+        }
+
+        // Writer never published in time. Fetch ourselves without writing so
+        // we don't trample whatever the lock holder eventually produces.
+        return this.loadBlob()
+    }
+
+    private async loadBlob(): Promise<Uint8Array> {
+        const entries = await this.loadEntries()
+        await this.writeBodies(entries)
+        const slim: SlimManifest = {
+            entries: entries.map((e) => ({
+                uri: e.uri,
+                name: e.name,
+                mimeType: e.resource.mimeType,
+                description: e.resource.description,
+            })),
+        }
+        return new TextEncoder().encode(JSON.stringify(slim))
+    }
+
+    protected async loadEntries(): Promise<ContextMillResource[]> {
+        return fetchAndExtractEntries(this.localUrl)
+    }
+
+    private async refreshInBackground(): Promise<void> {
+        const token = randomUUID()
+        if (!(await this.acquireLock(token))) {
+            return
+        }
+        try {
+            const bytes = await this.loadBlob()
+            await this.writeCache(bytes)
+        } catch (err) {
+            console.error(`[ContextMillResourceCache:${this.lockKey}] background refresh failed:`, err)
+        } finally {
+            await this.releaseLock(token)
+        }
     }
 
     /**
@@ -93,7 +152,7 @@ export class ContextMillResourceCache {
      * still fresh, plain `loadOrRefresh` would short-circuit.
      */
     async invalidate(): Promise<void> {
-        await Promise.all([this.redis.del(this.manifestCache.cacheKey), this.redis.del(this.manifestCache.freshKey)])
+        await Promise.all([this.redis.del(this.cacheKey), this.redis.del(this.freshKey)])
     }
 
     /**

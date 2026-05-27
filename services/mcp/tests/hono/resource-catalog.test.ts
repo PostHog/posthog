@@ -103,18 +103,6 @@ describe('ResourceCatalog', () => {
             expect(prompts[0]!.name).toBe('greet')
         })
 
-        it('skips context-mill warmup when no redis is provided', async () => {
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
-
-            const catalog = new ResourceCatalog(mockEnv)
-            await catalog.warmup()
-
-            const { resources } = catalog.getResourcesList()
-            // Only UI apps should be present; fetchAndExtractEntries must not run.
-            expect(vi.mocked(fetchAndExtractEntries)).not.toHaveBeenCalled()
-            expect(resources.every((r) => !r.name.startsWith('name-'))).toBe(true)
-        })
-
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('a')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])

@@ -1,11 +1,31 @@
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ContextMillResourceCache } from '@/hono/cache/ContextMillResourceCache'
+import { ContextMillResourceCache, type ContextMillResourceCacheOptions } from '@/hono/cache/ContextMillResourceCache'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
+type EntryLoader = () => Promise<ContextMillResource[]>
+
+class TestContextMillResourceCache extends ContextMillResourceCache {
+    constructor(
+        redis: RedisLike,
+        private loader: EntryLoader,
+        opts?: ContextMillResourceCacheOptions
+    ) {
+        super(redis, opts)
+    }
+
+    setLoader(loader: EntryLoader): void {
+        this.loader = loader
+    }
+
+    protected override loadEntries(): Promise<ContextMillResource[]> {
+        return this.loader()
+    }
+}
 
 interface MockRedis extends RedisLike {
     _store: Map<string, string>
@@ -72,11 +92,11 @@ describe('ContextMillResourceCache', () => {
     })
 
     it('writes every body before publishing the slim manifest on cold load', async () => {
-        const cache = new ContextMillResourceCache(redis)
         const entries = [makeEntry('a'), makeEntry('b'), makeEntry('c')]
         const upstream = vi.fn(async () => entries)
+        const cache = new TestContextMillResourceCache(redis, upstream)
 
-        const slim = await cache.loadOrRefresh(upstream)
+        const slim = await cache.loadOrRefresh()
 
         expect(upstream).toHaveBeenCalledTimes(1)
         expect(slim.entries).toHaveLength(3)
@@ -95,38 +115,39 @@ describe('ContextMillResourceCache', () => {
     })
 
     it('serves manifest from cache on warm hit without calling upstream', async () => {
-        const cache = new ContextMillResourceCache(redis)
         const entries = [makeEntry('a')]
-        await cache.loadOrRefresh(async () => entries)
+        const cache = new TestContextMillResourceCache(redis, async () => entries)
+        await cache.loadOrRefresh()
 
         const upstream = vi.fn(async () => [makeEntry('z')])
-        const slim = await cache.loadOrRefresh(upstream)
+        cache.setLoader(upstream)
+        const slim = await cache.loadOrRefresh()
 
         expect(upstream).not.toHaveBeenCalled()
         expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
     })
 
     it('reads a body by uri', async () => {
-        const cache = new ContextMillResourceCache(redis)
         const entry = makeEntry('a')
-        await cache.loadOrRefresh(async () => [entry])
+        const cache = new TestContextMillResourceCache(redis, async () => [entry])
+        await cache.loadOrRefresh()
 
         const body = await cache.readBody(entry.uri)
         expect(body).toEqual({ mimeType: 'text/markdown', text: '# body a' })
     })
 
     it('returns null when the body is missing entirely', async () => {
-        const cache = new ContextMillResourceCache(redis)
-        await cache.loadOrRefresh(async () => [makeEntry('a')])
+        const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')])
+        await cache.loadOrRefresh()
 
         const body = await cache.readBody('posthog://skill/never-published')
         expect(body).toBeNull()
     })
 
     it('overwrites bodies in place so the latest publish is served immediately', async () => {
-        const cache = new ContextMillResourceCache(redis)
+        const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a', 'old content')])
 
-        await cache.loadOrRefresh(async () => [makeEntry('a', 'old content')])
+        await cache.loadOrRefresh()
         const beforeRefresh = await cache.readBody('posthog://skill/a')
         expect(beforeRefresh!.text).toBe('old content')
 
@@ -134,17 +155,18 @@ describe('ContextMillResourceCache', () => {
         // bodies, the new value lands at the same Redis key — readers see
         // the update on the next GET, no gen check or in-memory refresh
         // required. Invalidate first so the publish actually runs upstream
-        // (otherwise SharedBlobCache short-circuits on a fresh manifest).
+        // (otherwise ContextMillResourceCache short-circuits on a fresh manifest).
         await cache.invalidate()
-        await cache.loadOrRefresh(async () => [makeEntry('a', 'new content')])
+        cache.setLoader(async () => [makeEntry('a', 'new content')])
+        await cache.loadOrRefresh()
         const afterRefresh = await cache.readBody('posthog://skill/a')
         expect(afterRefresh!.text).toBe('new content')
     })
 
     it('leaves removed-upstream bodies in place to age out via TTL', async () => {
-        const cache = new ContextMillResourceCache(redis)
+        const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('keeper'), makeEntry('removed')])
 
-        await cache.loadOrRefresh(async () => [makeEntry('keeper'), makeEntry('removed')])
+        await cache.loadOrRefresh()
 
         const removedBodyKey = bodyKey('posthog://skill/removed')
         expect(redis._store.has(removedBodyKey)).toBe(true)
@@ -153,7 +175,8 @@ describe('ContextMillResourceCache', () => {
         // body — clients holding the old URI can still resolve it until the
         // TTL expires naturally.
         await cache.invalidate()
-        await cache.loadOrRefresh(async () => [makeEntry('keeper')])
+        cache.setLoader(async () => [makeEntry('keeper')])
+        await cache.loadOrRefresh()
 
         expect(redis._store.has(removedBodyKey)).toBe(true)
         const orphanedBody = await cache.readBody('posthog://skill/removed')
@@ -161,7 +184,6 @@ describe('ContextMillResourceCache', () => {
     })
 
     it('only one writer fetches upstream when many callers race on cold cache', async () => {
-        const cache = new ContextMillResourceCache(redis, { waitIntervalMs: 5, waitTimeoutMs: 200 })
         const entries = [makeEntry('a')]
         let inFlight = 0
         let peak = 0
@@ -172,22 +194,46 @@ describe('ContextMillResourceCache', () => {
             inFlight -= 1
             return entries
         })
+        const cache = new TestContextMillResourceCache(redis, upstream, { waitIntervalMs: 5, waitTimeoutMs: 200 })
 
         const concurrency = 5
-        const results = await Promise.all(Array.from({ length: concurrency }, () => cache.loadOrRefresh(upstream)))
+        const results = await Promise.all(Array.from({ length: concurrency }, () => cache.loadOrRefresh()))
 
         expect(peak).toBe(1)
+        expect(upstream).toHaveBeenCalledTimes(1)
         // Every caller observes the published slim manifest.
         expect(results.every((r) => r.entries[0]!.uri === entries[0]!.uri)).toBe(true)
     })
 
-    it('serves stale manifest and triggers a background republish', async () => {
-        const cache = new ContextMillResourceCache(redis, {
-            freshSeconds: 0,
+    it('non-writers wait for the lock holder to publish and serve that result', async () => {
+        const entries = [makeEntry('waited')]
+        let resolveUpstream: ((entries: ContextMillResource[]) => void) | undefined
+        const upstreamPromise = new Promise<ContextMillResource[]>((resolve) => {
+            resolveUpstream = resolve
+        })
+        const upstream = vi.fn(() => upstreamPromise)
+        const cache = new TestContextMillResourceCache(redis, upstream, {
             waitIntervalMs: 5,
-            waitTimeoutMs: 100,
+            waitTimeoutMs: 1000,
         })
 
+        // First call wins the lock and stalls in upstream.
+        const writerResult = cache.loadOrRefresh()
+        // Give the writer time to seize the lock before the waiter starts.
+        await new Promise((r) => setTimeout(r, 10))
+        const waiterResult = cache.loadOrRefresh()
+
+        // Publish the upstream after both calls are in flight.
+        await new Promise((r) => setTimeout(r, 30))
+        resolveUpstream!(entries)
+
+        const [writerSlim, waiterSlim] = await Promise.all([writerResult, waiterResult])
+        expect(writerSlim.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(waiterSlim.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(upstream).toHaveBeenCalledTimes(1)
+    })
+
+    it('serves stale manifest and triggers a background republish', async () => {
         const initial = [makeEntry('a')]
         const refreshed = [makeEntry('a'), makeEntry('b')]
         let call = 0
@@ -195,24 +241,42 @@ describe('ContextMillResourceCache', () => {
             call += 1
             return call === 1 ? initial : refreshed
         })
+        const cache = new TestContextMillResourceCache(redis, upstream, {
+            freshSeconds: 0,
+            waitIntervalMs: 5,
+            waitTimeoutMs: 100,
+        })
 
-        const first = await cache.loadOrRefresh(upstream)
+        const first = await cache.loadOrRefresh()
         expect(first.entries).toHaveLength(1)
 
         // Stale read returns the cached manifest and kicks off a background refresh.
-        const second = await cache.loadOrRefresh(upstream)
+        const second = await cache.loadOrRefresh()
         expect(second.entries).toHaveLength(1)
 
         // Allow the background refresh to settle.
         await new Promise((r) => setTimeout(r, 30))
 
-        const third = await cache.loadOrRefresh(upstream)
+        const third = await cache.loadOrRefresh()
         expect(third.entries).toHaveLength(2)
     })
 
+    it('falls back to a direct load when the writer never publishes', async () => {
+        redis._store.set(MANIFEST_LOCK_KEY, 'someone-else')
+        const entries = [makeEntry('fallback')]
+        const upstream = vi.fn(async () => entries)
+        const cache = new TestContextMillResourceCache(redis, upstream, { waitIntervalMs: 10, waitTimeoutMs: 50 })
+
+        const slim = await cache.loadOrRefresh()
+
+        expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(upstream).toHaveBeenCalledTimes(1)
+        expect(redis._store.has(MANIFEST_BYTES_KEY)).toBe(false)
+    })
+
     it('does not leave the manifest lock held after a successful publish', async () => {
-        const cache = new ContextMillResourceCache(redis)
-        await cache.loadOrRefresh(async () => [makeEntry('a')])
+        const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')])
+        await cache.loadOrRefresh()
         expect(redis._store.has(MANIFEST_LOCK_KEY)).toBe(false)
         expect(redis._store.has(MANIFEST_FRESH_KEY)).toBe(true)
     })
