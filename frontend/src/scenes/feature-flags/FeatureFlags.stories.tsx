@@ -163,14 +163,15 @@ export const NewMultivariateFlagVariantKeyError: Story = {
 export const NewRemoteConfigFlagPayloadError: Story = {
     parameters: {
         pageUrl: urls.featureFlag('new'),
-        testOptions: { waitForLoadersToDisappear: false },
     },
     play: async ({ canvasElement }) => {
         const logic = await waitForMountedFeatureFlagLogic()
 
         logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
         logic.actions.setFeatureFlagValue('is_remote_configuration', true)
-        // Yield to let React flush the state updates before triggering validation.
+        // Yield to let React flush the state updates and Monaco editor initialize
+        // before triggering validation. The payload section renders a CodeEditor
+        // which shows a Spinner while loading — we need it to stabilize first.
         await new Promise((resolve) => setTimeout(resolve, 50))
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
