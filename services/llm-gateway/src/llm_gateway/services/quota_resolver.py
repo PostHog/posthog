@@ -3,20 +3,26 @@
 Mirrors :mod:`llm_gateway.services.plan_resolver` — forwards the caller's
 ``Authorization`` header to ``GET /api/projects/{team_id}/quota_limits/`` and
 caches the result per team-and-resource in the gateway's own Redis.
+
+Transient upstream failures (network errors, 5xx) are retried within the
+request with exponential backoff. 4xx responses or exhausted retries fall
+open and briefly cache ``limited=False`` so a struggling Django isn't hit on
+every subsequent request.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import httpx
 import structlog
 
 from llm_gateway.config import get_settings
 
 if TYPE_CHECKING:
-    import httpx
     from fastapi import Request
     from redis.asyncio import Redis
 
@@ -24,15 +30,32 @@ logger = structlog.get_logger(__name__)
 
 _AI_CREDITS_RESOURCE = "ai_credits"
 
-# Cache window for the fail-open path (4xx from Django, e.g. expired token).
-# Short enough that a fixed-up token recovers quickly; long enough to keep a
-# misconfigured client off Django's neck during an auth-failure storm.
-_FAIL_OPEN_CACHE_TTL_SECONDS = 5
+# Cache window for the fail-open path (4xx from Django, or transient failure
+# after retries are exhausted). Long enough to keep a misconfigured client off
+# Django's neck during an auth-failure storm; short enough that a recovered
+# upstream is consulted again within a minute.
+_FAIL_OPEN_CACHE_TTL_SECONDS = 60
+
+# Exponential backoff between within-request retries on transient failures.
+# The first attempt fires immediately; each subsequent retry waits
+# ``MULTIPLIER * 2**n`` seconds, doubling the gap each step. Tune the
+# multiplier to widen or tighten the overall spacing without touching the
+# formula.
+_MAX_RETRIES = 3
+_RETRY_BACKOFF_MULTIPLIER_SECONDS = 5
+_RETRY_DELAYS_SECONDS: tuple[float, ...] = (
+    0,
+    *(_RETRY_BACKOFF_MULTIPLIER_SECONDS * 2**i for i in range(_MAX_RETRIES)),
+)
 
 
 @dataclass
 class QuotaResourceStatus:
     limited: bool
+
+
+class _TransientUpstreamError(Exception):
+    """Retryable failure: a 5xx response or a network-level error."""
 
 
 def _redis_key(resource_key: str, team_id: int) -> str:
@@ -72,31 +95,53 @@ class QuotaResolver:
             return cached
 
         try:
-            status, ttl = await self._fetch(resource_key, team_id, auth_header)
+            status, ttl = await self._fetch_with_retry(resource_key, team_id, auth_header)
         except Exception:
             logger.warning("quota_fetch_failed", resource=resource_key, team_id=team_id, exc_info=True)
-            return QuotaResourceStatus(limited=False)
+            status, ttl = QuotaResourceStatus(limited=False), _FAIL_OPEN_CACHE_TTL_SECONDS
 
         await self._set_cached(resource_key, team_id, status, ttl)
         return status
 
-    async def _fetch(self, resource_key: str, team_id: int, auth_header: str) -> tuple[QuotaResourceStatus, int]:
-        """Return the resource status and the TTL the caller should cache it for.
+    async def _fetch_with_retry(
+        self, resource_key: str, team_id: int, auth_header: str
+    ) -> tuple[QuotaResourceStatus, int]:
+        """Try the upstream up to ``len(_RETRY_DELAYS_SECONDS)`` times.
 
-        4xx responses are treated as "not limited" and cached briefly so a hot
-        loop with a broken token can't hammer Django.
+        Network errors and 5xx responses are retried with growing waits between
+        attempts. 4xx and successful responses return immediately from
+        :meth:`_fetch`. If every attempt raises a transient error the last
+        exception is re-raised for the caller to fail open.
         """
+        last_exc: Exception | None = None
+        for delay in _RETRY_DELAYS_SECONDS:
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                return await self._fetch(resource_key, team_id, auth_header)
+            except _TransientUpstreamError as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise last_exc
+
+    async def _fetch(self, resource_key: str, team_id: int, auth_header: str) -> tuple[QuotaResourceStatus, int]:
+        """One attempt against Django. Raises :class:`_TransientUpstreamError` on retryable failures."""
         settings = get_settings()
         if not settings.posthog_api_base_url:
             return QuotaResourceStatus(limited=False), _FAIL_OPEN_CACHE_TTL_SECONDS
 
         url = f"{settings.posthog_api_base_url.rstrip('/')}/api/projects/{team_id}/quota_limits/"
-        resp = await self._http.get(
-            url,
-            headers={"Authorization": auth_header},
-            timeout=2.0,
-        )
+        try:
+            resp = await self._http.get(url, headers={"Authorization": auth_header}, timeout=2.0)
+        except httpx.RequestError as exc:
+            raise _TransientUpstreamError(str(exc)) from exc
+
+        if resp.status_code >= 500:
+            raise _TransientUpstreamError(f"quota_limits returned {resp.status_code}")
         if resp.status_code >= 400:
+            # 4xx is permanent for the lifetime of this request — bad token,
+            # missing team, scope mismatch. Fail open briefly so a hot loop
+            # with a broken token doesn't hammer Django.
             return QuotaResourceStatus(limited=False), _FAIL_OPEN_CACHE_TTL_SECONDS
 
         data = resp.json()
