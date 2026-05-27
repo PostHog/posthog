@@ -39,6 +39,109 @@ export interface SessionDataLogicProps {
     tabId?: string
 }
 
+// Heavy AI props are extracted into dedicated `ai_events` columns; the
+// renderer expects them merged back into `properties` (same shape that
+// `merge_heavy_properties` produces on the backend for TraceQuery).
+const HEAVY_COLUMN_KEYS: readonly string[] = [
+    '$ai_input',
+    '$ai_output',
+    '$ai_output_choices',
+    '$ai_input_state',
+    '$ai_output_state',
+    '$ai_tools',
+]
+
+function parseEventRow(row: unknown[]): { traceId: string; event: LLMTraceEvent } {
+    // ai_events rows carry 6 trailing heavy columns; the events fallback rows
+    // have none. `heavy` is `[]` in the latter case, so the merge loop below
+    // is a no-op without needing an explicit branch.
+    const [traceId, id, event, createdAt, properties, ...heavy] = row as [
+        string,
+        string,
+        string,
+        string,
+        string,
+        ...(string | null)[],
+    ]
+    // ClickHouse hands `properties` back as a JSON-encoded String column.
+    // If parsing fails (corruption, encoding bug, schema drift) render the
+    // event with empty properties rather than failing the whole bulk load.
+    let parsedProperties: Record<string, any> = {}
+    try {
+        const parsed = JSON.parse(properties)
+        if (parsed && typeof parsed === 'object') {
+            parsedProperties = parsed
+        }
+    } catch (parseError) {
+        console.warn('Failed to parse event properties JSON', { id, parseError })
+    }
+    for (let i = 0; i < HEAVY_COLUMN_KEYS.length; i++) {
+        const raw = heavy[i]
+        if (raw == null || raw === '') {
+            continue
+        }
+        const key = HEAVY_COLUMN_KEYS[i]
+        try {
+            parsedProperties[key] = JSON.parse(raw)
+        } catch (parseError) {
+            // Heavy columns are raw JSON snippets — leave the string in
+            // place rather than dropping the field if parsing fails.
+            parsedProperties[key] = raw
+            console.warn('Failed to parse heavy AI column JSON', { id, key, parseError })
+        }
+    }
+    return {
+        traceId,
+        event: {
+            id,
+            event,
+            createdAt,
+            properties: parsedProperties,
+        },
+    }
+}
+
+// Absorbs ingestion lag between an event firing and ClickHouse visibility (Mirrors `CAPTURE_RANGE_MINUTES = 10`)
+const INGESTION_LAG_BUFFER_MS = 10 * 60 * 1000
+
+// `trace.createdAt` is the trace's earliest event timestamp. Later events within the
+// same trace (final $ai_generation, summary $ai_metric, completion $ai_trace) can land
+// after that
+const LATE_EVENTS_WINDOW_MS = 24 * 60 * 60 * 1000
+
+function buildEventsFallbackQuery(sessionId: string, traces: LLMTrace[]): HogQLQuery | null {
+    const traceTimestamps = traces
+        .map((trace) => new Date(trace.createdAt).getTime())
+        .filter((ts) => Number.isFinite(ts))
+    if (traceTimestamps.length === 0) {
+        return null
+    }
+    // Capping by timestamp for performance
+    const minTs = new Date(Math.min(...traceTimestamps) - INGESTION_LAG_BUFFER_MS).toISOString()
+    const maxTs = new Date(Math.max(...traceTimestamps) + LATE_EVENTS_WINDOW_MS).toISOString()
+    const traceIds = traces.map((trace) => trace.id).filter((id) => typeof id === 'string' && id !== '')
+    return {
+        kind: NodeKind.HogQLQuery,
+        query: `
+            SELECT
+                toString(properties.$ai_trace_id) AS trace_id,
+                toString(uuid) AS id,
+                event,
+                toString(timestamp) AS created_at,
+                properties
+            FROM events
+            WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_embedding')
+              AND properties.$ai_session_id = {sessionId}
+              AND properties.$ai_trace_id IN {traceIds}
+              AND timestamp >= toDateTime({minTs})
+              AND timestamp <= toDateTime({maxTs})
+            ORDER BY trace_id, timestamp
+            LIMIT 20000
+        `,
+        values: { sessionId, traceIds, minTs, maxTs },
+    }
+}
+
 function getDataNodeLogicProps({ sessionId, query, cachedResults, tabId }: SessionDataLogicProps): DataNodeLogicProps {
     const tabScope = tabId ?? 'default'
     const scopedSessionId = `${sessionId}:${tabScope}`
@@ -232,54 +335,64 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 actions.loadAllSessionEventsSuccess([])
                 return
             }
+            // Primary path: ai_events. Sort key (team_id, trace_id, timestamp) + bloom_filter
+            // on session_id; the bulk-stripped heavy AI props live in dedicated columns here
+            // (events.properties no longer carries them on rolled-out teams).
             // Explicit LIMIT to not truncate using a default limit.
             // Excluding session-scoped events that have no ai_trace_id —
             // mostly ai_metric and ai_embedding events.
-            const eventsQuery: HogQLQuery = {
+            const aiEventsQuery: HogQLQuery = {
                 kind: NodeKind.HogQLQuery,
                 query: `
                     SELECT
-                        toString(properties.$ai_trace_id) AS trace_id,
+                        toString(trace_id) AS trace_id,
                         toString(uuid) AS id,
                         event,
                         toString(timestamp) AS created_at,
-                        properties
-                    FROM events
+                        properties,
+                        input,
+                        output,
+                        output_choices,
+                        input_state,
+                        output_state,
+                        tools
+                    FROM posthog.ai_events
                     WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_embedding')
-                      AND properties.$ai_session_id = {sessionId}
-                      AND properties.$ai_trace_id != ''
+                      AND session_id = {sessionId}
+                      AND trace_id != ''
                     ORDER BY trace_id, timestamp
                     LIMIT 20000
                 `,
                 values: { sessionId },
             }
             try {
-                const response = await api.query(eventsQuery)
+                const aiEventsResponse = await api.query(aiEventsQuery)
                 const grouped: Record<string, LLMTraceEvent[]> = {}
-                for (const row of response.results ?? []) {
-                    const [traceId, id, event, createdAt, properties] = row as [string, string, string, string, string]
-                    // ClickHouse hands `properties` back as a JSON-encoded
-                    // String column. If parsing fails (corruption, encoding
-                    // bug, schema drift) render the event with empty
-                    // properties rather than failing the whole bulk load.
-                    let parsedProperties: Record<string, any> = {}
-                    try {
-                        const parsed = JSON.parse(properties)
-                        if (parsed && typeof parsed === 'object') {
-                            parsedProperties = parsed
-                        }
-                    } catch (parseError) {
-                        console.warn('Failed to parse event properties JSON', { id, parseError })
-                    }
+                for (const row of aiEventsResponse.results ?? []) {
+                    const { traceId, event } = parseEventRow(row as unknown[])
                     if (!grouped[traceId]) {
                         grouped[traceId] = []
                     }
-                    grouped[traceId].push({
-                        id,
-                        event,
-                        createdAt,
-                        properties: parsedProperties,
-                    })
+                    grouped[traceId].push(event)
+                }
+
+                // ai_events has a 30-day TTL so we might not have full coverage.
+                // Two cases:
+                // 1. Entirely older session
+                // 2. Long-lived session with some recent and some old traces
+                const missingTraces = values.traces.filter((trace) => !(trace.id in grouped))
+                if (missingTraces.length > 0) {
+                    const fallbackQuery = buildEventsFallbackQuery(sessionId, missingTraces)
+                    if (fallbackQuery) {
+                        const fallbackResponse = await api.query(fallbackQuery)
+                        for (const row of fallbackResponse.results ?? []) {
+                            const { traceId, event } = parseEventRow(row as unknown[])
+                            if (!grouped[traceId]) {
+                                grouped[traceId] = []
+                            }
+                            grouped[traceId].push(event)
+                        }
+                    }
                 }
                 // Fallback to `[]` covers the rare case where a trace's
                 // events were truncated by the LIMIT.
