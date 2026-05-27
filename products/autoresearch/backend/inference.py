@@ -240,6 +240,11 @@ def _fetch_feature_rows(
 
         columns = result.columns
         rows = [dict(zip(columns, row)) for row in result.results]
+        # Feature SQL keys rows on person_id (a UUID); coerce to str so the value is
+        # JSON-serializable for event emission and matches the str-keyed label set.
+        for r in rows:
+            if r.get("distinct_id") is not None:
+                r["distinct_id"] = str(r["distinct_id"])
 
     except Exception:
         logger.exception(
@@ -305,7 +310,7 @@ def _fetch_population_distinct_ids(
     values["_lookback"] = lookback_days
     where_clause = " AND ".join(parts)
     sql = (
-        f"SELECT DISTINCT distinct_id FROM events"
+        f"SELECT DISTINCT person_id FROM events"
         f" WHERE timestamp >= now() - toIntervalDay({{_lookback}})"
         f" AND {where_clause}"
     )
@@ -409,8 +414,10 @@ def _fetch_label_distinct_ids(
     Return distinct_ids that performed pipeline.target_event in the last
     horizon_days — used as positive labels when fitting the model.
     """
+    # Key on person_id to match the feature SQL (one row per person_id); feature rows
+    # are str(person_id), so labels must be str(person_id) too or nothing matches.
     label_sql = (
-        f"SELECT DISTINCT distinct_id FROM events"
+        f"SELECT DISTINCT person_id FROM events"
         f" WHERE event = '{pipeline.target_event}'"
         f" AND timestamp >= now() - toIntervalDay({pipeline.horizon_days})"
     )
@@ -420,7 +427,7 @@ def _fetch_label_distinct_ids(
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not result.results:
             return frozenset()
-        return frozenset(row[0] for row in result.results if row[0])
+        return frozenset(str(row[0]) for row in result.results if row[0])
     except Exception:
         logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
         return frozenset()
