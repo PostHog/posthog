@@ -33,9 +33,7 @@ class TestResetUsage:
             assert await redis.get(k) is None
 
     @pytest.mark.parametrize("user_id", [None, "100"])
-    async def test_dry_run_counts_without_deleting(
-        self, redis: fakeredis.FakeRedis, user_id: str | None
-    ) -> None:
+    async def test_dry_run_counts_without_deleting(self, redis: fakeredis.FakeRedis, user_id: str | None) -> None:
         await redis.set("ratelimit:cost:user:user_cost_burst:posthog_code:100", "1.0")
         await redis.set("ratelimit:cost:user:user_cost_sustained:posthog_code:100:period:0", "1.0")
 
