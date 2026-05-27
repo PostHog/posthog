@@ -672,7 +672,12 @@ def _get_all_llm_analytics_reports(
     logger.info("Querying AI observability usage data")
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
-    team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
+    try:
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
+    except Exception:
+        logger.exception("[AIO Usage Error] metrics query failed", phase="teams")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
 
     if not team_ids:
         logger.info("No teams with AI observability trigger events found")
@@ -682,7 +687,12 @@ def _get_all_llm_analytics_reports(
 
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
-    all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+    try:
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+    except Exception:
+        logger.exception("[AIO Usage Error] metrics query failed", phase="metrics")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
 
     # Phase 3: Get LLM prompt fetched counts (best effort)
@@ -697,12 +707,22 @@ def _get_all_llm_analytics_reports(
 
     # Phase 4: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
-    all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+    try:
+        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+    except Exception:
+        logger.exception("[AIO Usage Error] metrics query failed", phase="breakdowns")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
 
     # Phase 5: Get LLM feedback survey metrics
     logger.info("Querying LLM feedback survey metrics")
-    survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+    try:
+        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+    except Exception:
+        logger.exception("[AIO Usage Error] metrics query failed", phase="surveys")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
 
     # Get team to organization mapping
@@ -867,7 +887,9 @@ def capture_llm_analytics_report(
         logger.info(f"Captured AI observability usage report for organization {organization_id}")
     except Exception as err:
         logger.exception(
-            f"AI observability usage report sent to PostHog for organization {organization_id} failed: {str(err)}",
+            "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
+            organization_id=organization_id,
+            error=str(err),
         )
 
         try:
@@ -879,7 +901,11 @@ def capture_llm_analytics_report(
                 properties={"error": str(err)},
             )
         except Exception as capture_err:
-            logger.exception(f"Failed to capture error event: {capture_err}")
+            logger.exception(
+                "[AIO Usage Error] Failed to capture error event",
+                organization_id=organization_id,
+                error=str(capture_err),
+            )
 
         raise
 
@@ -962,7 +988,11 @@ def send_llm_analytics_usage_reports(
             total_orgs_sent += 1
 
         except Exception as err:
-            logger.exception(f"Failed to queue AI observability report for organization {org_id}: {err}")
+            logger.exception(
+                "[AIO Usage Error] Failed to queue AI observability report for organization",
+                organization_id=org_id,
+                error=str(err),
+            )
             capture_exception(err)
 
     logger.info(
