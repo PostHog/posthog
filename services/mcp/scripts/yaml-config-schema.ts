@@ -165,6 +165,37 @@ export const ToolConfigSchema = z
                 message: 'response.include and response.exclude are mutually exclusive',
             })
             .optional(),
+        /**
+         * Gate the tool behind an MCP elicitation prompt. The generated
+         * handler asks the user to confirm before the API call; the action
+         * only proceeds on `accept`.
+         */
+        confirmation: z
+            .object({
+                /** Static prompt with `{paramName}` placeholders. Mutually exclusive with `builder`. */
+                message: z.string().optional(),
+                /**
+                 * Exported fn name in `services/mcp/src/tools/confirmation-builders.ts`.
+                 * Use when the prompt needs context params don't carry (e.g. an
+                 * org name resolved from its ID). Mutually exclusive with `message`.
+                 */
+                builder: z.string().optional(),
+                /**
+                 * Behavior when the client doesn't support elicitation.
+                 * `deny` returns an instructional error; `allow` proceeds
+                 * without confirmation. Required — pick `deny` unless the
+                 * prompt is purely a UX nicety.
+                 */
+                on_no_elicit: z.enum(['allow', 'deny']),
+            })
+            .strict()
+            .refine((data) => !(data.message && data.builder), {
+                message: 'confirmation.message and confirmation.builder are mutually exclusive',
+            })
+            .refine((data) => Boolean(data.message ?? data.builder), {
+                message: 'confirmation requires either message or builder',
+            })
+            .optional(),
     })
     .strict()
     .refine(

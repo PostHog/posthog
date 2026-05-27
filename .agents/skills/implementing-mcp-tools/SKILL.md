@@ -145,9 +145,24 @@ tools:
       # include and exclude are mutually exclusive
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
+    confirmation: # require an elicitation prompt before the API call
+      message: 'Enable enforce 2FA on organization {orgId}?'
+      on_no_elicit: deny
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`).
+
+### Gating destructive tools with `confirmation:`
+
+For destructive or security-sensitive actions, declare `confirmation:` to
+make the generated handler prompt the user via MCP elicitation before the
+API call. The action only proceeds on Accept.
+
+- `message` — static prompt with `{paramName}` placeholders interpolated from validated args.
+- `builder` — name of an exported fn in `services/mcp/src/tools/confirmation-builders.ts` (`(params, context) => string | Promise<string>`). Use when the prompt needs context the params don't carry (e.g. resolving an org name from an ID). Mutually exclusive with `message`; one is required.
+- `on_no_elicit` — `deny` or `allow`. Required. What to do when the client didn't declare elicitation support. Pick `deny` unless the prompt is purely a UX nicety.
+
+The codegen wraps the handler with `requestConfirmation()` from `services/mcp/src/tools/confirmation-runtime.ts` — no manual glue.
 
 ### Gating tools with feature flags
 

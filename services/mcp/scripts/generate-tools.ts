@@ -706,6 +706,52 @@ function buildResponseFilter(config: ToolConfig): {
 }
 
 // ------------------------------------------------------------------
+// Confirmation gate (elicitation-backed)
+// ------------------------------------------------------------------
+
+/**
+ * Emit the elicit-confirmation gate at the top of a generated handler.
+ * Returns the code prefix plus the per-tool imports the file-level
+ * aggregator needs.
+ */
+function buildConfirmationGate(
+    config: ToolConfig,
+    toolName: string,
+    responseType: string | undefined
+): {
+    code: string
+    needsRuntime: boolean
+    builderName: string | null
+} {
+    const confirmation = config.confirmation
+    if (!confirmation) {
+        return { code: '', needsRuntime: false, builderName: null }
+    }
+    const actionLabel = config.title ?? toolName
+    const promptField = confirmation.builder
+        ? `builder: ${confirmation.builder}`
+        : `message: ${JSON.stringify(confirmation.message)}`
+    // The short-circuit returns a `{content, isError}` payload that
+    // `isToolCallPayload` passes through; assert through `unknown` so
+    // TypeScript accepts it as the handler's declared return type.
+    const returnCast = responseType ? ` as unknown as ${responseType}` : ''
+    const code =
+        `        const __confirmation = await requestConfirmation(context, params, {\n` +
+        `            ${promptField},\n` +
+        `            onNoElicit: ${JSON.stringify(confirmation.on_no_elicit)},\n` +
+        `            actionLabel: ${JSON.stringify(actionLabel)},\n` +
+        `        })\n` +
+        `        if (__confirmation.kind === 'denied-no-elicit' || __confirmation.kind === 'cancelled') {\n` +
+        `            return __confirmation.result${returnCast}\n` +
+        `        }\n`
+    return {
+        code,
+        needsRuntime: true,
+        builderName: confirmation.builder ?? null,
+    }
+}
+
+// ------------------------------------------------------------------
 // Response enrichment templates
 // ------------------------------------------------------------------
 
@@ -766,6 +812,8 @@ function generateToolCode(
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    needsConfirmationRuntime: boolean
+    confirmationBuilderName: string | null
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
@@ -809,8 +857,21 @@ function generateToolCode(
     const needsProjectId = resolved.path.includes('{project_id}')
     const needsOrgId = resolved.path.includes('{organization_id}')
 
-    // Build handler body
+    // Computed up-front so the confirmation gate can reference it for the
+    // short-circuit cast. Duplicates the assignment below — kept inline
+    // because the per-branch reasoning is clearer than a helper.
+    const earlyResultType: string = (() => {
+        if (config.list || config.enrich_url) {
+            return responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
+        }
+        return responseType ?? 'unknown'
+    })()
+
     let handlerBody = ''
+    // Gate runs before org/project resolution so we don't fetch context
+    // for an action the user is about to refuse.
+    const confirmationGate = buildConfirmationGate(config, toolName, earlyResultType)
+    handlerBody += confirmationGate.code
     if (needsOrgId) {
         handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
     }
@@ -948,6 +1009,8 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         needsWithPostHogUrl,
         hasEnrichment,
         responseFilterImport: responseFilter.helperImport,
+        needsConfirmationRuntime: confirmationGate.needsRuntime,
+        confirmationBuilderName: confirmationGate.builderName,
     }
 }
 
@@ -969,6 +1032,8 @@ function generateCustomSchemaToolCode(
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    needsConfirmationRuntime: boolean
+    confirmationBuilderName: string | null
 } {
     const pathParamNames = extractPathParams(resolved.path)
 
@@ -981,6 +1046,8 @@ function generateCustomSchemaToolCode(
     const needsOrgId = resolved.path.includes('{organization_id}')
 
     let handlerBody = ''
+    const confirmationGate = buildConfirmationGate(config, toolName, responseType ?? 'unknown')
+    handlerBody += confirmationGate.code
     if (needsOrgId) {
         handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
     }
@@ -1054,6 +1121,8 @@ ${handlerBody}    },
         needsWithPostHogUrl: false,
         hasEnrichment: false,
         responseFilterImport: responseFilter.helperImport,
+        needsConfirmationRuntime: confirmationGate.needsRuntime,
+        confirmationBuilderName: confirmationGate.builderName,
     }
 }
 
@@ -1131,6 +1200,8 @@ function generateCategoryFile(
     const toolCodes: string[] = []
     let hasResponseType = false
     let hasWithPostHogUrl = false
+    let needsConfirmationRuntime = false
+    const confirmationBuilderImports = new Set<string>()
 
     let hasEnrichment = false
 
@@ -1170,6 +1241,12 @@ function generateCategoryFile(
         }
         if (result.responseFilterImport) {
             responseFilterImports.add(result.responseFilterImport)
+        }
+        if (result.needsConfirmationRuntime) {
+            needsConfirmationRuntime = true
+        }
+        if (result.confirmationBuilderName) {
+            confirmationBuilderImports.add(result.confirmationBuilderName)
         }
     }
 
@@ -1308,13 +1385,22 @@ function generateCategoryFile(
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
+    const confirmationRuntimeImportLine = needsConfirmationRuntime
+        ? `import { requestConfirmation } from '@/tools/confirmation-runtime'\n`
+        : ''
+
+    const confirmationBuildersImportLine =
+        confirmationBuilderImports.size > 0
+            ? `import { ${[...confirmationBuilderImports].sort().join(', ')} } from '@/tools/confirmation-builders'\n`
+            : ''
+
     const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
 
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmationRuntimeImportLine}${confirmationBuildersImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

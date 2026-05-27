@@ -1309,3 +1309,248 @@ describe('path parameter encoding', () => {
         expect(result.code).not.toMatch(/\$\{id\}[^)]/)
     })
 })
+
+describe('ToolConfigSchema confirmation', () => {
+    const base = { operation: 'things_partial_update', enabled: true } as const
+
+    it('accepts a message-based confirmation', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                message: 'Confirm action on {id}?',
+                on_no_elicit: 'deny',
+            },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts a builder-based confirmation', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                builder: 'buildEnforce2FAMessage',
+                on_no_elicit: 'allow',
+            },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects a confirmation declaring both message and builder', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                message: 'Confirm?',
+                builder: 'buildSomething',
+                on_no_elicit: 'deny',
+            },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects a confirmation with neither message nor builder', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                on_no_elicit: 'deny',
+            },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('requires on_no_elicit explicitly — no implicit default', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                message: 'Confirm?',
+            },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects an unknown on_no_elicit value', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                message: 'Confirm?',
+                on_no_elicit: 'maybe',
+            },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects unknown keys inside the confirmation object', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmation: {
+                message: 'Confirm?',
+                on_no_elicit: 'deny',
+                bogus: true,
+            },
+        })
+        expect(result.success).toBe(false)
+    })
+})
+
+describe('generateToolCode confirmation gate', () => {
+    function makePatchResolved(): ResolvedOperation {
+        return {
+            method: 'PATCH',
+            path: '/api/organizations/{id}/',
+            operation: { operationId: 'organizations_partial_update', parameters: [] },
+        }
+    }
+
+    it('emits no gate code when confirmation is absent', () => {
+        const config: EnabledToolConfig = {
+            ...({ operation: 'organizations_partial_update', enabled: true } as ToolConfig),
+            scopes: ['organization:write'],
+            annotations: { readOnly: false, destructive: false, idempotent: false },
+        }
+        const result = generateToolCode(
+            'org-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).not.toContain('requestConfirmation')
+        expect(result.needsConfirmationRuntime).toBe(false)
+        expect(result.confirmationBuilderName).toBeNull()
+    })
+
+    it('emits the gate with a message template + correct on_no_elicit', () => {
+        const config: EnabledToolConfig = {
+            ...({
+                operation: 'organizations_partial_update',
+                enabled: true,
+                confirmation: {
+                    message: 'Enable enforce 2FA on organization {id}?',
+                    on_no_elicit: 'deny',
+                },
+            } as ToolConfig),
+            scopes: ['organization:write'],
+            annotations: { readOnly: false, destructive: true, idempotent: false },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await requestConfirmation(context, params, {')
+        expect(result.code).toContain('message: "Enable enforce 2FA on organization {id}?"')
+        expect(result.code).toContain('onNoElicit: "deny"')
+        expect(result.code).toContain("__confirmation.kind === 'denied-no-elicit'")
+        expect(result.needsConfirmationRuntime).toBe(true)
+        expect(result.confirmationBuilderName).toBeNull()
+    })
+
+    it('emits the gate with a builder reference and tracks the import', () => {
+        const config: EnabledToolConfig = {
+            ...({
+                operation: 'organizations_partial_update',
+                enabled: true,
+                confirmation: {
+                    builder: 'buildEnforce2FAMessage',
+                    on_no_elicit: 'deny',
+                },
+            } as ToolConfig),
+            scopes: ['organization:write'],
+            annotations: { readOnly: false, destructive: true, idempotent: false },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('builder: buildEnforce2FAMessage')
+        expect(result.code).not.toContain('message:')
+        expect(result.confirmationBuilderName).toBe('buildEnforce2FAMessage')
+    })
+
+    it('uses the tool title as the actionLabel when present', () => {
+        const config: EnabledToolConfig = {
+            ...({
+                operation: 'organizations_partial_update',
+                enabled: true,
+                title: 'Enforce 2FA',
+                confirmation: {
+                    message: 'Proceed?',
+                    on_no_elicit: 'deny',
+                },
+            } as ToolConfig),
+            scopes: ['organization:write'],
+            annotations: { readOnly: false, destructive: true, idempotent: false },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('actionLabel: "Enforce 2FA"')
+    })
+
+    it('falls back to the tool name for actionLabel when no title is set', () => {
+        const config: EnabledToolConfig = {
+            ...({
+                operation: 'organizations_partial_update',
+                enabled: true,
+                confirmation: {
+                    message: 'Proceed?',
+                    on_no_elicit: 'allow',
+                },
+            } as ToolConfig),
+            scopes: ['organization:write'],
+            annotations: { readOnly: false, destructive: true, idempotent: false },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('actionLabel: "organization-enforce-2fa-update"')
+    })
+
+    it('runs the gate BEFORE org/project ID resolution', () => {
+        const config: EnabledToolConfig = {
+            ...({
+                operation: 'organizations_partial_update',
+                enabled: true,
+                confirmation: { message: 'Proceed?', on_no_elicit: 'deny' },
+            } as ToolConfig),
+            scopes: ['organization:write'],
+            annotations: { readOnly: false, destructive: true, idempotent: false },
+        }
+        const result = generateToolCode(
+            'thing-update',
+            config,
+            makeResolved({ method: 'PATCH', path: '/api/organizations/{organization_id}/things/{id}/' }),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const gateIdx = result.code.indexOf('requestConfirmation')
+        const orgIdIdx = result.code.indexOf('await context.stateManager.getOrgID()')
+        expect(gateIdx).toBeGreaterThan(-1)
+        expect(orgIdIdx).toBeGreaterThan(-1)
+        expect(gateIdx).toBeLessThan(orgIdIdx)
+    })
+})
