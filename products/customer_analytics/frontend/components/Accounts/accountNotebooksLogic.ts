@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, isBreakpoint, kea, key, path, props } from 'kea'
+import { afterMount, connect, isBreakpoint, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -21,9 +21,6 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),
-    actions({
-        refresh: true,
-    }),
     loaders(({ props, values }) => ({
         notebooks: [
             null as AccountNotebookApi[] | null,

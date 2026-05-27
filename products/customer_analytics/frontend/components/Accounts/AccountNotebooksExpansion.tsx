@@ -81,9 +81,13 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
                 embedded
                 dataSource={notebooks ?? []}
                 rowKey="short_id"
-                loading={notebooks === null || notebooksLoading}
+                loading={notebooksLoading}
                 columns={columns}
-                emptyState="No notebooks linked to this account yet."
+                emptyState={
+                    notebooks === null
+                        ? 'Failed to load account notebooks.'
+                        : 'No notebooks linked to this account yet.'
+                }
             />
         </div>
     )
