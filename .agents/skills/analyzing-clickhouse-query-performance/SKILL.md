@@ -94,7 +94,11 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
 6. **Characterize user-facing slowness.** For `lc_kind='request' AND lc_product='product_analytics'`
    with empty `lc_access_method` (logged-in web), break down by `lc_query__kind` and flag
    `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable bucket.
-7. **Examples + write-up.** Capture `query_id` + `event_date` for the worst offenders in each finding,
+7. **Root-cause the worst offenders.** For the top findings, do not stop at "team X is slow": pull the
+   full query and form a hypothesis for _why_, then test it with EXPLAIN. See
+   `references/investigation-playbook.md`. A useful finding includes a why ("scans full history because
+   the time filter is function-wrapped and can't prune granules"), even if stated as a hypothesis.
+8. **Examples + write-up.** Capture `query_id` + `event_date` for the worst offenders in each finding,
    then write the report (structure below). Because `system.query_log` retention is short, examples are
    resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the old Metabase
    lookup card. Link each example to a shareable self-contained Metabase URL (the `query_link` recipe in
@@ -122,7 +126,8 @@ A report should contain, in order:
 3. Daily distribution table (flag any incident window).
 4. Findings, worst first. **Every finding needs at least one concrete `query_id` + `event_date`,
    linked via the shareable `query_link` URL** (see `references/query-patterns.md`) so a reader clicks
-   straight through to the exact query. Group findings by what they are: a per-tenant incident, the
+   straight through to the exact query, plus a **hypothesis for why it is slow** (from
+   `references/investigation-playbook.md`). Group findings by what they are: a per-tenant incident, the
    heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
 5. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
    make pipeline Y incremental, ...).

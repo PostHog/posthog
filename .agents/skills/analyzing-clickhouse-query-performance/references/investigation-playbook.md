@@ -1,7 +1,27 @@
 # Root-causing an individual slow query
 
 Once a finding points at a specific query or pattern, this is how to explain _why_ it is slow. Run
-everything via the `query-clickhouse-via-metabase` skill against `posthog.query_log_archive`.
+everything via the `query-clickhouse-via-metabase` skill against `posthog.query_log_archive`. You do not
+need certainty: a concrete, falsifiable hypothesis ("the sort key is function-wrapped, so the date
+filter can't prune granules") is what drives the next step. Always state one, then test it.
+
+## Pull the full query, never a substring
+
+When drilling into a specific query, select the **complete** `query` text plus the `exception` message,
+not a `substring`. The smoking gun is almost always at the tail: the `ORDER BY`, the `WHERE` time
+bound, the `LIMIT`, and the `SETTINGS` clause (`max_threads`, `max_execution_time`, `max_memory_usage`).
+A scan-list preview that truncates at 160 chars will hide all of it.
+
+```sql
+SELECT query, exception, query_duration_ms,
+       formatReadableSize(memory_usage) AS mem, formatReadableSize(read_bytes) AS read, read_rows
+FROM posthog.query_log_archive
+WHERE query_id = '<id>' AND event_date = '<YYYY-MM-DD>' AND is_initial_query
+```
+
+The `exception` message for an OOM (code 241) states the configured ceiling and the column that blew
+it, e.g. `Query memory limit exceeded: would use 42.01 GiB, maximum: 42.00 GiB (while reading column
+elements_chain)`. That column name is a direct pointer to what to look at.
 
 ## Start from bytes read, not duration
 
@@ -32,6 +52,14 @@ Query B: 210M rows, 2.65 TiB  -- JSONExtractRaw(events.properties, '$some_prop')
 5. **Ratio / multi-series metrics with double scans.** Numerator and denominator each run their own
    scan and person-overrides join; doubles the work when both use high-volume events.
 6. **All-time or multi-month date ranges.** Scans proportionally more data; check the range.
+7. **Function-wrapped sort/filter keys defeating index pruning.** When the `WHERE` time bound or
+   `ORDER BY` wraps the sort column in a function (e.g. `coalesce(toTimeZone(timestamp, …))` instead of
+   raw `timestamp`), ClickHouse can't match it to the primary key, so the filter drops to a Prewhere
+   row filter (no granule pruning) and the read scans far more than the requested window, often the
+   team's full history. On a wide table (events), reading `properties` / `elements_chain` for that
+   inflated row set under a high `max_threads` is a classic OOM, and where it does not OOM it hits the
+   `max_execution_time` cap as a timeout. Watch for no-op wrappers like a single-argument `coalesce()`
+   on a non-nullable column. Confirm with EXPLAIN by diffing granule counts (below).
 
 ## Tracing a query back to its origin
 
@@ -53,20 +81,36 @@ The full `log_comment` (raw, on `system.query_log`) additionally carries `http_r
 To reverse-engineer SQL, grep the PostHog codebase for the `lc_query__kind` value (e.g. `TrendsQuery`)
 to find the query runner that generates it.
 
-## EXPLAIN the worst queries
+## EXPLAIN to test the hypothesis
 
-Pull the query text, strip the leading `/* … */` tag comment, and prepend `EXPLAIN indexes=1`:
+EXPLAIN does **not** execute the query, so it is safe to run against prod at any size. Pull the query
+text, strip the leading `/* … */` tag comment, and prepend the EXPLAIN modifier that answers your
+question:
 
-```sql
-EXPLAIN indexes=1 WITH … SELECT …
-```
+- `EXPLAIN actions=1` — the full plan: shows the `Sorting` step, `ReadType` (`InOrder` vs `Default`),
+  and whether a filter is a primary-key condition or only a `Prewhere` row filter.
+- `EXPLAIN indexes=1` — per-index granule pruning (`Granules: X/Y`, which skip indexes fired).
+- `EXPLAIN PIPELINE` — the executor pipeline (thread fan-out, merge stages).
+- `EXPLAIN json=1` — machine-readable, handy for diffing two plans programmatically.
 
-Look for:
+The strongest technique is to **EXPLAIN the suspect query and a fixed variant side by side, then diff**.
+For the function-wrapped-key case, compare the generated `ORDER BY coalesce(toTimeZone(timestamp, …))`
+against raw `ORDER BY timestamp`: a large drop in `Granules` (full history shrinks to just the date
+window) and the time bound moving from Prewhere into the primary-key condition confirms the wrapper is
+the cause.
 
-- **`ReadFromMergeTree` granule counts** (`Granules: X/Y`): how many survive each index stage. Lower is better.
-- **PrimaryKey condition**: confirm event-name filters reach the primary key (`event = A OR event = B` is fine).
-- **Skip-index effectiveness** (e.g. `minmax_mat_*`): how many granules each eliminates.
-- **Bytes vs rows**: similar granule counts but wildly different bytes means a column-width problem (the blob again).
+Signals to read off the plan:
+
+- **`Granules: X`** — how many 8192-row blocks survive index pruning. A wrapped/opaque filter shows a
+  much larger granule count than the equivalent raw-column filter; that delta is the wasted scan.
+- **`ReadType: InOrder` vs `Default`** — whether `optimize_read_in_order` applies. Note the events
+  table is ordered by `toDate(timestamp)`, not sub-day, so ordering by full `timestamp` still sorts;
+  do not infer read-in-order from a date sort alone.
+- **`Prewhere filter` vs primary-key condition** — a time bound in Prewhere is evaluated row-by-row and
+  does not prune granules; in the primary-key condition it does.
+- **Skip-index effectiveness** (e.g. `minmax_mat_*`) — how many granules each eliminates.
+- **Bytes vs rows** — similar granule counts but wildly different bytes means a column-width problem
+  (the JSON blob again).
 
 ## Concurrency and timing notes
 

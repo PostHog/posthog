@@ -171,7 +171,9 @@ GROUP BY qkind ORDER BY slow DESC LIMIT 15
 ## 6. Example queries for the write-up
 
 Use `--format json` and pull `query_id` + `event_date`. Bound the duration to skip a single stuck
-outlier that would otherwise top the list.
+outlier that would otherwise top the list. The `substring(query, 1, 160)` here is only for skimming the
+list; when you drill into one query, pull the **full** `query` text (see
+`investigation-playbook.md` — the `ORDER BY` / `WHERE` / `SETTINGS` tail is where the cause usually is).
 
 ```sql
 SELECT query_id, event_date, team_id, lc_product, lc_kind, lc_query__kind,
