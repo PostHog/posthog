@@ -1753,3 +1753,10 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
         data_interval_end: zod.iso.datetime({ offset: true }),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
+
+/**
+ * Create a new managed migration/batch import.
+ */
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')

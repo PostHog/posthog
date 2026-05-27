@@ -2270,28 +2270,6 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
 })
 
-export const ExportsCreateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod.number().nullish(),
-        insight: zod.number().nullish(),
-        export_format: zod
-            .enum([
-                'image/png',
-                'application/pdf',
-                'text/csv',
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'video/webm',
-                'video/mp4',
-                'image/gif',
-                'application/json',
-            ])
-            .describe(
-                '\* `image\/png` - image\/png\n\* `application\/pdf` - application\/pdf\n\* `text\/csv` - text\/csv\n\* `application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet\n\* `video\/webm` - video\/webm\n\* `video\/mp4` - video\/mp4\n\* `image\/gif` - image\/gif\n\* `application\/json` - application\/json'
-            ),
-        export_context: zod.unknown().optional(),
-    })
-    .describe("Standard ExportedAsset serializer that doesn't return content.")
-
 export const fileSystemCreateBodyTypeMax = 100
 
 export const fileSystemCreateBodyRefMax = 100

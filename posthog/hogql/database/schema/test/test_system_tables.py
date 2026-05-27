@@ -10,16 +10,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import (
-    Annotation,
-    Cohort,
-    ExportedAsset,
-    Group,
-    GroupTypeMapping,
-    GroupUsageMetric,
-    Organization,
-    Team,
-)
+from posthog.models import Cohort, Group, GroupTypeMapping, GroupUsageMetric, Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -28,6 +19,7 @@ from posthog.models.project import Project
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.annotations.backend.models.annotation import Annotation
 from products.conversations.backend.models import Ticket
 from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -38,6 +30,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
@@ -104,14 +97,18 @@ class TestSystemTablesTeamScoping(BaseTest):
 
 
 def _create_batch_export(team: Team, label: str):
-    from posthog.batch_exports.models import BatchExport, BatchExportDestination
+    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
     destination = BatchExportDestination.objects.create(type="S3", config={})
     return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
 
 
 def _create_batch_export_backfill(team: Team, label: str):
-    from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination
+    from products.batch_exports.backend.models.batch_export import (
+        BatchExport,
+        BatchExportBackfill,
+        BatchExportDestination,
+    )
 
     destination = BatchExportDestination.objects.create(type="S3", config={})
     batch_export = BatchExport.objects.create(

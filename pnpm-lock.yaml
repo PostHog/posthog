@@ -609,6 +609,12 @@ importers:
       '@posthog/products-alerts':
         specifier: workspace:*
         version: link:../products/alerts
+      '@posthog/products-annotations':
+        specifier: workspace:*
+        version: link:../products/annotations
+      '@posthog/products-batch-exports':
+        specifier: workspace:*
+        version: link:../products/batch_exports
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
@@ -648,6 +654,9 @@ importers:
       '@posthog/products-experiments':
         specifier: workspace:*
         version: link:../products/experiments
+      '@posthog/products-exports':
+        specifier: workspace:*
+        version: link:../products/exports
       '@posthog/products-feature-flags':
         specifier: workspace:*
         version: link:../products/feature_flags
@@ -2106,6 +2115,8 @@ importers:
 
   products/analytics_platform: {}
 
+  products/annotations: {}
+
   products/batch_exports: {}
 
   products/business_knowledge:
@@ -2598,6 +2609,8 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
+
+  products/exports: {}
 
   products/feature_flags:
     dependencies:

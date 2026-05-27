@@ -28,13 +28,6 @@ from temporalio.client import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -43,6 +36,14 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     unpause_schedule,
     update_schedule,
+)
+
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
 )
 
 logger = structlog.get_logger(__name__)

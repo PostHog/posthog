@@ -53,7 +53,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
-    "products.warehouse_sources",
+    "products.warehouse_sources", "products.exports",
 ]
 layer = "modules"
 
@@ -107,7 +107,7 @@ depends_on = [
     "products.wizard",
     "products.workflows",
     "products.actions",
-    "products.alerts", "products.warehouse_sources", "products.data_tools",
+    "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
 ]
 layer = "modules"
 
@@ -170,7 +170,7 @@ depends_on = [
     "products.alerts",
     "products.llm_analytics",
     "products.mcp_analytics",
-    "products.product_analytics",
+    "products.product_analytics", "products.annotations",
 ]
 layer = "modules"
 
@@ -207,7 +207,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.data_modeling",
-    "products.revenue_analytics", "products.warehouse_sources", "products.data_tools",
+    "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
 ]
 layer = "modules"
 
@@ -220,7 +220,7 @@ depends_on = [
     # import its model directly to upsert an ErrorTrackingRelease row on
     # successful deploys. If error_tracking later isolates, replace this
     # raw dep with a facade call (`upsert_release(...)`).
-    "products.error_tracking",
+    "products.error_tracking", "products.annotations",
 ]
 layer = "modules"
 
@@ -329,7 +329,7 @@ layer = "modules"
 [[modules]]
 path = "products.logs"
 depends_on = [
-    "posthog",
+    "posthog", "products.exports",
 ]
 layer = "modules"
 
@@ -421,7 +421,7 @@ depends_on = [
     "products.alerts",
     "products.dashboards",
     "products.data_warehouse",
-    "products.event_definitions",
+    "products.event_definitions", "products.annotations",
 ]
 layer = "modules"
 
@@ -451,7 +451,7 @@ layer = "modules"
 [[modules]]
 path = "products.replay_vision"
 depends_on = [
-    "posthog",
+    "posthog", "products.exports",
 ]
 layer = "modules"
 
@@ -544,7 +544,7 @@ layer = "modules"
 path = "products.user_interviews"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.exports",
 ]
 layer = "modules"
 
@@ -730,3 +730,14 @@ expose = [
 from = [
     "products.wizard",
 ]
+
+[[modules]]
+path = "products.exports"
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.product_analytics"]
+layer = "modules"
+
+[[modules]]
+path = "products.annotations"
+depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+layer = "modules"
+

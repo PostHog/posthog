@@ -1,24 +1,14 @@
 # Need to skip autoimporting because this file is severely prone to circular imports errors
 # You should try and make them alphabetically sorted manually if possible
 # isort: skip_file
-from ..batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportFileDownload,
-    BatchExportDestination,
-    BatchExportRun,
-    BatchExportOnDemand,
-)
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
-from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from .batch_imports import BatchImport
 from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
@@ -37,7 +27,6 @@ from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
-from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
@@ -76,7 +65,6 @@ from .resource_transfer.resource_transfer import ResourceTransfer
 from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
-from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
@@ -106,7 +94,6 @@ __all__ = [
     "ApprovalPolicy",
     "ChangeRequest",
     "ActivityLog",
-    "Annotation",
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
@@ -116,7 +103,6 @@ __all__ = [
     "BatchExportFileDownload",
     "BatchExportRun",
     "BatchExportOnDemand",
-    "BatchImport",
     "CIMDVerificationToken",
     "Cohort",
     "CohortPeople",
@@ -140,7 +126,6 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "RoleExternalReference",
-    "ExportedAsset",
     "ExportedRecording",
     "FileSystem",
     "FileSystemViewLog",
@@ -203,7 +188,6 @@ __all__ = [
     "SessionRecordingPlaylistItem",
     "SharePassword",
     "SharingConfiguration",
-    "Subscription",
     "Tag",
     "TaggedItem",
     "Team",

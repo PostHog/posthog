@@ -15,13 +15,14 @@ from rest_framework import status
 
 from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, ExportedAsset
+from posthog.models import ActivityLog
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -310,7 +311,7 @@ class TestSharing(APIBaseTest):
         ]
     )
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
-    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.sharing.asset_for_token")
     def test_can_get_shared_dashboard_asset_with_no_content_but_content_location(
         self,
@@ -340,7 +341,7 @@ class TestSharing(APIBaseTest):
         )
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_thing_can_generate_open_graph_image(
         self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
@@ -366,7 +367,7 @@ class TestSharing(APIBaseTest):
         assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_thing_can_reuse_existing_generated_open_graph_image(
         self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
@@ -406,7 +407,7 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.side_effect = add_content_location_on_task_run
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_insight_can_regenerate_stale_existing_generated_open_graph_image(
         self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
@@ -1023,7 +1024,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
 
-    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_exported_asset_public_url_blocked_when_organization_disallows_public_sharing(
         self, _patched_exporter_task: Mock, patched_get_presigned_url: Mock
@@ -1067,7 +1068,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         response = self.client.get(exporter_url)
         assert response.status_code == 404
 
-    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_exported_asset_public_url_blocked_for_password_protected_share_when_disallowed(
         self, _patched_exporter_task: Mock, patched_get_presigned_url: Mock

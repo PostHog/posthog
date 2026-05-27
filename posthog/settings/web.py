@@ -82,6 +82,9 @@ PRODUCTS_APPS = [
     "products.actions.backend.apps.ActionsConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
     "products.wizard.backend.apps.WizardConfig",
+    "products.exports.backend.apps.ExportsConfig",
+    "products.annotations.backend.apps.AnnotationsConfig",
+    "products.batch_exports.backend.apps.BatchExportsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -463,7 +466,7 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
-        "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
+        "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
@@ -471,7 +474,7 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-        "BatchExportRunStatusEnum": "posthog.batch_exports.models.BatchExportRun.Status",
+        "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

@@ -13,7 +13,7 @@ import pytest_asyncio
 from rest_framework import status
 
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
-from posthog.models import BatchExportDestination, Integration
+from posthog.models import Integration
 
 from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
 from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryProjectTestStep
@@ -22,6 +22,7 @@ from products.batch_exports.backend.api.destination_tests.databricks import (
     DatabricksEstablishConnectionTestStep,
 )
 from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
+from products.batch_exports.backend.models.batch_export import BatchExportDestination
 
 pytestmark = [
     pytest.mark.django_db,
@@ -449,7 +450,9 @@ def test_can_run_databricks_test_step_for_new_destination(
 
     client.force_login(user)
 
-    with unittest.mock.patch("posthog.batch_exports.http.get_destination_test") as mock_get_destination_test:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.batch_export.get_destination_test"
+    ) as mock_get_destination_test:
         test_step = DatabricksEstablishConnectionTestStep()
         test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
         mock_databricks_destination_test = unittest.mock.Mock(spec=DatabricksDestinationTest)

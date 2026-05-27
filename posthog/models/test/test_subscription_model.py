@@ -14,14 +14,14 @@ import jwt
 from parameterized import parameterized
 
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.subscription import (
+
+from products.exports.backend.models.subscription import (
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
     SubscriptionDelivery,
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-
 from products.product_analytics.backend.models.insight import Insight
 
 

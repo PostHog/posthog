@@ -18,14 +18,19 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.api.file_download import (
+from posthog.models.scoping import team_scope
+
+from products.batch_exports.backend.api.file_download import (
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
 )
-from posthog.models import BatchExportDestination, BatchExportFileDownload, BatchExportOnDemand, BatchExportRun
-from posthog.models.scoping import team_scope
-
+from products.batch_exports.backend.models.batch_export import (
+    BatchExportDestination,
+    BatchExportFileDownload,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
 pytestmark = [
@@ -339,7 +344,9 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.start_file_download_batch_export") as mock_start:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports",
             {
@@ -503,7 +510,7 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.sync_connect") as mocked_connect:
+    with unittest.mock.patch("products.batch_exports.backend.api.file_download.sync_connect") as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",

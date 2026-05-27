@@ -14,8 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from posthog.models.annotation import Annotation
-
+from products.annotations.backend.models.annotation import Annotation
 from products.deployments.backend.models import Deployment, DeploymentEvent, DeploymentProject
 from products.deployments.backend.services import finalize_success
 from products.deployments.backend.test._helpers import DeploymentsTeamScopedTestMixin

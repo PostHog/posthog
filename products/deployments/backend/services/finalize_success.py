@@ -20,11 +20,11 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models.annotation import Annotation
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 
+from products.annotations.backend.models.annotation import Annotation
 from products.error_tracking.backend.models import ErrorTrackingRelease
 
 from ..adapters import ScreenshotAdapter, get_screenshot_adapter

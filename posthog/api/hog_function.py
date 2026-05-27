@@ -742,7 +742,7 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
-        from posthog.batch_exports.http import BatchExportSerializer
+        from products.batch_exports.backend.api.batch_export import BatchExportSerializer
 
         hog_function = self.get_object()
 
