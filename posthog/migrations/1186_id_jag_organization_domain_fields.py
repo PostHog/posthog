@@ -17,6 +17,7 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(max_length=256),
                 blank=True,
                 default=list,
+                null=True,
                 help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
                 size=None,
             ),

@@ -211,6 +211,7 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         models.CharField(max_length=256),
         default=list,
         blank=True,
+        null=True,
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
 
