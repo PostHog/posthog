@@ -75,12 +75,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
-        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        self.excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [
             variant.get("key")
             for variant in multivariate_data.get("variants", [])
-            if variant.get("key") not in excluded_variants
+            if variant.get("key") not in self.excluded_variants
         ]
 
         self.date_range = self._get_date_range()
@@ -215,8 +215,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         # excluded_variants are not in the exposure chart, so they must not enter
         # the chi-square. Drop them from rollout_percentages.
-        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
-        rollout_percentages = {k: v for k, v in rollout_percentages.items() if k not in excluded_variants}
+        rollout_percentages = {k: v for k, v in rollout_percentages.items() if k not in self.excluded_variants}
 
         # Get all variant keys with non-zero rollout percentage
         # We must iterate over these (not total_exposures) to ensure sum(observed) == sum(expected)
