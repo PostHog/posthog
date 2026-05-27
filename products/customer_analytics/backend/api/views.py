@@ -282,7 +282,11 @@ class AccountNotebookViewSet(
         validated = serializer.validated_data
         text_content = validated.get("text_content")
         existing_content = validated.get("content")
-        has_usable_content = isinstance(existing_content, dict) and existing_content.get("content")
+        has_usable_content = (
+            isinstance(existing_content, dict)
+            and existing_content.get("type") == "doc"
+            and isinstance(existing_content.get("content"), list)
+        )
         if text_content and not has_usable_content:
             save_kwargs["content"] = {
                 "type": "doc",

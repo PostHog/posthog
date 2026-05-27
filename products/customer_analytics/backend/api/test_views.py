@@ -1188,6 +1188,19 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(first_node["type"], "paragraph")
         self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
 
+    def test_create_with_empty_valid_prosemirror_doc_respects_caller(self):
+        empty_doc = {"type": "doc", "content": []}
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Empty doc", "content": empty_doc, "text_content": "ignored"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.content, empty_doc)
+
     def test_notebook_detail_includes_parent_resource_for_linked_account(self):
         notebook = Notebook.objects.create(
             team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
