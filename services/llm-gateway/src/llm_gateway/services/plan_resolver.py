@@ -55,6 +55,11 @@ def is_pro_plan(plan_key: str | None) -> bool:
     return any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES)
 
 
+def parse_iso_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 def get_billing_period_number(
     seat_created_at: str | None,
     period_days: int = 30,
@@ -64,9 +69,7 @@ def get_billing_period_number(
     if not anchor:
         return 0
     try:
-        created = datetime.fromisoformat(anchor)
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=UTC)
+        created = parse_iso_utc(anchor)
         elapsed = datetime.now(tz=UTC) - created
         return max(0, elapsed.days // period_days)
     except (ValueError, TypeError):

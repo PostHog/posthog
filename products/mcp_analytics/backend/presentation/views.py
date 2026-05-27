@@ -26,6 +26,7 @@ from .serializers import (
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPSessionIntentSerializer,
     MCPSessionSerializer,
     MCPToolCallSerializer,
 )
@@ -199,6 +200,31 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # has_next is always false: this returns the whole (capped) call list, not a page.
         # The field exists because the viewset's paginator shapes the response schema.
         return Response({"results": serializer.data, "has_next": False})
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_generate_intent",
+        description=(
+            "Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its "
+            "recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return "
+            "the stored summary."
+        ),
+        request=None,
+        responses={200: MCPSessionIntentSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="generate_intent")
+    def generate_intent(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        session_id = str(pk or "")
+        if not session_id:
+            return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            intent = api.generate_session_intent(self.team, session_id=session_id)
+        except contracts.IntentGenerationUnavailable:
+            return Response(
+                {"detail": "Intent generation is unavailable (LLM not configured)."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        serializer = MCPSessionIntentSerializer({"session_id": session_id, "intent": intent})
+        return Response(serializer.data)
 
 
 @extend_schema(tags=["mcp_analytics"])

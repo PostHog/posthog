@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models import Cohort, FeatureFlag
+from posthog.models import Cohort
 from posthog.models.utils import convert_legacy_metrics
 
 from products.experiments.backend.models.experiment import (
@@ -16,6 +16,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class ExperimentAdminForm(ModelForm):

@@ -1,10 +1,12 @@
 from django.test import TestCase
 
-from posthog.models import FeatureFlag, FileSystem, Insight, Organization, Team, User
+from posthog.models import FileSystem, Organization, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestFileSystemSyncMixin(TestCase):
