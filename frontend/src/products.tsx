@@ -2230,6 +2230,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['IngestionWarnings'],
     },
     {
+        path: 'Exports',
+        category: 'Pipeline',
+        iconType: 'exports',
+        href: urls.exports(),
+        sceneKey: 'Exports',
+        sceneKeys: ['Exports'],
+    },
+    {
         path: 'Managed viewsets',
         category: 'Unreleased',
         iconType: 'managed_viewsets',
