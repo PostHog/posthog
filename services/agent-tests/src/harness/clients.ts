@@ -48,6 +48,24 @@ export function post(cluster: AgentCluster, slug: string, opts: RunOptions = {})
     return req.send(JSON.stringify(opts.body ?? {}))
 }
 
+/** Issue `POST /cancel/:id` with the same auth shape as `post()`. */
+export function cancel(cluster: AgentCluster, slug: string, sessionId: string, opts: RunOptions = {}): IngressRequest {
+    let req = supertest(cluster.ingressUrl)
+        .post(`/cancel/${sessionId}`)
+        .set('x-original-host', hostFor(slug))
+        .set('content-type', 'application/json')
+    if (opts.pat) {
+        req = req.set('authorization', `Bearer ${opts.pat}`)
+    }
+    if (opts.sharedSecret) {
+        req = req.set(opts.sharedSecret.header ?? 'x-shared-secret', opts.sharedSecret.value)
+    }
+    if (opts.internalSecret) {
+        req = req.set(cluster.internalHeader, opts.internalSecret)
+    }
+    return req.send({})
+}
+
 /** Issue `POST /send/:id` with the same auth shape as `post()`. */
 export function send(
     cluster: AgentCluster,
@@ -118,6 +136,48 @@ export async function readPrincipal(cluster: AgentCluster, sessionId: string): P
     return cluster.queueManager.getPrincipal(sessionId)
 }
 
+export interface SessionStateView {
+    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string; at?: string }>
+    pendingInputs: Array<{ at: string; content: string }>
+    initialInput: Record<string, unknown> | null
+    turnCount: number
+}
+
+export interface SessionRowView {
+    status: string
+    state: SessionStateView | null
+    pendingInputsColumn: Array<{ at: string; content: string }>
+    scheduledAt: string
+}
+
+/**
+ * Read the queue row's full conversation state: deserialized `state`
+ * BYTEA (messages, turnCount, initialInput) PLUS the standalone
+ * `pending_inputs` JSONB column. The two surfaces — state and pending
+ * inputs — are tracked separately so an `/send` append doesn't race
+ * with the worker's state writeback (see migrations/20260527…).
+ *
+ * Returns `null` when no session row exists.
+ */
+export async function readSessionRow(cluster: AgentCluster, sessionId: string): Promise<SessionRowView | null> {
+    const { rows } = await cluster.queue.query<{
+        status: string
+        state: Buffer | null
+        pending_inputs: Array<{ at: string; content: string }>
+        scheduled: string
+    }>(`SELECT status, state, pending_inputs, scheduled FROM agent_sessions WHERE id = $1`, [sessionId])
+    if (rows.length === 0) {
+        return null
+    }
+    const row = rows[0]
+    return {
+        status: row.status,
+        state: row.state ? (JSON.parse(row.state.toString('utf8')) as SessionStateView) : null,
+        pendingInputsColumn: row.pending_inputs ?? [],
+        scheduledAt: row.scheduled,
+    }
+}
+
 /** Read the session row's status from the queue DB. Useful for asserting the runner picked it up. */
 export async function readSessionStatus(cluster: AgentCluster, sessionId: string): Promise<string | null> {
     const { rows } = await cluster.queue.query<{ status: string }>(`SELECT status FROM agent_sessions WHERE id = $1`, [
@@ -150,6 +210,34 @@ export async function waitForStatus(
     }
     throw new Error(
         `waitForStatus(${sessionId}) timed out after ${timeout}ms — last status: ${lastStatus ?? '<no row>'}, expected one of [${expected.join(', ')}]`
+    )
+}
+
+/**
+ * Poll the session row until it reaches `state.turnCount >= n` AND
+ * the queue status is back to `available` (i.e. parked after
+ * `awaiting_input`). Use to synchronise on "the agent has finished
+ * turn N and is awaiting the next /send."
+ */
+export async function waitForAwaitingInput(
+    cluster: AgentCluster,
+    sessionId: string,
+    opts: { afterTurn?: number; timeoutMs?: number; intervalMs?: number } = {}
+): Promise<SessionRowView> {
+    const target = opts.afterTurn ?? 1
+    const timeout = opts.timeoutMs ?? 10_000
+    const interval = opts.intervalMs ?? 50
+    const start = Date.now()
+    let last: SessionRowView | null = null
+    while (Date.now() - start < timeout) {
+        last = await readSessionRow(cluster, sessionId)
+        if (last && last.status === 'available' && (last.state?.turnCount ?? 0) >= target) {
+            return last
+        }
+        await new Promise((res) => setTimeout(res, interval))
+    }
+    throw new Error(
+        `waitForAwaitingInput(${sessionId}) timed out after ${timeout}ms — last: status=${last?.status ?? '<no row>'}, turnCount=${last?.state?.turnCount ?? '?'}, expected turnCount >= ${target} + status=available`
     )
 }
 

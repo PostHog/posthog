@@ -20,6 +20,14 @@ interface RawSessionRow {
     lock_id: string
     /** JSONB column; pg deserializes to a structured object. NULL when the agent is public. */
     principal: Principal | null
+    /**
+     * `/send`-delivered messages waiting at the time of this dequeue.
+     * Atomically drained (set to '[]') by the dequeue UPDATE; the
+     * captured pre-update value rides through to the handler. Any
+     * `/send` arriving DURING the turn lands on the now-empty column
+     * and is visible to the worker's NEXT dequeue.
+     */
+    drained_inputs: Array<{ at: string; content: string }>
 }
 
 export type SessionJobHandler = (job: DequeuedSessionJob) => Promise<void>
@@ -162,9 +170,16 @@ export class SessionQueueWorker {
 
     private async dequeueJobs(limit: number): Promise<RawSessionRow[]> {
         const lockId = uuidv7()
+        // The CTE captures pending_inputs *before* the UPDATE clears it —
+        // RETURNING shows post-update values for the table columns, but
+        // we exfiltrate the pre-update `pending_inputs` via the CTE alias.
+        // This is what makes the drain atomic: any `/send` that races
+        // with the dequeue either commits before this UPDATE (and rides
+        // through as drained_inputs) or after (and is visible on the
+        // worker's next dequeue).
         const result = await this.pool.query<RawSessionRow>(
             `WITH available AS (
-                SELECT id
+                SELECT id, pending_inputs
                 FROM agent_sessions
                 WHERE status = 'available'
                   AND queue_name = $1
@@ -178,7 +193,8 @@ export class SessionQueueWorker {
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
-                transition_count = transition_count + 1
+                transition_count = transition_count + 1,
+                pending_inputs = '[]'::jsonb
             FROM available
             WHERE agent_sessions.id = available.id
             RETURNING
@@ -192,7 +208,8 @@ export class SessionQueueWorker {
                 agent_sessions.transition_count,
                 agent_sessions.state,
                 agent_sessions.lock_id,
-                agent_sessions.principal`,
+                agent_sessions.principal,
+                available.pending_inputs AS drained_inputs`,
             [this.config.queueName, limit, lockId]
         )
         return result.rows.sort((a, b) => new Date(a.scheduled).getTime() - new Date(b.scheduled).getTime())
@@ -221,26 +238,60 @@ export class SessionQueueWorker {
             transitionCount: row.transition_count,
             state: row.state,
             principal: row.principal ?? null,
+            drainedInputs: row.drained_inputs ?? [],
 
-            async ack(): Promise<void> {
+            async ack(options?: { state?: Buffer | null }): Promise<void> {
                 releaseGuard('ack')
+                // Terminal-state transitions (ack/fail/cancel) accept an
+                // optional final `state` write — the executor's
+                // last-turn assistant message is in there. Without
+                // persisting it the conversation history is lost on
+                // session completion (the chat-* test executors hit
+                // this; AssServerExecutor doesn't yet but will once it
+                // adopts the turn-by-turn model).
+                const setParts = [
+                    `status = 'completed'`,
+                    `lock_id = NULL`,
+                    `last_heartbeat = NULL`,
+                    `last_transition = NOW()`,
+                    `transition_count = transition_count + 1`,
+                ]
+                const params: unknown[] = [row.id, lockId]
+                if (options && 'state' in options) {
+                    params.push(options.state ?? null)
+                    setParts.push(`state = $${params.length}`)
+                    params.push(options.state ? options.state.byteLength : null)
+                    setParts.push(`state_byte_size = $${params.length}`)
+                }
                 await pool.query(
                     `UPDATE agent_sessions
-                     SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                     SET ${setParts.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId]
+                    params
                 )
             },
 
-            async fail(): Promise<void> {
+            async fail(options?: { state?: Buffer | null }): Promise<void> {
                 releaseGuard('fail')
+                const setParts = [
+                    `status = 'failed'`,
+                    `lock_id = NULL`,
+                    `last_heartbeat = NULL`,
+                    `last_transition = NOW()`,
+                    `transition_count = transition_count + 1`,
+                ]
+                const params: unknown[] = [row.id, lockId]
+                if (options && 'state' in options) {
+                    params.push(options.state ?? null)
+                    setParts.push(`state = $${params.length}`)
+                    params.push(options.state ? options.state.byteLength : null)
+                    setParts.push(`state_byte_size = $${params.length}`)
+                }
                 await pool.query(
                     `UPDATE agent_sessions
-                     SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                     SET ${setParts.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId]
+                    params
                 )
             },
 
@@ -270,14 +321,27 @@ export class SessionQueueWorker {
                 )
             },
 
-            async cancel(): Promise<void> {
+            async cancel(options?: { state?: Buffer | null }): Promise<void> {
                 releaseGuard('cancel')
+                const setParts = [
+                    `status = 'canceled'`,
+                    `lock_id = NULL`,
+                    `last_heartbeat = NULL`,
+                    `last_transition = NOW()`,
+                    `transition_count = transition_count + 1`,
+                ]
+                const params: unknown[] = [row.id, lockId]
+                if (options && 'state' in options) {
+                    params.push(options.state ?? null)
+                    setParts.push(`state = $${params.length}`)
+                    params.push(options.state ? options.state.byteLength : null)
+                    setParts.push(`state_byte_size = $${params.length}`)
+                }
                 await pool.query(
                     `UPDATE agent_sessions
-                     SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                     SET ${setParts.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId]
+                    params
                 )
             },
 
@@ -325,6 +389,22 @@ export class SessionQueueWorker {
             await this.fetcherLoopPromise
             this.fetcherLoopPromise = null
         }
+    }
+
+    /**
+     * Peek at the `pending_inputs` column for a session. Used by the
+     * agent-runner's turn loop to decide whether parking after
+     * `awaiting_input` should sleep (no queued input) or wake
+     * immediately (a `/send` mid-turn already left a message that
+     * couldn't advance `scheduled` because status was 'running').
+     */
+    async hasPendingInputs(sessionId: string): Promise<boolean> {
+        const { rows } = await this.pool.query<{ has: boolean }>(
+            `SELECT jsonb_array_length(pending_inputs) > 0 AS has
+             FROM agent_sessions WHERE id = $1`,
+            [sessionId]
+        )
+        return rows[0]?.has === true
     }
 
     async disconnect(): Promise<void> {

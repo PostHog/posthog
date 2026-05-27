@@ -59,8 +59,12 @@ describe('/listen SSE e2e', () => {
 
         // The assistant message body the executor emitted should be on
         // the wire too — proves the SSE encoder serialised the payload.
-        const message = events.find((e) => e.event === 'message')
-        expect(JSON.stringify(message?.data ?? {})).toContain('slow-cancellable')
+        // The worker now also publishes the user-side initial-input
+        // message, so filter to `role: 'assistant'` events specifically.
+        const assistantMessage = events.find(
+            (e) => e.event === 'message' && (e.data as { role?: string })?.role === 'assistant'
+        )
+        expect(JSON.stringify(assistantMessage?.data ?? {})).toContain('slow-cancellable')
 
         await waitForStatus(cluster, sessionId, ['completed'])
     }, 30_000)

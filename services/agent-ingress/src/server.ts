@@ -316,7 +316,24 @@ async function dispatchRouteResult(
                 return
             }
             // operation === 'send'
+            // Durable path: write the message to `agent_sessions.pending_inputs`
+            // and (if the session is parked) advance `scheduled` to NOW so the
+            // worker picks the job up immediately. The Redis bus publish is
+            // still done for any live `/listen` subscribers, but it is no
+            // longer the path the message rides — Postgres is.
             try {
+                const append = await deps.queue.appendPendingInput(result.sessionId, result.payload?.content ?? '')
+                if (append.kind === 'not_found') {
+                    res.status(404).json({ error: 'unknown session' })
+                    return
+                }
+                if (append.kind === 'terminal') {
+                    // Session has already ended — /send is a category error,
+                    // not a transient retry. 410 Gone tells the client to
+                    // start a new session instead of polling.
+                    res.status(410).json({ error: 'session terminated' })
+                    return
+                }
                 await deps.bus.publishInput(result.sessionId, {
                     type: 'user_message',
                     at: new Date().toISOString(),

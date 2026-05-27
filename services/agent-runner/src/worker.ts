@@ -74,8 +74,45 @@ export class RunnerWorker {
 
         try {
             const state = deserializeState(job.state)
-            const newInputs = state.pendingInputs.slice()
+            // The queue dequeue atomically drained `pending_inputs` into
+            // `job.drainedInputs`. Anything still sitting in the legacy
+            // in-state `pendingInputs` (from older queue rows that
+            // pre-date the column) is folded in too — order preserved.
+            const newInputs = [
+                ...state.pendingInputs,
+                ...job.drainedInputs.map((p) => ({ at: p.at, content: p.content })),
+            ]
             state.pendingInputs = []
+
+            // On turn 0, the trigger's initial input becomes the first
+            // user message. We log it once here so it shows up in CH
+            // alongside subsequent /send-delivered user messages; the
+            // executor sees it via state.messages.
+            if (state.turnCount === 0 && state.initialInput && Object.keys(state.initialInput).length > 0) {
+                const initialContent = extractInitialMessage(state.initialInput)
+                if (initialContent !== null) {
+                    state.messages.push({ role: 'user', content: initialContent, at: new Date().toISOString() })
+                    await this.publish(job.id, sessionLogger, {
+                        type: 'message',
+                        at: new Date().toISOString(),
+                        role: 'user',
+                        content: initialContent,
+                    })
+                }
+            }
+
+            // Each drained /send becomes a `user` message in the canonical
+            // log. Done BEFORE the executor runs so the executor's
+            // state.messages snapshot already includes the new user input.
+            for (const input of newInputs) {
+                state.messages.push({ role: 'user', content: input.content, at: input.at })
+                await this.publish(job.id, sessionLogger, {
+                    type: 'message',
+                    at: input.at,
+                    role: 'user',
+                    content: input.content,
+                })
+            }
 
             await this.publish(job.id, sessionLogger, { type: 'turn_started', at: new Date().toISOString() })
 
@@ -124,7 +161,11 @@ export class RunnerWorker {
                         at: new Date().toISOString(),
                         output: outcome.output,
                     })
-                    await job.ack()
+                    // Persist final state on terminal transitions so the
+                    // conversation history (user + assistant messages
+                    // pushed above) survives. Without `state` here the
+                    // ack would close the row with state.messages = [].
+                    await job.ack({ state: serializeState(state) })
                     return
                 case 'failed':
                     await this.publish(job.id, sessionLogger, {
@@ -132,7 +173,7 @@ export class RunnerWorker {
                         at: new Date().toISOString(),
                         error: outcome.error,
                     })
-                    await job.fail()
+                    await job.fail({ state: serializeState(state) })
                     return
                 case 'cancelled':
                     // Client aborted the run via /cancel/:id. The durable record
@@ -144,7 +185,7 @@ export class RunnerWorker {
                         at: new Date().toISOString(),
                         error: 'cancelled by client',
                     })
-                    await job.cancel()
+                    await job.cancel({ state: serializeState(state) })
                     return
                 case 'tool_call': {
                     state.messages.push(outcome.message)
@@ -175,16 +216,38 @@ export class RunnerWorker {
                     })
                     return
                 }
-                case 'awaiting_input':
+                case 'awaiting_input': {
                     state.messages.push(outcome.message)
                     state.turnCount += 1
-                    // Park the job in the future; /send/:id arrivals from the bus
-                    // bring it forward via the input listener once that wiring lands.
+                    await this.publish(job.id, sessionLogger, {
+                        type: 'message',
+                        at: outcome.message.at ?? new Date().toISOString(),
+                        role: outcome.message.role,
+                        content: outcome.message.content,
+                    })
+                    await this.publish(job.id, sessionLogger, {
+                        type: 'awaiting_input',
+                        at: new Date().toISOString(),
+                        prompt: typeof outcome.message.content === 'string' ? outcome.message.content : null,
+                    })
+                    // /send writes to `pending_inputs` durably AND, when
+                    // status='available', advances `scheduled` to NOW.
+                    // But while THIS turn was running the status was
+                    // 'running', so a /send mid-turn lands in
+                    // pending_inputs without advancing the schedule.
+                    // Check the column here before parking: if it's
+                    // non-empty, reschedule to NOW so the worker
+                    // drains the queued input on the very next poll.
+                    // Otherwise park ~one minute out and wait for a
+                    // future /send (or the janitor) to wake us.
+                    const hasQueuedInput = await this.queue.hasPendingInputs(job.id)
+                    const scheduledAt = hasQueuedInput ? new Date() : new Date(Date.now() + 60_000)
                     await job.reschedule({
-                        scheduledAt: new Date(Date.now() + 60_000),
+                        scheduledAt,
                         state: serializeState(state),
                     })
                     return
+                }
             }
         } catch (err) {
             logger.error({ err, sessionId: job.id }, 'runner job processing failed')
@@ -216,3 +279,46 @@ export class RunnerWorker {
 }
 
 export type { SessionState }
+
+/**
+ * Turn an `initialInput` dict (the parsed POST /run body or the parsed
+ * Slack event) into a single user-facing message string for the
+ * conversation log. The convention:
+ *
+ *   - `{ message: "..." }` → use the message field verbatim. Matches the
+ *     chat-style invocation pattern.
+ *   - `{ text: "..." }` → same convention for Slack events.
+ *   - Anything else → JSON-stringify (lossy for nested objects, but
+ *     gives the agent something to look at).
+ *   - Empty object → null (caller skips adding the user message).
+ */
+function extractInitialMessage(initialInput: Record<string, unknown>): string | null {
+    // http_invoke trigger payload — wraps the body inside a dict:
+    //   { type: 'http_invoke', method, path, query, body: { message: '...' } }
+    // The user's "message" lives under `body.message` (or `body.text`).
+    const body = initialInput.body
+    if (body && typeof body === 'object' && !Array.isArray(body)) {
+        const inner = body as Record<string, unknown>
+        if (typeof inner.message === 'string' && inner.message.length > 0) {
+            return inner.message
+        }
+        if (typeof inner.text === 'string' && inner.text.length > 0) {
+            return inner.text
+        }
+    }
+    // slack_event trigger payload — `text` is at the top level.
+    if (typeof initialInput.text === 'string' && initialInput.text.length > 0) {
+        return initialInput.text
+    }
+    // Same convention but at the top of the dict — useful for inline
+    // testing where callers POST { message: '...' } directly.
+    if (typeof initialInput.message === 'string' && initialInput.message.length > 0) {
+        return initialInput.message
+    }
+    try {
+        const dumped = JSON.stringify(initialInput)
+        return dumped && dumped !== '{}' ? dumped : null
+    } catch {
+        return null
+    }
+}

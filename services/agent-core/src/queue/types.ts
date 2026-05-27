@@ -47,6 +47,12 @@ export const RescheduleOptionsSchema = z.object({
 
 export type RescheduleOptions = z.infer<typeof RescheduleOptionsSchema>
 
+export interface DequeuedPendingInput {
+    /** ISO timestamp when ingress recorded the message. */
+    at: string
+    content: string
+}
+
 export interface DequeuedSessionJob {
     readonly id: string
     readonly teamId: number
@@ -64,11 +70,26 @@ export interface DequeuedSessionJob {
      * / tools can then see who the request is acting on behalf of.
      */
     readonly principal: Principal | null
+    /**
+     * `/send` messages that were sitting in the `pending_inputs` column
+     * at the moment this job was dequeued. The dequeue UPDATE atomically
+     * captures these and resets the column to '[]', so a `/send` racing
+     * the dequeue either rides through here or shows up on the next pickup.
+     */
+    readonly drainedInputs: DequeuedPendingInput[]
 
-    ack(): Promise<void>
-    fail(): Promise<void>
+    /**
+     * Mark the session `completed`. Pass `{ state }` to also write the
+     * final session state in the same UPDATE so the conversation log
+     * is durable past terminal-state transitions. Required by chat-style
+     * agents that need their last assistant message persisted.
+     */
+    ack(options?: { state?: Buffer | null }): Promise<void>
+    /** Same shape as `ack`. Terminal `failed`. */
+    fail(options?: { state?: Buffer | null }): Promise<void>
     reschedule(options?: RescheduleOptions): Promise<void>
-    cancel(): Promise<void>
+    /** Same shape as `ack`. Terminal `canceled`. */
+    cancel(options?: { state?: Buffer | null }): Promise<void>
     heartbeat(): Promise<void>
 }
 

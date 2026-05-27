@@ -20,13 +20,13 @@
  *   - If the runner is alive but the turn is mid-LLM-call, the
  *     additional `/send` does NOT interrupt — it queues.
  */
-import { post, send } from '../../harness/clients'
+import { post, readSessionRow, send, waitForAwaitingInput, waitForStatus } from '../../harness/clients'
 import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-chat-queue-team-secret'
 
-describe.skip('persistent-chat: queued follow-ups during an in-flight turn', () => {
+describe('persistent-chat: queued follow-ups during an in-flight turn', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
@@ -41,65 +41,103 @@ describe.skip('persistent-chat: queued follow-ups during an in-flight turn', () 
     it('a /send during a slow turn appends to pendingInputs in DB and is NOT dropped', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'chat-queue-one',
-            auth: { type: 'pat' },
             // chat-slow: holds the turn for ~3s, then echoes + awaiting_input.
-            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow' },
+            // Override to a shorter 800ms so the test runs fast — long
+            // enough to land a /send during the turn but short enough
+            // not to dominate the suite's wall time.
+            auth: { type: 'pat' },
+            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow', __TEST_CHAT_SLEEP_MS: '800' },
         })
 
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'first' } })
         const sessionId = run.body.sessionId as string
 
-        // Send a follow-up while turn 1 is still running.
-        // TODO: helper `waitForStatus(running)` + a tiny additional beat
-        // to ensure we're inside the executor's body.
+        // Wait until the worker has dequeued the job and is inside the
+        // executor's sleep — that's when /send mid-turn is meaningful.
+        await waitForStatus(cluster, sessionId, ['running'], { timeoutMs: 5_000 })
+
         const followup = await send(cluster, app.slug, sessionId, 'queue me', { pat: TEAM_SECRET })
         expect(followup.status).toBe(202)
 
-        // Even DURING the turn, the message must be visible in pendingInputs.
-        // This is the load-bearing assertion: durability is in Postgres,
-        // not in the worker's memory.
-        // const stateMid = await readSessionState(cluster, sessionId)
-        // expect(stateMid.pendingInputs.map(p => p.content)).toContain('queue me')
+        // The /send wrote to the pending_inputs column BEFORE returning
+        // 202. The turn is still running; column visibility proves
+        // durability didn't ride on the bus.
+        const mid = await readSessionRow(cluster, sessionId)
+        expect(mid?.pendingInputsColumn.map((p) => p.content)).toEqual(['queue me'])
 
-        // Turn 1 finishes, turn 2 picks up the pending input.
-        // const stateEnd = await readSessionState(cluster, sessionId)
-        // expect(stateEnd.pendingInputs).toHaveLength(0)
-        // expect(stateEnd.messages.find(m => m.role === 'user' && m.content === 'queue me')).toBeDefined()
+        // Turn 2 picks up the queued input and produces another
+        // user→assistant pair; pending_inputs drains to [].
+        const afterTurn2 = await waitForAwaitingInput(cluster, sessionId, { afterTurn: 2 })
+        expect(afterTurn2.pendingInputsColumn).toHaveLength(0)
+        const userMsgs = afterTurn2.state?.messages.filter((m) => m.role === 'user').map((m) => m.content)
+        expect(userMsgs).toEqual(['first', 'queue me'])
     })
 
-    it('three /sends mid-turn → pendingInputs[] has all three in arrival order', async () => {
+    it('three /sends mid-turn → pendingInputs[] has all three in arrival order; next turn drains them all', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'chat-queue-three',
             auth: { type: 'pat' },
-            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow' },
+            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow', __TEST_CHAT_SLEEP_MS: '800' },
         })
 
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'go' } })
         const sessionId = run.body.sessionId as string
 
+        await waitForStatus(cluster, sessionId, ['running'], { timeoutMs: 5_000 })
+
         await send(cluster, app.slug, sessionId, 'one', { pat: TEAM_SECRET })
         await send(cluster, app.slug, sessionId, 'two', { pat: TEAM_SECRET })
         await send(cluster, app.slug, sessionId, 'three', { pat: TEAM_SECRET })
 
-        // All three visible while turn 1 still runs.
-        // const mid = await readSessionState(cluster, sessionId)
-        // expect(mid.pendingInputs.map(p => p.content)).toEqual(['one', 'two', 'three'])
+        // All three durably queued during the in-flight turn.
+        const mid = await readSessionRow(cluster, sessionId)
+        expect(mid?.pendingInputsColumn.map((p) => p.content)).toEqual(['one', 'two', 'three'])
 
-        // After turn 1 ends, the executor drains all three. The spec
-        // decision: do they become THREE user messages (one per turn)
-        // or ONE concatenated user message? Pin whichever we choose.
-        // First pass: each pending input is its own turn.
-        //
-        // const end = await readSessionState(cluster, sessionId)
-        // const userMessages = end.messages.filter(m => m.role === 'user').map(m => m.content)
-        // expect(userMessages).toEqual(['go', 'one', 'two', 'three'])
+        // After turn 2 the queue is drained AND all three user messages
+        // are in state.messages, in order, alongside the initial 'go'.
+        const afterTurn2 = await waitForAwaitingInput(cluster, sessionId, { afterTurn: 2 })
+        expect(afterTurn2.pendingInputsColumn).toHaveLength(0)
+        const userMsgs = afterTurn2.state?.messages.filter((m) => m.role === 'user').map((m) => m.content)
+        expect(userMsgs).toEqual(['go', 'one', 'two', 'three'])
     })
 
     it('a /send that arrives BEFORE the worker has dequeued the job is still durable', async () => {
-        // The Redis bus has no subscriber yet — but Postgres takes the
-        // write regardless. When the worker eventually picks the job
-        // up it sees the pendingInputs already there.
-        // TODO: this is the race the bus-only model failed on. Worth
-        // its own case so a regression doesn't silently break it.
+        // The load-bearing claim: regardless of who wins the race
+        // (worker dequeues first vs /send writes first), 'race me'
+        // ends up in state.messages — never dropped. Two valid
+        // outcomes:
+        //   (a) /send wins → 'race me' drains into turn 1; turnCount=1
+        //   (b) worker wins → 'race me' parked, drained into turn 2;
+        //       turnCount=2
+        // Both must contain ['kick', 'race me'] in user messages.
+        const app = await createApp(cluster.cleanup, {
+            slugSuffix: 'chat-queue-early',
+            auth: { type: 'pat' },
+            encryptedEnv: { __TEST_EXECUTOR: 'chat-slow', __TEST_CHAT_SLEEP_MS: '300' },
+        })
+        const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'kick' } })
+        const sessionId = run.body.sessionId as string
+
+        // No `waitForStatus(running)` — let the race happen.
+        const followup = await send(cluster, app.slug, sessionId, 'race me', { pat: TEAM_SECRET })
+        expect(followup.status).toBe(202)
+
+        // Wait for either turn 1 (race (a)) or turn 2 (race (b)) to
+        // settle — whichever side wins, the row should reach a state
+        // where pending_inputs is drained AND both user messages are
+        // present in state.messages.
+        const start = Date.now()
+        while (Date.now() - start < 10_000) {
+            const row = await readSessionRow(cluster, sessionId)
+            if (row && row.status === 'available' && row.pendingInputsColumn.length === 0) {
+                const userMsgs = row.state?.messages.filter((m) => m.role === 'user').map((m) => m.content) ?? []
+                if (userMsgs.includes('kick') && userMsgs.includes('race me')) {
+                    expect(userMsgs).toEqual(['kick', 'race me'])
+                    return
+                }
+            }
+            await new Promise((r) => setTimeout(r, 50))
+        }
+        throw new Error('race-durability: never saw both messages in state.messages')
     })
 })

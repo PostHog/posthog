@@ -31,6 +31,7 @@ import { loadConfig } from './config'
 import { type SessionExecutor } from './executor'
 import { EchoExecutor } from './executor-stub'
 import { createRunner } from './lib'
+import { type SessionMessage } from './state'
 import { selectToolSandboxKind } from './tool-sandbox'
 
 loadDevEnv()
@@ -166,6 +167,92 @@ async function main(): Promise<void> {
                     error: 'forced failure for e2e test',
                 }),
         },
+        // Chat-shaped stub: echoes the latest user message back as the
+        // assistant reply and returns `awaiting_input` so the worker
+        // parks the job. /send wakes the parked job; the next turn
+        // echoes the next message. Returns `completed` after the
+        // configured number of turns to bound the test.
+        //
+        // The persistent-chat suites use this to exercise the turn
+        // boundary + state persistence without paying Anthropic.
+        'chat-echo': {
+            runTurn: (input) => {
+                const lastUser = lastUserMessage(input.state.messages)
+                if (lastUser === null) {
+                    return Promise.resolve({
+                        kind: 'completed' as const,
+                        message: {
+                            role: 'assistant' as const,
+                            content: 'chat-echo: no user input',
+                            at: new Date().toISOString(),
+                        },
+                        output: { reason: 'no_input' },
+                    })
+                }
+                // Limit: 5 turns by default. Sessions that need more
+                // override via `__TEST_CHAT_MAX_TURNS` in the app env.
+                const maxTurns = Number(input.job.secrets.__TEST_CHAT_MAX_TURNS ?? 5)
+                const nextTurn = input.state.turnCount + 1
+                const message = {
+                    role: 'assistant' as const,
+                    content: `echo: ${lastUser} (turn ${nextTurn})`,
+                    at: new Date().toISOString(),
+                }
+                if (nextTurn >= maxTurns) {
+                    return Promise.resolve({
+                        kind: 'completed' as const,
+                        message,
+                        output: { turns: nextTurn },
+                    })
+                }
+                return Promise.resolve({ kind: 'awaiting_input' as const, message, reason: null })
+            },
+        },
+        // Same shape as chat-echo, but sleeps ~3s before responding.
+        // Powers the "queued follow-ups arrive while a turn is in
+        // flight" cases — a /send during the sleep must land durably.
+        'chat-slow': {
+            runTurn: async (input) => {
+                const lastUser = lastUserMessage(input.state.messages)
+                await new Promise((r) => setTimeout(r, Number(input.job.secrets.__TEST_CHAT_SLEEP_MS ?? 3_000)))
+                if (lastUser === null) {
+                    return {
+                        kind: 'completed' as const,
+                        message: {
+                            role: 'assistant' as const,
+                            content: 'chat-slow: no user input',
+                            at: new Date().toISOString(),
+                        },
+                        output: { reason: 'no_input' },
+                    }
+                }
+                return {
+                    kind: 'awaiting_input' as const,
+                    message: {
+                        role: 'assistant' as const,
+                        content: `slow-echo: ${lastUser}`,
+                        at: new Date().toISOString(),
+                    },
+                    reason: null,
+                }
+            },
+        },
+        // Single-shot variant — completes immediately, never parks.
+        // Used by `/send to a completed session → 410` tests.
+        'chat-once': {
+            runTurn: (input) => {
+                const lastUser = lastUserMessage(input.state.messages) ?? '(no input)'
+                return Promise.resolve({
+                    kind: 'completed' as const,
+                    message: {
+                        role: 'assistant' as const,
+                        content: `once: ${lastUser}`,
+                        at: new Date().toISOString(),
+                    },
+                    output: { turns: 1 },
+                })
+            },
+        },
         sdk: sdkExecutor,
     }
 
@@ -248,6 +335,21 @@ function renderPrincipal(principal: Principal | null): string {
         return `principal: service caller=${principal.caller} org=${principal.orgId}`
     }
     return `principal: user space=${principal.spaceId} userId=${principal.userId} provider=${principal.provider}`
+}
+
+/**
+ * Walk `state.messages` from the tail back; return the most recent
+ * `user`-role message's content, or null if none. Used by the chat-*
+ * stub executors to find "what the user just said." Trusts that the
+ * worker pushed user messages onto state.messages before calling us.
+ */
+function lastUserMessage(messages: SessionMessage[]): string | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+            return messages[i].content
+        }
+    }
+    return null
 }
 
 main().catch((err: unknown) => {

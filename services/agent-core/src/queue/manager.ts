@@ -85,6 +85,69 @@ export class SessionQueueManager {
         return rows[0].principal
     }
 
+    /**
+     * Result of trying to durably accept a `/send/:id` payload.
+     *
+     *   - `accepted`: appended to `pending_inputs`; `status` reflects the
+     *     row's pre-update status. If it was `available` and parked in the
+     *     future, the call also advances `scheduled` to NOW so the worker
+     *     picks the job up immediately.
+     *   - `terminal`: the session has already ended (completed / failed /
+     *     canceled). Ingress should return 410 Gone — never 202.
+     *   - `not_found`: no such session id. Ingress returns 404.
+     */
+    async appendPendingInput(
+        sessionId: string,
+        content: string
+    ): Promise<{ kind: 'accepted'; status: 'available' | 'running' } | { kind: 'terminal' } | { kind: 'not_found' }> {
+        const at = new Date().toISOString()
+        // jsonb_insert at the end of the array is the idiomatic "append";
+        // `jsonb || jsonb` would also work but jsonb_insert preserves
+        // existing-element identity and emits a clearer plan. Wrap in a
+        // single UPDATE so an /send and the worker's state write touch
+        // disjoint columns and never race.
+        //
+        // Advancing `scheduled` to NOW when status is `available` wakes
+        // a parked job (one whose scheduled_at was pushed into the future
+        // by the worker after an `awaiting_input` outcome). Running jobs
+        // ignore the new value — their lease covers the current turn.
+        const { rows } = await this.pool.query<{
+            status: 'available' | 'running' | 'completed' | 'failed' | 'canceled'
+        }>(
+            `UPDATE agent_sessions
+             SET pending_inputs = pending_inputs || $2::jsonb,
+                 scheduled = CASE WHEN status = 'available' THEN NOW() ELSE scheduled END
+             WHERE id = $1
+             RETURNING status`,
+            [sessionId, JSON.stringify([{ at, content }])]
+        )
+        if (rows.length === 0) {
+            return { kind: 'not_found' }
+        }
+        const status = rows[0].status
+        if (status === 'completed' || status === 'failed' || status === 'canceled') {
+            // Roll back the append — we don't want pending_inputs growing
+            // on a dead session. A failed UPDATE here is a no-op (the row
+            // is terminal anyway); ignore errors.
+            await this.pool
+                .query(
+                    `UPDATE agent_sessions
+                     SET pending_inputs = (
+                       SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                       FROM jsonb_array_elements(pending_inputs) elem
+                       WHERE elem ->> 'at' <> $2 OR elem ->> 'content' <> $3
+                     )
+                     WHERE id = $1`,
+                    [sessionId, at, content]
+                )
+                .catch(() => {
+                    /* best-effort rollback */
+                })
+            return { kind: 'terminal' }
+        }
+        return { kind: 'accepted', status }
+    }
+
     async disconnect(): Promise<void> {
         await this.pool.end()
     }
