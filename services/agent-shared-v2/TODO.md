@@ -8,71 +8,24 @@ because the work touches multiple services.
 
 ## A. Old-test parity (gaps vs. the v1 test surface)
 
-### A1. Queued follow-ups: 3-mid-turn-sends ordering test
+### A1. ✓ Queued follow-ups: 3-mid-turn-sends ordering test — done
 
-The mechanism (`pending_inputs`) exists. Missing: a test that fires 3 `/send`
-calls while a turn is in flight and asserts they land in `pending_inputs` in
-arrival order, then drain into `conversation` in that order on the next turn.
+### A2. ✓ Strict principal match on /send — done (4 tests)
 
-Where: new file `services/agent-tests-v2/src/cases/queued-followups.test.ts`.
-How: faux script the model to call `meta.ask_for_input` so the session parks,
-then fire 3 `/send` calls, then resume. Assert `conversation`'s user
-messages contain all three in order.
+### A3. ✓ /listen SSE lifecycle event emission — done (4 tests)
 
-### A2. Strict principal match on /send
+### A4. ✓ Slack identity / IdentityStore / AgentUser — done (4 tests).
 
-Today /send only checks session terminal state. Old behavior: the principal
-that authenticated `/run` is stored on the session; a different principal on
-`/send` is rejected with 403. E.g. a Slack-started session can't be /sent
-by a PAT.
+`trusted_workspaces` is now required in the slack trigger config (array or
+`"*"`). `MemoryIdentityStore` for tests, `PgIdentityStore` for prod via
+`agent_user_v2` table.
 
-Where: add `principal` column to `agent_session_v2`; capture from auth
-result in `enqueueOrResume`; in `/send` compare to the incoming auth.
-Tests: same principal → 200, different → 403, public session + no auth → 200.
+### A5. ✓ Log entries — done (4 tests).
 
-### A3. /listen SSE lifecycle event emission
-
-The bus + SSE subscription endpoint exist. Missing: the runner emits
-`assistant_text` / `tool_call` / `tool_result` / `completed` / `waiting` /
-`failed` events to the bus per turn.
-
-Where: `agent-runner-v2/src/run-turn.ts` — push a `SessionEvent` into a bus
-the worker wires into `RunSessionDeps`. Worker reads bus from deps; e2e
-harness uses the existing `MemorySessionEventBus`. Production wires a Redis
-pub/sub impl.
-
-Tests: subscribe to `/listen?session_id=…`, fire a `/run`, assert events
-stream in order ending with `completed`.
-
-### A4. Slack identity / IdentitySpace / AgentUser
-
-v1 has `IdentitiesRepository` keyed by (workspace, user) → stable AgentUser
-record. Agents declare `trusted_workspaces: ["T01ABC", …]` or `"*"`. Slack
-events from untrusted workspaces are rejected with 403; events from trusted
-workspaces resolve the user to a stable AgentUser id that follows them
-across sessions.
-
-Where: new `AgentUser` model + `IdentityStore` interface + `PgIdentityStore`
-impl. Extend `spec.triggers[slack].config` with `trusted_workspaces`. Slack
-trigger handler resolves the identity before enqueueing; rejects on
-mismatch.
-
-Tests: trusted/untrusted workspace, `"*"` allowlist accepts any,
-distinct (workspace, user) → distinct AgentUser, same tuple resolves to the
-same id across sessions.
-
-### A5. ClickHouse log entries
-
-v1 writes lifecycle events to ClickHouse via Kafka; tests assert on
-`log_entries` rows. v2 has no logs sink yet.
-
-Where: define `LogSink` interface in shared. Two impls: `InMemoryLogSink`
-(tests) and `ClickHouseLogSink` (prod via Kafka). Runner pushes one row per
-turn boundary: session_started, turn_started, tool_called, tool_result,
-session_completed/waiting/failed.
-
-Tests: `agent-tests-v2` uses InMemoryLogSink and asserts on the captured
-rows.
+`LogSink` interface + `InMemoryLogSink` + `NoopLogSink` + `ClickHouseLogSink`
+stub. Runner mirrors every lifecycle event into the sink. `ClickHouseLogSink`
+needs Kafka wiring before it can hit production CH; that's a follow-up
+(see C7 below).
 
 ---
 
@@ -158,7 +111,8 @@ other tools.
 
 `products/agent_stack/backend/models_v2.py` defines the models but the
 migration hasn't been generated. Generate + apply when ready to wire the
-real backend.
+real backend. Also add Django models for `agent_user_v2` (new this
+iteration).
 
 ### C2. Step 9 cutover
 
@@ -185,12 +139,20 @@ Authoring-guide migrates from in-repo string to a `SkillTemplate` row.
 The data model already has `spec.mcps`. Runner side: open MCP clients to
 each entry, namespace-prefix tool names, route calls back.
 
+### C7. ClickHouseLogSink — real Kafka writer
+
+`ClickHouseLogSink` is a stub that throws on `write()`. Production needs:
+(a) a Kafka client (node-rdkafka or @platformatic/kafka), (b) the
+`log_entries` topic schema agreed with the consumer side, (c) a
+materialized-view setup in CH that reads the topic. The runner's call
+site is unchanged once this lands.
+
 ---
 
 ## D. Stretch / polish
 
 - ✓ ~~`spec.model` per-agent wiring~~ — done
-- ✓ ~~Real-inference suite (custom tool, multi-turn, max_turns ceiling)~~ — done
+- ✓ ~~Real-inference suite (custom tool, multi-turn, max_turns ceiling)~~ — done (5 tests)
 - ✓ ~~Worker-resume + claim TTL~~ — done
 - Per-process `concurrency` env knob is in place; tune defaults once we have
   load data.
