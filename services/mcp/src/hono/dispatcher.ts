@@ -17,7 +17,6 @@ import type {
     PingRequest,
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
-
 import { randomUUID } from 'node:crypto'
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
@@ -114,7 +113,7 @@ class McpDispatcher {
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
         this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env)
+        this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)

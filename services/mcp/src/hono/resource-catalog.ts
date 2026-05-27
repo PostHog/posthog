@@ -9,20 +9,25 @@ import type {
     TextResourceContents,
 } from '@modelcontextprotocol/sdk/types.js'
 
+import { getPromptsFromManifest } from '@/resources'
 import {
+    type ArchiveLoader,
     fetchContextMillResources,
     filterValidEntries,
     loadManifestFromArchive,
     clearResourceCache,
 } from '@/resources/internals'
-import { getPromptsFromManifest } from '@/resources'
-import { UI_APPS } from '@/resources/ui-apps.generated'
-import { buildAppStubHtml } from '@/resources/ui-apps'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { buildAppStubHtml } from '@/resources/ui-apps'
+import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
+
+import type { RedisLike } from './cache/RedisCache'
+import { SharedBlobCache } from './cache/SharedBlobCache'
 
 export class ResourceCatalog {
     private readonly env: Env
+    private readonly archiveLoader: ArchiveLoader | undefined
 
     private resources: Resource[] = []
     private resourcesByUri = new Map<string, TextResourceContents>()
@@ -33,8 +38,9 @@ export class ResourceCatalog {
     private allResources: Resource[] = []
     private contextMillData: readonly ContextMillResource[] = []
 
-    constructor(env: Env) {
+    constructor(env: Env, redis?: RedisLike) {
         this.env = env
+        this.archiveLoader = redis ? buildSharedArchiveLoader(redis) : undefined
     }
 
     get contextMillEntries(): readonly ContextMillResource[] {
@@ -83,7 +89,7 @@ export class ResourceCatalog {
 
     private async warmupResources(): Promise<void> {
         try {
-            const archive = await fetchContextMillResources()
+            const archive = await fetchContextMillResources(undefined, this.archiveLoader)
             const manifest = loadManifestFromArchive(archive)
             this.contextMillData = filterValidEntries(manifest.resources, archive)
             clearResourceCache()
@@ -154,4 +160,17 @@ export class ResourceCatalog {
             })
         }
     }
+}
+
+function buildSharedArchiveLoader(redis: RedisLike): ArchiveLoader {
+    const cache = new SharedBlobCache(redis, 'context-mill:archive')
+    return async (url) =>
+        cache.fetch(async () => {
+            const response = await fetch(url)
+            if (!response.ok) {
+                throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
+            }
+            const buffer = await response.arrayBuffer()
+            return new Uint8Array(buffer)
+        })
 }
