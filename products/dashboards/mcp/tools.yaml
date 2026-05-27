@@ -208,8 +208,10 @@ tools:
         title: Update dashboard
         description: >
             Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
-            restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to
-            fetch the actual data for each insight.
+            restriction level. Can also create or update text and button tiles via `tiles`; call dashboard-get first and
+            include existing tile layout fields you want to keep. Manage insight tiles with the insight tools and
+            dashboard-reorder-tiles. The returned tiles omit insight results to save context — use
+            dashboard-insights-run to fetch the actual data for each insight.
         exclude_params:
             - creation_mode
             - effective_restriction_level

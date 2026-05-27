@@ -1064,6 +1064,18 @@ export const WarehouseSavedQueriesRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const WarehouseSavedQueriesDependenciesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
 export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod

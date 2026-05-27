@@ -575,8 +575,25 @@ tools:
         description: >
             Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and
             will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed.
-            Cannot delete views that have downstream dependencies or views from managed viewsets.
+            Cannot delete views that have downstream dependencies or views from managed viewsets. When deletion is
+            blocked by dependent views, the error includes the blocking view IDs and names; call view-dependencies first
+            when you need to inspect blockers without attempting deletion.
         soft_delete: true
+    view-dependencies:
+        operation: warehouse_saved_queries_dependencies_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={params.id}
+        title: Get saved query dependencies
+        description: >
+            Get immediate dependency information for a data warehouse saved query (view). Returns upstream and
+            downstream dependency counts plus the downstream saved-query IDs and names that would block deletion. Use
+            this before deleting or renaming a view that may be referenced by other views.
     view-get:
         operation: warehouse_saved_queries_retrieve
         enabled: true
@@ -718,9 +735,6 @@ tools:
         enabled: false
     warehouse-saved-queries-cancel-create:
         operation: warehouse_saved_queries_cancel_create
-        enabled: false
-    warehouse-saved-queries-dependencies-retrieve:
-        operation: warehouse_saved_queries_dependencies_retrieve
         enabled: false
     warehouse-saved-queries-descendants-create:
         operation: warehouse_saved_queries_descendants_create

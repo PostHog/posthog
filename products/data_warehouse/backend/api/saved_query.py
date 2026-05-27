@@ -184,6 +184,17 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only_fields = fields
 
 
+class DataWarehouseSavedQueryDependencySummarySerializer(serializers.Serializer):
+    id = serializers.CharField()
+    name = serializers.CharField()
+
+
+class DataWarehouseSavedQueryDependenciesSerializer(serializers.Serializer):
+    upstream_count = serializers.IntegerField()
+    downstream_count = serializers.IntegerField()
+    downstream_saved_queries = DataWarehouseSavedQueryDependencySummarySerializer(many=True)
+
+
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -813,9 +824,18 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         instance: DataWarehouseSavedQuery = self.get_object()
         try:
             delete_saved_query(instance)
-        except HasDependentsError:
+        except HasDependentsError as error:
             raise serializers.ValidationError(
-                "Cannot delete this view because other views depend on it. Delete or update those views first."
+                {
+                    "detail": "Cannot delete this view because other views depend on it. Delete or update those views first.",
+                    "dependents": [
+                        {
+                            "id": str(dependent.id),
+                            "name": dependent.name,
+                        }
+                        for dependent in error.dependents
+                    ],
+                }
             )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -1118,9 +1138,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(responses=DataWarehouseSavedQueryDependenciesSerializer)
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the count of immediate upstream and downstream dependencies for this saved query."""
+        from products.data_modeling.backend.services.saved_query_dag_sync import get_dependent_saved_query_summaries
+
         saved_query = self.get_object()
         saved_query_id = saved_query.id.hex
 
@@ -1151,7 +1174,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             except ValueError:
                 continue
 
-        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
+        return response.Response(
+            {
+                "upstream_count": len(upstream_ids),
+                "downstream_count": len(downstream_ids),
+                "downstream_saved_queries": get_dependent_saved_query_summaries(saved_query),
+            }
+        )
 
     @action(methods=["GET"], detail=True, required_scopes=["warehouse_view:read"])
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:

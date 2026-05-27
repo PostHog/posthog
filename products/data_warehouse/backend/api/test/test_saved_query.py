@@ -11,6 +11,7 @@ from posthog.models import ActivityLog
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
@@ -1420,6 +1421,115 @@ class TestSavedQuery(APIBaseTest):
         data = response.json()
         self.assertEqual(data["upstream_count"], 1)  # child_view (only immediate parent)
         self.assertEqual(data["downstream_count"], 0)  # No downstream
+
+    def test_dependencies_returns_downstream_saved_query_details(self):
+        response_parent = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "parent_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response_parent.status_code, 201)
+        parent_id = response_parent.json()["id"]
+
+        response_child = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "child_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from parent_view LIMIT 50",
+                },
+            },
+        )
+        self.assertEqual(response_child.status_code, 201)
+        child_id = response_child.json()["id"]
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}/dependencies",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["downstream_saved_queries"], [{"id": child_id, "name": "child_view"}])
+
+    def test_destroy_with_dependents_returns_blocking_view_details(self):
+        response_parent = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "parent_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response_parent.status_code, 201)
+        parent_id = response_parent.json()["id"]
+
+        response_child = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "child_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from parent_view LIMIT 50",
+                },
+            },
+        )
+        self.assertEqual(response_child.status_code, 201)
+        child_id = response_child.json()["id"]
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"],
+            "Cannot delete this view because other views depend on it. Delete or update those views first.",
+        )
+        self.assertEqual(response.json()["dependents"], [{"id": child_id, "name": "child_view"}])
+
+    def test_destroy_clears_stale_dag_edges_before_blocking_delete(self):
+        response_parent = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "parent_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response_parent.status_code, 201)
+        parent_id = response_parent.json()["id"]
+
+        response_child = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "child_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from parent_view LIMIT 50",
+                },
+            },
+        )
+        self.assertEqual(response_child.status_code, 201)
+        child_id = response_child.json()["id"]
+
+        child = DataWarehouseSavedQuery.objects.get(id=child_id)
+        child.query = {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 50"}
+        child.save(update_fields=["query"])
+        self.assertTrue(Edge.objects.filter(source__saved_query_id=parent_id, target__saved_query_id=child_id).exists())
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(
+            Edge.objects.filter(source__saved_query_id=parent_id, target__saved_query_id=child_id).exists()
+        )
 
     def test_run_history_no_runs(self):
         """Test run_history endpoint returns empty array for a view with no runs"""

@@ -11538,6 +11538,17 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface DataWarehouseSavedQueryDependencySummary {
+      id: string;
+      name: string;
+    }
+
+    export interface DataWarehouseSavedQueryDependencies {
+      upstream_count: number;
+      downstream_count: number;
+      downstream_saved_queries: DataWarehouseSavedQueryDependencySummary[];
+    }
+
     export interface DataWarehouseSavedQueryDraft {
       readonly id: string;
       readonly created_at: string;

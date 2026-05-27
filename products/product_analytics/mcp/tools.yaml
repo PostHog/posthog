@@ -151,7 +151,9 @@ tools:
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results.
+            tool with the same identifier if you want to see the recomputed results. Before changing only part of the
+            query, call insight-get and submit the full updated query object so existing chart, table, formula, and
+            interval settings are preserved.
         exclude_params:
             - query
         include_params:
@@ -163,6 +165,9 @@ tools:
         param_overrides:
             query:
                 schema_ref: InsightQuery
+                description: >
+                    Full replacement query object for the insight. Call insight-get first, copy the existing query, and
+                    change only the fields you intend to update; omitting nested settings can reset them.
             dashboards:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all

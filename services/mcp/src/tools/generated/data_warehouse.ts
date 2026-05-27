@@ -38,6 +38,7 @@ import {
     InsightVariablesPartialUpdateBody,
     InsightVariablesPartialUpdateParams,
     WarehouseSavedQueriesCreateBody,
+    WarehouseSavedQueriesDependenciesRetrieveParams,
     WarehouseSavedQueriesDestroyParams,
     WarehouseSavedQueriesListQueryParams,
     WarehouseSavedQueriesMaterializeCreateBody,
@@ -861,6 +862,24 @@ const viewDelete = (): ToolBase<typeof ViewDeleteSchema, Schemas.DataWarehouseSa
     },
 })
 
+const ViewDependenciesSchema = WarehouseSavedQueriesDependenciesRetrieveParams.omit({ project_id: true })
+
+const viewDependencies = (): ToolBase<
+    typeof ViewDependenciesSchema,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQueryDependencies>
+> => ({
+    name: 'view-dependencies',
+    schema: ViewDependenciesSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewDependenciesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataWarehouseSavedQueryDependencies>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/dependencies/`,
+        })
+        return await withPostHogUrl(context, result, `/sql/?open_view=${params.id}`)
+    },
+})
+
 const ViewGetSchema = WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
 
 const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -1129,6 +1148,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'sql-variables-update': sqlVariablesUpdate,
     'view-create': viewCreate,
     'view-delete': viewDelete,
+    'view-dependencies': viewDependencies,
     'view-get': viewGet,
     'view-list': viewList,
     'view-materialize': viewMaterialize,

@@ -175,7 +175,9 @@ def sync_saved_query_to_dag(
 class HasDependentsError(Exception):
     """Raised when attempting to delete a saved query that has dependents."""
 
-    pass
+    def __init__(self, dependents: list["DataWarehouseSavedQuery"]) -> None:
+        self.dependents = dependents
+        super().__init__("Node cannot be deleted because it has dependents")
 
 
 def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list["DataWarehouseSavedQuery"]:
@@ -188,12 +190,92 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
     node = Node.objects.filter(team=saved_query.team, saved_query=saved_query).first()
     if not node:
         return []
-    deps = Node.objects.filter(
-        team=saved_query.team,
-        incoming_edges__source=node,
-        saved_query__isnull=False,
-    ).select_related("saved_query")
+    deps = (
+        Node.objects.filter(
+            team=saved_query.team,
+            incoming_edges__source=node,
+            saved_query__isnull=False,
+        )
+        .select_related("saved_query")
+        .order_by("saved_query__name")
+    )
     return [d.saved_query for d in deps if d.saved_query and not d.saved_query.deleted]
+
+
+def _saved_query_references_dependency(
+    saved_query: "DataWarehouseSavedQuery", dependency: "DataWarehouseSavedQuery"
+) -> bool:
+    query = saved_query.query.get("query") if saved_query.query else None
+    if not query:
+        return False
+
+    try:
+        parents = get_parents_from_model_query(saved_query.team, saved_query.name, query)
+    except Exception:
+        logger.exception(
+            "Failed to verify saved query dependency while deleting view",
+            saved_query_name=saved_query.name,
+            dependency_name=dependency.name,
+        )
+        return True
+
+    return dependency.name in parents
+
+
+def clear_stale_dependent_edges(saved_query: "DataWarehouseSavedQuery") -> None:
+    """Remove DAG edges whose dependent query no longer references this saved query."""
+    source_node = Node.objects.filter(team=saved_query.team, saved_query=saved_query).first()
+    if not source_node:
+        return
+
+    dependent_nodes = (
+        Node.objects.filter(
+            team=saved_query.team,
+            incoming_edges__source=source_node,
+            saved_query__isnull=False,
+        )
+        .select_related("saved_query")
+        .exclude(saved_query__deleted=True)
+    )
+
+    for dependent_node in dependent_nodes:
+        dependent = dependent_node.saved_query
+        if not dependent or _saved_query_references_dependency(dependent, saved_query):
+            continue
+
+        Edge.objects.filter(
+            team=saved_query.team,
+            source=source_node,
+            target=dependent_node,
+        ).delete()
+        logger.info(
+            "Removed stale saved query dependency edge",
+            saved_query_name=saved_query.name,
+            dependent_saved_query_name=dependent.name,
+        )
+
+
+def get_blocking_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list["DataWarehouseSavedQuery"]:
+    clear_stale_dependent_edges(saved_query)
+    return get_dependent_saved_queries(saved_query)
+
+
+def get_dependent_saved_query_summaries(
+    saved_query: "DataWarehouseSavedQuery", refresh_stale_edges: bool = False
+) -> list[dict[str, str]]:
+    dependents = (
+        get_blocking_dependent_saved_queries(saved_query)
+        if refresh_stale_edges
+        else get_dependent_saved_queries(saved_query)
+    )
+    return [{"id": str(dependent.id), "name": dependent.name} for dependent in dependents]
+
+
+def _delete_saved_query_node(saved_query: "DataWarehouseSavedQuery") -> None:
+    Node.objects.filter(
+        team=saved_query.team,
+        saved_query=saved_query,
+    ).delete()
 
 
 def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
@@ -202,10 +284,10 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
 
     Must be called BEFORE soft_delete() due to on_delete=PROTECT on the saved_query FK.
     """
-    deps = get_dependent_saved_queries(saved_query)
+    deps = get_blocking_dependent_saved_queries(saved_query)
     if deps:
-        raise HasDependentsError("Node cannot be deleted because it has dependents")
-    Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
+        raise HasDependentsError(deps)
+    _delete_saved_query_node(saved_query)
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:

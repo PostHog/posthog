@@ -298,8 +298,9 @@ class TestDeleteNodeFromDag(BaseTest):
             query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
         )
         sync_saved_query_to_dag(downstream)
-        with self.assertRaises(HasDependentsError):
+        with self.assertRaises(HasDependentsError) as context:
             delete_node_from_dag(upstream)
+        self.assertEqual(context.exception.dependents, [downstream])
 
     def test_delete_succeeds_when_no_dependents(self):
         upstream = DataWarehouseSavedQuery.objects.create(

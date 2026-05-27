@@ -1127,7 +1127,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. Can also create or update text and button tiles via `tiles`; call dashboard-get first and include existing tile layout fields you want to keep. Manage insight tiles with the insight tools and dashboard-reorder-tiles. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -2923,7 +2923,7 @@
         }
     },
     "insight-update": {
-        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results. Before changing only part of the query, call insight-get and submit the full updated query object so existing chart, table, formula, and interval settings are preserved.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Update insight",
@@ -5895,7 +5895,7 @@
         }
     },
     "view-delete": {
-        "description": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets.",
+        "description": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets. When deletion is blocked by dependent views, the error includes the blocking view IDs and names; call view-dependencies first when you need to inspect blockers without attempting deletion.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Delete saved query",
@@ -5907,6 +5907,21 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "view-dependencies": {
+        "description": "Get immediate dependency information for a data warehouse saved query (view). Returns upstream and downstream dependency counts plus the downstream saved-query IDs and names that would block deletion. Use this before deleting or renaming a view that may be referenced by other views.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get saved query dependencies",
+        "title": "Get saved query dependencies",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "view-get": {
