@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.72"
+version = "1.3.75"
 dependencies = [
  "pyo3",
  "serde_json",

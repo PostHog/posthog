@@ -10,7 +10,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
 import { StickinessLineChart } from './StickinessLineChart'
 
@@ -73,4 +73,19 @@ function StickinessLineChartStory({ insightFixture }: { insightFixture: any }): 
 
 export const Default: Story = {
     render: () => <StickinessLineChartStory insightFixture={stickinessFixture} />,
+}
+
+const areaFixture = {
+    ...stickinessFixture,
+    query: {
+        ...stickinessFixture.query,
+        source: {
+            ...stickinessFixture.query.source,
+            stickinessFilter: { display: ChartDisplayType.ActionsAreaGraph },
+        },
+    },
+}
+
+export const Area: Story = {
+    render: () => <StickinessLineChartStory insightFixture={areaFixture} />,
 }

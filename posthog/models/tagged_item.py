@@ -45,7 +45,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     insight = models.ForeignKey(
-        "Insight",
+        "product_analytics.Insight",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -73,7 +73,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     feature_flag = models.ForeignKey(
-        "FeatureFlag",
+        "feature_flags.FeatureFlag",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

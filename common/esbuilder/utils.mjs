@@ -434,8 +434,25 @@ function getBuiltEntryPoints(config, result) {
 
 let buildsInProgress = 0
 
+// Serialize the heavy full-app bundles (PostHog App, Exporter). All esbuild contexts in a
+// process multiplex over one Go service, so concurrent heavy rebuilds keep both build graphs
+// resident at once — the summed peak is what OOM-kills the Docker builder. Each heavy build
+// disposes its context before releasing the lock (see runBuild), so the next heavy build reuses
+// the freed memory instead of stacking on top of it. Dev is unaffected: it keeps contexts alive
+// for incremental watch rebuilds and isn't memory-constrained.
+let heavyBuildChain = Promise.resolve()
+function runExclusiveHeavy(fn) {
+    const result = heavyBuildChain.then(fn)
+    heavyBuildChain = result.then(
+        () => {},
+        () => {}
+    )
+    return result
+}
+
 export async function buildOrWatch(config) {
-    const { absWorkingDir, name, onBuildStart, onBuildComplete, writeMetaFile, extraPlugins, ..._config } = config
+    const { absWorkingDir, name, heavy, onBuildStart, onBuildComplete, writeMetaFile, extraPlugins, ..._config } =
+        config
 
     let buildPromise = null
     let buildAgain = false
@@ -507,8 +524,22 @@ export async function buildOrWatch(config) {
         buildCount++
         const time = new Date()
         log({ name })
+
+        // In production each build runs once then the process exits, so free the build graph
+        // as soon as it's done instead of letting all contexts pile up until process.exit.
+        // Dev keeps the context for incremental rebuilds. For heavy builds this dispose happens
+        // inside the serialization lock, so the next heavy build starts with this one freed.
+        async function rebuildAndRelease() {
+            const result = await esbuildContext.rebuild()
+            if (!isDev) {
+                await esbuildContext.dispose()
+                esbuildContext = null
+            }
+            return result
+        }
+
         try {
-            const buildResult = await esbuildContext.rebuild()
+            const buildResult = heavy && !isDev ? await runExclusiveHeavy(rebuildAndRelease) : await rebuildAndRelease()
 
             if (writeMetaFile) {
                 await fs.writeFile(
