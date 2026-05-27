@@ -238,6 +238,7 @@ export const FEATURE_FLAGS = {
     ALERTS_INVESTIGATION_AGENT: 'alerts-investigation-agent', // owner: @andrewm4894, anomaly alerts — investigation agent on firing
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
+    AUTORESEARCH: 'autoresearch', // owner: @andymaaguire #team-platform-features
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BATCH_EXPORTS_BIGQUERY_INTEGRATION: 'batch-exports-bigquery-integration', // owner: @tomasfarias #team-batch-exports

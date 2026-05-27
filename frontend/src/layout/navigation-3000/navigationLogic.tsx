@@ -667,6 +667,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
+                        featureFlags[FEATURE_FLAGS.AUTORESEARCH]
+                            ? {
+                                  identifier: Scene.Autoresearch,
+                                  label: 'Autoresearch',
+                                  icon: <IconTestTube />,
+                                  to: urls.autoresearch(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Workflows,
                             label: 'Workflows',

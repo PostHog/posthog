@@ -89,6 +89,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
+    Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
+    AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),
     Link: () => import('../../products/links/frontend/LinkScene'),
     LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
