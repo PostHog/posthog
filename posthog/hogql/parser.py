@@ -340,6 +340,10 @@ def _run_shadow_comparison(
             },
         )
         return
+    # Structure-only: clearing locations keeps this a structural parity check.
+    # Comparing `start`/`end` here surfaces widespread cpp-vs-rust-py position
+    # divergences on real-world queries, so source-position parity is left to
+    # the cross-backend parser test suite and a follow-up.
     if clear_locations(primary_node) == clear_locations(shadow_node):
         _SHADOW_COMPARISONS.labels(rule=rule_label, result="agree").inc()
         return

@@ -36,10 +36,9 @@ class TestParserMode(BaseTest):
         self.assertEqual(_resolve_parser_mode(None, "rust-json"), ("rust-json", None))
 
     def test_resolve_parser_mode_shadows_in_prod_too(self):
-        # The default shadow is no longer gated on `settings.TEST`: prod also
-        # resolves an absent modifier to cpp + rust-py shadow. (The shadow mode
-        # is active in both envs; the sampling rate still differs: prod 1%,
-        # tests 100%. Prod only reports divergences, never raises.)
+        # The default shadow is no longer gated on `settings.TEST`: an absent
+        # modifier resolves to cpp + rust-py shadow in prod too, not only in
+        # tests (which shadow every parse).
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
             self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", "rust-py"))
