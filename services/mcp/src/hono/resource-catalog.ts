@@ -14,8 +14,19 @@ import { buildAppStubHtml } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
 
-import { ContextMillResourceCache, type SlimManifestEntry } from './cache/ContextMillResourceCache'
+import {
+    ContextMillResourceCache,
+    type ContextMillCacheResult,
+    type SlimManifestEntry,
+} from './cache/ContextMillResourceCache'
 import type { RedisLike } from './cache/RedisCache'
+import {
+    contextMillManifestEntries,
+    contextMillRevalidationDurationSeconds,
+    contextMillRevalidationsTotal,
+} from './metrics'
+
+export type ContextMillRevalidationSource = 'warmup' | 'initialize'
 
 export class ResourceCatalog {
     private readonly env: Env
@@ -37,6 +48,19 @@ export class ResourceCatalog {
 
     get contextMillEntries(): readonly SlimManifestEntry[] {
         return Array.from(this.contextMillEntriesByUri.values())
+    }
+
+    async revalidateContextMillResources(source: ContextMillRevalidationSource): Promise<void> {
+        const stop = contextMillRevalidationDurationSeconds.startTimer({ source })
+        try {
+            const result = await this.refreshContextMill()
+            contextMillRevalidationsTotal.inc({ source, status: 'success', result })
+            stop({ source, status: 'success' })
+        } catch (error) {
+            contextMillRevalidationsTotal.inc({ source, status: 'error', result: 'error' })
+            stop({ source, status: 'error' })
+            console.error('[ResourceCatalog] Failed to revalidate context-mill resources:', error)
+        }
     }
 
     async warmup(): Promise<void> {
@@ -100,8 +124,8 @@ export class ResourceCatalog {
         return { messages: entry.messages }
     }
 
-    private async refreshContextMill(): Promise<void> {
-        const slim = await this.contextMillCache.loadOrRefresh()
+    private async refreshContextMill(): Promise<ContextMillCacheResult> {
+        const { manifest: slim, result } = await this.contextMillCache.loadOrRefresh()
 
         const nextEntriesByUri = new Map<string, SlimManifestEntry>()
         const nextResources: Resource[] = []
@@ -117,6 +141,8 @@ export class ResourceCatalog {
         this.contextMillEntriesByUri = nextEntriesByUri
         this.resources = nextResources
         this.allResources = [...this.resources, ...this.uiAppResources]
+        contextMillManifestEntries.set(slim.entries.length)
+        return result
     }
 
     private contextMillLocalUrl(): string | undefined {
@@ -125,11 +151,7 @@ export class ResourceCatalog {
     }
 
     private async warmupResources(): Promise<void> {
-        try {
-            await this.refreshContextMill()
-        } catch (error) {
-            console.error('[ResourceCatalog] Failed to pre-load context-mill resources:', error)
-        }
+        await this.revalidateContextMillResources('warmup')
 
         try {
             const manifestPrompts = await getPromptsFromManifest()

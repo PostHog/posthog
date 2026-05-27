@@ -1,5 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const {
+    mockBodyReadsInc,
+    mockCacheEventsInc,
+    mockManifestEntriesSet,
+    mockRevalidationDurationStartTimer,
+    mockRevalidationDurationStop,
+    mockRevalidationsInc,
+} = vi.hoisted(() => {
+    const stop = vi.fn()
+    return {
+        mockBodyReadsInc: vi.fn(),
+        mockCacheEventsInc: vi.fn(),
+        mockManifestEntriesSet: vi.fn(),
+        mockRevalidationDurationStartTimer: vi.fn(() => stop),
+        mockRevalidationDurationStop: stop,
+        mockRevalidationsInc: vi.fn(),
+    }
+})
+
+vi.mock('@/hono/metrics', () => ({
+    contextMillBodyReadsTotal: { inc: mockBodyReadsInc },
+    contextMillCacheEventsTotal: { inc: mockCacheEventsInc },
+    contextMillManifestEntries: { set: mockManifestEntriesSet },
+    contextMillRevalidationDurationSeconds: { startTimer: mockRevalidationDurationStartTimer },
+    contextMillRevalidationsTotal: { inc: mockRevalidationsInc },
+}))
+
 vi.mock('@/resources/internals', () => ({
     fetchAndExtractEntries: vi.fn(),
 }))
@@ -68,11 +95,15 @@ function makeEntry(suffix: string): ContextMillResource {
     }
 }
 
+const MANIFEST_BYTES_KEY = 'mcp:shared-blob:context-mill:manifest:bytes'
+const MANIFEST_FRESH_KEY = 'mcp:shared-blob:context-mill:manifest:fresh'
+
 describe('ResourceCatalog', () => {
     let redis: MockRedis
 
     beforeEach(() => {
         vi.clearAllMocks()
+        mockRevalidationDurationStop.mockClear()
         redis = createMockRedis()
     })
 
@@ -101,6 +132,14 @@ describe('ResourceCatalog', () => {
             const { prompts } = catalog.getPromptsList()
             expect(prompts).toHaveLength(1)
             expect(prompts[0]!.name).toBe('greet')
+            expect(mockRevalidationsInc).toHaveBeenCalledWith({
+                source: 'warmup',
+                status: 'success',
+                result: 'cold_refresh',
+            })
+            expect(mockRevalidationDurationStartTimer).toHaveBeenCalledWith({ source: 'warmup' })
+            expect(mockRevalidationDurationStop).toHaveBeenCalledWith({ source: 'warmup', status: 'success' })
+            expect(mockManifestEntriesSet).toHaveBeenCalledWith(2)
         })
 
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
@@ -113,6 +152,60 @@ describe('ResourceCatalog', () => {
             const list1 = catalog.getResourcesList().resources
             const list2 = catalog.getResourcesList().resources
             expect(list1).toBe(list2)
+        })
+
+        it('revalidates context-mill resources on demand', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('old')])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            redis._store.delete(MANIFEST_BYTES_KEY)
+            redis._store.delete(MANIFEST_FRESH_KEY)
+            vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('new')])
+
+            await catalog.revalidateContextMillResources('initialize')
+
+            const names = catalog.getResourcesList().resources.map((r) => r.name)
+            expect(names).toContain('name-new')
+            expect(names).not.toContain('name-old')
+            expect(mockRevalidationsInc).toHaveBeenCalledWith({
+                source: 'initialize',
+                status: 'success',
+                result: 'cold_refresh',
+            })
+        })
+
+        it('keeps existing context-mill resources when revalidation fails', async () => {
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+            try {
+                vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('stable')])
+                vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+                const catalog = new ResourceCatalog(mockEnv, redis)
+                await catalog.warmup()
+
+                redis._store.delete(MANIFEST_BYTES_KEY)
+                redis._store.delete(MANIFEST_FRESH_KEY)
+                vi.mocked(fetchAndExtractEntries).mockRejectedValueOnce(new Error('network'))
+
+                await catalog.revalidateContextMillResources('initialize')
+
+                expect(catalog.getResourcesList().resources.map((r) => r.name)).toContain('name-stable')
+                expect(mockRevalidationsInc).toHaveBeenCalledWith({
+                    source: 'initialize',
+                    status: 'error',
+                    result: 'error',
+                })
+                expect(mockRevalidationDurationStop).toHaveBeenCalledWith({ source: 'initialize', status: 'error' })
+                expect(consoleError).toHaveBeenCalledWith(
+                    '[ResourceCatalog] Failed to revalidate context-mill resources:',
+                    expect.any(Error)
+                )
+            } finally {
+                consoleError.mockRestore()
+            }
         })
     })
 

@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const { mockBodyReadsInc, mockCacheEventsInc } = vi.hoisted(() => ({
+    mockBodyReadsInc: vi.fn(),
+    mockCacheEventsInc: vi.fn(),
+}))
+
+vi.mock('@/hono/metrics', () => ({
+    contextMillBodyReadsTotal: { inc: mockBodyReadsInc },
+    contextMillCacheEventsTotal: { inc: mockCacheEventsInc },
+}))
+
 import { ContextMillResourceCache, type ContextMillResourceCacheOptions } from '@/hono/cache/ContextMillResourceCache'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import type { ContextMillResource } from '@/resources/manifest-types'
@@ -88,6 +98,8 @@ describe('ContextMillResourceCache', () => {
     let redis: MockRedis
 
     beforeEach(() => {
+        mockBodyReadsInc.mockClear()
+        mockCacheEventsInc.mockClear()
         redis = createMockRedis()
     })
 
@@ -96,9 +108,10 @@ describe('ContextMillResourceCache', () => {
         const upstream = vi.fn(async () => entries)
         const cache = new TestContextMillResourceCache(redis, upstream)
 
-        const slim = await cache.loadOrRefresh()
+        const { manifest: slim, result } = await cache.loadOrRefresh()
 
         expect(upstream).toHaveBeenCalledTimes(1)
+        expect(result).toBe('cold_refresh')
         expect(slim.entries).toHaveLength(3)
         // Manifest exposes slim metadata only (no text).
         expect(slim.entries.map((e) => e.uri).sort()).toEqual(entries.map((e) => e.uri).sort())
@@ -112,6 +125,8 @@ describe('ContextMillResourceCache', () => {
             expect(bodyIdx).toBeGreaterThan(-1)
             expect(bodyIdx).toBeLessThan(manifestIdx)
         }
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'cold_miss' })
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'lock_acquired' })
     })
 
     it('serves manifest from cache on warm hit without calling upstream', async () => {
@@ -121,10 +136,12 @@ describe('ContextMillResourceCache', () => {
 
         const upstream = vi.fn(async () => [makeEntry('z')])
         cache.setLoader(upstream)
-        const slim = await cache.loadOrRefresh()
+        const { manifest: slim, result } = await cache.loadOrRefresh()
 
         expect(upstream).not.toHaveBeenCalled()
+        expect(result).toBe('fresh_hit')
         expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'fresh_hit' })
     })
 
     it('reads a body by uri', async () => {
@@ -134,6 +151,7 @@ describe('ContextMillResourceCache', () => {
 
         const body = await cache.readBody(entry.uri)
         expect(body).toEqual({ mimeType: 'text/markdown', text: '# body a' })
+        expect(mockBodyReadsInc).toHaveBeenCalledWith({ status: 'hit' })
     })
 
     it('returns null when the body is missing entirely', async () => {
@@ -142,6 +160,17 @@ describe('ContextMillResourceCache', () => {
 
         const body = await cache.readBody('posthog://skill/never-published')
         expect(body).toBeNull()
+        expect(mockBodyReadsInc).toHaveBeenCalledWith({ status: 'miss' })
+    })
+
+    it('records parse errors when a body is corrupt', async () => {
+        const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')])
+        await cache.loadOrRefresh()
+        redis._store.set(bodyKey('posthog://skill/a'), '{')
+
+        await expect(cache.readBody('posthog://skill/a')).rejects.toThrow()
+
+        expect(mockBodyReadsInc).toHaveBeenCalledWith({ status: 'parse_error' })
     })
 
     it('overwrites bodies in place so the latest publish is served immediately', async () => {
@@ -202,7 +231,10 @@ describe('ContextMillResourceCache', () => {
         expect(peak).toBe(1)
         expect(upstream).toHaveBeenCalledTimes(1)
         // Every caller observes the published slim manifest.
-        expect(results.every((r) => r.entries[0]!.uri === entries[0]!.uri)).toBe(true)
+        expect(results.every((r) => r.manifest.entries[0]!.uri === entries[0]!.uri)).toBe(true)
+        expect(results.some((r) => r.result === 'waited')).toBe(true)
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'lock_contended' })
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'wait_success' })
     })
 
     it('non-writers wait for the lock holder to publish and serve that result', async () => {
@@ -227,9 +259,11 @@ describe('ContextMillResourceCache', () => {
         await new Promise((r) => setTimeout(r, 30))
         resolveUpstream!(entries)
 
-        const [writerSlim, waiterSlim] = await Promise.all([writerResult, waiterResult])
-        expect(writerSlim.entries[0]!.uri).toBe(entries[0]!.uri)
-        expect(waiterSlim.entries[0]!.uri).toBe(entries[0]!.uri)
+        const [writerResultPayload, waiterResultPayload] = await Promise.all([writerResult, waiterResult])
+        expect(writerResultPayload.manifest.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(waiterResultPayload.manifest.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(writerResultPayload.result).toBe('cold_refresh')
+        expect(waiterResultPayload.result).toBe('waited')
         expect(upstream).toHaveBeenCalledTimes(1)
     })
 
@@ -248,17 +282,41 @@ describe('ContextMillResourceCache', () => {
         })
 
         const first = await cache.loadOrRefresh()
-        expect(first.entries).toHaveLength(1)
+        expect(first.manifest.entries).toHaveLength(1)
 
         // Stale read returns the cached manifest and kicks off a background refresh.
         const second = await cache.loadOrRefresh()
-        expect(second.entries).toHaveLength(1)
+        expect(second.manifest.entries).toHaveLength(1)
+        expect(second.result).toBe('stale_hit')
 
         // Allow the background refresh to settle.
         await new Promise((r) => setTimeout(r, 30))
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'background_success' })
 
         const third = await cache.loadOrRefresh()
-        expect(third.entries).toHaveLength(2)
+        expect(third.manifest.entries).toHaveLength(2)
+    })
+
+    it('records background refresh errors', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')], {
+                freshSeconds: 0,
+                waitIntervalMs: 5,
+                waitTimeoutMs: 100,
+            })
+            await cache.loadOrRefresh()
+            cache.setLoader(async () => {
+                throw new Error('refresh failed')
+            })
+
+            await cache.loadOrRefresh()
+            await new Promise((r) => setTimeout(r, 30))
+
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'background_error' })
+        } finally {
+            consoleError.mockRestore()
+        }
     })
 
     it('falls back to a direct load when the writer never publishes', async () => {
@@ -267,11 +325,13 @@ describe('ContextMillResourceCache', () => {
         const upstream = vi.fn(async () => entries)
         const cache = new TestContextMillResourceCache(redis, upstream, { waitIntervalMs: 10, waitTimeoutMs: 50 })
 
-        const slim = await cache.loadOrRefresh()
+        const { manifest: slim, result } = await cache.loadOrRefresh()
 
         expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
+        expect(result).toBe('fallback')
         expect(upstream).toHaveBeenCalledTimes(1)
         expect(redis._store.has(MANIFEST_BYTES_KEY)).toBe(false)
+        expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'wait_timeout' })
     })
 
     it('does not leave the manifest lock held after a successful publish', async () => {

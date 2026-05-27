@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
+import { contextMillBodyReadsTotal, contextMillCacheEventsTotal } from '../metrics'
 import type { RedisLike } from './RedisCache'
 import { SharedBlobCache, type SharedBlobCacheOptions } from './SharedBlobCache'
 
@@ -30,6 +31,13 @@ export interface ResourceBody {
 export interface ContextMillResourceCacheOptions extends SharedBlobCacheOptions {
     bodyTtlSeconds?: number
     localUrl?: string
+}
+
+export type ContextMillCacheResult = 'fresh_hit' | 'stale_hit' | 'cold_refresh' | 'waited' | 'fallback'
+
+export interface ContextMillLoadResult {
+    manifest: SlimManifest
+    result: ContextMillCacheResult
 }
 
 /**
@@ -69,47 +77,57 @@ export class ContextMillResourceCache extends SharedBlobCache {
      * SharedBlobCache writer lock, publish every body key, and only then write
      * back the slim manifest.
      */
-    async loadOrRefresh(): Promise<SlimManifest> {
-        const bytes = await this.fetch()
-        return JSON.parse(new TextDecoder().decode(bytes)) as SlimManifest
+    async loadOrRefresh(): Promise<ContextMillLoadResult> {
+        const { bytes, result } = await this.fetch()
+        return {
+            manifest: JSON.parse(new TextDecoder().decode(bytes)) as SlimManifest,
+            result,
+        }
     }
 
-    private async fetch(): Promise<Uint8Array> {
+    private async fetch(): Promise<{ bytes: Uint8Array; result: ContextMillCacheResult }> {
         const cached = await this.readCache()
 
         if (cached && cached.fresh) {
-            return cached.bytes
+            contextMillCacheEventsTotal.inc({ event: 'fresh_hit' })
+            return { bytes: cached.bytes, result: 'fresh_hit' }
         }
 
         if (cached) {
             // Stale-while-revalidate: serve what we have and try to refresh in
             // the background. The lock guarantees only one instance refreshes
             // even if many requests race here.
+            contextMillCacheEventsTotal.inc({ event: 'stale_hit' })
             void this.refreshInBackground()
-            return cached.bytes
+            return { bytes: cached.bytes, result: 'stale_hit' }
         }
 
         // Cold cache — race for the writer lock.
+        contextMillCacheEventsTotal.inc({ event: 'cold_miss' })
         const token = randomUUID()
         if (await this.acquireLock(token)) {
+            contextMillCacheEventsTotal.inc({ event: 'lock_acquired' })
             try {
                 const bytes = await this.loadBlob()
                 await this.writeCache(bytes)
-                return bytes
+                return { bytes, result: 'cold_refresh' }
             } finally {
                 await this.releaseLock(token)
             }
         }
 
         // Another writer holds the lock — wait for them to publish.
+        contextMillCacheEventsTotal.inc({ event: 'lock_contended' })
         const waited = await this.waitForCache()
         if (waited) {
-            return waited
+            contextMillCacheEventsTotal.inc({ event: 'wait_success' })
+            return { bytes: waited, result: 'waited' }
         }
 
         // Writer never published in time. Fetch ourselves without writing so
         // we don't trample whatever the lock holder eventually produces.
-        return this.loadBlob()
+        contextMillCacheEventsTotal.inc({ event: 'wait_timeout' })
+        return { bytes: await this.loadBlob(), result: 'fallback' }
     }
 
     private async loadBlob(): Promise<Uint8Array> {
@@ -133,12 +151,16 @@ export class ContextMillResourceCache extends SharedBlobCache {
     private async refreshInBackground(): Promise<void> {
         const token = randomUUID()
         if (!(await this.acquireLock(token))) {
+            contextMillCacheEventsTotal.inc({ event: 'lock_contended' })
             return
         }
+        contextMillCacheEventsTotal.inc({ event: 'lock_acquired' })
         try {
             const bytes = await this.loadBlob()
             await this.writeCache(bytes)
+            contextMillCacheEventsTotal.inc({ event: 'background_success' })
         } catch (err) {
+            contextMillCacheEventsTotal.inc({ event: 'background_error' })
             console.error(`[ContextMillResourceCache:${this.lockKey}] background refresh failed:`, err)
         } finally {
             await this.releaseLock(token)
@@ -164,9 +186,17 @@ export class ContextMillResourceCache extends SharedBlobCache {
     async readBody(uri: string): Promise<ResourceBody | null> {
         const raw = await this.redis.get(bodyKey(uri))
         if (raw === null) {
+            contextMillBodyReadsTotal.inc({ status: 'miss' })
             return null
         }
-        return JSON.parse(raw) as ResourceBody
+        try {
+            const body = JSON.parse(raw) as ResourceBody
+            contextMillBodyReadsTotal.inc({ status: 'hit' })
+            return body
+        } catch (err) {
+            contextMillBodyReadsTotal.inc({ status: 'parse_error' })
+            throw err
+        }
     }
 
     private async writeBodies(entries: readonly ContextMillResource[]): Promise<void> {
