@@ -35,7 +35,10 @@ import {
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
+import { PerIssueGuardedRateLimiterStepOptions } from './per-issue-guarded-rate-limiter-step'
+import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
 import { preCymbalGroupKey } from './pre-cymbal-group-key'
+import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -67,6 +70,9 @@ export interface ErrorTrackingConsumerOptions {
     rateLimiterRedisPort: number
     rateLimiterRedisTls: boolean
     rateLimiterTtlSeconds: number
+    perIssueGuardThreshold: number
+    perIssueGuardWindowTtlSeconds: number
+    perIssueGuardFallbackTtlSeconds: number
     /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
     fallbackRedisUrl?: string
     /** Pool sizing for the dedicated rate limiter Redis pool. */
@@ -131,6 +137,7 @@ export class ErrorTrackingConsumer {
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
     protected rateLimiter?: KeyedRateLimiterService
+    protected perIssueGuardedRateLimiter?: PerIssueGuardedRateLimiterService
     protected rateLimiterAppMetricsAggregator?: AppMetricsAggregator
     protected rateLimiterRedis?: RedisV2
 
@@ -183,29 +190,42 @@ export class ErrorTrackingConsumer {
         // When the master switch is off, no pool/service exists at all (the pipeline step is a no-op).
         if (config.rateLimiterEnabled) {
             const dedicatedHost = config.rateLimiterRedisHost
-            this.rateLimiterRedis = createRedisV2PoolFromConfig({
-                connection: dedicatedHost
-                    ? {
-                          url: dedicatedHost,
-                          options: {
-                              port: config.rateLimiterRedisPort,
-                              tls: config.rateLimiterRedisTls ? {} : undefined,
+            this.rateLimiterRedis = createRedisV2PoolFromConfig(
+                {
+                    connection: dedicatedHost
+                        ? {
+                              url: dedicatedHost,
+                              options: {
+                                  port: config.rateLimiterRedisPort,
+                                  tls: config.rateLimiterRedisTls ? {} : undefined,
+                              },
+                              name: 'error-tracking-rate-limiter-redis',
+                          }
+                        : {
+                              url: config.fallbackRedisUrl ?? '',
+                              name: 'error-tracking-rate-limiter-redis-fallback',
                           },
-                          name: 'error-tracking-rate-limiter-redis',
-                      }
-                    : {
-                          url: config.fallbackRedisUrl ?? '',
-                          name: 'error-tracking-rate-limiter-redis-fallback',
-                      },
-                poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
-                poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
-            })
+                    poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
+                    poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
+                },
+                [defineLuaTokenBucketGuarded]
+            )
             this.rateLimiter = new KeyedRateLimiterService(
                 {
                     name: 'error-tracking-rate-limiter',
                     // bucketSize/refillRate are intentionally omitted — every request supplies
                     // them via getBucketConfig (per-team), so service-level defaults are unused.
                     ttlSeconds: config.rateLimiterTtlSeconds,
+                },
+                this.rateLimiterRedis
+            )
+            this.perIssueGuardedRateLimiter = new PerIssueGuardedRateLimiterService(
+                {
+                    name: 'error-tracking-rate-limiter',
+                    threshold: config.perIssueGuardThreshold,
+                    windowTtlSeconds: config.perIssueGuardWindowTtlSeconds,
+                    fallbackTtlSeconds: config.perIssueGuardFallbackTtlSeconds,
+                    bucketTtlSeconds: config.rateLimiterTtlSeconds,
                 },
                 this.rateLimiterRedis
             )
@@ -270,6 +290,7 @@ export class ErrorTrackingConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
+            perIssueGuardedRateLimiter: this.buildPerIssueGuardedRateLimiterSpec(),
             errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
@@ -278,42 +299,16 @@ export class ErrorTrackingConsumer {
     }
 
     /**
-     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
-     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
+     * Construct the pre-Cymbal rate limiter spec list for caps that don't need the
+     * per-team new-key guard (currently: just the team-global cap). The per-issue
+     * cap lives in the dedicated guarded slot via `buildPerIssueGuardedRateLimiterSpec`.
      */
     private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
         if (!this.rateLimiter) {
             return []
         }
 
-        const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
-            // Per-issue cap runs before the team-global cap so a runaway issue
-            // gets dropped against its own bucket instead of draining the
-            // team-global budget on its way out.
-            {
-                rateLimiter: this.rateLimiter,
-                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
-                appSource: 'exceptions',
-                getKey: (input) => {
-                    if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
-                        return null
-                    }
-                    const sig = preCymbalGroupKey(input.event)
-                    return sig ? `${input.team.id}:exceptions:issue:${sig}` : null
-                },
-                getTeamId: (input) => input.team.id,
-                reportingMode: this.config.rateLimiterReportingMode,
-                dropReason: 'rate_limited:per_issue',
-                getBucketConfig: (input) => {
-                    const settings = input.errorTrackingSettings!
-                    const value = settings.perIssueRateLimitValue!
-                    const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
-                    return {
-                        bucketSize: value,
-                        refillRate: value / (minutes * 60),
-                    }
-                },
-            },
+        return [
             // Team-global cap: every $exception event for a team consumes one token
             // from a per-team bucket.
             {
@@ -343,8 +338,38 @@ export class ErrorTrackingConsumer {
                 },
             },
         ]
+    }
 
-        return specs
+    private buildPerIssueGuardedRateLimiterSpec():
+        | PerIssueGuardedRateLimiterStepOptions<PreCymbalRateLimiterInput>
+        | undefined {
+        if (!this.perIssueGuardedRateLimiter) {
+            return undefined
+        }
+        const rateLimiter = this.perIssueGuardedRateLimiter
+        return {
+            rateLimiter,
+            appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+            appSource: 'exceptions',
+            getGuardKey: (input) => {
+                if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
+                    return null
+                }
+                const sig = preCymbalGroupKey(input.event)
+                return sig ? { teamId: input.team.id, sig } : null
+            },
+            reportingMode: this.config.rateLimiterReportingMode,
+            dropReason: 'rate_limited:per_issue',
+            getBucketConfig: (input) => {
+                const settings = input.errorTrackingSettings!
+                const value = settings.perIssueRateLimitValue!
+                const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
+                return {
+                    bucketSize: value,
+                    refillRate: value / (minutes * 60),
+                }
+            },
+        }
     }
 
     public async stop(): Promise<void> {

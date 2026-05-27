@@ -34,7 +34,10 @@ export type RedisV2 = {
     ) => Promise<Array<[Error | null, any]> | null>
 }
 
-export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
+export const createRedisV2PoolFromConfig = (
+    config: RedisPoolConfig,
+    extraScriptDefiners: ((client: Redis) => void)[] = []
+): RedisV2 => {
     const pool = createPool<RedisClient>(
         {
             create: async () => {
@@ -42,6 +45,9 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
 
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
+                for (const define of extraScriptDefiners) {
+                    define(client)
+                }
 
                 return client as RedisClient
             },

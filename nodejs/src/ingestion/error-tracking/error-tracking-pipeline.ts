@@ -43,6 +43,10 @@ import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import { KeyedRateLimiterStepOptions, createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
 import { createLoadErrorTrackingSettingsStep } from './load-error-tracking-settings-step'
+import {
+    PerIssueGuardedRateLimiterStepOptions,
+    createPerIssueGuardedRateLimiterStep,
+} from './per-issue-guarded-rate-limiter-step'
 import { createFetchPersonBatchStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -96,6 +100,12 @@ export interface ErrorTrackingPipelineConfig {
      */
     preCymbalRateLimiters?: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[]
     /**
+     * Per-issue guarded rate-limiter spec. Runs before `preCymbalRateLimiters` so a
+     * runaway/abusive issue is caught against its own bucket (with per-team key-creation
+     * guard) before consuming the team-global budget.
+     */
+    perIssueGuardedRateLimiter?: PerIssueGuardedRateLimiterStepOptions<PreCymbalRateLimiterInput>
+    /**
      * When provided, an error-tracking-settings load step runs before the rate limiter
      * chain so per-team overrides can be read synchronously from the input.
      */
@@ -124,6 +134,16 @@ function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends stri
     specs: KeyedRateLimiterStepOptions<TOutput>[]
 ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
     return specs.reduce((b, spec) => b.pipeBatch(createKeyedRateLimiterStep(spec)), builder)
+}
+
+function applyPerIssueGuardedRateLimiter<TInput, TOutput, CInput, COutput, R extends string>(
+    builder: BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
+    spec: PerIssueGuardedRateLimiterStepOptions<TOutput> | undefined
+): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+    if (!spec) {
+        return builder
+    }
+    return builder.pipeBatch(createPerIssueGuardedRateLimiterStep(spec))
 }
 
 /**
@@ -169,6 +189,7 @@ export function createErrorTrackingPipeline(
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         preCymbalRateLimiters,
+        perIssueGuardedRateLimiter,
         errorTrackingSettingsManager,
         topHog,
     } = config
@@ -226,9 +247,15 @@ export function createErrorTrackingPipeline(
                             .teamAware((b) => {
                                 // Pre-Cymbal rate limit chain runs FIRST so that events we'd drop
                                 // never consume overflow-redirect cycles or symbolication budget.
-                                // Each spec becomes its own batch step, applied in array order.
-                                // Empty / undefined → no-op.
-                                const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
+                                // Order: per-issue guarded → preCymbalRateLimiters[] (e.g. team-global).
+                                const afterPerIssueGuarded = applyPerIssueGuardedRateLimiter(
+                                    b.gather(),
+                                    perIssueGuardedRateLimiter
+                                )
+                                const afterRateLimit = applyKeyedRateLimiters(
+                                    afterPerIssueGuarded,
+                                    preCymbalRateLimiters ?? []
+                                )
                                 const preCymbal = afterRateLimit
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
