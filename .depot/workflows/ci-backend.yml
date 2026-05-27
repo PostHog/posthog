@@ -549,10 +549,10 @@ jobs:
         # increase for tmate testing
         timeout-minutes: 60
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        # Runner type is performance-critical — consult #team-devex before changing.
-        # Shadow trial: bumped from depot-ubuntu-latest (2 vCPU / 8 GB) to -4 (4 vCPU / 16 GB)
-        # because django_db_setup migration replay was tipping past the 600s pytest-timeout.
-        runs-on: depot-ubuntu-24.04-4
+        # Match canonical's runner for an apples-to-apples timing comparison. Without
+        # canonical's master-primed schema cache, shadow shards run full migrations and
+        # are slower here — a conservative bias against Depot, not a hardware gap.
+        runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
             matrix:
