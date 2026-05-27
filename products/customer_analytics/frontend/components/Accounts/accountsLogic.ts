@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
 import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
@@ -13,11 +14,14 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 20
 
 export type RoleFilterValue = number | null
+
+export type AccountsView = 'endpoint' | 'hogql'
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
@@ -49,6 +53,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
         setCurrentPage: (page: number) => ({ page }),
+        setActiveView: (view: AccountsView) => ({ view }),
         refresh: true,
         updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
             accountId,
@@ -100,6 +105,12 @@ export const accountsLogic = kea<accountsLogicType>([
             1,
             {
                 setCurrentPage: (_, { page }) => page,
+            },
+        ],
+        activeView: [
+            'endpoint' as AccountsView,
+            {
+                setActiveView: (_, { view }) => view,
             },
         ],
         savingRoles: [
@@ -180,6 +191,54 @@ export const accountsLogic = kea<accountsLogicType>([
             (savingRoles: Record<string, true>) =>
                 (accountId: string, role: AccountRoleKey): boolean =>
                     !!savingRoles[savingRoleKey(accountId, role)],
+        ],
+        hogqlQuery: [
+            (s) => [
+                s.searchQuery,
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.csmFilter,
+                s.accountExecutiveFilter,
+                s.accountOwnerFilter,
+            ],
+            (
+                searchQuery: string,
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                csmFilter: RoleFilterValue,
+                accountExecutiveFilter: RoleFilterValue,
+                accountOwnerFilter: RoleFilterValue
+            ): DataTableNode => {
+                const source: AccountsQuery = {
+                    kind: NodeKind.AccountsQuery,
+                    select: ['id', 'name', 'external_id', 'created_at', 'properties'],
+                    tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
+                }
+                const trimmed = searchQuery.trim()
+                if (trimmed) {
+                    source.search = trimmed
+                }
+                if (tagsFilter.length > 0) {
+                    source.tagNames = tagsFilter
+                }
+                if (allRolesUnassigned) {
+                    source.allRolesUnassigned = true
+                }
+                if (csmFilter !== null) {
+                    source.csm = csmFilter
+                }
+                if (accountExecutiveFilter !== null) {
+                    source.accountExecutive = accountExecutiveFilter
+                }
+                if (accountOwnerFilter !== null) {
+                    source.accountOwner = accountOwnerFilter
+                }
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source,
+                    full: true,
+                }
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
