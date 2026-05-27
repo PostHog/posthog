@@ -109,7 +109,7 @@ def _make_id_jag(
 @override_settings(
     OIDC_RSA_PRIVATE_KEY=_AS_PRIVATE_KEY_PEM,
     SITE_URL=_SITE_URL,
-    ID_JAG_ACCESS_TOKEN_TTL_SECONDS=7200,
+    ID_JAG_ACCESS_TOKEN_TTL_SECONDS=300,
     ID_JAG_CLOCK_SKEW_SECONDS=30,
 )
 class TestIdJagTokenEndpoint(APIBaseTest):
@@ -152,7 +152,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         body = resp.json()
         self.assertEqual(body["token_type"], "Bearer")
-        self.assertEqual(body["expires_in"], 7200)
+        self.assertEqual(body["expires_in"], 300)
         self.assertEqual(set(body["scope"].split()), {"feature_flag:read", "feature_flag:write"})
 
         claims = jwt.decode(
@@ -615,9 +615,11 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
-        token, granted, expires_in = issue_access_token(assertion, requested_scope="feature_flag:read")
+        token, granted, expires_in = issue_access_token(
+            assertion, requested_scope="feature_flag:read", request_client_id=_RESOURCE_CLIENT_ID
+        )
         self.assertEqual(granted, ["feature_flag:read"])
-        self.assertEqual(expires_in, 7200)
+        self.assertEqual(expires_in, 300)
         # Token decodable with the AS public key.
         jwt.decode(
             token,
@@ -631,7 +633,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 @override_settings(
     OIDC_RSA_PRIVATE_KEY=_AS_PRIVATE_KEY_PEM,
     SITE_URL=_SITE_URL,
-    ID_JAG_ACCESS_TOKEN_TTL_SECONDS=7200,
+    ID_JAG_ACCESS_TOKEN_TTL_SECONDS=300,
     ID_JAG_CLOCK_SKEW_SECONDS=30,
 )
 class TestIDJagAccessTokenAuthentication(APIBaseTest):
@@ -654,7 +656,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         iss: str = _AUTH_SERVER_URL,
         scope: str = "feature_flag:read",
         client_id: str = _RESOURCE_CLIENT_ID,
-        exp_seconds: int = 3600,
+        exp_seconds: int = 300,
         typ_header: str = ACCESS_TOKEN_TYPE,
         signing_pem: str | None = None,
         extra_claims: dict[str, Any] | None = None,

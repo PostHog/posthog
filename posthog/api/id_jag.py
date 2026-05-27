@@ -153,6 +153,7 @@ def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClien
     cache_key = f"id_jag:jwks_uri:{issuer}"
     jwks_uri = cache.get(cache_key)
     if not jwks_uri:
+        _check_url(f"{issuer}/.well-known/openid-configuration", "OIDC discovery")
         try:
             resp = requests.get(f"{issuer}/.well-known/openid-configuration", timeout=10)
             resp.raise_for_status()
@@ -435,7 +436,9 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
     return [s for s in value.split() if s]
 
 
-def issue_access_token(assertion: str, requested_scope: str | list[str] | None) -> tuple[str, list[str], int]:
+def issue_access_token(
+    assertion: str, requested_scope: str | list[str] | None, request_client_id: str | None
+) -> tuple[str, list[str], int]:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
@@ -443,6 +446,9 @@ def issue_access_token(assertion: str, requested_scope: str | list[str] | None) 
     """
 
     claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
+
+    if request_client_id and request_client_id != claims.get("client_id"):
+        raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client", error_code="invalid_client")
 
     id_jag_scopes = _parse_scope_list(claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
@@ -487,7 +493,6 @@ class IdJagViewSet(APIView):
         if grant_type != JWT_BEARER_GRANT_TYPE:
             return UnsupportedGrantTypeError(
                 f"grant_type must be {JWT_BEARER_GRANT_TYPE}",
-                error_code="unsupported_grant_type",
             ).to_response()
 
         assertion = data.get("assertion")
@@ -498,33 +503,16 @@ class IdJagViewSet(APIView):
         request_client_id = data.get("client_id")
 
         try:
-            claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
+            token, granted, expires_in_seconds = issue_access_token(assertion, requested_scope, request_client_id)
         except IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             return e.to_response()
 
-        if request_client_id and request_client_id != claims.get("client_id"):
-            return InvalidGrantError("ID-JAG client_id doesn't match the authenticating client").to_response()
-
-        id_jag_scopes = _parse_scope_list(claims.get("scope"))
-        known_scopes = set(get_oauth_scopes_supported())
-        sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
-        parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
-
-        granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-
-        try:
-            payload = _construct_access_token_payload(claims, provider_name, granted, org_domain.organization.pk)
-            access_token = _construct_access_token(payload)
-        except IdJagError as e:
-            logger.exception("id_jag_access_token_signing_failed", error=e.error_code, description=e.description)
-            return e.to_response()
-
         return Response(
             {
-                "access_token": access_token,
+                "access_token": token,
                 "token_type": "Bearer",
-                "expires_in": settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS,
+                "expires_in": expires_in_seconds,
                 "scope": " ".join(granted),
             }
         )
