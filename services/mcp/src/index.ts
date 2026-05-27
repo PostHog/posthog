@@ -116,11 +116,20 @@ function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
     target.protocol = honoUrl.protocol
     target.port = honoUrl.port
 
-    return fetch(target.toString(), {
+    // `redirect: 'manual'` is load-bearing: workerd's default `fetch` follows
+    // redirects transparently, which would collapse Hono's `/` → docs redirect,
+    // `/sse` → `/mcp`, and the OAuth metadata redirects into whatever the
+    // final destination returns instead of forwarding the 30x to the client.
+    const method = request.method.toUpperCase()
+    const init: RequestInit = {
         method: request.method,
         headers: request.headers,
-        body: request.body,
-    })
+        redirect: 'manual',
+    }
+    if (method !== 'GET' && method !== 'HEAD' && request.body) {
+        init.body = request.body
+    }
+    return fetch(target.toString(), init)
 }
 
 const handleRequest = async (
