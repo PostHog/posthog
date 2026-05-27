@@ -1,6 +1,7 @@
 import gzip
 import json
 import base64
+from dataclasses import fields
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -47,6 +48,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     OrgReport,
+    UsageReportCounters,
     _add_team_report_to_org_reports,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
@@ -77,6 +79,26 @@ from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
+
+
+def _usage_report_counters(**overrides: int | float) -> dict[str, int | float]:
+    counters: dict[str, int | float] = {field.name: 0 for field in fields(UsageReportCounters)}
+    counters.update(overrides)
+    return counters
+
+
+def _minimal_org_report(organization: Organization, team: Team) -> OrgReport:
+    team_report = UsageReportCounters(**_usage_report_counters(event_count_in_period=1))
+    return OrgReport(
+        date="2021-10-09",
+        organization_id=str(organization.id),
+        organization_name=organization.name,
+        organization_created_at=organization.created_at.isoformat(),
+        organization_user_count=0,
+        team_count=1,
+        teams={str(team.id): team_report},
+        **_usage_report_counters(event_count_in_period=1),
+    )
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -182,8 +204,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         sync_execute("TRUNCATE TABLE events")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE person_distinct_id")
-
-        materialize("events", "$exception_values")
 
         self.expected_properties: dict = {}
 
@@ -992,7 +1012,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
-        materialize("events", "$exception_values")
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
@@ -1289,7 +1308,6 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-        materialize("events", "$exception_values")
 
     @snapshot_clickhouse_queries
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -1550,7 +1568,6 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1727,7 +1744,6 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2324,7 +2340,6 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2514,7 +2529,6 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
-        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2745,7 +2759,6 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2827,7 +2840,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     def _setup_teams(self) -> None:
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
-        materialize("events", "$exception_values")
         materialize("events", "region")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -3795,7 +3807,8 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         compressed_bytes = gzip.compress(json_data.encode("utf-8"))
         compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
-        send_all_org_usage_reports(dry_run=False)
+        with patch("posthog.tasks.usage_report._get_all_org_reports", return_value=all_reports):
+            send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
 
@@ -3849,7 +3862,8 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             compressed_bytes = gzip.compress(json_data.encode("utf-8"))
             compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
-            send_all_org_usage_reports(dry_run=False)
+            with patch("posthog.tasks.usage_report._get_all_org_reports", return_value=all_reports):
+                send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
 
@@ -4005,7 +4019,7 @@ class TestSendUsageNoLicense(APIBaseTest):
 
 
 @freeze_time("2021-10-10T23:01:00Z")
-class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestOrganizationFiltering(LicensedTestMixin, APIBaseTest):
     """Test organization_ids filtering for send_all_org_usage_reports"""
 
     def setUp(self) -> None:
@@ -4018,28 +4032,16 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         self.org3 = Organization.objects.create(name="Org 3")
         self.team3 = Team.objects.create(organization=self.org3)
 
-        # Create events for all orgs
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id=1,
-            timestamp="2021-10-09T12:01:01Z",
-        )
-        _create_event(
-            event="$pageview",
-            team=self.team2,
-            distinct_id=1,
-            timestamp="2021-10-09T14:01:01Z",
-        )
-        _create_event(
-            event="$pageview",
-            team=self.team3,
-            distinct_id=1,
-            timestamp="2021-10-09T16:01:01Z",
-        )
-        flush_persons_and_events()
-        TEST_clear_instance_license_cache()
-        materialize("events", "$exception_values")
+    def _org_reports(self) -> dict[str, OrgReport]:
+        return {
+            str(self.organization.id): _minimal_org_report(self.organization, self.team),
+            str(self.org2.id): _minimal_org_report(self.org2, self.team2),
+            str(self.org3.id): _minimal_org_report(self.org3, self.team3),
+        }
+
+    def _send_usage_reports(self, organization_ids: list[str] | None = None) -> None:
+        with patch("posthog.tasks.usage_report._get_all_org_reports", return_value=self._org_reports()):
+            send_all_org_usage_reports(dry_run=False, organization_ids=organization_ids)
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("ee.sqs.SQSProducer.get_sqs_producer")
@@ -4049,7 +4051,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         mock_producer = MagicMock()
         mock_get_sqs_producer.return_value = mock_producer
 
-        send_all_org_usage_reports(dry_run=False, organization_ids=[str(self.organization.id)])
+        self._send_usage_reports(organization_ids=[str(self.organization.id)])
 
         # Should only send one message (for org1)
         assert mock_producer.send_message.call_count == 1
@@ -4082,7 +4084,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         mock_get_sqs_producer.return_value = mock_producer
 
         org_ids = [str(self.organization.id), str(self.org2.id)]
-        send_all_org_usage_reports(dry_run=False, organization_ids=org_ids)
+        self._send_usage_reports(organization_ids=org_ids)
 
         # Should send two messages
         assert mock_producer.send_message.call_count == 2
@@ -4116,7 +4118,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
 
         fake_org_id = str(uuid4())
 
-        send_all_org_usage_reports(dry_run=False, organization_ids=[fake_org_id])
+        self._send_usage_reports(organization_ids=[fake_org_id])
 
         # Should not send any messages
         mock_producer.send_message.assert_not_called()
@@ -4150,7 +4152,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
             fake_org_id2,
         ]
 
-        send_all_org_usage_reports(dry_run=False, organization_ids=org_ids)
+        self._send_usage_reports(organization_ids=org_ids)
 
         # Should send two messages (for the 2 existing orgs)
         assert mock_producer.send_message.call_count == 2
@@ -4184,7 +4186,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         mock_producer = MagicMock()
         mock_get_sqs_producer.return_value = mock_producer
 
-        send_all_org_usage_reports(dry_run=False)
+        self._send_usage_reports()
 
         # Should send three messages (one for each org)
         assert mock_producer.send_message.call_count == 3
