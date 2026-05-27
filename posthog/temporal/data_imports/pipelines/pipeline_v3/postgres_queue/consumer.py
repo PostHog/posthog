@@ -191,7 +191,11 @@ class BatchConsumer:
             await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
     async def _process_single(self, batch: PendingBatch) -> bool:
-        """Increment attempt, check max retries, then process the batch."""
+        """Increment attempt, check max retries, then process the batch.
+
+        Binds per-batch contextvars so every downstream log line (including loader calls)
+        routes to log_entries under the right schema/workflow.
+        """
         assert self._conn is not None
 
         team_id = str(batch.team_id)
@@ -237,12 +241,12 @@ class BatchConsumer:
             attempt=attempt,
         )
         try:
-            await self._process_single_inner(batch, attempt, team_id, schema_id)
+            return await self._process_single_inner(batch, attempt, team_id, schema_id)
         finally:
             # Unbind only the keys we set so any ambient context (parent logger, test setup) survives.
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
-    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
+    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> bool:
         assert self._conn is not None
 
         # Check before we even try — if already at max, fail the whole run.
@@ -255,6 +259,16 @@ class BatchConsumer:
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
             return False
+
+        logger.info(
+            "batch_picked_up",
+            batch_id=batch.id,
+            run_uuid=batch.run_uuid,
+            batch_index=batch.batch_index,
+            is_final_batch=batch.is_final_batch,
+            attempt=attempt,
+            resource_name=batch.resource_name,
+        )
 
         # Pre-increment: if we OOM here, recovery sees attempt=N+1
         # and knows this attempt was consumed.
@@ -278,6 +292,14 @@ class BatchConsumer:
                 attempt=attempt,
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            logger.info(
+                "batch_processed_ok",
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
+                is_final_batch=batch.is_final_batch,
+                duration_seconds=round(duration, 3),
+            )
             return True
         except Exception as e:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
