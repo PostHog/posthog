@@ -252,11 +252,17 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     """True if the SSH tunnel's connection target (enabled/host/port) changed.
 
     Scalars are coerced to strings to ignore type drift between stored values
-    (often strings) and JSON-parsed input (bools/ints).
+    (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
+    — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
+    making stored "False" falsely diverge from JSON `false`.
     """
     existing = existing if isinstance(existing, dict) else {}
     incoming = incoming if isinstance(incoming, dict) else {}
-    return any(str(existing.get(key) or "") != str(incoming.get(key) or "") for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+
+    def _coerce(value: Any) -> str:
+        return "" if value is None else str(value)
+
+    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
 def get_direct_postgres_connection_metadata(
