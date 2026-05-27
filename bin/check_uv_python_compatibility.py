@@ -12,7 +12,7 @@ The shape we enforce:
   code on master genuinely requires a newer uv feature.
 
 - .github/workflows/*.yml use setup-uv with an explicit exact version literal
-  (e.g. `version: '0.11.11'`). Every workflow pins the SAME exact version so
+  (e.g. `version: '0.11.14'`). Every workflow pins the SAME exact version so
   CI is deterministic across jobs. The pin must satisfy the pyproject floor.
   An exact literal also avoids the historical GH API rate-limit issue caused
   by range resolution (astral-sh/setup-uv#325).
