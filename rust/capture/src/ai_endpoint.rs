@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 // Blob metrics
@@ -155,7 +155,6 @@ async fn ai_handler_inner(
 
     // Check for empty body
     if body.is_empty() {
-        warn!("AI endpoint received empty body");
         return Err(CaptureError::EmptyPayload);
     }
 
@@ -166,7 +165,6 @@ async fn ai_handler_inner(
         .unwrap_or("");
 
     if !auth_header.starts_with("Bearer ") {
-        warn!("AI endpoint missing or invalid Authorization header");
         return Err(CaptureError::NoTokenError);
     }
 
@@ -193,10 +191,6 @@ async fn ai_handler_inner(
         .unwrap_or("");
 
     if !content_type.starts_with("multipart/form-data") {
-        warn!(
-            "AI endpoint received non-multipart content type: {}",
-            content_type
-        );
         return Err(CaptureError::RequestDecodingError(
             "Content-Type must be multipart/form-data".to_string(),
         ));
@@ -204,7 +198,6 @@ async fn ai_handler_inner(
 
     // Extract boundary from Content-Type header using multer's built-in parser
     let boundary = parse_boundary(content_type).map_err(|e| {
-        warn!("Failed to parse boundary from Content-Type: {}", e);
         CaptureError::RequestDecodingError(format!("Invalid boundary in Content-Type: {e}"))
     })?;
 
@@ -316,7 +309,7 @@ async fn ai_handler_inner(
     // Upload blobs to S3 and insert URLs into event properties
     if !parsed.blob_parts.is_empty() {
         let blob_storage = state.ai_blob_storage.as_ref().ok_or_else(|| {
-            warn!("AI endpoint received blobs but S3 is not configured");
+            error!("AI endpoint received blobs but S3 is not configured");
             CaptureError::ServiceUnavailable("blob storage not configured".to_string())
         })?;
 
