@@ -22,7 +22,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, Mock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
 
 import structlog
@@ -50,6 +50,7 @@ from posthog.tasks.usage_report import (
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
+    _execute_split_query,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
@@ -57,7 +58,9 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_billable_event_count_in_period,
     send_all_org_usage_reports,
 )
 from posthog.test.fixtures import create_app_metric2
@@ -3694,6 +3697,36 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][1], 240)
 
 
+class TestUsageReportCaptureEvent(SimpleTestCase):
+    def test_capture_event_called_with_string_timestamp(self) -> None:
+        mock_client = MagicMock()
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id="organization-id",
+            distinct_id="distinct-id",
+            properties={"prop1": "val1"},
+            timestamp="2021-10-10T23:01:00.00Z",
+        )
+
+        assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+
+    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
+    def test_capture_event_skips_group_identify_without_group_properties(self, _mock_is_cloud: MagicMock) -> None:
+        mock_client = MagicMock()
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id="organization-id",
+            distinct_id="distinct-id",
+            properties={"prop1": "val1"},
+        )
+
+        mock_client.group_identify.assert_not_called()
+
+
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -3907,34 +3940,6 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
     #             mock_client.return_value = mock_posthog
     #             send_all_org_usage_reports(dry_run=False)
     #     assert mock_capture_exception.call_count == 1
-
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    def test_capture_event_called_with_string_timestamp(self, mock_client: MagicMock) -> None:
-        organization = Organization.objects.create()
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
-        capture_event(
-            pha_client=mock_client,
-            name="test event",
-            organization_id=organization.id,
-            properties={"prop1": "val1"},
-            timestamp="2021-10-10T23:01:00.00Z",
-        )
-        assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
-
-    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
-    def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:
-        organization = Organization.objects.create()
-        mock_client = MagicMock()
-
-        capture_event(
-            pha_client=mock_client,
-            name="test event",
-            organization_id=str(organization.id),
-            properties={"prop1": "val1"},
-        )
-
-        mock_client.group_identify.assert_not_called()
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -4202,6 +4207,113 @@ class TestOrganizationFiltering(LicensedTestMixin, APIBaseTest):
         assert properties["total_orgs"] == 3
 
 
+class TestQuerySplittingHelpers(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team_id = 1
+        self.begin = datetime(2023, 1, 1, 0, 0)
+        self.end = datetime(2023, 1, 2, 0, 0)
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
+        mock_sync_execute.side_effect = [
+            [(self.team_id, 5)],
+            [(self.team_id, 5)],
+        ]
+
+        query_template = """
+            SELECT team_id, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id
+        """
+
+        result = _execute_split_query(
+            begin=self.begin,
+            end=self.end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+        )
+
+        self.assertEqual(mock_sync_execute.call_count, 2)
+
+        first_call_args = mock_sync_execute.call_args_list[0][0]
+        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
+        self.assertEqual(first_call_args[1]["begin"], self.begin)
+        self.assertEqual(first_call_kwargs["ch_user"], ClickHouseUser.BILLING)
+        mid_point = self.begin + (self.end - self.begin) / 2
+        self.assertEqual(first_call_args[1]["end"], mid_point)
+
+        second_call_args = mock_sync_execute.call_args_list[1][0]
+        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
+        self.assertEqual(second_call_args[1]["begin"], mid_point)
+        self.assertEqual(second_call_kwargs["ch_user"], ClickHouseUser.BILLING)
+        self.assertEqual(second_call_args[1]["end"], self.end)
+
+        self.assertEqual(result, [(self.team_id, 10)])
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
+        mock_sync_execute.side_effect = [
+            [(self.team_id, "web_events", 3)],
+            [
+                (self.team_id, "web_events", 2),
+                (self.team_id, "mobile_events", 1),
+            ],
+        ]
+
+        def custom_combiner(results_list: list[list[tuple[int, str, int]]]) -> dict[str, list[tuple[int, int]]]:
+            metrics: dict[str, dict[int, int]] = {
+                "web_events": {},
+                "mobile_events": {},
+            }
+
+            for results in results_list:
+                for team_id, metric, count in results:
+                    if team_id in metrics[metric]:
+                        metrics[metric][team_id] += count
+                    else:
+                        metrics[metric][team_id] = count
+
+            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
+
+        query_template = """
+            SELECT team_id, 'web_events' as metric, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id, metric
+        """
+
+        result = _execute_split_query(
+            begin=self.begin,
+            end=self.end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+            combine_results_func=custom_combiner,
+        )
+
+        self.assertEqual(result["web_events"], [(self.team_id, 5)])
+        self.assertEqual(result["mobile_events"], [(self.team_id, 1)])
+
+    @patch("posthog.tasks.usage_report._execute_split_query")
+    def test_split_query_with_different_num_splits(self, mock_execute_split_query: MagicMock) -> None:
+        mock_execute_split_query.return_value = [(self.team_id, 10)]
+
+        get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        with patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("properties['$lib']", None)):
+            get_all_event_metrics_in_period(self.begin, self.end)
+
+        self.assertEqual(mock_execute_split_query.call_count, 2)
+
+        first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
+        self.assertEqual(first_call_kwargs["num_splits"], 12)
+
+        second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
+        self.assertEqual(second_call_kwargs["num_splits"], 12)
+
+
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -4351,108 +4463,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         flush_persons_and_events()
 
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query correctly splits the time period and combines results."""
-        # Mock the sync_execute to return test data
-        mock_sync_execute.side_effect = [
-            [(self.team.id, 5)],  # First split returns 5 events
-            [(self.team.id, 5)],  # Second split returns 5 events
-        ]
-
-        # Test with 2 splits
-        query_template = """
-            SELECT team_id, count(1) as count
-            FROM events
-            WHERE timestamp BETWEEN %(begin)s AND %(end)s
-            GROUP BY team_id
-        """
-
-        from posthog.tasks.usage_report import _execute_split_query
-
-        result = _execute_split_query(
-            begin=self.begin,
-            end=self.end,
-            query_template=query_template,
-            params={},
-            num_splits=2,
-        )
-
-        # Verify sync_execute was called twice with different time ranges
-        self.assertEqual(mock_sync_execute.call_count, 2)
-
-        # First call should use the first half of the time range
-        first_call_args = mock_sync_execute.call_args_list[0][0]
-        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
-        self.assertEqual(first_call_args[1]["begin"], self.begin)
-        self.assertEqual(first_call_kwargs["ch_user"], ClickHouseUser.BILLING)
-        mid_point = self.begin + (self.end - self.begin) / 2
-        self.assertEqual(first_call_args[1]["end"], mid_point)
-
-        # Second call should use the second half of the time range
-        second_call_args = mock_sync_execute.call_args_list[1][0]
-        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
-        self.assertEqual(second_call_args[1]["begin"], mid_point)
-        self.assertEqual(second_call_kwargs["ch_user"], ClickHouseUser.BILLING)
-        self.assertEqual(second_call_args[1]["end"], self.end)
-
-        # Result should combine both splits (5 + 5 = 10)
-        self.assertEqual(result, [(self.team.id, 10)])
-
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query works with a custom result combiner function."""
-        # Mock the sync_execute to return test data for event metrics
-        mock_sync_execute.side_effect = [
-            [(self.team.id, "web_events", 3)],  # First split
-            [
-                (self.team.id, "web_events", 2),
-                (self.team.id, "mobile_events", 1),
-            ],  # Second split
-        ]
-
-        # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
-        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
-            metrics: dict[str, dict[int, int]] = {
-                "web_events": {},
-                "mobile_events": {},
-            }
-
-            for results in results_list:
-                for team_id, metric, count in results:
-                    if team_id in metrics[metric]:
-                        metrics[metric][team_id] += count
-                    else:
-                        metrics[metric][team_id] = count
-
-            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
-
-        query_template = """
-            SELECT team_id, 'web_events' as metric, count(1) as count
-            FROM events
-            WHERE timestamp BETWEEN %(begin)s AND %(end)s
-            GROUP BY team_id, metric
-        """
-
-        from posthog.tasks.usage_report import _execute_split_query
-
-        result = _execute_split_query(
-            begin=self.begin,
-            end=self.end,
-            query_template=query_template,
-            params={},
-            num_splits=2,
-            combine_results_func=custom_combiner,
-        )
-
-        # Verify the custom combiner worked correctly
-        self.assertEqual(result["web_events"], [(self.team.id, 5)])
-        self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
-
     def test_get_teams_with_billable_event_count_in_period(self) -> None:
         """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting and excludes AI events."""
-        from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
-
         # Run the function with our test data
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
@@ -4482,31 +4494,6 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 5)
-
-    @patch("posthog.tasks.usage_report._execute_split_query")
-    def test_split_query_with_different_num_splits(self, mock_execute_split_query: MagicMock) -> None:
-        """Test that functions call _execute_split_query with the correct number of splits."""
-        mock_execute_split_query.return_value = [(self.team.id, 10)]
-
-        from posthog.tasks.usage_report import (
-            get_all_event_metrics_in_period,
-            get_teams_with_billable_event_count_in_period,
-        )
-
-        # Call the functions
-        get_teams_with_billable_event_count_in_period(self.begin, self.end)
-        get_all_event_metrics_in_period(self.begin, self.end)
-
-        # Verify the calls
-        self.assertEqual(mock_execute_split_query.call_count, 2)
-
-        # First call (get_teams_with_billable_event_count_in_period) should use 12 splits
-        first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 12)
-
-        # Second call (get_all_event_metrics_in_period) should use 12 splits
-        second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 12)
 
     def test_ai_events_not_double_counted(self) -> None:
         """Test that AI events are excluded from billable event counts and counted separately."""
