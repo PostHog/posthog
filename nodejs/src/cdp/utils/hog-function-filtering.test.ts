@@ -102,6 +102,27 @@ describe('hog-function-filtering', () => {
                 }
             `)
         })
+        it('should handle undefined event properties', () => {
+            const globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'> = {
+                event: {
+                    uuid: 'event_uuid',
+                    event: 'test_event',
+                    distinct_id: 'user_123',
+                    properties: undefined as any,
+                    elements_chain: '',
+                    timestamp: '2025-01-01T00:00:00.000Z',
+                    url: 'http://example.com/event',
+                },
+                person: null as any,
+                groups: {},
+            }
+
+            const response = convertToHogFunctionFilterGlobal(globals)
+
+            expect(response.event).toBe('test_event')
+            expect(response.elements_chain).toBe('')
+            expect(response.properties).toBeUndefined()
+        })
     })
     describe('convertClickhouseRawEventToFilterGlobals', () => {
         it('should convert RawClickHouseEvent to HogFunctionFilterGlobals with basic event data', () => {

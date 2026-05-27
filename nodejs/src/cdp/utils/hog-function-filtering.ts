@@ -225,7 +225,8 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
 export function convertToHogFunctionFilterGlobal(
     globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'>
 ): HogFunctionFilterGlobals {
-    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
+    const elementsChain =
+        globals.event.elements_chain ?? (globals.event.properties && globals.event.properties['$elements_chain'])
 
     const response: HogFunctionFilterGlobals = {
         event: globals.event.event,
