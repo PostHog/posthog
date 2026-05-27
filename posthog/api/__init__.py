@@ -141,7 +141,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
-from ee.api.session_summaries import SessionGroupSummaryViewSet
+from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -1024,6 +1024,13 @@ projects_router.register(
     r"session_group_summaries",
     SessionGroupSummaryViewSet,
     "project_session_group_summaries",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"single_session_summaries",
+    SingleSessionSummaryViewSet,
+    "project_single_session_summaries",
     ["project_id"],
 )
 

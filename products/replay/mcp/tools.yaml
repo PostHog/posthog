@@ -152,6 +152,87 @@ tools:
     session-recordings-update:
         operation: session_recordings_update
         enabled: false
+    single-session-summaries-list:
+        operation: single_session_summaries_list
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List session summaries
+        description: >
+            List stored AI-generated session summaries for the team — one row per session, latest summary kept. Returns
+            lightweight metadata (session ID, distinct ID, start time, duration, `session_outcome`, exception count, model used,
+            visual-confirmation flag) without the full summary JSON. Use this to discover which sessions have already been
+            summarized and to filter for problematic sessions: `outcome=failure` for sessions the summary marked unsuccessful,
+            `has_exceptions=true` for sessions with surfaced exception events, or `session_ids=<comma-separated>` to look up a
+            specific batch (typically from `query-session-recordings-list`). This endpoint only reads what is already persisted —
+            it does NOT trigger summary generation. For generating new summaries use `session-recording-summarize`.
+    single-session-summaries-retrieve:
+        operation: single_session_summaries_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{session_id}'
+        title: Get session summary
+        description: >
+            Get the latest stored AI summary for a single session, identified by `session_id` (the same ID used by
+            `session-recording-get`). Returns the full summary JSON — `segments` (named, time-ordered journey segments),
+            `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags, which are the structured
+            source of session-level problems), `segment_outcomes`, the headline `session_outcome`, and (for video-based runs)
+            a `sentiment` block. Also returns the `exception_event_ids` array, the `extra_summary_context` used at generation
+            time (e.g. `focus_area`), and `run_metadata` (LLM model used, whether visual confirmation was applied). 404 if no
+            summary has been generated for this session — use `session-recording-summarize` to trigger generation.
+    session-group-summaries-list:
+        operation: session_group_summaries_list
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List session group summaries
+        description: >
+            List stored group session summaries — pattern analyses computed across multiple sessions. Returns lightweight rows
+            (id, title, session count, created_at, created_by). Supports `search` (title icontains), `date_from` / `date_to`,
+            and `created_by` filters. Use to discover whether an existing group/pattern analysis already covers the sessions you
+            care about before triggering a new one.
+    session-group-summaries-retrieve:
+        operation: session_group_summaries_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get session group summary
+        description: >
+            Get a single stored group session summary by its `id`. Returns the full pattern-analysis JSON
+            (`EnrichedSessionGroupSummaryPatternsList`) covering the included sessions, plus the `session_ids` analyzed and the
+            `extra_summary_context` / `run_metadata` used at generation time.
+    session-group-summaries-create:
+        operation: session_group_summaries_create
+        enabled: false
+    session-group-summaries-update:
+        operation: session_group_summaries_update
+        enabled: false
+    session-group-summaries-partial-update:
+        operation: session_group_summaries_partial_update
+        enabled: false
+    session-group-summaries-destroy:
+        operation: session_group_summaries_destroy
+        enabled: false
 wrappers:
     query-session-recordings-list:
         schema_ref: AssistantRecordingsQuery

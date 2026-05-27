@@ -1,0 +1,253 @@
+import copy
+from datetime import UTC, datetime
+
+from posthog.test.base import APIBaseTest
+
+from posthog.models import Organization, Team
+
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
+from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
+
+
+class TestSingleSessionSummaryViewSet(APIBaseTest):
+    def _url(self, session_id: str | None = None) -> str:
+        base = f"/api/projects/{self.team.id}/single_session_summaries/"
+        return base if session_id is None else f"{base}{session_id}/"
+
+    def _make_summary(
+        self,
+        session_id: str,
+        *,
+        team: Team | None = None,
+        success: bool | None = True,
+        exception_event_ids: list[str] | None = None,
+        focus_area: str | None = None,
+        visual_confirmation: bool = False,
+        model_used: str = "gpt-4o",
+        distinct_id: str | None = "user-1",
+        session_duration: int | None = 120,
+        session_start_time: datetime | None = None,
+    ) -> SingleSessionSummary:
+        team = team or self.team
+        summary = copy.deepcopy(get_mock_enriched_llm_json_response(session_id))
+        if success is None:
+            summary.pop("session_outcome", None)
+        else:
+            summary["session_outcome"]["success"] = success
+        return SingleSessionSummary.objects.create(
+            team=team,
+            session_id=session_id,
+            summary=summary,
+            exception_event_ids=exception_event_ids or [],
+            extra_summary_context={"focus_area": focus_area} if focus_area else None,
+            run_metadata={
+                "model_used": model_used,
+                "visual_confirmation": visual_confirmation,
+                "visual_confirmation_results": None,
+                "failed_sessions": [],
+            },
+            distinct_id=distinct_id,
+            session_duration=session_duration,
+            session_start_time=session_start_time or datetime(2026, 1, 1, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+    def test_list_returns_only_team_summaries(self) -> None:
+        self._make_summary("session-a")
+        self._make_summary("session-b")
+        other_team = Organization.objects.bootstrap(None)[2]
+        self._make_summary("other-team-session", team=other_team)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        session_ids = {row["session_id"] for row in body["results"]}
+        self.assertEqual(session_ids, {"session-a", "session-b"})
+
+    def test_list_dedupes_to_latest_per_session(self) -> None:
+        first = self._make_summary("session-a", model_used="gpt-old")
+        first.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        first.save(update_fields=["created_at"])
+        self._make_summary("session-a", model_used="gpt-new")
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["model_used"], "gpt-new")
+
+    def test_list_returns_lightweight_shape(self) -> None:
+        self._make_summary(
+            "session-a",
+            exception_event_ids=["evt-1", "evt-2"],
+            visual_confirmation=True,
+            focus_area="checkout",
+        )
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        row = response.json()["results"][0]
+        self.assertEqual(row["session_id"], "session-a")
+        self.assertEqual(row["distinct_id"], "user-1")
+        self.assertEqual(row["exception_count"], 2)
+        self.assertTrue(row["has_exceptions"])
+        self.assertTrue(row["visual_confirmation"])
+        self.assertEqual(row["model_used"], "gpt-4o")
+        self.assertEqual(row["extra_summary_context"], {"focus_area": "checkout"})
+        self.assertEqual(row["session_outcome"]["success"], True)
+        # The full summary JSON must not leak into the list shape.
+        self.assertNotIn("summary", row)
+        self.assertNotIn("exception_event_ids", row)
+
+    def test_list_filter_session_ids_csv(self) -> None:
+        self._make_summary("session-a")
+        self._make_summary("session-b")
+        self._make_summary("session-c")
+
+        response = self.client.get(self._url(), {"session_ids": "session-a,session-c"})
+
+        self.assertEqual(response.status_code, 200)
+        session_ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(session_ids, {"session-a", "session-c"})
+
+    def test_list_filter_outcome_success(self) -> None:
+        self._make_summary("session-success", success=True)
+        self._make_summary("session-failure", success=False)
+        self._make_summary("session-unknown", success=None)
+
+        response = self.client.get(self._url(), {"outcome": "success"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"session-success"})
+
+        response = self.client.get(self._url(), {"outcome": "failure"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"session-failure"})
+
+    def test_list_filter_has_exceptions(self) -> None:
+        self._make_summary("session-with-exc", exception_event_ids=["evt-1"])
+        self._make_summary("session-no-exc", exception_event_ids=[])
+
+        response = self.client.get(self._url(), {"has_exceptions": "true"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"session-with-exc"})
+
+        response = self.client.get(self._url(), {"has_exceptions": "false"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"session-no-exc"})
+
+    def test_list_filter_has_visual_confirmation(self) -> None:
+        self._make_summary("session-video", visual_confirmation=True)
+        self._make_summary("session-event-only", visual_confirmation=False)
+
+        response = self.client.get(self._url(), {"has_visual_confirmation": "true"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"session-video"})
+
+    def test_list_filter_distinct_id(self) -> None:
+        self._make_summary("session-a", distinct_id="alice")
+        self._make_summary("session-b", distinct_id="bob")
+
+        response = self.client.get(self._url(), {"distinct_id": "alice"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"session-a"})
+
+    def test_retrieve_returns_full_summary(self) -> None:
+        self._make_summary(
+            "session-a",
+            exception_event_ids=["evt-1"],
+            focus_area="checkout",
+            visual_confirmation=True,
+        )
+
+        response = self.client.get(self._url("session-a"))
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["session_id"], "session-a")
+        self.assertIn("segments", body["summary"])
+        self.assertIn("key_actions", body["summary"])
+        self.assertIn("session_outcome", body["summary"])
+        self.assertEqual(body["exception_event_ids"], ["evt-1"])
+        self.assertEqual(body["extra_summary_context"], {"focus_area": "checkout"})
+        self.assertEqual(body["run_metadata"]["model_used"], "gpt-4o")
+        self.assertEqual(body["run_metadata"]["visual_confirmation"], True)
+
+    def test_retrieve_returns_latest_summary_when_multiple_exist(self) -> None:
+        older = self._make_summary("session-a", model_used="gpt-old")
+        older.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        older.save(update_fields=["created_at"])
+        self._make_summary("session-a", model_used="gpt-new")
+
+        response = self.client.get(self._url("session-a"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["run_metadata"]["model_used"], "gpt-new")
+
+    def test_retrieve_returns_404_when_missing(self) -> None:
+        response = self.client.get(self._url("nonexistent-session"))
+        self.assertEqual(response.status_code, 404)
+
+    def test_retrieve_other_team_summary_is_404(self) -> None:
+        other_team = Organization.objects.bootstrap(None)[2]
+        self._make_summary("cross-team", team=other_team)
+
+        response = self.client.get(self._url("cross-team"))
+        self.assertEqual(response.status_code, 404)
+
+    def test_list_unauthenticated(self) -> None:
+        self.client.logout()
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 401)
+
+    def test_create_is_not_allowed(self) -> None:
+        response = self.client.post(self._url(), {"session_id": "x"}, format="json")
+        self.assertIn(response.status_code, (403, 405))
+
+    def test_delete_is_not_allowed(self) -> None:
+        self._make_summary("session-a")
+        response = self.client.delete(self._url("session-a"))
+        self.assertIn(response.status_code, (403, 405))
+
+    def test_run_metadata_fields_handle_none(self) -> None:
+        # Older rows may have written before run_metadata was added; the API should not crash on them.
+        SingleSessionSummary.objects.create(
+            team=self.team,
+            session_id="legacy-session",
+            summary=get_mock_enriched_llm_json_response("legacy-session"),
+            exception_event_ids=[],
+            run_metadata=None,
+            session_start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        row = next(r for r in response.json()["results"] if r["session_id"] == "legacy-session")
+        self.assertIsNone(row["model_used"])
+        self.assertFalse(row["visual_confirmation"])
+
+    def test_dataclass_round_trip_via_manager(self) -> None:
+        # Sanity check that the serializer produces what the manager writes via the production code path.
+        summary_data = get_mock_enriched_llm_json_response("session-a")
+        serializer = SessionSummarySerializer(data=summary_data)
+        serializer.is_valid(raise_exception=True)
+        SingleSessionSummary.objects.add_summary(
+            team_id=self.team.id,
+            session_id="session-a",
+            summary=serializer,
+            exception_event_ids=["evt-1"],
+            extra_summary_context=ExtraSummaryContext(focus_area="checkout"),
+            run_metadata=SessionSummaryRunMeta(model_used="gpt-4o", visual_confirmation=False),
+            created_by=self.user,
+        )
+
+        response = self.client.get(self._url("session-a"))
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["session_id"], "session-a")
+        self.assertIn("segments", body["summary"])
+        self.assertEqual(body["extra_summary_context"], {"focus_area": "checkout"})
