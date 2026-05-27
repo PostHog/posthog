@@ -46,7 +46,7 @@ from posthog.api.oauth.cimd import (
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthApplicationAuthBrand, OAuthGrant, OAuthRefreshToken
+from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -809,16 +809,17 @@ class OAuthTokenView(TokenView):
                     scoped_teams = list(access_token.scoped_teams or [])
                     scoped_organizations = list(access_token.scoped_organizations or [])
 
-                    # Backwards compat for deployed PostHog Code (twig) clients: they read
-                    # scoped_teams from /oauth/token to populate the project selector. When
-                    # the app is org-scoped only, access_token.scoped_teams is empty in the
-                    # DB by design — derive teams from scoped_organizations so old clients
-                    # keep working without weakening the stored token scope.
+                    # First-party clients (PostHog Code) read scoped_teams from /oauth/token
+                    # to populate the project selector. When the app is org-scoped only,
+                    # access_token.scoped_teams is empty in the DB by design — derive teams
+                    # from scoped_organizations so clients keep working without weakening
+                    # the stored token scope.
+                    # TODO(@charlesvien): remove this after a migration period in PostHog Code.
                     if (
                         not scoped_teams
                         and scoped_organizations
                         and access_token.application
-                        and access_token.application.auth_brand == OAuthApplicationAuthBrand.TWIG.value
+                        and access_token.application.is_first_party
                     ):
                         scoped_teams = list(
                             Team.objects.filter(organization_id__in=scoped_organizations).values_list("pk", flat=True)
