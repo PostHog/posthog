@@ -678,10 +678,9 @@ describe('processAiToolCallExtraction', () => {
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
-    it.each([
-        [
-            'Pydantic AI OTel tool_call parts from stringified JSON',
-            JSON.stringify([
+    it('extracts Pydantic AI OTel tool_call parts from stringified JSON', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: JSON.stringify([
                 {
                     role: 'assistant',
                     parts: [
@@ -701,18 +700,12 @@ describe('processAiToolCallExtraction', () => {
                     ],
                 },
             ]),
-            'get_weather,search_docs',
-            2,
-        ],
-    ])('%s', (_description, outputChoices, expectedToolsCalled, expectedCount) => {
-        const event = createEvent('$ai_generation', {
-            $ai_output_choices: outputChoices,
         })
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe(expectedToolsCalled)
-        expect(result.properties!['$ai_tool_call_count']).toBe(expectedCount)
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather,search_docs')
+        expect(result.properties!['$ai_tool_call_count']).toBe(2)
     })
 
     it('extracts normalized format with content.type=function', () => {
