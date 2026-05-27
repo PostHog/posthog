@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -9,8 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.dependencies import get_authenticated_user
-from llm_gateway.products.config import get_product_config
+from llm_gateway.dependencies import get_authenticated_user, resolve_plan_and_quota
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
@@ -19,9 +17,7 @@ from llm_gateway.services.plan_resolver import (
     PlanResolver,
     is_pro_plan,
     parse_iso_utc,
-    resolve_plan_info,
 )
-from llm_gateway.services.quota_resolver import resolve_quota_status
 
 logger = structlog.get_logger(__name__)
 
@@ -74,18 +70,14 @@ async def get_usage(
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
 
-    plan_info, quota_status = await asyncio.gather(
-        resolve_plan_info(request, user.user_id, product),
-        resolve_quota_status(request, user.team_id),
+    plan_info, quota_status = await resolve_plan_and_quota(
+        request,
+        user_id=user.user_id,
+        team_id=user.team_id,
+        product=product,
     )
     now = datetime.now(tz=UTC)
-
-    # Non-billable products don't actually get denied by BillableCreditThrottle,
-    # so reporting "exhausted" here would be misleading regardless of the team's
-    # AI credits state.
-    product_config = get_product_config(product)
-    is_billable = bool(product_config and product_config.billable)
-    ai_credits_exhausted = quota_status.limited if is_billable else False
+    ai_credits_exhausted = quota_status.limited
 
     context = ThrottleContext(
         user=user,
