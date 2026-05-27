@@ -5,7 +5,7 @@ import datetime as dt
 import posixpath
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 
@@ -28,6 +28,11 @@ from products.batch_exports.backend.service import cancel_running_batch_export_r
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
 LOGGER = structlog.get_logger(__name__)
+_FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
+    # 4 ASCII bytes to fill 32-bit PostgreSQL lock key
+    b"FDBE",
+    byteorder="big",
+)
 
 
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
@@ -220,19 +225,29 @@ class FileDownloadBatchExportOnDemandViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # TODO: Race condition
-        # Concurrent requests could race and exceed the limit.
-        # But the margin in which this would be possible should be small.
-        current_count = BatchExportRun.objects.filter(
-            status__in=(BatchExportRun.Status.STARTING, BatchExportRun.Status.RUNNING),
-            batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
-            batch_export_on_demand__team_id=self.team_id,
-        ).count()
+        with transaction.atomic():
+            # Concurrent requests after the first one to obtain a lock will wait here
+            # until transaction is done. This prevents creating batch exports over the
+            # limit. Note we use our own 32-bit lock key additional to team_id to avoid
+            # conflicts with other parts of the application which may have also
+            # obtained a lock based on team_id.
+            # NOTE: If team_id ever becomes a 64-bit int update this.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(%s::integer, %s::integer)",
+                    (_FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY, self.team_id),
+                )
 
-        if current_count >= settings.BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM:
-            raise TooManyConcurrentFileDownloads()
+            current_count = BatchExportRun.objects.filter(
+                status__in=(BatchExportRun.Status.STARTING, BatchExportRun.Status.RUNNING),
+                batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+                batch_export_on_demand__team_id=self.team_id,
+            ).count()
 
-        instance = serializer.save()
+            if current_count >= settings.BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM:
+                raise TooManyConcurrentFileDownloads()
+
+            instance = serializer.save()
 
         try:
             start_file_download_batch_export(
