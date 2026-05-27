@@ -4087,7 +4087,7 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {

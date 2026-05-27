@@ -32,7 +32,7 @@ class EarlyAccessFeaturesConfig(AppConfig):
             feature_flag = getattr(feature, "feature_flag", None)
             if feature_flag:
                 filters = dict(feature_flag.filters or {})
-                filters["super_groups"] = None
+                filters.pop("super_groups", None)
                 filters["feature_enrollment"] = None
                 feature_flag.filters = filters
                 feature_flag.save(update_fields=["filters"])
