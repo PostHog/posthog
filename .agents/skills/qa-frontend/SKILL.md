@@ -44,10 +44,10 @@ instructions, and explicit user approval in the current conversation.
 2. In PR mode, require a clean working tree before doing anything else.
 3. Require a reachable local stack and working Playwright MCP session. Reuse the
    developer's current setup by default. If PostHog is not reachable, check
-   repo/user instructions and local preferences, infer the likely startup path
-   when it is obvious, then ask the user to confirm before starting anything.
-   If the folder, command, `BASE_URL`, or startup approach is not obvious, ask
-   how they want the stack run.
+   repo/user instructions and local preferences, then ask the user how they
+   want to proceed before starting anything. If a startup command is obvious,
+   you may propose it, but do not treat detached/background startup as the
+   default unless the user or local preferences clearly indicate that.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
 5. Design behavior-focused test cases from the diff, then map each case to a
@@ -245,8 +245,12 @@ is already running:
 
 If PostHog is not reachable, check repo instructions, user memory, local
 preferences, and nearby docs such as `AGENTS.md` for the preferred way to start
-the stack. If the folder and command are obvious, ask the user to confirm that
-specific startup path before running it. If they are not obvious, ask how and
+the stack. Then ask the user how they want to proceed. If the folder and command
+are obvious, you may propose that specific startup path, but present it as an
+inference to confirm rather than the default. Detached/background startup is
+acceptable only when the user chooses it, or when local preferences explicitly
+recommend it for agent-run QA and the user confirms the exact command. If the
+folder, command, `BASE_URL`, or startup approach is not obvious, ask how and
 where the user wants the stack run, or whether to use a different `BASE_URL`.
 Do not mention team-specific env vars unless the user already brought them up.
 
@@ -255,9 +259,10 @@ command approval dialog, or already-approved command prefix is not workflow
 approval; it only authorizes a command after the user has chosen agent-managed
 startup.
 
-If the user approves agent-managed startup, use a repo-recommended
-non-interactive or detached approach for the selected checkout, then set
-`STACK_STARTED_BY_AGENT=1`. Avoid interactive terminal UIs from headless agent
+If the user approves agent-managed startup, run only the exact command or
+startup path they approved, then set `STACK_STARTED_BY_AGENT=1`. Do not switch
+to a different wrapper, checkout, directory, detached mode, or fallback command
+without asking again. Avoid interactive terminal UIs from headless agent
 sessions unless the user explicitly asks for them. Stop only the stack you
 started, and only during cleanup or after user approval.
 
@@ -478,11 +483,13 @@ failure.
 Local mode - no checkout happened; nothing to restore. Leave the run directory
 in place.
 
-If `STACK_STARTED_BY_AGENT=1`, stop the detached stack during cleanup unless
-the user explicitly asked to keep it running:
+If `STACK_STARTED_BY_AGENT=1`, stop only the stack the agent started during
+cleanup unless the user explicitly asked to keep it running. Use the matching
+repo-recommended stop command for the approved startup path. For example, when
+the approved startup path was `bin/hogli up -d`, stop it with:
 
 ```bash
-flox activate -- bin/hogli down -y
+bin/hogli down -y
 ```
 
 If the user started the stack themselves, do not stop or restart it without

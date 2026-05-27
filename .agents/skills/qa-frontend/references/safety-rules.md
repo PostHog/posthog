@@ -56,16 +56,21 @@ reachable, do not start, restart, replace, or wait on a separate stack.
 
 If PostHog is not reachable, check repo instructions, user memory, local
 preferences, and nearby docs such as `AGENTS.md` for the preferred startup path.
-If the folder and command are obvious, ask the user to confirm that specific
-startup path before running it. If they are not obvious, ask how and where the
-user wants the stack run, or whether to use a different `BASE_URL`. Wait for the
-answer.
+Then ask the user how they want to proceed. If the folder and command are
+obvious, you may propose that specific startup path, but present it as an
+inference to confirm rather than the default. Detached/background startup is
+acceptable only when the user chooses it, or when local preferences explicitly
+recommend it for agent-run QA and the user confirms the exact command. If the
+folder, command, `BASE_URL`, or startup approach is not obvious, ask how and
+where the user wants the stack run, or whether to use a different `BASE_URL`.
+Wait for the answer.
 
-When the user explicitly chooses agent startup, use a repo-recommended
-non-interactive or detached approach for the selected checkout. Do not run an
-interactive terminal UI from a headless agent session unless the user explicitly
-asks for it. Stop only the stack the agent started, and do not stop a stack the
-user started themselves unless they explicitly approve.
+When the user explicitly chooses agent startup, run only the exact command or
+startup path they approved. Do not switch to a different wrapper, checkout,
+directory, detached mode, or fallback command without asking again. Do not run
+an interactive terminal UI from a headless agent session unless the user
+explicitly asks for it. Stop only the stack the agent started, and do not stop a
+stack the user started themselves unless they explicitly approve.
 
 After startup, use `_preflight` plus process-specific phrocs MCP checks
 (`backend`, `frontend`, and any target-specific process) as the readiness gate.
