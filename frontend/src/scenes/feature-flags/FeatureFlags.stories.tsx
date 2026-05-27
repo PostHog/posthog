@@ -122,7 +122,7 @@ const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string
                 throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
             }
         },
-        { timeout: 10000 }
+        { timeout: 5000 }
     )
 }
 
