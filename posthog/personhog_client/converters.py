@@ -65,9 +65,7 @@ def proto_person_to_model(
 
     obj = PersonModel(
         id=person.id,
-        # misc fires under GitHub Actions' mypy (uuid field typed str | UUID, expr is UUID | None)
-        # but not under Depot CI's cold-cache run; unused-ignore tolerates the latter.
-        uuid=uuid_mod.UUID(person.uuid) if person.uuid else None,  # type: ignore[misc, unused-ignore]
+        uuid=uuid_mod.UUID(person.uuid) if person.uuid else None,  # type: ignore[misc]
         team_id=person.team_id,
         properties=json.loads(person.properties) if person.properties else {},
         is_identified=person.is_identified,
