@@ -411,7 +411,7 @@ procs:
     mcp:
         shell: 'bin/start-mcp-server'
         capability: mcp_server
-        ready_pattern: 'Ready on *'
+        ready_pattern: '\[MCP\] Server started on'
         groups:
             layer: Product services
             tech: Python
