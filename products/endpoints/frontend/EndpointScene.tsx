@@ -262,16 +262,22 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                                 {endpoint.is_active ? <IconPause /> : <IconPlay />}
                                 {endpoint.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
                             </SceneMenuBarItem>
-                            <SceneMenuBarItem
-                                onClick={toggleMaterializationFromMenu}
-                                data-attr="endpoint-menubar-materialize-toggle"
-                            >
-                                <IconDatabase />
-                                {/* Reflect any unsaved local toggle so the label can't silently flip back. */}
-                                {(isMaterialized ?? viewingVersion?.is_materialized ?? endpoint.is_materialized)
-                                    ? 'Disable materialization'
-                                    : 'Materialize endpoint'}
-                            </SceneMenuBarItem>
+                            {(() => {
+                                const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
+                                const hasUnsavedToggle =
+                                    isMaterialized !== null && isMaterialized !== baseIsMaterialized
+                                const effective = isMaterialized ?? baseIsMaterialized
+                                return (
+                                    <SceneMenuBarItem
+                                        onClick={toggleMaterializationFromMenu}
+                                        disabled={hasUnsavedToggle}
+                                        data-attr="endpoint-menubar-materialize-toggle"
+                                    >
+                                        <IconDatabase />
+                                        {effective ? 'Disable materialization' : 'Materialize endpoint'}
+                                    </SceneMenuBarItem>
+                                )
+                            })()}
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
                                 variant="destructive"
@@ -346,29 +352,27 @@ function OpenEndpointSubMenu({
     allEndpoints: { name: string }[]
     currentEndpointName: string
 }): JSX.Element {
-    const sorted = [...allEndpoints].sort((a, b) => a.name.localeCompare(b.name))
+    const others = allEndpoints
+        .filter((e) => e.name !== currentEndpointName)
+        .sort((a, b) => a.name.localeCompare(b.name))
     return (
         <SceneMenuBarSubMenu label="Open endpoint">
-            {sorted.length === 0 ? (
+            {others.length === 0 ? (
                 <SceneMenuBarItem disabled>
                     <IconEndpoints />
                     No other endpoints
                 </SceneMenuBarItem>
             ) : (
-                sorted.map((e) => {
-                    const isCurrent = e.name === currentEndpointName
-                    return (
-                        <SceneMenuBarItem
-                            key={e.name}
-                            disabled={isCurrent}
-                            onClick={isCurrent ? undefined : () => router.actions.push(urls.endpoint(e.name))}
-                            data-attr={`endpoint-menubar-open-${e.name}`}
-                        >
-                            {isCurrent ? <IconCheck /> : <IconEndpoints />}
-                            {e.name}
-                        </SceneMenuBarItem>
-                    )
-                })
+                others.map((e) => (
+                    <SceneMenuBarItem
+                        key={e.name}
+                        onClick={() => router.actions.push(urls.endpoint(e.name))}
+                        data-attr={`endpoint-menubar-open-${e.name}`}
+                    >
+                        <IconEndpoints />
+                        {e.name}
+                    </SceneMenuBarItem>
+                ))
             )}
             <SceneMenuBarSeparator />
             <SceneMenuBarItem
