@@ -7,12 +7,11 @@ describe('applyKindFilter', () => {
         events: [{ id: '$health_check_issue_firing', type: 'events' }],
     }
 
-    it('returns filters unchanged when selectedKinds is null', () => {
-        expect(applyKindFilter(baseFilters, null)).toBe(baseFilters)
-    })
-
-    it('returns filters unchanged when selectedKinds is empty', () => {
-        expect(applyKindFilter(baseFilters, [])).toBe(baseFilters)
+    it.each([
+        ['null', null],
+        ['an empty array', [] as string[]],
+    ])('returns filters unchanged when selectedKinds is %s', (_, kinds) => {
+        expect(applyKindFilter(baseFilters, kinds)).toBe(baseFilters)
     })
 
     it('returns undefined when base filters are undefined', () => {
