@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, ErrorTrackingQuery
 
 from posthog.clickhouse.client import sync_execute
@@ -32,8 +34,14 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
                 materialize("events", property_name)
         super().setUpClass()
 
+    @parameterized.expand(
+        [
+            ("v1", False),
+            ("v3", True),
+        ]
+    )
     @freeze_time("2026-05-22T12:00:00Z")
-    def test_error_tracking_seeded_events_survive_person_filters(self) -> None:
+    def test_error_tracking_seeded_events_survive_person_filters(self, _query_version: str, use_query_v3: bool) -> None:
         test_users_cohort = get_or_create_internal_test_users_cohort(
             self.team, initiating_user_email="eval-master-seed@posthog.test"
         )
@@ -56,6 +64,15 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.id, "distinct_ids": list(_EVAL_DISTINCT_IDS)},
         )
         assert {row[0] for row in person_rows} == set(_EVAL_DISTINCT_IDS)
+        issue_state_rows = sync_execute(
+            """
+            SELECT issue_id
+            FROM error_tracking_fingerprint_issue_state
+            WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.id},
+        )
+        assert {str(row[0]) for row in issue_state_rows} == {item["id"] for item in seed["lookup_issues"]}
 
         response = (
             ErrorTrackingQueryRunner(
@@ -67,7 +84,8 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
                     searchQuery="team-invite TypeError",
                     filterTestAccounts=True,
                     orderBy="occurrences",
-                    volumeResolution=0,
+                    volumeResolution=1,
+                    useQueryV3=use_query_v3 or None,
                     withAggregations=True,
                     withFirstEvent=False,
                     withLastEvent=False,

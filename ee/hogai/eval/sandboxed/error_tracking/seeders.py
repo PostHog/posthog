@@ -8,6 +8,8 @@ Owns the entire error-tracking surface for a per-case team:
     around to confuse the agent.
   * Creates deterministic ``ErrorTrackingIssue`` PSQL rows with
     fresh UUIDs and matching ``ErrorTrackingIssueFingerprintV2`` rows.
+  * Writes matching ``error_tracking_fingerprint_issue_state`` rows directly to
+    ClickHouse so V3 queries don't depend on the async Kafka/backfill path.
   * Creates matching ClickHouse person rows for the synthetic distinct IDs so
     person joins and test-account filters can't drop seeded events.
   * Writes the matching ``$exception`` events directly to ClickHouse so
@@ -32,11 +34,13 @@ from zoneinfo import ZoneInfo
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.sql import INSERT_EVENT_SQL
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +245,30 @@ def _insert_exception_event(
     )
 
 
+def _insert_fingerprint_issue_state(
+    *,
+    issue: ErrorTrackingIssue,
+    fingerprint: ErrorTrackingIssueFingerprintV2,
+) -> None:
+    first_seen = fingerprint.first_seen or issue.created_at
+    sync_execute(
+        INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+        {
+            "fingerprint": fingerprint.fingerprint,
+            "issue_id": str(issue.id),
+            "team_id": issue.team_id,
+            "issue_name": issue.name,
+            "issue_description": issue.description,
+            "issue_status": issue.status,
+            "assigned_user_id": None,
+            "assigned_role_id": None,
+            "first_seen": format_clickhouse_timestamp(first_seen) if first_seen else None,
+            "is_deleted": 0,
+            "version": int(fingerprint.created_at.timestamp() * 1000),
+        },
+    )
+
+
 def _insert_session_replay_summary(
     *,
     team: Team,
@@ -304,17 +332,18 @@ def seed_error_tracking_issues(context: _ErrorTrackingSeedContext) -> dict[str, 
 
     for spec in _ISSUE_SPECS:
         issue_id = str(uuid7())
-        ErrorTrackingIssue.objects.create(
+        issue = ErrorTrackingIssue.objects.create(
             id=issue_id,
             team=team,
             name=spec["name"],
             status=spec.get("status", ErrorTrackingIssue.Status.ACTIVE),
         )
-        ErrorTrackingIssueFingerprintV2.objects.create(
+        fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
             team=team,
             issue_id=issue_id,
             fingerprint=spec["fingerprint"],
         )
+        _insert_fingerprint_issue_state(issue=issue, fingerprint=fingerprint)
 
         for index, days_ago in enumerate(spec["days_ago"]):
             distinct_id = _EVAL_DISTINCT_IDS[index % len(_EVAL_DISTINCT_IDS)]
