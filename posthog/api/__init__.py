@@ -142,6 +142,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
+from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
@@ -167,7 +168,6 @@ from . import (
     hog_function,
     hog_function_template,
     ingestion_warnings,
-    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -371,6 +371,14 @@ router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Seats (proxied to billing service)
 router.register(r"seats", seats.SeatViewSet, "seats")
+
+# Quota limits (project-scoped — backs the LLM gateway's QuotaResolver)
+projects_router.register(
+    r"quota_limits",
+    QuotaLimitsViewSet,
+    "project_quota_limits",
+    ["team_id"],
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -837,11 +845,12 @@ router.register(r"query_performance_proxy", QueryPerformanceProxyViewSet, "query
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
-from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
 from products.actions.backend.api.action import ActionViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight import InsightViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -1278,7 +1287,7 @@ register_grandfathered_environment_nested_viewset(
 
 register_grandfathered_environment_nested_viewset(
     r"insight_variables",
-    insight_variable.InsightVariableViewSet,
+    InsightVariableViewSet,
     "environment_insight_variables",
     ["team_id"],
 )

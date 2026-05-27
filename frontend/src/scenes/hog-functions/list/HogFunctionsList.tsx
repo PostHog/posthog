@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconBell } from '@posthog/icons'
@@ -90,14 +90,17 @@ function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType 
     )
 }
 
-const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+// `returnTo` only applies to the canonical hog-function path; legacy plugin and
+// batch-export scenes don't read it.
+export const urlForHogFunction = (hogFunction: HogFunctionType, returnTo?: string): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
     }
     if (hogFunction.id.startsWith('batch-export-')) {
         return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
     }
-    return urls.hogFunction(hogFunction.id)
+    const path = urls.hogFunction(hogFunction.id)
+    return returnTo ? combineUrl(path, { returnTo }).url : path
 }
 
 export function HogFunctionList({
@@ -106,6 +109,7 @@ export function HogFunctionList({
     emptyText,
     onDeleteHogFunction,
     onEditHogFunction,
+    returnTo,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
@@ -113,6 +117,7 @@ export function HogFunctionList({
     emptyText?: string
     onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
     onEditHogFunction?: (hogFunction: HogFunctionType) => void
+    returnTo?: string
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -152,7 +157,7 @@ export function HogFunctionList({
                 render: (_, hogFunction) => {
                     return (
                         <LemonTableLink
-                            to={urlForHogFunction(hogFunction)}
+                            to={urlForHogFunction(hogFunction, returnTo)}
                             onClick={onEditHogFunction ? () => onEditHogFunction(hogFunction) : undefined}
                             title={
                                 <>
@@ -239,7 +244,7 @@ export function HogFunctionList({
                                                   // TRICKY: Hack for now to just link out to the full view
                                                   {
                                                       label: 'View & configure',
-                                                      to: urlForHogFunction(hogFunction),
+                                                      to: urlForHogFunction(hogFunction, returnTo),
                                                   },
                                               ]
                                             : [
@@ -295,6 +300,7 @@ export function HogFunctionList({
         isManualFunction,
         onDeleteHogFunction,
         onEditHogFunction,
+        returnTo,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

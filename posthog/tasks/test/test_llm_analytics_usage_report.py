@@ -18,6 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
 from posthog.tasks.llm_analytics_usage_report import (
+    LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
     _get_all_llm_analytics_reports,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
@@ -122,7 +123,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
         # Get all metrics in one query
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
@@ -203,7 +204,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             properties={},
         )
 
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
 
         assert self.team.id in all_metrics
@@ -249,7 +250,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             properties={},
         )
 
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
 
         assert self.team.id in all_metrics
@@ -304,7 +305,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
         # Get dimension breakdowns using the new combined function
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
@@ -383,7 +384,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
         # Get dimension breakdowns using the new combined function
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
@@ -458,7 +459,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Need AI events so get_teams_with_ai_events finds this team
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
 
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
 
         assert self.team.id in survey_metrics
@@ -861,7 +862,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
         # Get dimension breakdowns using the new combined function
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
@@ -918,7 +919,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         self._create_ai_events(team_4, distinct_id_4, "$llm_prompt_fetched", 1)
 
         # Get teams with trigger events
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
         # Verify correct teams are returned
         assert self.team.id in team_ids
@@ -947,7 +948,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         self._create_ai_events(team_2, distinct_id_2, "$ai_generation", 7)
         self._create_ai_events(team_3, distinct_id_3, "$ai_generation", 3)
 
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
         prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
 
         assert prompt_fetched_counts[self.team.id] == 4
@@ -1107,7 +1108,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         if no_key_count:
             self._create_ai_events(self.team, distinct_id, "$ai_evaluation", no_key_count)
 
-        team_ids = get_teams_with_ai_events(period_start, period_end)
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
 
         total = posthog_count + byok_count + no_key_count
