@@ -135,13 +135,14 @@ async def _handle_partial_data_loading(
         if modified_files:
             logger.warning(
                 "Found modified files during first sync, skipping partial data loading",
+                batch_index=export_signal.batch_index,
                 modified_count=len(modified_files),
             )
             capture_exception(Exception(f"Found {len(modified_files)} modified delta files during first sync"))
             return
 
     if not new_file_uris:
-        logger.debug("No new files to make queryable")
+        logger.debug("No new files to make queryable", batch_index=export_signal.batch_index)
         return
 
     logger.debug(
@@ -171,7 +172,11 @@ async def _handle_partial_data_loading(
         primary_keys=export_signal.primary_keys,
     )
 
-    logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)
+    logger.debug(
+        "partial_data_loading_complete",
+        batch_index=export_signal.batch_index,
+        queryable_folder=queryable_folder,
+    )
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
@@ -204,7 +209,11 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         delta_table = await delta_table_helper.get_delta_table()
         if delta_table is None:
-            logger.error("no_delta_table_for_post_load", job_id=export_signal.job_id)
+            logger.error(
+                "no_delta_table_for_post_load",
+                job_id=export_signal.job_id,
+                batch_index=export_signal.batch_index,
+            )
             return
 
         pa_table = read_parquet(export_signal.s3_path)
@@ -359,6 +368,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
         logger.debug(
             "parquet_file_read",
+            batch_index=export_signal.batch_index,
             s3_path=export_signal.s3_path,
             num_rows=pa_table.num_rows,
             num_columns=pa_table.num_columns,
@@ -512,6 +522,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         if export_signal.is_final_batch:
             logger.info(
                 "final_batch_received",
+                batch_index=export_signal.batch_index,
                 total_batches=export_signal.total_batches,
                 total_rows=export_signal.total_rows,
                 cdc_write_mode=export_signal.cdc_write_mode,

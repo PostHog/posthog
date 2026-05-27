@@ -162,6 +162,8 @@ class BatchConsumer:
                         "shutdown_mid_group",
                         team_id=team_id,
                         schema_id=schema_id,
+                        batch_id=batch.id,
+                        batch_index=batch.batch_index,
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
@@ -236,6 +238,7 @@ class BatchConsumer:
                 "batch_max_retries_exceeded",
                 batch_id=batch.id,
                 run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
                 attempt=attempt,
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
@@ -290,6 +293,7 @@ class BatchConsumer:
                     "batch_failed_no_retries_left",
                     batch_id=batch.id,
                     run_uuid=batch.run_uuid,
+                    batch_index=batch.batch_index,
                     attempt=attempt,
                 )
                 await self._fail_run(batch, reason=f"max retries exceeded: {e}")
@@ -297,6 +301,7 @@ class BatchConsumer:
                 logger.warning(
                     "batch_failed_will_retry",
                     batch_id=batch.id,
+                    batch_index=batch.batch_index,
                     attempt=attempt,
                     error=str(e),
                 )
@@ -388,12 +393,14 @@ class BatchConsumer:
                 if batch.latest_attempt >= self._config.max_attempts:
                     logger.warning(
                         "batch_recovered_max_retries_exceeded",
+                        batch_index=batch.batch_index,
                         attempt=batch.latest_attempt,
                     )
                     await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
                 else:
                     logger.warning(
                         "batch_recovered_for_retry",
+                        batch_index=batch.batch_index,
                         attempt=batch.latest_attempt,
                     )
                     await BatchQueue.update_status(
