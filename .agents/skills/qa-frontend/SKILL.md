@@ -43,10 +43,11 @@ instructions, and explicit user approval in the current conversation.
 1. Decide mode (PR vs local) from the user prompt and presence of a PR ref.
 2. In PR mode, require a clean working tree before doing anything else.
 3. Require a reachable local stack and working Playwright MCP session. Reuse the
-   developer's current setup by default. If PostHog is not reachable, always ask
-   before starting or restarting anything. If the correct repo, branch,
-   checkout, base ref, service URL, or startup command is unclear, ask the user
-   and respect their local preferences.
+   developer's current setup by default. If PostHog is not reachable, check
+   repo/user instructions and local preferences, infer the likely startup path
+   when it is obvious, then ask the user to confirm before starting anything.
+   If the folder, command, `BASE_URL`, or startup approach is not obvious, ask
+   how they want the stack run.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
 5. Design behavior-focused test cases from the diff, then map each case to a
@@ -242,11 +243,17 @@ is already running:
 - `mcp__phrocs__get_process_status(process="backend")`
 - `mcp__phrocs__get_process_status(process="frontend")`
 
-If PostHog is not reachable, ask before starting or restarting anything. The
-user may want to start it themselves, provide another `BASE_URL`, or approve
-agent-managed startup. If the right startup command is unclear, ask what they
-prefer and consult repo/user instructions instead of hardcoding a workflow. Do
-not mention team-specific env vars unless the user already brought them up.
+If PostHog is not reachable, check repo instructions, user memory, local
+preferences, and nearby docs such as `AGENTS.md` for the preferred way to start
+the stack. If the folder and command are obvious, ask the user to confirm that
+specific startup path before running it. If they are not obvious, ask how and
+where the user wants the stack run, or whether to use a different `BASE_URL`.
+Do not mention team-specific env vars unless the user already brought them up.
+
+Ask in chat and stop until the user answers. A sandbox escalation prompt,
+command approval dialog, or already-approved command prefix is not workflow
+approval; it only authorizes a command after the user has chosen agent-managed
+startup.
 
 If the user approves agent-managed startup, use a repo-recommended
 non-interactive or detached approach for the selected checkout, then set

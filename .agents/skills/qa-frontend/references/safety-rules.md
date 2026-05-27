@@ -45,22 +45,27 @@ Ask for explicit approval in the current conversation before:
 
 Read-only GitHub and git inspection commands are allowed.
 
+Tool permission prompts are not workflow approval. When a rule says to ask, ask
+in the conversation and wait for the user's answer before calling any command
+that performs the action.
+
 ## Local Stack Control
 
 Reuse the developer's existing local setup by default. If `BASE_URL` is already
 reachable, do not start, restart, replace, or wait on a separate stack.
 
-If PostHog is not reachable, ask before starting or restarting anything. The
-user may want to start it themselves, provide another `BASE_URL`, or approve
-agent-managed startup. If it is unclear where or how to start the service, ask
-what they prefer and consult repo/user instructions instead of hardcoding one
-workflow.
+If PostHog is not reachable, check repo instructions, user memory, local
+preferences, and nearby docs such as `AGENTS.md` for the preferred startup path.
+If the folder and command are obvious, ask the user to confirm that specific
+startup path before running it. If they are not obvious, ask how and where the
+user wants the stack run, or whether to use a different `BASE_URL`. Wait for the
+answer.
 
-When the user approves agent startup, use a repo-recommended non-interactive or
-detached approach for the selected checkout. Do not run an interactive terminal
-UI from a headless agent session unless the user explicitly asks for it. Stop
-only the stack the agent started, and do not stop a stack the user started
-themselves unless they explicitly approve.
+When the user explicitly chooses agent startup, use a repo-recommended
+non-interactive or detached approach for the selected checkout. Do not run an
+interactive terminal UI from a headless agent session unless the user explicitly
+asks for it. Stop only the stack the agent started, and do not stop a stack the
+user started themselves unless they explicitly approve.
 
 After startup, use `_preflight` plus process-specific phrocs MCP checks
 (`backend`, `frontend`, and any target-specific process) as the readiness gate.
