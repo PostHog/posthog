@@ -13,6 +13,10 @@ Required environment variable:
 CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
 ```
 
+PostHog developers can add `CLOUDINARY_URL` to their local repo `.env` from the
+internal 1Password entry if they have access. Never print the value or paste it
+into chat, logs, artifacts, or PR comments.
+
 The upload script loads the repo `.env` through `python-dotenv`, so no manual
 sourcing is needed when invoking it through `uv run`.
 
