@@ -380,17 +380,20 @@ export function ValueLabels({
         [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
-    // Don't lift when multiple labels share a dataIndex (grouped bars) — we can't tell
-    // which bar the cursor is on from hoverIndex alone, so lifting all of them is worse
-    // than lifting none.
+    // Skip the lift when a dataIndex has labels at multiple distinct x positions
+    // (grouped bars) — hoverIndex can't disambiguate which bar the cursor is on, so
+    // lifting all of them is worse than lifting none. Labels sharing the same x
+    // (stacked / multi-series at band center) are one visual column and lift together.
     const liftableIndices = useMemo(() => {
-        const counts = new Map<number, number>()
+        const xsByIndex = new Map<number, Set<number>>()
         for (const c of visible) {
-            counts.set(c.dataIndex, (counts.get(c.dataIndex) ?? 0) + 1)
+            const xs = xsByIndex.get(c.dataIndex) ?? new Set<number>()
+            xs.add(Math.round(c.x))
+            xsByIndex.set(c.dataIndex, xs)
         }
         const set = new Set<number>()
-        for (const [dIdx, count] of counts) {
-            if (count === 1) {
+        for (const [dIdx, xs] of xsByIndex) {
+            if (xs.size === 1) {
                 set.add(dIdx)
             }
         }
