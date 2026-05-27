@@ -1,22 +1,22 @@
 # PR Comment Template
 
 Post one comment per completed run. Do not edit the PR body. The template
-mirrors the MCP Report style from the sibling qa-swarm skill so reviewers
-recognize both reports as one product.
+uses a compact PostHog QA Frontend format so reviewers can scan verdict,
+coverage, and findings quickly.
 
 ## Banner
 
-Every comment starts and ends with the QA Swarm brand. Top banner is a
+Every comment starts and ends with the QA Frontend brand. Top banner is a
 level-2 heading:
 
 ```markdown
-## 🦔 PostHog QA Swarm · Frontend Report
+## PostHog QA Frontend Report
 ```
 
 Bottom footer is a small subscript line at the end of the comment:
 
 ```markdown
-<sub>🦔 PostHog QA Swarm · Frontend Report</sub>
+<sub>PostHog QA Frontend Report</sub>
 ```
 
 ## Verdict Line
@@ -25,11 +25,11 @@ Immediately under the banner, render a single line with the verdict, pass
 count, runtime, and tested commit:
 
 ```text
-**🟢 PASS** · 3/3 · 5m21s · commit `<sha7>`
-**🟡 FIXED** · 3/3 · 6m04s · commit `<sha7>` · 1 high-sev auto-fixed
-**🔴 FAIL** · 1/3 · 5m48s · commit `<sha7>` · 2 reported, no autonomous push
-**🟣 NEEDS-INTENT** · 2/3 · 4m55s · commit `<sha7>` · 1 behavior needs product intent
-**🟠 REPORT-ONLY** · 3/3 · 4m12s · commit `<sha7>` · fork PR, suggested patches only
+**PASS** · 3/3 · 5m21s · commit `<sha7>`
+**FIXED** · 3/3 · 6m04s · commit `<sha7>` · 1 high-sev auto-fixed
+**FAIL** · 1/3 · 5m48s · commit `<sha7>` · 2 reported, no autonomous push
+**NEEDS-INTENT** · 2/3 · 4m55s · commit `<sha7>` · 1 behavior needs product intent
+**REPORT-ONLY** · 3/3 · 4m12s · commit `<sha7>` · fork PR, suggested patches only
 ```
 
 Underneath, a single blockquote TL;DR sentence in the same tone as the MCP
@@ -48,24 +48,24 @@ wrapper - reviewers must see what was exercised vs skipped at a glance.
 ```markdown
 **Coverage**
 
-| Target           | Action                                            | Result |
-| ---------------- | ------------------------------------------------- | ------ |
-| `/dashboard/:id` | Loaded scene, clicked Save                        | ✅     |
-| `/insights/new`  | Created trend, switched breakdown                 | ✅     |
-| `/surveys/new`   | Needs intent · template selection skips Questions | ❓     |
-| `/billing`       | Coverage gap · blocked by auth boundary           | ⏭     |
+| Target           | Action                                            | Result       |
+| ---------------- | ------------------------------------------------- | ------------ |
+| `/dashboard/:id` | Loaded scene, clicked Save                        | PASS         |
+| `/insights/new`  | Created trend, switched breakdown                 | PASS         |
+| `/surveys/new`   | Needs intent · template selection skips Questions | NEEDS INTENT |
+| `/billing`       | Coverage gap · blocked by auth boundary           | SKIP         |
 ```
 
-Result symbols: `✅` passed, `❌` failed, `⏭` skipped/coverage gap, `🛠`
-fixed (use only when a fix landed on this target), `❓` expected behavior needs
-intent.
+Result values: `PASS` passed, `FAIL` failed, `SKIP` skipped/coverage gap,
+`FIXED` fixed (use only when a fix landed on this target), `NEEDS INTENT`
+expected behavior needs intent.
 
 Coverage gaps from route-finding or the frontend QA loop must appear as their
-own row with the "Coverage gap · `<reason>`" action and the `⏭` symbol. Do not
+own row with the "Coverage gap · `<reason>`" action and the `SKIP` symbol. Do not
 relegate them to a footer.
 
 Intent gaps must also appear as their own row with the "Needs intent ·
-`<observed behavior>`" action and the `❓` symbol. Use this when the browser
+`<observed behavior>`" action and the `NEEDS INTENT` symbol. Use this when the browser
 confirmed a behavior, but the expected outcome could not be established from
 base behavior, tests, product copy, surrounding invariants, or user
 confirmation.
@@ -76,7 +76,7 @@ One-line value pitch under the coverage table when the run actually saved
 work. Skip on clean runs that found nothing.
 
 ```markdown
-**Effort saved** · 🎯 1 High caught · ⏱ ~15 min of manual QA
+**Effort saved** · 1 High caught · ~15 min of manual QA
 ```
 
 The time estimate should reflect how long a developer would realistically
@@ -97,20 +97,20 @@ level-3 section with a status suffix:
 ```markdown
 ---
 
-### 🐛 Finding 1 · auto-fixed in `<sha>`
+### Finding 1 · auto-fixed in `<sha>`
 
-### 🐛 Finding 2 · reported, no autonomous fix
+### Finding 2 · reported, no autonomous fix
 
-### 🐛 Finding 3 · suggested patch (out of PR diff)
+### Finding 3 · suggested patch (out of PR diff)
 
-### ❓ Needs intent 1 · product behavior unclear
+### Needs intent 1 · product behavior unclear
 ```
 
 Finding body has six blocks in order. The full block layout for one
 finding (substitute your own values):
 
 ````markdown
-### 🐛 Finding 1 · auto-fixed in `<sha>`
+### Finding 1 · auto-fixed in `<sha>`
 
 **`Save button in dashboard header does not fire onClick`**
 
@@ -140,10 +140,10 @@ got:      no UI change, no network call, no console error
 - ![still](<cloudinary url>)
 
 <details>
-<summary>📜 Fix cycle</summary>
+<summary>Fix cycle</summary>
 
-- **re-run** · ✅ · 0m52s · `<sha>` - verified fix
-- **initial** · ❌ · 2m38s · `<prev sha>` - bug found
+- **re-run** · PASS · 0m52s · `<sha>` - verified fix
+- **initial** · FAIL · 2m38s · `<prev sha>` - bug found
 
 </details>
 ````
@@ -161,7 +161,7 @@ what was observed, why the run cannot decide if it is intended, and the question
 reviewers should answer:
 
 ````markdown
-### ❓ Needs intent 1 · product behavior unclear
+### Needs intent 1 · product behavior unclear
 
 **`Template selection skips the Questions step`**
 
@@ -203,9 +203,9 @@ suggested patch:
 ## Full PASS example
 
 ```markdown
-## 🦔 PostHog QA Swarm · Frontend Report
+## PostHog QA Frontend Report
 
-**🟢 PASS** · 3/3 · 4m38s · commit `c03b5177`
+**PASS** · 3/3 · 4m38s · commit `c03b5177`
 
 > Exercised the new sources-table per-status counts; mixed-status and
 > all-completed states render correctly. No regressions in adjacent flows.
@@ -214,21 +214,21 @@ suggested patch:
 
 | Target              | Action                                | Result |
 | ------------------- | ------------------------------------- | ------ |
-| `/data-warehouse`   | Loaded sources, scanned status pills  | ✅     |
-| `/data-warehouse?…` | Filtered to "completed" only          | ✅     |
-| `/data-warehouse/X` | Drilled into source, verified schemas | ✅     |
+| `/data-warehouse`   | Loaded sources, scanned status pills  | PASS   |
+| `/data-warehouse?…` | Filtered to "completed" only          | PASS   |
+| `/data-warehouse/X` | Drilled into source, verified schemas | PASS   |
 
-**Effort saved** · ⏱ ~10 min of manual QA
+**Effort saved** · ~10 min of manual QA
 
-<sub>🦔 PostHog QA Swarm · Frontend Report</sub>
+<sub>PostHog QA Frontend Report</sub>
 ```
 
 ## Full FIXED example
 
 ````markdown
-## 🦔 PostHog QA Swarm · Frontend Report
+## PostHog QA Frontend Report
 
-**🟡 FIXED** · 3/3 · 5m21s · commit `8b36c7b5` · 1 medium-sev auto-fixed
+**FIXED** · 3/3 · 5m21s · commit `8b36c7b5` · 1 medium-sev auto-fixed
 
 > Found a wrong-source-field bug in the new Duplicate action;
 > duplicate's title was rendering as just " (copy)". Fixed and re-verified.
@@ -237,15 +237,15 @@ suggested patch:
 
 | Target         | Action                                    | Result |
 | -------------- | ----------------------------------------- | ------ |
-| `/surveys/new` | Added Q2, clicked Duplicate on Q1         | 🛠     |
-| `/surveys/new` | Verified copy title after fix             | ✅     |
-| `/surveys/new` | Edited duplicate's choices, no leak to Q1 | ✅     |
+| `/surveys/new` | Added Q2, clicked Duplicate on Q1         | FIXED  |
+| `/surveys/new` | Verified copy title after fix             | PASS   |
+| `/surveys/new` | Edited duplicate's choices, no leak to Q1 | PASS   |
 
-**Effort saved** · 🎯 1 Medium caught · ⏱ ~15 min of manual QA
+**Effort saved** · 1 Medium caught · ~15 min of manual QA
 
 ---
 
-### 🐛 Finding 1 · auto-fixed in `8b36c7b5`
+### Finding 1 · auto-fixed in `8b36c7b5`
 
 **`Duplicate question's title is built from the wrong field`**
 
@@ -275,14 +275,14 @@ got:      new Question 2 titled " (copy)" - empty title with stray space
 - ![still](https://res.cloudinary.com/.../qa-posthog-pr58541-…-still.png)
 
 <details>
-<summary>📜 Fix cycle</summary>
+<summary>Fix cycle</summary>
 
-- **re-run** · ✅ · 0m44s · `8b36c7b5` - verified fix
-- **initial** · ❌ · 2m11s · `e94bff0` - empty-title bug found
+- **re-run** · PASS · 0m44s · `8b36c7b5` - verified fix
+- **initial** · FAIL · 2m11s · `e94bff0` - empty-title bug found
 
 </details>
 
-<sub>🦔 PostHog QA Swarm · Frontend Report</sub>
+<sub>PostHog QA Frontend Report</sub>
 ````
 
 ## Evidence URLs

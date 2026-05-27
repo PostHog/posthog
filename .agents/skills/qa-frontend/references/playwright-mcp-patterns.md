@@ -32,6 +32,18 @@ as an infrastructure blocker, not a QA result.
 Do not delete browser profile data or close the user's visible browser windows
 without explicit approval.
 
+## Browser Session Cleanup
+
+At the end of the QA run, close the browser automation session if the browser or
+Playwright MCP exposes a close-page, close-context, close-browser, or end-session
+action. This prevents stale Chromium sessions from holding profile locks or
+confusing later QA attempts.
+
+Do not close the user's visible browser windows. If a stale headless Chromium
+process from a previous agent blocks the run and no MCP close action is
+available, ask before killing it, and target only agent-started browser
+processes.
+
 ## Snapshot Use
 
 Start with the default snapshot. Deepen or scroll only when:

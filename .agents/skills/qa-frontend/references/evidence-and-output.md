@@ -112,9 +112,9 @@ composing the comment or local report. Do not improvise from memory.
 
 Before posting or printing, sanity-check the rendered report:
 
-- First line is `## 🦔 PostHog QA Swarm · Frontend Report`.
+- First line is `## PostHog QA Frontend Report`.
 - Second line is a verdict line matching one of the templates.
-- Last line is `<sub>🦔 PostHog QA Swarm · Frontend Report</sub>`.
+- Last line is `<sub>PostHog QA Frontend Report</sub>`.
 
 If any of these are missing, read the template again and re-render.
 

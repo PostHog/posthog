@@ -44,10 +44,9 @@ instructions, and explicit user approval in the current conversation.
 2. In PR mode, require a clean working tree before doing anything else.
 3. Require a reachable local stack and working Playwright MCP session. Reuse the
    developer's current setup by default. If PostHog is not reachable, check
-   repo/user instructions and local preferences, then ask the user how they
-   want to proceed before starting anything. If a startup command is obvious,
-   you may propose it, but do not treat detached/background startup as the
-   default unless the user or local preferences clearly indicate that.
+   user memory/settings and local preferences first, then repo guidance. Always
+   ask the user before starting PostHog. If a startup command is obvious, you
+   may propose it, including whether it runs interactively or in the background.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
 5. Design behavior-focused test cases from the diff, then map each case to a
@@ -243,28 +242,30 @@ is already running:
 - `mcp__phrocs__get_process_status(process="backend")`
 - `mcp__phrocs__get_process_status(process="frontend")`
 
-If PostHog is not reachable, check repo instructions, user memory, local
-preferences, and nearby docs such as `AGENTS.md` for the preferred way to start
-the stack. Then ask the user how they want to proceed. If the folder and command
-are obvious, you may propose that specific startup path, but present it as an
-inference to confirm rather than the default. Detached/background startup is
-acceptable only when the user chooses it, or when local preferences explicitly
-recommend it for agent-run QA and the user confirms the exact command. If the
-folder, command, `BASE_URL`, or startup approach is not obvious, ask how and
-where the user wants the stack run, or whether to use a different `BASE_URL`.
-Do not mention team-specific env vars unless the user already brought them up.
+If PostHog is not reachable, check user memory/settings and local preferences
+first, then repo guidance and nearby docs such as `AGENTS.md` for the preferred
+way to start the stack. Then ask the user how they want to proceed before
+starting PostHog. If the folder and command are obvious, you may propose that
+specific startup path, including whether it runs interactively or in the
+background, but present it as an inference to confirm. If the folder, command,
+`BASE_URL`, or startup approach is not obvious, ask how and where the user wants
+the stack run, or whether to use a different `BASE_URL`. Do not mention
+team-specific env vars unless the user already brought them up.
 
 Ask in chat and stop until the user answers. A sandbox escalation prompt,
 command approval dialog, or already-approved command prefix is not workflow
 approval; it only authorizes a command after the user has chosen agent-managed
 startup.
 
-If the user approves agent-managed startup, run only the exact command or
-startup path they approved, then set `STACK_STARTED_BY_AGENT=1`. Do not switch
-to a different wrapper, checkout, directory, detached mode, or fallback command
-without asking again. Avoid interactive terminal UIs from headless agent
-sessions unless the user explicitly asks for them. Stop only the stack you
-started, and only during cleanup or after user approval.
+If the user approves agent-managed startup, run the approved startup path and
+set `STACK_STARTED_BY_AGENT=1`. If the command fails because the shell is
+missing repo dependencies or the global command is not on `PATH`, follow repo
+guidance for the same startup intent, for example a repo-local wrapper or an
+environment wrapper such as `flox`. Announce the fallback. Ask again before
+changing checkout, directory, startup mode, deleting lock files, or starting a
+different stack. Avoid interactive terminal UIs from headless agent sessions
+unless the user explicitly asks for them. Stop only the stack you started, and
+only during cleanup or after user approval.
 
 After startup, check:
 
@@ -482,6 +483,14 @@ failure.
 
 Local mode - no checkout happened; nothing to restore. Leave the run directory
 in place.
+
+After the final report is written, end the browser automation session if the
+browser or Playwright MCP exposes a close-page, close-context, close-browser, or
+end-session action. This prevents stale Chromium sessions from blocking later QA
+runs. Do not close the user's visible browser windows. If a stale headless
+Chromium process from a previous agent blocks the run and no MCP close action is
+available, ask the user before killing it, and target only agent-started browser
+processes.
 
 If `STACK_STARTED_BY_AGENT=1`, stop only the stack the agent started during
 cleanup unless the user explicitly asked to keep it running. Use the matching
