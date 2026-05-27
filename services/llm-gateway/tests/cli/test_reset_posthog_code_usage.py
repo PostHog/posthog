@@ -62,3 +62,41 @@ class TestResetUsage:
         assert deleted == 1
         for k in survivors:
             assert await redis.get(k) is not None
+
+    async def test_user_id_resets_only_that_user(self, redis: fakeredis.FakeRedis) -> None:
+        target_keys = [
+            "ratelimit:cost:user:user_cost_burst:posthog_code:100",
+            "ratelimit:cost:user:user_cost_sustained:posthog_code:100:period:0",
+            "ratelimit:cost:user:user_cost_burst:posthog_code:100:tm2",
+            "ratelimit:cost:user:user_cost_sustained:posthog_code:100:tm2:period:1",
+        ]
+        # Other users — including one whose id is a prefix of the target's id (1 vs 100)
+        # and one whose id starts with the target's id (1000 vs 100).
+        other_keys = [
+            "ratelimit:cost:user:user_cost_burst:posthog_code:1",
+            "ratelimit:cost:user:user_cost_sustained:posthog_code:1:period:0",
+            "ratelimit:cost:user:user_cost_burst:posthog_code:1000",
+            "ratelimit:cost:user:user_cost_sustained:posthog_code:1000:period:0",
+            "ratelimit:cost:user:user_cost_burst:posthog_code:200",
+        ]
+        for k in target_keys + other_keys:
+            await redis.set(k, "1.0")
+
+        deleted = await reset_usage(redis, dry_run=False, user_id="100")
+
+        assert deleted == len(target_keys)
+        for k in target_keys:
+            assert await redis.get(k) is None
+        for k in other_keys:
+            assert await redis.get(k) is not None
+
+    async def test_user_id_dry_run_counts_without_deleting(self, redis: fakeredis.FakeRedis) -> None:
+        await redis.set("ratelimit:cost:user:user_cost_burst:posthog_code:100", "1.0")
+        await redis.set("ratelimit:cost:user:user_cost_sustained:posthog_code:100:period:0", "1.0")
+        await redis.set("ratelimit:cost:user:user_cost_burst:posthog_code:200", "1.0")
+
+        deleted = await reset_usage(redis, dry_run=True, user_id="100")
+
+        assert deleted == 2
+        assert await redis.get("ratelimit:cost:user:user_cost_burst:posthog_code:100") is not None
+        assert await redis.get("ratelimit:cost:user:user_cost_burst:posthog_code:200") is not None
