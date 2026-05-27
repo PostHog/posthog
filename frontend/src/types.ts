@@ -5588,6 +5588,7 @@ export enum ActivityScope {
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    INSTANCE_SETTING = 'InstanceSetting',
 }
 
 export type CommentType = {

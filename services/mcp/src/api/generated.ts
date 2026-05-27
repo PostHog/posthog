@@ -42584,6 +42584,7 @@ export namespace Schemas {
     * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
+    * `InstanceSetting` - InstanceSetting
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -42660,6 +42661,7 @@ export namespace Schemas {
       LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      InstanceSetting: 'InstanceSetting',
     } as const;
 
     /**
@@ -42722,6 +42724,7 @@ export namespace Schemas {
     * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
+    * `InstanceSetting` - InstanceSetting
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -42786,6 +42789,7 @@ export namespace Schemas {
       LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      InstanceSetting: 'InstanceSetting',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
