@@ -162,6 +162,8 @@ class BatchConsumer:
                         "shutdown_mid_group",
                         team_id=team_id,
                         schema_id=schema_id,
+                        batch_id=batch.id,
+                        batch_index=batch.batch_index,
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
@@ -236,6 +238,7 @@ class BatchConsumer:
                 "batch_max_retries_exceeded",
                 batch_id=batch.id,
                 run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
                 attempt=attempt,
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
@@ -290,6 +293,7 @@ class BatchConsumer:
                     "batch_failed_no_retries_left",
                     batch_id=batch.id,
                     run_uuid=batch.run_uuid,
+                    batch_index=batch.batch_index,
                     attempt=attempt,
                 )
                 await self._fail_run(batch, reason=f"max retries exceeded: {e}")
@@ -297,6 +301,7 @@ class BatchConsumer:
                 logger.warning(
                     "batch_failed_will_retry",
                     batch_id=batch.id,
+                    batch_index=batch.batch_index,
                     attempt=attempt,
                     error=str(e),
                 )
@@ -359,18 +364,54 @@ class BatchConsumer:
         RECOVERY_SWEEPS_TOTAL.labels(outcome="orphans_found").inc()
         logger.info("recovery_sweep_found_stale_batches", count=len(stale))
 
+        recovery_bound_keys = (
+            "team_id",
+            "schema_id",
+            "source_id",
+            "job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "log_source_id",
+            "attempt",
+        )
         for batch in stale:
             # latest_attempt was already incremented before the crash
             # (pre-increment in _process_single), so no +1 needed here.
-            if batch.latest_attempt >= self._config.max_attempts:
-                await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
-            else:
-                await BatchQueue.update_status(
-                    conn,
-                    batch_id=batch.id,
-                    job_state=SourceBatchStatus.State.WAITING_RETRY,
-                    attempt=batch.latest_attempt,
-                )
+            structlog.contextvars.bind_contextvars(
+                team_id=batch.team_id,
+                schema_id=batch.schema_id,
+                source_id=batch.source_id,
+                job_id=batch.job_id,
+                run_uuid=batch.run_uuid,
+                batch_id=batch.id,
+                resource_name=batch.resource_name,
+                log_source_id=batch.schema_id,
+                attempt=batch.latest_attempt,
+            )
+            try:
+                if batch.latest_attempt >= self._config.max_attempts:
+                    logger.warning(
+                        "batch_recovered_max_retries_exceeded",
+                        batch_index=batch.batch_index,
+                        attempt=batch.latest_attempt,
+                    )
+                    await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                else:
+                    logger.warning(
+                        "batch_recovered_for_retry",
+                        batch_index=batch.batch_index,
+                        attempt=batch.latest_attempt,
+                    )
+                    await BatchQueue.update_status(
+                        conn,
+                        batch_id=batch.id,
+                        job_state=SourceBatchStatus.State.WAITING_RETRY,
+                        attempt=batch.latest_attempt,
+                        error_response={"error": "executing timed out — pod restart or OOM"},
+                    )
+            finally:
+                structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
 
     def _install_signal_handlers(self) -> None:
         """Wire SIGTERM/SIGINT to trigger graceful shutdown."""
