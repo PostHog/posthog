@@ -117,7 +117,7 @@ def is_property_access_control_enabled(*, team: Team | None = None, team_id: int
 
     organization = team.organization
     if organization is None:
-        return False
+        return False  # type: ignore
 
     return organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL)
 
