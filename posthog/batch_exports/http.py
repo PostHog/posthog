@@ -281,6 +281,32 @@ class BigQueryDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+class PostgresDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for a PostgreSQL batch-export destination.
+
+    Connection credentials live in the linked Integration. Mirrors the
+    non-credential fields of `PostgresBatchExportInputs` in
+    `products/batch_exports/backend/service.py`.
+    """
+
+    database = serializers.CharField(help_text="PostgreSQL database name to connect to.")
+    schema = serializers.CharField(
+        required=False,
+        default="public",
+        help_text="PostgreSQL schema name containing the destination table.",
+    )
+    table_name = serializers.CharField(
+        required=False,
+        default="events",
+        help_text="PostgreSQL table name to write exported rows into.",
+    )
+    has_self_signed_cert = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.",
+    )
+
+
 class AzureBlobDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for an Azure Blob Storage batch-export destination.
 
@@ -323,6 +349,7 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
             "Databricks": DatabricksDestinationConfigSerializer,
             "AzureBlob": AzureBlobDestinationConfigSerializer,
             "BigQuery": BigQueryDestinationConfigSerializer,
+            "Postgres": PostgresDestinationConfigSerializer,
         },
         resource_type_field_name="type",
     )
@@ -375,12 +402,23 @@ class BigQueryDestinationRequestSerializer(serializers.Serializer):
     config = BigQueryDestinationConfigSerializer()
 
 
+class PostgresDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating a PostgreSQL batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["Postgres"])
+    integration_id = serializers.IntegerField(
+        help_text="ID of a postgresql-kind Integration. Use the integrations-list MCP tool to find one.",
+    )
+    config = PostgresDestinationConfigSerializer()
+
+
 BatchExportDestinationRequest = PolymorphicProxySerializer(
     component_name="BatchExportDestinationRequest",
     serializers={
         "Databricks": DatabricksDestinationRequestSerializer,
         "AzureBlob": AzureBlobDestinationRequestSerializer,
         "BigQuery": BigQueryDestinationRequestSerializer,
+        "Postgres": PostgresDestinationRequestSerializer,
     },
     resource_type_field_name="type",
 )
@@ -390,7 +428,7 @@ BatchExportDestinationRequest = PolymorphicProxySerializer(
 class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
-    Only integration-backed destinations (Databricks, AzureBlob, BigQuery) are exposed in
+    Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are exposed in
     the schema — their integration_id is required so clients and MCP tools know up front
     that these destinations need a linked Integration. Runtime validation remains
     `BatchExportDestinationSerializer.validate_destination`.
@@ -451,7 +489,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model.
 
     The `config` field is polymorphic and typed only for destinations that keep
-    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
     Other destination types accept the same JSON shape but without a typed
     OpenAPI schema. Secret fields are stripped from `config` on read.
     """
@@ -459,7 +497,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
-            "integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — "
+            "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — "
             "they live in the linked Integration. Secret fields are stripped from responses."
         ),
     )
@@ -477,7 +515,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required for Databricks, "
-            "AzureBlob, and BigQuery destinations; unused for other types."
+            "AzureBlob, BigQuery, and integration-backed Postgres destinations; unused for other types."
         ),
     )
 
@@ -1289,7 +1327,7 @@ def recursive_dict_merge(
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
-    # (Databricks, AzureBlob, BigQuery) advertise integration_id as required up front.
+    # (Databricks, AzureBlob, BigQuery, Postgres) advertise integration_id as required up front.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
     update=extend_schema(request=BatchExportRequestSerializer),
