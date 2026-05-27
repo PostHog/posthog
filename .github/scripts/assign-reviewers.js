@@ -272,18 +272,56 @@ async function assignReviewers(teams, users) {
 
     console.info('Assigning reviewers with payload:', JSON.stringify(payload, null, 2))
 
-    const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`,
-        {
+    const post = (body) =>
+        fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`, {
             method: 'POST',
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(body),
+        })
+
+    const response = await post(payload)
+
+    // GitHub returns 422 for the whole batch if *any* requested team isn't a
+    // collaborator on the repo (teams get renamed, deleted, or never set up —
+    // CODEOWNERS-soft and product.yaml drift). Salvage by retrying users +
+    // each team independently so valid entries still land, and log the bad
+    // slugs so they're visible in the action log as cleanup nudges.
+    if (response.status === 422 && teams.length > 0) {
+        const errorText = await response.text()
+        console.warn(`⚠️  422 on bulk request, retrying individually:\n${errorText}`)
+
+        if (users.length > 0) {
+            const r = await post({ reviewers: users })
+            if (!r.ok) {
+                throw new Error(`GitHub API error assigning users: ${r.status} ${r.statusText}\n${await r.text()}`)
+            }
         }
-    )
+
+        const dropped = []
+        for (const team of teams) {
+            const r = await post({ team_reviewers: [team] })
+            if (r.status === 422) {
+                dropped.push(team)
+            } else if (!r.ok) {
+                throw new Error(
+                    `GitHub API error assigning team '${team}': ${r.status} ${r.statusText}\n${await r.text()}`
+                )
+            }
+        }
+
+        if (dropped.length > 0) {
+            console.warn(
+                `⚠️  Dropped ${dropped.length} stale team(s): ${dropped.join(', ')}. ` +
+                    `Fix product.yaml / CODEOWNERS-soft so these get assigned next time.`
+            )
+        }
+        console.info('✅ Reviewers assigned (with fallback)')
+        return
+    }
 
     if (!response.ok) {
         const errorText = await response.text()

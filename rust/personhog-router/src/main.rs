@@ -59,7 +59,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Proxy mode: {}", config.proxy_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
-    tracing::info!("Replica channels: {}", config.replica_channels);
+    tracing::info!(
+        "Replica channels: {} heavy, {} light",
+        config.replica_channels,
+        config.replica_light_channels
+    );
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -110,9 +114,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         const BUCKETS: &[f64] = &[
             1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
         ];
+        const RESPONSE_SIZE_BUCKETS: &[f64] = &[
+            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 16777216.0,
+            67108864.0,
+        ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
             .set_buckets(BUCKETS)
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Prefix(
+                    "personhog_router_response_size".into(),
+                ),
+                RESPONSE_SIZE_BUCKETS,
+            )
             .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
@@ -152,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_send_message_size: config.grpc_max_send_message_size,
         max_recv_message_size: config.grpc_max_recv_message_size,
         num_channels: config.replica_channels,
+        num_light_channels: config.replica_light_channels,
     }));
 
     // In leader mode, wire up etcd coordination and the leader backend
@@ -304,7 +320,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer)
+                .layer(GrpcMetricsLayer::default())
                 .add_service(proxy)
                 .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
                 .await
@@ -318,7 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer)
+                .layer(GrpcMetricsLayer::default())
                 .add_service(
                     PersonHogServiceServer::new(service)
                         .max_encoding_message_size(max_send)

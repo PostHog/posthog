@@ -1,16 +1,17 @@
 mod common;
 
 use common::{
-    create_client, create_compressed_client, create_test_person, start_test_leader,
-    start_test_replica, start_test_router_raw, start_test_router_raw_with_leader,
-    start_test_router_raw_with_leader_and_max_recv, start_test_router_raw_with_max_recv,
-    TestLeaderService, TestReplicaService,
+    create_client, create_compressed_client, create_test_person, raw_grpc_call_with_gzip_accept,
+    start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
+    start_test_replica_with_async_gzip_disabled, start_test_router_raw,
+    start_test_router_raw_with_leader, start_test_router_raw_with_leader_and_max_recv,
+    start_test_router_raw_with_max_recv, TestLeaderService, TestReplicaService,
 };
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, ConsistencyLevel, DeletePersonsRequest,
     GetGroupTypeMappingsByTeamIdRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, GroupTypeMapping,
     HashKeyOverride, HashKeyOverrideContext, Person, PersonWithDistinctIds, ReadOptions,
     UpdatePersonPropertiesRequest,
@@ -959,4 +960,207 @@ async fn raw_proxy_compressed_get_persons_by_distinct_ids() {
         .unwrap()
         .into_inner();
     assert_eq!(plain_resp, compressed_resp);
+}
+
+// ============================================================
+// 8. Async gzip compression
+//
+// These tests verify the AsyncGzipLayer by making raw gRPC requests with
+// `grpc-accept-encoding: gzip` and inspecting the wire format. We bypass
+// tonic's client codec because tonic's `gzip` feature is intentionally
+// disabled — our layer handles gzip instead of tonic's inline compression.
+// This matches production where the client is Django's grpcio.
+// ============================================================
+
+/// Decompress a gRPC frame, returning the protobuf payload.
+fn decompress_grpc_frame(data: &[u8]) -> Vec<u8> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    assert!(data.len() >= 5, "frame too short");
+    let flag = data[0];
+    let len = u32::from_be_bytes(data[1..5].try_into().unwrap()) as usize;
+    assert_eq!(data.len() - 5, len, "frame length mismatch");
+
+    if flag == 0 {
+        // Uncompressed
+        data[5..].to_vec()
+    } else {
+        // Gzip compressed
+        let mut decoder = GzDecoder::new(&data[5..]);
+        let mut out = Vec::new();
+        decoder.read_to_end(&mut out).unwrap();
+        out
+    }
+}
+
+#[tokio::test]
+async fn async_gzip_compresses_and_decompresses_correctly() {
+    let person = Person {
+        properties: complex_properties(),
+        ..create_test_person()
+    };
+    let replica_service = TestReplicaService::with_person(person.clone());
+    let replica_addr = start_test_replica_with_async_gzip(replica_service).await;
+
+    let req = GetPersonRequest {
+        team_id: 1,
+        person_id: 42,
+        read_options: None,
+    };
+
+    let (headers, body) = raw_grpc_call_with_gzip_accept(
+        replica_addr,
+        "/personhog.replica.v1.PersonHogReplica/GetPerson",
+        &req,
+    )
+    .await;
+
+    // Response should have grpc-encoding: gzip
+    assert_eq!(headers.get("grpc-encoding").unwrap(), "gzip");
+
+    // Frame should have compression flag set
+    assert_eq!(body[0], 1, "compression flag should be set");
+
+    // Decompress and parse the protobuf
+    let decompressed = decompress_grpc_frame(&body);
+    let response = <GetPersonResponse as prost::Message>::decode(decompressed.as_slice()).unwrap();
+    assert_eq!(response.person.unwrap().id, 42);
+}
+
+#[tokio::test]
+async fn async_gzip_through_raw_proxy() {
+    let person = Person {
+        properties: complex_properties(),
+        ..create_test_person()
+    };
+    let replica_service = TestReplicaService::with_person(person.clone());
+    let replica_addr = start_test_replica_with_async_gzip(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let req = GetPersonRequest {
+        team_id: 1,
+        person_id: 42,
+        read_options: None,
+    };
+
+    let (headers, body) = raw_grpc_call_with_gzip_accept(
+        router_addr,
+        "/personhog.service.v1.PersonHogService/GetPerson",
+        &req,
+    )
+    .await;
+
+    assert_eq!(headers.get("grpc-encoding").unwrap(), "gzip");
+    assert_eq!(body[0], 1);
+
+    let decompressed = decompress_grpc_frame(&body);
+    let response = <GetPersonResponse as prost::Message>::decode(decompressed.as_slice()).unwrap();
+    assert_eq!(response.person.unwrap().id, 42);
+}
+
+#[tokio::test]
+async fn async_gzip_no_compression_without_accept_header() {
+    let person = Person {
+        properties: complex_properties(),
+        ..create_test_person()
+    };
+    let replica_service = TestReplicaService::with_person(person.clone());
+    let replica_addr = start_test_replica_with_async_gzip(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    // Plain client (no grpc-accept-encoding: gzip) through the router
+    let mut plain = create_client(router_addr).await;
+    let req = GetPersonRequest {
+        team_id: 1,
+        person_id: 42,
+        read_options: None,
+    };
+    let resp = plain.get_person(req).await.unwrap().into_inner();
+    assert_eq!(resp.person.unwrap().id, 42);
+}
+
+#[tokio::test]
+async fn async_gzip_large_payload() {
+    let large_props = serde_json::json!({
+        "key1": "x".repeat(10_000),
+        "key2": (0..100).map(|i| format!("item_{}", i)).collect::<Vec<_>>(),
+        "nested": { "deep": "y".repeat(5_000) },
+    });
+    let person = Person {
+        properties: serde_json::to_vec(&large_props).unwrap(),
+        ..create_test_person()
+    };
+    let replica_service = TestReplicaService::with_person(person.clone());
+    let replica_addr = start_test_replica_with_async_gzip(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let req = GetPersonRequest {
+        team_id: 1,
+        person_id: 42,
+        read_options: None,
+    };
+
+    let (headers, body) = raw_grpc_call_with_gzip_accept(
+        router_addr,
+        "/personhog.service.v1.PersonHogService/GetPerson",
+        &req,
+    )
+    .await;
+
+    assert_eq!(headers.get("grpc-encoding").unwrap(), "gzip");
+    assert_eq!(body[0], 1);
+
+    let decompressed = decompress_grpc_frame(&body);
+    let response = <GetPersonResponse as prost::Message>::decode(decompressed.as_slice()).unwrap();
+    let resp_person = response.person.unwrap();
+    assert_eq!(resp_person.id, 42);
+    assert_eq!(resp_person.properties, person.properties);
+
+    // Compressed should be smaller than the uncompressed protobuf for large payloads
+    let frame_payload_len = body.len() - 5;
+    assert!(
+        frame_payload_len < decompressed.len(),
+        "compressed ({}) should be smaller than decompressed ({})",
+        frame_payload_len,
+        decompressed.len()
+    );
+}
+
+#[tokio::test]
+async fn async_gzip_disabled_flag_skips_compression() {
+    let person = Person {
+        properties: complex_properties(),
+        ..create_test_person()
+    };
+    let replica_service = TestReplicaService::with_person(person.clone());
+    let replica_addr = start_test_replica_with_async_gzip_disabled(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let req = GetPersonRequest {
+        team_id: 1,
+        person_id: 42,
+        read_options: None,
+    };
+
+    let (headers, body) = raw_grpc_call_with_gzip_accept(
+        router_addr,
+        "/personhog.service.v1.PersonHogService/GetPerson",
+        &req,
+    )
+    .await;
+
+    // No grpc-encoding header — layer is disabled
+    assert!(
+        headers.get("grpc-encoding").is_none(),
+        "disabled layer should not set grpc-encoding"
+    );
+
+    // Frame should be uncompressed (flag=0)
+    assert_eq!(body[0], 0, "compression flag should be 0 when disabled");
+
+    // Payload is raw protobuf, should parse directly
+    let payload = &body[5..];
+    let response = <GetPersonResponse as prost::Message>::decode(payload).unwrap();
+    assert_eq!(response.person.unwrap().id, 42);
 }

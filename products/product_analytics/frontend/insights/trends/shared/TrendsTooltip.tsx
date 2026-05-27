@@ -2,7 +2,8 @@ import { useCallback, useMemo } from 'react'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import type { TooltipContext } from 'lib/hog-charts'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { percentage } from 'lib/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
@@ -28,6 +29,18 @@ interface TrendsTooltipProps {
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
+    /** Override the auto-derived date header. Stickiness needs this since its `date`
+     *  is an interval-count integer, not a date — letting InsightTooltip format it as
+     *  a calendar date produces a wrong "Thursday, 1 Jan 1970" header. */
+    altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
+    /** Overrides the default value formatter — needed for the pie chart, which renders the
+     *  raw aggregation plus the slice's share of the total. */
+    renderCount?: (value: number) => string
+    // Overrides the default SeriesLetter + InsightLabel row renderer. Mirrors the
+    // legacy ActionsLineGraph escape hatch used for lifecycle, where the label
+    // is the lifecycle status itself (e.g. "New") and InsightLabel's action.name
+    // would otherwise mask it.
+    renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -48,33 +61,43 @@ export function TrendsTooltip({
     formatCompareLabel,
     onRowClick,
     showHeader,
+    altTitle,
+    renderCount: renderCountOverride,
+    renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
-    const seriesData = useMemo<SeriesDatum[]>(
-        () =>
-            context.seriesData.map((entry, idx) => {
-                const meta = entry.series.meta ?? {}
-                return {
-                    id: idx,
-                    dataIndex: context.dataIndex,
-                    datasetIndex: idx,
-                    order: meta.order ?? idx,
-                    label: entry.series.label,
-                    color: entry.color,
-                    count: entry.value,
-                    action: meta.action,
-                    breakdown_value: meta.breakdown_value,
-                    compare_label: meta.compare_label,
-                    date_label: meta.days?.[context.dataIndex],
-                    filter: meta.filter,
-                }
-            }),
-        [context.seriesData, context.dataIndex]
-    )
+    const seriesData = useMemo<SeriesDatum[]>(() => {
+        const data = context.seriesData.map((entry, idx) => {
+            const meta = entry.series.meta ?? {}
+            return {
+                id: idx,
+                dataIndex: context.dataIndex,
+                datasetIndex: idx,
+                order: meta.order ?? idx,
+                label: entry.series.label,
+                color: entry.color,
+                count: entry.value,
+                action: meta.action,
+                breakdown_value: meta.breakdown_value,
+                compare_label: meta.compare_label,
+                date_label: meta.days?.[context.dataIndex],
+                filter: meta.filter,
+            }
+        })
+        data.sort(
+            (a, b) =>
+                b.count - a.count ||
+                (a.label === undefined || b.label === undefined ? 0 : a.label.localeCompare(b.label))
+        )
+        return data.map((s, id) => ({ ...s, id }))
+    }, [context.seriesData, context.dataIndex])
 
     const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
 
     const renderCount = useCallback(
         (value: number): string => {
+            if (renderCountOverride) {
+                return renderCountOverride(value)
+            }
             if (showPercentView) {
                 // Stickiness percent view: value is already a percentage.
                 return `${value.toFixed(1)}%`
@@ -82,15 +105,20 @@ export function TrendsTooltip({
             if (!isPercentStackView) {
                 return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
             }
-            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
+            // hog-charts passes each segment as a 0..1 fraction (segment_height = top − bottom
+            // in expanded-stack space), so format it directly as a percentage.
+            return percentage(value)
         },
-        [showPercentView, isPercentStackView, trendsFilter, baseCurrency]
+        [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
     )
 
     const hasMultipleSeries = seriesData.length > 1
 
     const renderSeries = useCallback(
         (value: React.ReactNode, datum: SeriesDatum): React.ReactElement => {
+            if (renderSeriesOverride) {
+                return <div className="datum-label-column">{renderSeriesOverride(datum)}</div>
+            }
             const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
 
             if (hasBreakdown && !hasMultipleSeries) {
@@ -112,7 +140,7 @@ export function TrendsTooltip({
                 </div>
             )
         },
-        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula]
+        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula, renderSeriesOverride]
     )
 
     return (
@@ -131,6 +159,7 @@ export function TrendsTooltip({
             onRowClick={onRowClick}
             hideInspectActorsSection={!onRowClick}
             showHeader={showHeader}
+            altTitle={altTitle}
         />
     )
 }

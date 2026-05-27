@@ -86,6 +86,7 @@ debug = "line-tables-only"
 [workspace.dependencies]
 aho-corasick = "1.1"
 anyhow = "1.0"
+arc-swap = "1.7"
 assert-json-diff = "2.0.2"
 async-compression = { version = "0.4", features = [
   "tokio",
@@ -111,6 +112,8 @@ futures-timer = "3.0"
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
+http-body = "1.0"
+http-body-util = "0.1"
 httpmock = "0.7.0"
 mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }

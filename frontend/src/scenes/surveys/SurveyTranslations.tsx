@@ -70,7 +70,6 @@ export function SurveyTranslations(): JSX.Element {
                             }}
                             placeholder="Add a translation (e.g. 'fr', 'French', 'fr-CA')"
                             allowCustomValues
-                            autoFocus={validKeys.length === 0}
                             value={[]}
                             data-attr="survey-translation-add"
                         />
@@ -105,7 +104,7 @@ export function SurveyTranslations(): JSX.Element {
                         type={editingLanguage === null ? 'primary' : 'secondary'}
                         onClick={() => selectLanguage(null)}
                     >
-                        {getSurveyLanguageName(baseLanguage)} <span className="text-muted ml-1">(original)</span>
+                        {getSurveyLanguageName(baseLanguage)} (original)
                     </LemonButton>
 
                     {validKeys.map((lang) => {

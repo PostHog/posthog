@@ -13,6 +13,10 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
+        # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
+        # regenerating a stub entry on every hogli run.
+        - phrocs
     env:
         files:
             - .env.development
@@ -134,6 +138,9 @@ devbox:
     devbox:setup:
         click: hogli_commands.devbox.cli:devbox_setup
         description: Install and configure local access to Coder devboxes
+    devbox:doctor:
+        click: hogli_commands.devbox.cli:devbox_doctor
+        description: Diagnose devbox prerequisites and setup (read-only)
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
@@ -152,6 +159,9 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
+    devbox:exec:
+        click: hogli_commands.devbox.cli:devbox_remote_exec
+        description: Run a command inside your devbox (non-interactive)
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
@@ -780,6 +790,9 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:lint:owners:
+        click: hogli_commands.product.cli:cmd_lint_owners
+        description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
         description: Score product maturity across isolation dimensions

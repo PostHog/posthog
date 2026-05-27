@@ -26,6 +26,7 @@
 //!   - Block { declarations: [decl, ...] }
 //!   - Program { declarations: [decl, ...] }
 
+use super::expr::is_pure_infix_op;
 use super::{identifier_text, kw_valid_as_identifier, Parser};
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -122,9 +123,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // `let x := y` + `*(z) := 3`.
             if self.peek() == TokenKind::ColonEquals {
                 self.restore(cp)?;
+                // `parse_prefix` returns the bare node; the Pratt wrapper normally stamps its span, so stamp it here too (cpp positions the shortened primary, e.g. `let x := 1 * 2 := 3` → Constant(1) spanning the `1`).
+                let prefix_start = self.peek0.start;
                 match self.parse_prefix() {
                     Ok(primary) => {
-                        expr_val = primary;
+                        expr_val = self.wrap_pos(primary, prefix_start);
                     }
                     Err(_) => {
                         self.restore(cp)?;
@@ -140,13 +143,46 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     fn parse_statement(&mut self) -> Result<E::Value, ParseError> {
         let stmt_start = self.peek0.start;
-        let result = self.parse_statement_inner()?;
+        // Guard the statement / block recursion (every nested block, `if`/`for`/`while`/`try` body, and bare block routes back through here) so `{ { … } }` or `if (a) if (b) …` nested past the cap rejects cleanly instead of overflowing the host stack (uncatchable SIGSEGV). Shares the counter with expression + subquery nesting.
+        let result = self.with_recursion_guard(Self::parse_statement_inner)?;
         Ok(self.wrap_pos(result, stmt_start))
     }
 
     fn parse_statement_inner(&mut self) -> Result<E::Value, ParseError> {
         match self.peek() {
-            TokenKind::Keyword(Kw::Return) => self.parse_return_stmt(),
+            // `return` is also a `keyword`-rule identifier. When it is followed
+            // by a pure infix / postfix operator (`return :: t`, `return.x`,
+            // `return -> y`, `return = 1`, `return / 2`, …) that operator binds
+            // `return` as its LHS, so cpp parses the whole line as one exprStmt
+            // (`return` is a Field / lambda param), not a bare return that
+            // strands the operator. A value-starter or keyword-infix after
+            // `return` keeps the returnStmt (`return 1`, `return + 1`) or the
+            // bare-return split (`return like x`). Gate on `is_pure_infix_op`
+            // and fall through to the exprStmt arm for the identifier case.
+            //
+            // Exception: a `.` that begins a leading-dot float (`return .5` →
+            // value 0.5, `return .5.5` → tuple-access on 0.5) is a return VALUE,
+            // not tuple-access on `return`. Only a `.`-chain-link (`return.x`)
+            // makes `return` an identifier, so keep `return .<number>` in the
+            // returnStmt path.
+            //
+            // Exception: `return ()` — empty parens are not a valid return value,
+            // so cpp re-reads `return` as a Field and `()` as an empty call:
+            // `Call(return, [])`. `return (expr)` keeps the returnStmt. Route the
+            // empty-call case to the exprStmt arm below.
+            //
+            // Exception: a `<` that begins a HogQLX tag (`return <Tag/>`,
+            // `return <a>x</a>`) is a return VALUE, not the less-than operator
+            // binding `return` as a Field. `peek_next_starts_hogqlx_tag` probes
+            // past the `<`; a real less-than (`return < 5`) stays an exprStmt.
+            TokenKind::Keyword(Kw::Return)
+                if (!is_pure_infix_op(self.peek_next())
+                    || self.peek_next_starts_hogqlx_tag()
+                    || (self.peek_next() == TokenKind::Dot && !self.dot_next_is_chain_link()))
+                    && !self.return_followed_by_empty_call() =>
+            {
+                self.parse_return_stmt()
+            }
             TokenKind::Keyword(Kw::Throw) => self.parse_throw_stmt(),
             TokenKind::Keyword(Kw::Try) => self.parse_try_catch_stmt(),
             // `ifStmt` / `forStmt` / `forInStmt` open with `IF` / `FOR`
@@ -182,14 +218,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // through to the Block arm, and `{1: 2}` (whose body isn't
             // a valid `declaration*`) falls through to the exprStmt arm.
             TokenKind::LBrace => {
-                // cpp's ANTLR ALL(*) prefers the exprStmt alt when a
-                // postfix `(` or `.` follows the matching `}` — `{1}()`
-                // and `{1}.x` are `Placeholder(1)` extended by a
-                // postfix call / property access, not a Block followed
-                // by stray tokens. Other postfixes (`[…]`, `+`, …) keep
-                // the Block interpretation, matching cpp. Probe the
-                // matching `}` to decide.
-                if self.brace_followed_by_postfix_call_or_dot() {
+                // cpp's ALL(*) prefers the exprStmt alt only for a postfix the
+                // Block parse can't strand onto a following statement: a `.`
+                // (`{1}.x`) or an EMPTY `()` (`{1}()`). A non-empty `(expr)` is
+                // itself a valid next statement, so cpp keeps the Block and
+                // parses it separately (`{1} (a)` → Block + exprStmt). Other
+                // postfixes (`[…]`, `+`, …) already keep the Block. The
+                // block-vs-Dict split for the rest is left to `try_alt`: the
+                // block arm fails on a non-`declaration*` body like `{1: 2}`,
+                // falling through to the exprStmt arm.
+                if self.brace_followed_by_dot_or_empty_call() {
                     self.parse_expr_or_assignment_stmt()
                 } else {
                     self.try_alt(&[
@@ -261,9 +299,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     //    exists; fall back to bare return so `a.b := c`
                     //    opens the next stmt.
                     self.restore(cp)?;
+                    // The shortened head is the single consumed token; stamp its span so the Field carries positions like cpp (e.g. `return return * ('e') := {}` → Field(['return']) spanning the second `return`).
+                    let head_start = self.peek0.start;
                     if self.peek() == TokenKind::Asterisk {
                         self.bump()?;
-                        expr_val = self.emit.field(vec![self.emit.string("*")]);
+                        let f = self.emit.field(vec![self.emit.string("*")]);
+                        expr_val = self.wrap_pos(f, head_start);
                     } else if matches!(
                         self.peek(),
                         TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
@@ -273,7 +314,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     ) {
                         let t = self.bump()?;
                         let name = identifier_text(self.text(t), t.kind);
-                        expr_val = self.emit.field(vec![self.emit.string(&name)]);
+                        let f = self.emit.field(vec![self.emit.string(&name)]);
+                        expr_val = self.wrap_pos(f, head_start);
                     }
                 }
                 Ok(expr) => {
@@ -635,13 +677,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         ))
     }
 
-    /// `self.peek()` is `{` — scan to its matching `}` and report
-    /// whether the next token is `(` or `.`. Used at statement start
-    /// to choose between the Block alt (`{ decls }`) and the exprStmt
-    /// alt (`{expr} <postfix>`) — cpp's ANTLR prefers exprStmt for the
-    /// two postfixes that can extend a placeholder expression but
-    /// keeps Block for everything else.
-    fn brace_followed_by_postfix_call_or_dot(&self) -> bool {
+    /// `self.peek()` is `{` — scan to its matching `}` and report whether the
+    /// following postfix forces the exprStmt parse over the Block parse. Only a
+    /// postfix that can't itself begin a statement does, so the Block parse
+    /// would strand it: a `.x` property access (`{1}.x`) or an EMPTY `()`
+    /// (`{1}()`). Postfixes that CAN begin a statement return false so the
+    /// Block stands: a non-empty `(expr)` (`{1} (a)` → Block + exprStmt) and a
+    /// leading-dot number `.5` (`{ } .5` → Block + `.5`, not `{}.5`).
+    fn brace_followed_by_dot_or_empty_call(&self) -> bool {
         let mut probe = Lexer::with_pos(self.src, self.peek0.end);
         let mut depth: i32 = 1;
         while depth > 0 {
@@ -656,10 +699,36 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 _ => {}
             }
         }
-        matches!(
-            probe.next_token().map(|t| t.kind),
-            Ok(TokenKind::LParen | TokenKind::Dot)
-        )
+        match probe.next_token().map(|t| t.kind) {
+            // `.x` (property access) can't begin a statement, so force the
+            // exprStmt parse; a leading-dot number (`.5`) IS a valid statement,
+            // so keep the Block (`{ } .5` → Block + `.5`, not `{}.5`).
+            Ok(TokenKind::Dot) => {
+                !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::Number))
+            }
+            // `{…} ()` is the dict / placeholder called with empty args →
+            // exprStmt. But `{…} () -> …` is a Block followed by an empty-param
+            // lambda statement (`() -> body`), so an Arrow after the empty `()`
+            // means keep the Block (`{ } () -> 1` → Block + lambda), not force
+            // the call. A non-empty `(a) -> 1` already keeps the Block (the
+            // RParen check below fails), matching cpp.
+            Ok(TokenKind::LParen) => {
+                matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen))
+                    && !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::Arrow))
+            }
+            _ => false,
+        }
+    }
+
+    /// True when `return` is immediately followed by an empty `()` (the call
+    /// `return()`), distinguishing it from `return (expr)` (a return value).
+    /// `peek_next` is the `(`; probe one token past it for the closing `)`.
+    fn return_followed_by_empty_call(&self) -> bool {
+        if self.peek_next() != TokenKind::LParen {
+            return false;
+        }
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen))
     }
 
     pub(crate) fn parse_block(&mut self) -> Result<E::Value, ParseError> {
