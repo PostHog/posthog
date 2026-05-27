@@ -237,14 +237,14 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], url_path="stream", renderer_classes=[EventStreamRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
-        # The generator is `async def` — WSGI can't consume an async iterator.
-        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("wizard_sessions.stream requires ASGI.")
-
         workflow_id = request.query_params.get("workflow_id")
         skill_id = request.query_params.get("skill_id") or None
         if not workflow_id:
             raise ValidationError({"detail": "workflow_id is required."})
+
+        # The generator is `async def` — WSGI can't consume an async iterator.
+        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
+            raise RuntimeError("wizard_sessions.stream requires ASGI.")
 
         generator = _wizard_session_event_stream(
             team_id=self.team_id,
