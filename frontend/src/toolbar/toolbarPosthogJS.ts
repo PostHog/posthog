@@ -46,14 +46,63 @@ if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
 
-/** Capture an exception with a required toolbar context tag for filtering. */
+export type ToolbarFetchErrorType = 'timeout' | 'network_or_cors' | 'http_error' | 'unknown'
+
+/** Classify a fetch-style error so it can be tagged on captured events. */
+export function classifyFetchError(error: unknown): ToolbarFetchErrorType {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return 'timeout'
+    }
+    if (error instanceof TypeError) {
+        return 'network_or_cors'
+    }
+    if (error instanceof Error && error.message.startsWith('HTTP ')) {
+        return 'http_error'
+    }
+    return 'unknown'
+}
+
+/** Capture an exception with a required toolbar context tag for filtering.
+ *
+ * Safari uses a generic `TypeError: Load failed` for every fetch failure (CORS
+ * rejection, network drop, abort), which collapses unrelated toolbar errors
+ * into one fingerprint in error tracking. To avoid that noise:
+ *  - We rewrap opaque fetch failures with a stable, context-specific message
+ *    so each `toolbar_context` fingerprints independently.
+ *  - For `ui_host_check` we skip the duplicate `$exception` entirely — that
+ *    code path already emits a structured `toolbar ui host check` event with
+ *    `status: 'error'`, and the reachability check is a UX helper, not a
+ *    security boundary, so the extra exception adds no signal.
+ */
 export function captureToolbarException(
     error: unknown,
     context: string,
     additionalProperties?: Record<string, unknown>
 ): void {
-    toolbarPosthogJS.captureException(error, {
-        toolbar_context: context,
+    const fetchErrorType = classifyFetchError(error)
+    const isOpaqueFetchFailure = fetchErrorType === 'network_or_cors' || fetchErrorType === 'timeout'
+
+    if (isOpaqueFetchFailure && context === 'ui_host_check') {
+        return
+    }
+
+    let captured: unknown = error
+    const extra: Record<string, unknown> = { toolbar_context: context }
+
+    if (fetchErrorType !== 'unknown') {
+        extra.error_type = fetchErrorType
+    }
+
+    if (isOpaqueFetchFailure && error instanceof Error) {
+        extra.original_error_message = error.message
+        const wrapped = new Error(`toolbar fetch failed (${fetchErrorType}) [${context}]`)
+        wrapped.name = error.name
+        wrapped.stack = error.stack
+        captured = wrapped
+    }
+
+    toolbarPosthogJS.captureException(captured, {
+        ...extra,
         ...additionalProperties,
     })
 }

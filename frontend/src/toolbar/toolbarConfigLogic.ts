@@ -4,7 +4,7 @@ import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, classifyFetchError, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
@@ -595,19 +595,6 @@ function initInstrumentation(
     })
 }
 
-function classifyFetchError(error: unknown): string {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-        return 'timeout'
-    }
-    if (error instanceof TypeError) {
-        return 'network_or_cors'
-    }
-    if (error instanceof Error && error.message.startsWith('HTTP ')) {
-        return 'http_error'
-    }
-    return 'unknown'
-}
-
 /**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
@@ -659,9 +646,11 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // captureToolbarException internally classifies fetch errors; for
+            // opaque Safari network failures it skips the duplicate $exception
+            // because the structured `toolbar ui host check` event already
+            // captures the failure with status: 'error' below.
+            captureToolbarException(error, 'ui_host_check')
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
