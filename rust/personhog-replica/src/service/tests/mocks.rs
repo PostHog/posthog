@@ -52,6 +52,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Err(self.error.clone())
     }
@@ -60,6 +61,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Err(self.error.clone())
     }
@@ -76,6 +78,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _distinct_ids: &[String],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Err(self.error.clone())
     }
@@ -83,6 +86,7 @@ impl storage::PersonLookup for FailingStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         _team_distinct_ids: &[(i64, String)],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Err(self.error.clone())
     }
@@ -225,6 +229,7 @@ impl storage::GroupStorage for FailingStorage {
         _team_id: i64,
         _identifiers: &[storage::GroupIdentifier],
         _consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Group>> {
         Err(self.error.clone())
     }
@@ -233,6 +238,7 @@ impl storage::GroupStorage for FailingStorage {
         &self,
         _keys: &[storage::GroupKey],
         _consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
         Err(self.error.clone())
     }
@@ -247,6 +253,7 @@ impl storage::GroupStorage for FailingStorage {
         _cursor_id: i64,
         _limit: i32,
         _consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
         Err(self.error.clone())
     }
@@ -380,6 +387,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -388,6 +396,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -404,6 +413,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         distinct_ids: &[String],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Ok(distinct_ids.iter().map(|d| (d.clone(), None)).collect())
     }
@@ -411,6 +421,7 @@ impl storage::PersonLookup for SuccessStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Ok(team_distinct_ids
             .iter()
@@ -562,6 +573,7 @@ impl storage::GroupStorage for SuccessStorage {
         _team_id: i64,
         _identifiers: &[storage::GroupIdentifier],
         _consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Group>> {
         Ok(Vec::new())
     }
@@ -570,6 +582,7 @@ impl storage::GroupStorage for SuccessStorage {
         &self,
         _keys: &[storage::GroupKey],
         _consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
         Ok(Vec::new())
     }
@@ -584,6 +597,7 @@ impl storage::GroupStorage for SuccessStorage {
         _cursor_id: i64,
         _limit: i32,
         _consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
         Ok((Vec::new(), false))
     }
@@ -633,7 +647,7 @@ impl storage::GroupStorage for SuccessStorage {
             team_id,
             group_type_index,
             group_key: group_key.to_string(),
-            group_properties: group_properties.to_string(),
+            group_properties: Some(group_properties.to_string()),
             created_at,
             properties_last_updated_at: None,
             properties_last_operation: None,
@@ -746,6 +760,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -754,6 +769,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -770,6 +786,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         distinct_ids: &[String],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Ok(distinct_ids.iter().map(|d| (d.clone(), None)).collect())
     }
@@ -777,6 +794,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Ok(team_distinct_ids
             .iter()
@@ -935,6 +953,7 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         _team_id: i64,
         _identifiers: &[storage::GroupIdentifier],
         consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<storage::Group>> {
         self.record(consistency);
         Ok(Vec::new())
@@ -944,6 +963,7 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         &self,
         _keys: &[storage::GroupKey],
         consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
         self.record(consistency);
         Ok(Vec::new())
@@ -995,6 +1015,7 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         _cursor_id: i64,
         _limit: i32,
         consistency: storage::postgres::ConsistencyLevel,
+        _include_properties: bool,
     ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
         self.record(consistency);
         Ok((Vec::new(), false))
@@ -1013,7 +1034,7 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
             team_id,
             group_type_index,
             group_key: group_key.to_string(),
-            group_properties: group_properties.to_string(),
+            group_properties: Some(group_properties.to_string()),
             created_at,
             properties_last_updated_at: None,
             properties_last_operation: None,

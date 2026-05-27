@@ -35,7 +35,7 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
                    properties_last_updated_at::text as "properties_last_updated_at?",
                    properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
@@ -67,7 +67,7 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
                    properties_last_updated_at::text as "properties_last_updated_at?",
                    properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
@@ -89,6 +89,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         person_ids: &[i64],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>> {
         if person_ids.is_empty() {
             return Ok(Vec::new());
@@ -117,23 +118,44 @@ impl PersonLookup for PostgresStorage {
             async move {
                 let mut conn =
                     PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
-                let rows = sqlx::query_as!(
-                    Person,
-                    r#"
-                    SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
-                           properties_last_updated_at::text as "properties_last_updated_at?",
-                           properties_last_operation::text as "properties_last_operation?",
-                           created_at, version, is_identified,
-                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
-                           last_seen_at
-                    FROM posthog_person
-                    WHERE team_id = $1 AND id = ANY($2)
-                    "#,
-                    team_id as i32,
-                    &chunk
-                )
-                .fetch_all(&mut *conn)
-                .await?;
+                let rows = if include_properties {
+                    sqlx::query_as!(
+                        Person,
+                        r#"
+                        SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
+                               properties_last_updated_at::text as "properties_last_updated_at?",
+                               properties_last_operation::text as "properties_last_operation?",
+                               created_at, version, is_identified,
+                               CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                               last_seen_at
+                        FROM posthog_person
+                        WHERE team_id = $1 AND id = ANY($2)
+                        "#,
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?
+                } else {
+                    sqlx::query_as!(
+                        Person,
+                        r#"
+                        SELECT id, uuid, team_id::bigint as "team_id!",
+                               NULL::text as "properties?",
+                               NULL::text as "properties_last_updated_at?",
+                               NULL::text as "properties_last_operation?",
+                               created_at, version, is_identified,
+                               CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                               last_seen_at
+                        FROM posthog_person
+                        WHERE team_id = $1 AND id = ANY($2)
+                        "#,
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?
+                };
                 Ok::<_, StorageError>(rows)
             }
         }))
@@ -158,6 +180,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         uuids: &[Uuid],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>> {
         if uuids.is_empty() {
             return Ok(Vec::new());
@@ -186,23 +209,44 @@ impl PersonLookup for PostgresStorage {
             async move {
                 let mut conn =
                     PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
-                let rows = sqlx::query_as!(
-                    Person,
-                    r#"
-                    SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
-                           properties_last_updated_at::text as "properties_last_updated_at?",
-                           properties_last_operation::text as "properties_last_operation?",
-                           created_at, version, is_identified,
-                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
-                           last_seen_at
-                    FROM posthog_person
-                    WHERE team_id = $1 AND uuid = ANY($2)
-                    "#,
-                    team_id as i32,
-                    &chunk
-                )
-                .fetch_all(&mut *conn)
-                .await?;
+                let rows = if include_properties {
+                    sqlx::query_as!(
+                        Person,
+                        r#"
+                        SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
+                               properties_last_updated_at::text as "properties_last_updated_at?",
+                               properties_last_operation::text as "properties_last_operation?",
+                               created_at, version, is_identified,
+                               CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                               last_seen_at
+                        FROM posthog_person
+                        WHERE team_id = $1 AND uuid = ANY($2)
+                        "#,
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?
+                } else {
+                    sqlx::query_as!(
+                        Person,
+                        r#"
+                        SELECT id, uuid, team_id::bigint as "team_id!",
+                               NULL::text as "properties?",
+                               NULL::text as "properties_last_updated_at?",
+                               NULL::text as "properties_last_operation?",
+                               created_at, version, is_identified,
+                               CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                               last_seen_at
+                        FROM posthog_person
+                        WHERE team_id = $1 AND uuid = ANY($2)
+                        "#,
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?
+                };
                 Ok::<_, StorageError>(rows)
             }
         }))
@@ -244,7 +288,7 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties!",
+            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
                    p.properties_last_updated_at::text as "properties_last_updated_at?",
                    p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
@@ -268,6 +312,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         distinct_ids: &[String],
+        include_properties: bool,
     ) -> StorageResult<Vec<(String, Option<Person>)>> {
         if distinct_ids.is_empty() {
             return Ok(Vec::new());
@@ -303,45 +348,84 @@ impl PersonLookup for PostgresStorage {
                 async move {
                     let mut conn =
                         PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
-                    let rows = sqlx::query!(
-                        r#"
-                        SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-                               p.properties::text as "properties!",
-                               p.properties_last_updated_at::text as "properties_last_updated_at?",
-                               p.properties_last_operation::text as "properties_last_operation?",
-                               p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
-                               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
-                               p.last_seen_at,
-                               d.distinct_id as "distinct_id!"
-                        FROM posthog_person p
-                        INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
-                        WHERE p.team_id = $1 AND d.distinct_id = ANY($2)
-                        "#,
-                        team_id as i32,
-                        &chunk
-                    )
-                    .fetch_all(&mut *conn)
-                    .await?;
-                    Ok::<_, StorageError>(
-                        rows.into_iter()
-                            .map(|row| {
-                                let person = Person {
-                                    id: row.id,
-                                    uuid: row.uuid,
-                                    team_id: row.team_id,
-                                    properties: row.properties,
-                                    properties_last_updated_at: row.properties_last_updated_at,
-                                    properties_last_operation: row.properties_last_operation,
-                                    created_at: row.created_at,
-                                    version: row.version,
-                                    is_identified: row.is_identified,
-                                    is_user_id: row.is_user_id,
-                                    last_seen_at: row.last_seen_at,
-                                };
-                                (row.distinct_id, person)
-                            })
-                            .collect(),
-                    )
+                    if include_properties {
+                        let rows = sqlx::query!(
+                            r#"
+                            SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
+                                   p.properties::text as "properties?",
+                                   p.properties_last_updated_at::text as "properties_last_updated_at?",
+                                   p.properties_last_operation::text as "properties_last_operation?",
+                                   p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
+                                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                                   p.last_seen_at,
+                                   d.distinct_id as "distinct_id!"
+                            FROM posthog_person p
+                            INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
+                            WHERE p.team_id = $1 AND d.distinct_id = ANY($2)
+                            "#,
+                            team_id as i32,
+                            &chunk
+                        )
+                        .fetch_all(&mut *conn)
+                        .await?;
+                        Ok::<_, StorageError>(
+                            rows.into_iter()
+                                .map(|row| {
+                                    let person = Person {
+                                        id: row.id,
+                                        uuid: row.uuid,
+                                        team_id: row.team_id,
+                                        properties: row.properties,
+                                        properties_last_updated_at: row.properties_last_updated_at,
+                                        properties_last_operation: row.properties_last_operation,
+                                        created_at: row.created_at,
+                                        version: row.version,
+                                        is_identified: row.is_identified,
+                                        is_user_id: row.is_user_id,
+                                        last_seen_at: row.last_seen_at,
+                                    };
+                                    (row.distinct_id, person)
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        let rows = sqlx::query!(
+                            r#"
+                            SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
+                                   p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
+                                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                                   p.last_seen_at,
+                                   d.distinct_id as "distinct_id!"
+                            FROM posthog_person p
+                            INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
+                            WHERE p.team_id = $1 AND d.distinct_id = ANY($2)
+                            "#,
+                            team_id as i32,
+                            &chunk
+                        )
+                        .fetch_all(&mut *conn)
+                        .await?;
+                        Ok::<_, StorageError>(
+                            rows.into_iter()
+                                .map(|row| {
+                                    let person = Person {
+                                        id: row.id,
+                                        uuid: row.uuid,
+                                        team_id: row.team_id,
+                                        properties: None,
+                                        properties_last_updated_at: None,
+                                        properties_last_operation: None,
+                                        created_at: row.created_at,
+                                        version: row.version,
+                                        is_identified: row.is_identified,
+                                        is_user_id: row.is_user_id,
+                                        last_seen_at: row.last_seen_at,
+                                    };
+                                    (row.distinct_id, person)
+                                })
+                                .collect(),
+                        )
+                    }
                 }
             }))
             .buffer_unordered(self.bulk_max_concurrent_chunks)
@@ -490,6 +574,7 @@ impl PersonLookup for PostgresStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
+        include_properties: bool,
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>> {
         if team_distinct_ids.is_empty() {
             return Ok(Vec::new());
@@ -512,60 +597,110 @@ impl PersonLookup for PostgresStorage {
         let team_ids: Vec<i32> = team_distinct_ids.iter().map(|(t, _)| *t as i32).collect();
         let distinct_ids: Vec<String> = team_distinct_ids.iter().map(|(_, d)| d.clone()).collect();
 
-        // Use query!() since we need distinct_id alongside Person fields
-        let rows = sqlx::query!(
-            r#"
-            SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-                   p.properties::text as "properties!",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
-                   p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
-                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
-                   p.last_seen_at,
-                   d.distinct_id as "distinct_id!"
-            FROM posthog_person p
-            INNER JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
-            INNER JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
-                ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id
-            "#,
-            &team_ids,
-            &distinct_ids
-        )
-        .fetch_all(&mut *conn)
-        .await?;
+        let mut found: HashMap<(i64, String), Person> = if include_properties {
+            let rows = sqlx::query!(
+                r#"
+                SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
+                       p.properties::text as "properties?",
+                       p.properties_last_updated_at::text as "properties_last_updated_at?",
+                       p.properties_last_operation::text as "properties_last_operation?",
+                       p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
+                       CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                       p.last_seen_at,
+                       d.distinct_id as "distinct_id!"
+                FROM posthog_person p
+                INNER JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
+                INNER JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                    ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id
+                "#,
+                &team_ids,
+                &distinct_ids
+            )
+            .fetch_all(&mut *conn)
+            .await?;
 
-        common_metrics::histogram(
-            DB_ROWS_RETURNED,
-            &[
-                (
-                    "operation".to_string(),
-                    "get_persons_by_distinct_ids_cross_team".to_string(),
-                ),
-                ("client".to_string(), client.to_string()),
-            ],
-            rows.len() as f64,
-        );
+            common_metrics::histogram(
+                DB_ROWS_RETURNED,
+                &[
+                    (
+                        "operation".to_string(),
+                        "get_persons_by_distinct_ids_cross_team".to_string(),
+                    ),
+                    ("client".to_string(), client.to_string()),
+                ],
+                rows.len() as f64,
+            );
 
-        let mut found: HashMap<(i64, String), Person> = rows
-            .into_iter()
-            .map(|row| {
-                let key = (row.team_id, row.distinct_id.clone());
-                let person = Person {
-                    id: row.id,
-                    uuid: row.uuid,
-                    team_id: row.team_id,
-                    properties: row.properties,
-                    properties_last_updated_at: row.properties_last_updated_at,
-                    properties_last_operation: row.properties_last_operation,
-                    created_at: row.created_at,
-                    version: row.version,
-                    is_identified: row.is_identified,
-                    is_user_id: row.is_user_id,
-                    last_seen_at: row.last_seen_at,
-                };
-                (key, person)
-            })
-            .collect();
+            rows.into_iter()
+                .map(|row| {
+                    let key = (row.team_id, row.distinct_id.clone());
+                    let person = Person {
+                        id: row.id,
+                        uuid: row.uuid,
+                        team_id: row.team_id,
+                        properties: row.properties,
+                        properties_last_updated_at: row.properties_last_updated_at,
+                        properties_last_operation: row.properties_last_operation,
+                        created_at: row.created_at,
+                        version: row.version,
+                        is_identified: row.is_identified,
+                        is_user_id: row.is_user_id,
+                        last_seen_at: row.last_seen_at,
+                    };
+                    (key, person)
+                })
+                .collect()
+        } else {
+            let rows = sqlx::query!(
+                r#"
+                SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
+                       p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
+                       CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                       p.last_seen_at,
+                       d.distinct_id as "distinct_id!"
+                FROM posthog_person p
+                INNER JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
+                INNER JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                    ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id
+                "#,
+                &team_ids,
+                &distinct_ids
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+
+            common_metrics::histogram(
+                DB_ROWS_RETURNED,
+                &[
+                    (
+                        "operation".to_string(),
+                        "get_persons_by_distinct_ids_cross_team".to_string(),
+                    ),
+                    ("client".to_string(), client.to_string()),
+                ],
+                rows.len() as f64,
+            );
+
+            rows.into_iter()
+                .map(|row| {
+                    let key = (row.team_id, row.distinct_id.clone());
+                    let person = Person {
+                        id: row.id,
+                        uuid: row.uuid,
+                        team_id: row.team_id,
+                        properties: None,
+                        properties_last_updated_at: None,
+                        properties_last_operation: None,
+                        created_at: row.created_at,
+                        version: row.version,
+                        is_identified: row.is_identified,
+                        is_user_id: row.is_user_id,
+                        last_seen_at: row.last_seen_at,
+                    };
+                    (key, person)
+                })
+                .collect()
+        };
 
         Ok(team_distinct_ids
             .iter()

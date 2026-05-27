@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, uuid, team_id::bigint as \"team_id!\", properties::text as \"properties!\",\n                   properties_last_updated_at::text as \"properties_last_updated_at?\",\n                   properties_last_operation::text as \"properties_last_operation?\",\n                   created_at, version, is_identified,\n                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                   last_seen_at\n            FROM posthog_person\n            WHERE team_id = $1 AND id = $2\n            ",
+  "query": "\n                SELECT id, uuid, team_id::bigint as \"team_id!\",\n                       NULL::text as \"properties?\",\n                       NULL::text as \"properties_last_updated_at?\",\n                       NULL::text as \"properties_last_operation?\",\n                       created_at, version, is_identified,\n                       CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                       last_seen_at\n                FROM posthog_person\n                WHERE team_id = $1 AND id = ANY($2)\n                ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "properties!",
+        "name": "properties?",
         "type_info": "Text"
       },
       {
@@ -62,7 +62,7 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Int8"
+        "Int8Array"
       ]
     },
     "nullable": [
@@ -79,5 +79,5 @@
       true
     ]
   },
-  "hash": "615f7144531be919f6d8e47fefc1ae6603bb521280162b13751bb864581e8bb1"
+  "hash": "7c30c92278698f08777f598ce1bbd9300b082c82e27f7628d283917a4688b7ea"
 }

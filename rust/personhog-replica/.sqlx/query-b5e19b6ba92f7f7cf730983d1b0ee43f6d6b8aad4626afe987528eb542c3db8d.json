@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                   group_type_index, group_key, group_properties::text as \"group_properties!\",\n                   created_at,\n                   properties_last_updated_at::text as \"properties_last_updated_at?\",\n                   properties_last_operation::text as \"properties_last_operation?\",\n                   version\n            FROM posthog_group\n            WHERE team_id = $1\n              AND group_type_index = $2\n              AND (NOT $3 OR group_key ILIKE $4)\n              AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))\n              AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))\n            ORDER BY created_at DESC, id DESC\n            LIMIT $11\n            ",
+  "query": "\n                SELECT g.id::bigint as \"id!\", g.team_id::bigint as \"team_id!\",\n                       g.group_type_index, g.group_key,\n                       NULL::text as \"group_properties?\",\n                       g.created_at,\n                       NULL::text as \"properties_last_updated_at?\",\n                       NULL::text as \"properties_last_operation?\",\n                       g.version\n                FROM posthog_group g\n                INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)\n                    ON g.team_id = t.team_id AND g.group_type_index = t.group_type_index AND g.group_key = t.group_key\n                ",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       },
       {
         "ordinal": 4,
-        "name": "group_properties!",
+        "name": "group_properties?",
         "type_info": "Text"
       },
       {
@@ -51,17 +51,9 @@
     ],
     "parameters": {
       "Left": [
-        "Int4",
-        "Int4",
-        "Bool",
-        "Text",
-        "Bool",
-        "Text",
-        "Text",
-        "Bool",
-        "Timestamptz",
-        "Int8",
-        "Int8"
+        "Int4Array",
+        "Int4Array",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -76,5 +68,5 @@
       false
     ]
   },
-  "hash": "d4c0aa5ea2b985d679a67e7e748302f588d68c7351158c67b51daa0b110bddc3"
+  "hash": "b5e19b6ba92f7f7cf730983d1b0ee43f6d6b8aad4626afe987528eb542c3db8d"
 }

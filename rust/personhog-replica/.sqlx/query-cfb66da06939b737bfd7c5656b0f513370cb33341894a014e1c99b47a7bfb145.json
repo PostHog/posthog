@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT p.id, p.uuid as \"uuid!\", p.team_id::bigint as \"team_id!\",\n                       p.created_at as \"created_at!\", p.version, p.is_identified as \"is_identified!\",\n                       CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                       p.last_seen_at,\n                       d.distinct_id as \"distinct_id!\"\n                FROM posthog_person p\n                INNER JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id\n                INNER JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)\n                    ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_identified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_user_id",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      true,
+      false,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "cfb66da06939b737bfd7c5656b0f513370cb33341894a014e1c99b47a7bfb145"
+}

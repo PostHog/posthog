@@ -81,7 +81,7 @@ async fn test_get_persons_by_ids() {
 
     let result = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999])
+        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999], true)
         .await
         .expect("Failed to get persons");
 
@@ -160,7 +160,7 @@ async fn test_get_group() {
     let fetched = result.unwrap();
     assert_eq!(fetched.group_key, "company_123");
     assert_eq!(fetched.group_type_index, 0);
-    let fetched_props: serde_json::Value = serde_json::from_str(&fetched.group_properties).unwrap();
+    let fetched_props: serde_json::Value = serde_json::from_str(fetched.group_properties.as_deref().unwrap()).unwrap();
     assert_eq!(fetched_props, properties);
 
     ctx.cleanup().await.ok();
@@ -246,7 +246,7 @@ async fn test_person_properties() {
 
     assert!(result.is_some());
     let fetched = result.unwrap();
-    let props: serde_json::Value = serde_json::from_str(&fetched.properties).unwrap();
+    let props: serde_json::Value = serde_json::from_str(fetched.properties.as_deref().unwrap()).unwrap();
     assert_eq!(props["email"], "props_test@example.com");
     assert_eq!(props["plan"], "enterprise");
 
@@ -270,7 +270,7 @@ async fn test_get_persons_by_uuids() {
 
     let result = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &[person1.uuid, person2.uuid, nonexistent_uuid])
+        .get_persons_by_uuids(ctx.team_id, &[person1.uuid, person2.uuid, nonexistent_uuid], true)
         .await
         .expect("Failed to get persons by uuids");
 
@@ -364,7 +364,7 @@ async fn test_get_groups_batch() {
 
     let result = ctx
         .storage
-        .get_groups_batch(&keys, ConsistencyLevel::Eventual)
+        .get_groups_batch(&keys, ConsistencyLevel::Eventual, true)
         .await
         .expect("Failed to get groups batch");
 

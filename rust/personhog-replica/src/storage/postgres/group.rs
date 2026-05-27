@@ -33,7 +33,7 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties::text as "group_properties!",
+                   group_type_index, group_key, group_properties::text as "group_properties?",
                    created_at,
                    properties_last_updated_at::text as "properties_last_updated_at?",
                    properties_last_operation::text as "properties_last_operation?",
@@ -56,6 +56,7 @@ impl GroupStorage for PostgresStorage {
         team_id: i64,
         identifiers: &[GroupIdentifier],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<Group>> {
         if identifiers.is_empty() {
             return Ok(Vec::new());
@@ -76,26 +77,50 @@ impl GroupStorage for PostgresStorage {
         let group_type_indexes: Vec<i32> = identifiers.iter().map(|i| i.group_type_index).collect();
         let group_keys: Vec<String> = identifiers.iter().map(|i| i.group_key.clone()).collect();
 
-        let rows = sqlx::query_as!(
-            Group,
-            r#"
-            SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties::text as "group_properties!",
-                   g.created_at,
-                   g.properties_last_updated_at::text as "properties_last_updated_at?",
-                   g.properties_last_operation::text as "properties_last_operation?",
-                   g.version
-            FROM posthog_group g
-            INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
-                ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
-            WHERE g.team_id = $1
-            "#,
-            team_id as i32,
-            &group_type_indexes,
-            &group_keys
-        )
-        .fetch_all(&mut *conn)
-        .await?;
+        let rows = if include_properties {
+            sqlx::query_as!(
+                Group,
+                r#"
+                SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
+                       g.group_type_index, g.group_key, g.group_properties::text as "group_properties?",
+                       g.created_at,
+                       g.properties_last_updated_at::text as "properties_last_updated_at?",
+                       g.properties_last_operation::text as "properties_last_operation?",
+                       g.version
+                FROM posthog_group g
+                INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
+                    ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+                WHERE g.team_id = $1
+                "#,
+                team_id as i32,
+                &group_type_indexes,
+                &group_keys
+            )
+            .fetch_all(&mut *conn)
+            .await?
+        } else {
+            sqlx::query_as!(
+                Group,
+                r#"
+                SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
+                       g.group_type_index, g.group_key,
+                       NULL::text as "group_properties?",
+                       g.created_at,
+                       NULL::text as "properties_last_updated_at?",
+                       NULL::text as "properties_last_operation?",
+                       g.version
+                FROM posthog_group g
+                INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
+                    ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+                WHERE g.team_id = $1
+                "#,
+                team_id as i32,
+                &group_type_indexes,
+                &group_keys
+            )
+            .fetch_all(&mut *conn)
+            .await?
+        };
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
@@ -113,6 +138,7 @@ impl GroupStorage for PostgresStorage {
         &self,
         keys: &[GroupKey],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<(GroupKey, Group)>> {
         if keys.is_empty() {
             return Ok(Vec::new());
@@ -134,25 +160,48 @@ impl GroupStorage for PostgresStorage {
         let group_type_indexes: Vec<i32> = keys.iter().map(|k| k.group_type_index).collect();
         let group_keys: Vec<String> = keys.iter().map(|k| k.group_key.clone()).collect();
 
-        let groups = sqlx::query_as!(
-            Group,
-            r#"
-            SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties::text as "group_properties!",
-                   g.created_at,
-                   g.properties_last_updated_at::text as "properties_last_updated_at?",
-                   g.properties_last_operation::text as "properties_last_operation?",
-                   g.version
-            FROM posthog_group g
-            INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
-                ON g.team_id = t.team_id AND g.group_type_index = t.group_type_index AND g.group_key = t.group_key
-            "#,
-            &team_ids,
-            &group_type_indexes,
-            &group_keys
-        )
-        .fetch_all(&mut *conn)
-        .await?;
+        let groups = if include_properties {
+            sqlx::query_as!(
+                Group,
+                r#"
+                SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
+                       g.group_type_index, g.group_key, g.group_properties::text as "group_properties?",
+                       g.created_at,
+                       g.properties_last_updated_at::text as "properties_last_updated_at?",
+                       g.properties_last_operation::text as "properties_last_operation?",
+                       g.version
+                FROM posthog_group g
+                INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
+                    ON g.team_id = t.team_id AND g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+                "#,
+                &team_ids,
+                &group_type_indexes,
+                &group_keys
+            )
+            .fetch_all(&mut *conn)
+            .await?
+        } else {
+            sqlx::query_as!(
+                Group,
+                r#"
+                SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
+                       g.group_type_index, g.group_key,
+                       NULL::text as "group_properties?",
+                       g.created_at,
+                       NULL::text as "properties_last_updated_at?",
+                       NULL::text as "properties_last_operation?",
+                       g.version
+                FROM posthog_group g
+                INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
+                    ON g.team_id = t.team_id AND g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+                "#,
+                &team_ids,
+                &group_type_indexes,
+                &group_keys
+            )
+            .fetch_all(&mut *conn)
+            .await?
+        };
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
@@ -443,6 +492,7 @@ impl GroupStorage for PostgresStorage {
         cursor_id: i64,
         limit: i32,
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<(Vec<Group>, bool)> {
         let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
@@ -471,38 +521,74 @@ impl GroupStorage for PostgresStorage {
         let search_pattern = format!("%{}%", escaped_search);
         let has_cursor = cursor_created_at.is_some();
 
-        let rows = sqlx::query_as!(
-            Group,
-            r#"
-            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties::text as "group_properties!",
-                   created_at,
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
-                   version
-            FROM posthog_group
-            WHERE team_id = $1
-              AND group_type_index = $2
-              AND (NOT $3 OR group_key ILIKE $4)
-              AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))
-              AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))
-            ORDER BY created_at DESC, id DESC
-            LIMIT $11
-            "#,
-            team_id as i32,
-            group_type_index,
-            has_key_filter,
-            &key_pattern,
-            has_search,
-            &search_pattern,
-            search,
-            has_cursor,
-            cursor_created_at,
-            cursor_id,
-            fetch_limit,
-        )
-        .fetch_all(&mut *conn)
-        .await?;
+        let rows = if include_properties {
+            sqlx::query_as!(
+                Group,
+                r#"
+                SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                       group_type_index, group_key, group_properties::text as "group_properties?",
+                       created_at,
+                       properties_last_updated_at::text as "properties_last_updated_at?",
+                       properties_last_operation::text as "properties_last_operation?",
+                       version
+                FROM posthog_group
+                WHERE team_id = $1
+                  AND group_type_index = $2
+                  AND (NOT $3 OR group_key ILIKE $4)
+                  AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))
+                  AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))
+                ORDER BY created_at DESC, id DESC
+                LIMIT $11
+                "#,
+                team_id as i32,
+                group_type_index,
+                has_key_filter,
+                &key_pattern,
+                has_search,
+                &search_pattern,
+                search,
+                has_cursor,
+                cursor_created_at,
+                cursor_id,
+                fetch_limit,
+            )
+            .fetch_all(&mut *conn)
+            .await?
+        } else {
+            sqlx::query_as!(
+                Group,
+                r#"
+                SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                       group_type_index, group_key,
+                       NULL::text as "group_properties?",
+                       created_at,
+                       NULL::text as "properties_last_updated_at?",
+                       NULL::text as "properties_last_operation?",
+                       version
+                FROM posthog_group
+                WHERE team_id = $1
+                  AND group_type_index = $2
+                  AND (NOT $3 OR group_key ILIKE $4)
+                  AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))
+                  AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))
+                ORDER BY created_at DESC, id DESC
+                LIMIT $11
+                "#,
+                team_id as i32,
+                group_type_index,
+                has_key_filter,
+                &key_pattern,
+                has_search,
+                &search_pattern,
+                search,
+                has_cursor,
+                cursor_created_at,
+                cursor_id,
+                fetch_limit,
+            )
+            .fetch_all(&mut *conn)
+            .await?
+        };
 
         let has_more = rows.len() as i64 > limit as i64;
         let groups: Vec<Group> = if has_more {
@@ -551,7 +637,7 @@ impl GroupStorage for PostgresStorage {
             INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties::text as "group_properties!",
+                      group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
                       properties_last_updated_at::text as "properties_last_updated_at?",
                       properties_last_operation::text as "properties_last_operation?",
@@ -604,7 +690,7 @@ impl GroupStorage for PostgresStorage {
                 version = version + 1
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties::text as "group_properties!",
+                      group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
                       properties_last_updated_at::text as "properties_last_updated_at?",
                       properties_last_operation::text as "properties_last_operation?",
