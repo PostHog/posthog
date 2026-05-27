@@ -1,0 +1,84 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cadence_days": {
+            "description": "Re-score the inference population every N days. Default: 1.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "description": {
+            "description": "Optional free-text description.",
+            "type": "string"
+        },
+        "horizon_days": {
+            "description": "Prediction horizon in days. The model predicts whether the target event occurs within this window.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "inference_population": {
+            "additionalProperties": {},
+            "description": "Inference population filter. Defaults to training_population if not set.",
+            "properties": {},
+            "type": "object"
+        },
+        "iteration_budget": {
+            "description": "Total training iterations allowed for the autoresearch loop. Default: 50.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "name": {
+            "description": "Display name for the pipeline.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "output_person_property": {
+            "description": "Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "plateau_iterations": {
+            "description": "Stop training if no improvement in this many consecutive iterations. Default: 10.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "prediction_mode": {
+            "description": "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation",
+            "enum": ["adoption", "continuation"],
+            "type": "string"
+        },
+        "success_auc": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Target AUC threshold. Training stops early if reached. Default: 0.75."
+        },
+        "target_definition": {
+            "additionalProperties": {},
+            "description": "Full target definition. Can be left empty to use target_event alone.",
+            "properties": {},
+            "type": "object"
+        },
+        "target_event": {
+            "description": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "training_population": {
+            "additionalProperties": {},
+            "description": "Training population filter. Use {} for all identified users.",
+            "properties": {},
+            "type": "object"
+        }
+    },
+    "required": ["name", "target_event"],
+    "type": "object"
+}

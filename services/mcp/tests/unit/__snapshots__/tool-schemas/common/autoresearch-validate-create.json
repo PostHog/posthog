@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "horizon_days": {
+            "default": 7,
+            "description": "Predict whether the target event occurs within this many days.",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "inference_population": {
+            "description": "Population filter for daily scoring. Defaults to training_population if not provided."
+        },
+        "prediction_mode": {
+            "default": "adoption",
+            "description": "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n* `adoption` - adoption\n* `continuation` - continuation",
+            "enum": ["adoption", "continuation"],
+            "type": "string"
+        },
+        "target_event": {
+            "description": "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema.",
+            "type": "string"
+        },
+        "training_population": {
+            "description": "Population filter for training examples. Use {} for all identified users."
+        }
+    },
+    "required": ["target_event"],
+    "type": "object"
+}
