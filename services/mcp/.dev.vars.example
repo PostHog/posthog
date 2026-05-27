@@ -1,16 +1,11 @@
-# Custom API base URL for self-hosted PostHog instances.
-# WARNING: In PostHog Production, do NOT set this - the code automatically handles US/EU routing.
-# See getAuthorizationServerUrl() in src/lib/constants.ts for details.
+# Cloudflare Worker dev vars. The worker is a region-aware reverse proxy in
+# front of the Hono MCP server — most settings now belong to Hono, not here.
+
+# Override the per-region Hono target. Set this when running the worker against
+# a local Hono dev server. Leave unset in production so the worker picks
+# https://mcp.us.posthog.com / https://mcp.eu.posthog.com from the resolved region.
+MCP_HONO_URL=http://localhost:8788
+
+# Used by the worker's token-probe path (POST /api/users/@me) when figuring out
+# a user's region. Local dev points both probes at the same backend.
 POSTHOG_API_BASE_URL=http://localhost:8010
-
-# Base URL for serving MCP UI app static assets (Worker's own URL)
-MCP_APPS_BASE_URL=http://localhost:8787
-
-# PostHog base URL for MCP Apps analytics (CSP and event ingestion)
-POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=http://localhost:8010
-POSTHOG_UI_APPS_TOKEN=your_posthog_ui_apps_token_here
-
-# PostHog API key for dev/self-hosted analytics
-# If not set, simply won't capture any analytics
-POSTHOG_ANALYTICS_API_KEY=local_api_key
-POSTHOG_ANALYTICS_HOST=http://localhost:8010

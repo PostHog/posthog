@@ -1,440 +1,139 @@
-import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import {
-    buildInsufficientScopeChallenge,
-    ErrorCode,
-    findPostHogPermissionError,
-    formatPermissionErrorMessage,
-} from '@/lib/errors'
-import { RequestLogger, withLogging } from '@/lib/logging'
-import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
-import { getPostHogClient } from '@/lib/posthog'
-import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { ApiClient } from '@/api/client'
+import { env as runtimeEnv } from '@/lib/env'
+import { type RequestLogger, withLogging } from '@/lib/logging'
+import { hash } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
-import { MCP, RequestProperties } from './mcp'
-import { proxyToHono, shouldProxyToHono } from './proxy'
-
-function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
-    const mcpServerLog: Record<string, unknown> = {
-        ...(props.mcpAnalyticsInitAction ? { mcpAnalyticsInitAction: props.mcpAnalyticsInitAction } : {}),
-        ...(props.mcpAnalyticsInitReason ? { mcpAnalyticsInitReason: props.mcpAnalyticsInitReason } : {}),
-        ...(props.mcpAnalyticsInitErrorName ? { mcpAnalyticsInitErrorName: props.mcpAnalyticsInitErrorName } : {}),
-        ...(props.mcpAnalyticsInitErrorMessage
-            ? { mcpAnalyticsInitErrorMessage: props.mcpAnalyticsInitErrorMessage }
-            : {}),
-    }
-
-    if (Object.keys(mcpServerLog).length > 0) {
-        log.extend(mcpServerLog)
-    }
-}
-
-// Helper to get the public-facing URL, respecting reverse proxy headers
-// This is needed for local development with ngrok/cloudflared where request.url
-// shows http://localhost but the actual URL is https://...ngrok-free.dev
-function getPublicUrl(request: Request): URL {
-    const url = new URL(request.url)
-
-    // Check for X-Forwarded-Host (ngrok, cloudflared, and most reverse proxies)
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
-    if (forwardedHost) {
-        url.host = forwardedHost
-    }
-
-    // Check for X-Forwarded-Proto (https vs http)
-    const forwardedProto = request.headers.get('X-Forwarded-Proto')
-    if (forwardedProto) {
-        url.protocol = forwardedProto + ':'
-    }
-
-    return url
-}
-
-// Detect region from hostname for EU subdomain routing.
-// This is a workaround for Claude Code's OAuth bug where it ignores the
-// authorization_servers field from OAuth protected resource metadata and
-// instead fetches /.well-known/oauth-authorization-server directly from the MCP server.
-// See: https://github.com/anthropics/claude-code/issues/2267
+// Region-aware proxy in front of the Hono MCP server. The worker's only job is
+// to figure out which region a request belongs to and forward it to the
+// matching Hono backend. All MCP protocol handling, OAuth metadata, auth gating,
+// and static asset serving now live in Hono.
 //
-// By using a separate subdomain (mcp-eu.posthog.com), Claude Code's request to
-// /.well-known/oauth-authorization-server will hit our server with the EU hostname,
-// allowing us to redirect to the correct EU OAuth server.
-function getRegionFromHostname(request: Request): CloudRegion | undefined {
-    const publicUrl = getPublicUrl(request)
+// Region resolution order:
+//   1. Hostname (mcp-eu.posthog.com → eu) — workaround for Claude Code's OAuth
+//      bug that ignores authorization_servers metadata and probes
+//      /.well-known/oauth-authorization-server on the MCP server directly.
+//      See: https://github.com/anthropics/claude-code/issues/2267
+//   2. `?region=us|eu` query param.
+//   3. Token probe against US + EU /api/users/@me in parallel. Result cached
+//      in KV for 7 days, keyed by PBKDF2 hash of the token.
+//   4. Default: us.
 
-    // DNS hostnames are case-insensitive, so normalize to lowercase
-    if (publicUrl.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
-        return 'eu'
-    }
+const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
+const MCP_HONO_EU_URL = 'https://mcp.eu.posthog.com'
+const KV_TTL_SECONDS = 7 * 24 * 60 * 60
 
-    return undefined
-}
-
-// Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
-// Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
-function getRegionFromRequest(request: Request): CloudRegion | null {
-    const hostnameRegion = getRegionFromHostname(request)
-    if (hostnameRegion) {
-        return hostnameRegion
-    }
-
+function regionFromHostname(request: Request): CloudRegion | undefined {
     const url = new URL(request.url)
-    const queryRegion = url.searchParams.get('region') as CloudRegion | null
-    return queryRegion
+    const forwardedHost = request.headers.get('X-Forwarded-Host')
+    const host = (forwardedHost ?? url.hostname).toLowerCase()
+    return host === 'mcp-eu.posthog.com' ? 'eu' : undefined
 }
 
-// Detect error codes and return appropriate responses
-const onThenErrorHandler = async (response: Response): Promise<Response> => {
-    if (!response.ok) {
-        const body = await response.clone().text()
-        const errorResponse = generateErrorResponseFromMessage(body)
-        if (errorResponse) {
-            return errorResponse
+function regionFromQuery(request: Request): CloudRegion | undefined {
+    const queryRegion = new URL(request.url).searchParams.get('region')
+    return queryRegion === 'us' || queryRegion === 'eu' ? queryRegion : undefined
+}
+
+async function regionFromToken(
+    token: string,
+    userHash: string,
+    kv: KVNamespace | undefined
+): Promise<CloudRegion | undefined> {
+    if (kv) {
+        const cached = await kv.get(`${userHash}:region`)
+        if (cached === 'us' || cached === 'eu') {
+            return cached
         }
     }
 
-    return response
+    // POSTHOG_API_BASE_URL collapses both probes onto the same dev backend
+    // (single Hono instance), so local resolves to "us". In production the var
+    // is unset and the worker probes the real US and EU stacks in parallel.
+    const usBase = runtimeEnv.POSTHOG_API_BASE_URL || 'https://us.posthog.com'
+    const euBase = runtimeEnv.POSTHOG_API_BASE_URL || 'https://eu.posthog.com'
+
+    const [usResult, euResult] = await Promise.all([
+        new ApiClient({ apiToken: token, baseUrl: usBase }).users().me(),
+        new ApiClient({ apiToken: token, baseUrl: euBase }).users().me(),
+    ])
+
+    let resolved: CloudRegion | undefined
+    if (usResult.success) {
+        resolved = 'us'
+    } else if (euResult.success) {
+        resolved = 'eu'
+    }
+
+    if (resolved && kv) {
+        await kv.put(`${userHash}:region`, resolved, { expirationTtl: KV_TTL_SECONDS })
+    }
+
+    return resolved
 }
 
-const onCatchErrorHandler = async (
-    error: Error,
-    log: RequestLogger,
-    ctx: ExecutionContext<RequestProperties>
-): Promise<Response> => {
-    const permissionError = findPostHogPermissionError(error)
-    if (permissionError) {
-        return new Response(formatPermissionErrorMessage(permissionError), {
-            status: 403,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
-            },
-        })
+async function detectRegion(
+    request: Request,
+    kv: KVNamespace | undefined,
+    log: RequestLogger
+): Promise<{ region: CloudRegion; source: string }> {
+    const hostnameRegion = regionFromHostname(request)
+    if (hostnameRegion) {
+        return { region: hostnameRegion, source: 'hostname' }
     }
 
-    const knownErrorResponse = generateErrorResponseFromMessage(error.message)
-    if (knownErrorResponse) {
-        return knownErrorResponse
+    const queryRegion = regionFromQuery(request)
+    if (queryRegion) {
+        return { region: queryRegion, source: 'query' }
     }
 
-    // Unrecognized error → opaque 500 to the client. Surface the underlying
-    // error in the wide log and PostHog so we can debug without scraping CF
-    // request traces.
-    log.extend({
-        errorName: error?.name,
-        errorMessage: error?.message,
-        errorStack: error?.stack,
+    const token = request.headers.get('Authorization')?.split(' ')[1]
+    if (token && (token.startsWith('phx_') || token.startsWith('pha_'))) {
+        try {
+            const tokenRegion = await regionFromToken(token, hash(token), kv)
+            if (tokenRegion) {
+                return { region: tokenRegion, source: 'token' }
+            }
+        } catch (err) {
+            log.extend({ tokenProbeError: err instanceof Error ? err.message : String(err) })
+        }
+    }
+
+    return { region: 'us', source: 'default' }
+}
+
+function getHonoTargetUrl(region: CloudRegion): string {
+    if (runtimeEnv.MCP_HONO_URL) {
+        return runtimeEnv.MCP_HONO_URL
+    }
+    return region === 'eu' ? MCP_HONO_EU_URL : MCP_HONO_US_URL
+}
+
+function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
+    const target = new URL(request.url)
+    const honoUrl = new URL(getHonoTargetUrl(region))
+    target.hostname = honoUrl.hostname
+    target.protocol = honoUrl.protocol
+    target.port = honoUrl.port
+
+    return fetch(target.toString(), {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
     })
-
-    try {
-        const client = getPostHogClient()
-        const distinctId = ctx.props?.userHash
-        client.captureException(error, distinctId, {
-            team: 'posthog_ai',
-            source: 'mcp_request_handler',
-            mcp_transport: ctx.props?.transport,
-            mcp_version: ctx.props?.version,
-            has_organization_id: !!ctx.props?.organizationId,
-            has_project_id: !!ctx.props?.projectId,
-        })
-        ctx.waitUntil(client.flush())
-    } catch {
-        // Never let observability break the request.
-    }
-
-    return new Response('Internal server error', { status: 500 })
-}
-
-const generateErrorResponseFromMessage = (message: string): Response | null => {
-    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-        return new Response('OAuth token is inactive', { status: 401 })
-    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
-        return new Response('Invalid API key', { status: 401 })
-    }
-
-    return null
 }
 
 const handleRequest = async (
     request: Request,
     env: Env,
-    ctx: ExecutionContext<RequestProperties>,
+    _ctx: ExecutionContext,
     log: RequestLogger
 ): Promise<Response> => {
-    const url = new URL(request.url)
-    log.extend({ route: url.pathname })
-
-    if (url.pathname === '/') {
-        return Response.redirect(MCP_DOCS_URL, 302)
-    }
-
-    // OpenAI ChatGPT App Directory domain verification
-    if (url.pathname === '/.well-known/openai-apps-challenge') {
-        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
-            headers: { 'content-type': 'text/plain' },
-        })
-    }
-
-    // Health endpoint for uptime probes and load-balancer checks.
-    // Public and unauthenticated so external monitors can hit it without a token.
-    if (url.pathname === '/health' || url.pathname === '/healthz') {
-        return new Response(JSON.stringify({ status: 'ok' }), {
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-store',
-            },
-        })
-    }
-
-    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
-    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
-    // routes these to the asset binding before the Worker runs, but
-    // `wrangler dev` invokes the Worker first — without this short-circuit,
-    // the OAuth gate below 401s the request before assets get a chance.
-    if (url.pathname.startsWith('/ui-apps/')) {
-        return env.ASSETS.fetch(request)
-    }
-
-    // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
-    // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
-    const effectiveRegion = getRegionFromRequest(request)
-    log.extend({ region: effectiveRegion })
-
-    // Authorization server redirects
-    //
-    // MCP clients sometimes hit OAuth endpoints directly on this server instead of
-    // following URLs from the authorization server metadata. We redirect these to
-    // the correct PostHog authorization server for the user's region.
-    // See: https://github.com/anthropics/claude-code/issues/2267
-    const redirect = matchAuthServerRedirect(url.pathname)
-    if (redirect) {
-        const authServer = getAuthorizationServerUrl()
-        const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
-
-        log.extend({ redirectTo })
-        return Response.redirect(redirectTo, redirect.status)
-    }
-
-    // The legacy SSE transport (`/sse`) is deprecated in favor of `/mcp`
-    // (Streamable HTTP). Permanently redirect `/sse*` to the equivalent `/mcp*`.
-    // We tag the redirect Location with `_deprecated=sse` so the followup
-    // request on /mcp carries the marker — that lets us correlate
-    // success/failure on /mcp back to clients that came in via the deprecated
-    // path, even after the protocol-level handoff.
-    if (url.pathname === '/sse' || url.pathname.startsWith('/sse/')) {
-        const target = getPublicUrl(request)
-        target.pathname = '/mcp' + url.pathname.slice('/sse'.length)
-        target.searchParams.set('_deprecated', 'sse')
-        log.extend({ deprecation: 'sse', redirectTo: target.toString() })
-        return Response.redirect(target.toString(), 308)
-    }
-
-    // OAuth Protected Resource Metadata (RFC 9728)
-    // This endpoint tells MCP clients where to authenticate to get tokens.
-    //
-    // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
-    // between the host and the path. For example:
-    // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    //
-    // OAuth flow for MCP:
-    // 1. Client connects to MCP server without a token
-    // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
-    // 3. Client fetches this metadata to discover the authorization server
-    // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
-    // 5. Client reconnects to MCP with the access token
-    const wellKnownPrefix = '/.well-known/oauth-protected-resource'
-    if (url.pathname.startsWith(wellKnownPrefix)) {
-        // Extract the resource path from after the well-known prefix
-        // e.g., /.well-known/oauth-protected-resource/mcp → /mcp
-        const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
-        const resourceUrl = getPublicUrl(request)
-        resourceUrl.pathname = resourcePath
-        resourceUrl.search = ''
-
-        // Determine authorization server for OAuth.
-        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to oauth.posthog.com.
-        const authorizationServer = getAuthorizationServerUrl()
-
-        return new Response(
-            JSON.stringify({
-                resource: resourceUrl.toString().replace(/\/$/, ''),
-                authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
-                bearer_methods_supported: ['header'],
-            }),
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'public, max-age=3600',
-                },
-            }
-        )
-    }
-
-    const token = request.headers.get('Authorization')?.split(' ')[1]
-    const sessionId = url.searchParams.get('sessionId')
-
-    if (!token) {
-        // Return 401 with WWW-Authenticate header per RFC 9728.
-        // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
-        // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
-        // between the host and the resource path:
-        // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        const metadataUrl = getPublicUrl(request)
-        metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-        metadataUrl.search = ''
-        if (effectiveRegion) {
-            metadataUrl.searchParams.set('region', effectiveRegion)
-        }
-
-        log.extend({ authError: 'no_token' })
-        return new Response(
-            `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            {
-                status: 401,
-                headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
-            }
-        )
-    }
-
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
-        log.extend({ authError: 'invalid_token_format' })
-        return new Response(
-            `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            { status: 401 }
-        )
-    }
-
-    // Organization and project IDs can be provided via headers or query params.
-    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
-    const organizationId =
-        request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
-    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
-
-    const rawUserAgent = request.headers.get('User-Agent') || undefined
-    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
-
-    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
-    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
-    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
-    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
-    // clients that only let the user customize the URL, not headers.
-    const mcpConsumer = sanitizeHeaderValue(
-        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
-    )
-
-    // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
-    // request body (streamable-http only). The framework's async
-    // `getInitializeRequest()` relies on Durable Object storage which is only
-    // written after `onStart`/`init()` runs, so on the first connect `init()` has
-    // no client info to read. Parsing the body here gives `init()` the values
-    // synchronously via `RequestProperties`.
-    const clientInfo = await extractClientInfoFromBody(request)
-
-    // Streamable-HTTP transport session id, minted by the MCP server on
-    // initialize and echoed back on every subsequent request. Absent on the
-    // initialize call itself. Distinct from `sessionId` (above), which is the
-    // wrapper-app-provided analytics correlation id.
-    const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
-    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
-    // Caller-supplied for now (wrapper apps can pass it via the header even
-    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
-    // the same value will also flow in from tool args — both sources land on
-    // the same `requestProperties.mcpConversationId` slot.
-    const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
-
-    Object.assign(ctx.props, {
-        apiToken: token,
-        userHash: hash(token),
-        sessionId: sessionId || undefined,
-        mcpSessionId,
-        mcpConversationId,
-        organizationId,
-        projectId,
-        clientUserAgent,
-        mcpConsumer,
-        mcpClientName: clientInfo.clientName,
-        mcpClientVersion: clientInfo.clientVersion,
-        mcpProtocolVersion: clientInfo.protocolVersion,
-        requestStartTime: Date.now(),
-    })
-
-    // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
-    // If features are provided, only tools matching those features will be available.
-    // Features are provided as a comma-separated list in the "features" query parameter.
-    // Example: ?features=org,insights
-    const featuresParam = url.searchParams.get('features')
-    const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
-
-    const toolsParam = url.searchParams.get('tools')
-    const tools = toolsParam ? toolsParam.split(',').filter(Boolean) : undefined
-
-    // Region param is used to route API calls to the correct PostHog instance (US or EU).
-    // This is set by the wizard based on user's cloud region selection during MCP setup.
-    const regionParam = url.searchParams.get('region') || undefined
-
-    const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
-
-    const readOnlyRaw = request.headers.get('x-posthog-read-only') || url.searchParams.get('readonly')
-    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
-
-    // Explicit selection between tool-based and CLI-based MCP. Falls back to the
-    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
-    const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
-
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
-    Object.assign(ctx.props, extraContextProps)
-    log.extend(extraContextProps)
-    if (mcpConsumer) {
-        log.extend({ mcpConsumer })
-    }
-    if (clientInfo.clientName) {
-        log.extend({ mcpClientName: clientInfo.clientName })
-    }
-
-    // Marker set by the /sse → /mcp redirect handler above. Lets us correlate
-    // success/failure on this /mcp request back to clients that originated on
-    // the deprecated /sse path — both in worker logs and in the `mcp init`
-    // analytics event (via `RequestProperties.viaSseRedirect`).
-    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
-    if (viaSseRedirect) {
-        log.extend({ via: 'sse_redirect' })
-        Object.assign(ctx.props, { viaSseRedirect: true })
-    }
-
-    let server: Promise<Response> | null = null
-    if (url.pathname.startsWith('/mcp')) {
-        const proxyResult = await shouldProxyToHono(token, ctx.props.userHash, env.MCP_KV)
-        if (proxyResult.proxy) {
-            log.extend({ proxy: 'hono', region: proxyResult.region })
-            return proxyToHono(request, proxyResult.region)
-        }
-        Object.assign(ctx.props, { transport: 'streamable-http' })
-        server = MCP.serve('/mcp').fetch(request, env, ctx)
-    }
-
-    if (server !== null) {
-        return server
-            .then(async (response) => {
-                const handledResponse = await onThenErrorHandler(response)
-                extendMcpServerLog(log, ctx.props)
-                return handledResponse
-            })
-            .catch((error: Error) => {
-                extendMcpServerLog(log, ctx.props)
-                return onCatchErrorHandler(error, log, ctx)
-            })
-    }
-
-    log.extend({ error: 'route_not_found' })
-    return new Response('Not found', { status: 404 })
+    const { region, source } = await detectRegion(request, env.MCP_KV, log)
+    log.extend({ region, regionSource: source, target: getHonoTargetUrl(region) })
+    return proxyToHono(request, region)
 }
 
-// Durable Object class export - required for Wrangler to find the class for the MCP_OBJECT binding
-export { MCP } from './mcp'
-
-// Worker entry point
 export default {
     fetch: withLogging(handleRequest),
 }

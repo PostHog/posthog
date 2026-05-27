@@ -303,7 +303,7 @@ The header wins when both the header and the query parameter are set. Reserved v
 
 ### Data processing
 
-The MCP server is hosted on a Cloudflare worker which can be located outside of the EU / US, for this reason the MCP server does not store any sensitive data outside of your cloud region.
+A thin Cloudflare worker fronts the MCP server purely as a region-aware reverse proxy — it detects whether a request belongs to the US or EU and forwards it to the corresponding Hono backend (`mcp.us.posthog.com` / `mcp.eu.posthog.com`). The worker stores no analytics data; all session state lives in the regional Hono instance.
 
 ### Using self-hosted instances
 
@@ -321,15 +321,15 @@ And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in th
 
 ### Hono runtime (Node)
 
-Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via Hono — this is what ships to our k8s clusters. Useful locally when you want a CF-runtime-free debugger, fewer Wrangler quirks, or to repro a k8s-only bug.
+The MCP server itself runs on Node via Hono — this is what ships to our k8s clusters and handles every request. The Cloudflare Worker (`pnpm run dev`) is now only a region-aware reverse proxy; for most MCP development you'll want to run Hono directly.
 
 ```bash
 pnpm run dev:hono
 ```
 
-Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:8787/mcp`.
+Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Point your client at `http://localhost:8787/mcp`.
 
-`bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
+To exercise the full proxy + Hono path locally, run `pnpm run dev:hono` first, then in another shell run `pnpm run dev` with `MCP_HONO_URL=http://localhost:8787` in `.dev.vars` — the Worker will forward all traffic to your local Hono.
 
 ### Developing with local resources
 
@@ -416,6 +416,6 @@ Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code 
 
 ### Data handling
 
-The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily using Cloudflare Durable Objects tied to your API key hash.
+The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data — all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily in Redis, keyed by your API key hash.
 
 For EU users, use the `mcp-eu.posthog.com` endpoint to ensure OAuth flows route to the EU PostHog instance.

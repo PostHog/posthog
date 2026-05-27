@@ -66,7 +66,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
     })
 
     // The exec mode prompt is composed of three pieces wired into different MCP
-    // fields (see `src/mcp.ts` and `buildExecCommandReference` for the split):
+    // fields (see `src/hono/instructions.ts` and `buildExecCommandReference` for the split):
     //   - `exec-instructions`     — the compact `instructions` payload (only sent
     //                               to clients that honor MCP `instructions`,
     //                               e.g. Claude Code; Codex gets an empty string)

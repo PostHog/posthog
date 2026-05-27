@@ -4,17 +4,15 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
-		durableNamespaces: "MCP";
 	}
 	interface Env {
-		MCP_APPS_BASE_URL: "https://mcp.posthog.com";
+		// Used by the worker's region-detection probe and (via lib/env.ts) by
+		// the shared analytics module that the Hono server runs.
 		POSTHOG_API_BASE_URL: string;
-		POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: string;
-		POSTHOG_UI_APPS_TOKEN: string;
+		// Read by lib/posthog/analytics. The worker no longer initializes
+		// analytics itself, but the env shape is shared with Hono, which does.
 		POSTHOG_ANALYTICS_API_KEY: string;
 		POSTHOG_ANALYTICS_HOST: string;
-		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MCP>;
-		ASSETS: Fetcher;
 	}
 }
 interface Env extends Cloudflare.Env {}

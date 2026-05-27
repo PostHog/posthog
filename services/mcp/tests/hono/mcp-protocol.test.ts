@@ -17,7 +17,7 @@ import {
     defineSessionTrackingTests,
     type ProtocolTestHarness,
 } from '../integration/mcp-protocol-suite'
-import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
+import { handlers, contextMillHandler } from '../api-fixtures/handlers'
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
 const mswServer = setupServer(...handlers, contextMillHandler)

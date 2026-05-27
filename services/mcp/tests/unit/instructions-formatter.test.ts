@@ -222,7 +222,7 @@ describe('InstructionsFormatter', () => {
         })
     })
 
-    // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
+    // Mirrors the single-exec wiring in `src/hono/instructions.ts`. When the client honors the MCP
     // `instructions` field, four pieces move out of the `command` description and into
     // `instructions`: tool domains, available query tools, user preferences (timezone/name
     // via `{metadata}`), and defined group types. Codex (no `instructions` support) keeps
