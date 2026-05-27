@@ -3500,6 +3500,12 @@ export interface ExperimentApiEventSource {
     event?: string
     /** Action ID. Required for ActionsNode. */
     id?: integer
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with
+     *  math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order.
+     *  Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathType
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilter[]
 }
@@ -3525,6 +3531,20 @@ export interface ExperimentApiMetric {
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSource
+    /** For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this
+     *  percentile are clamped to it before aggregation. */
+    lower_bound_percentile?: number
+    /** For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this
+     *  percentile are clamped to it before aggregation. */
+    upper_bound_percentile?: number
+    /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+    ignore_zeros?: boolean
+    /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
+     *  denominator and each with its own percentile thresholds. */
+    numerator_outlier_handling?: ExperimentMetricOutlierHandling
+    /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
+     *  binomial-style denominator, which is never clamped. */
+    denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSource
     /** For retention metrics: completion event. */

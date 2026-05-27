@@ -15792,6 +15792,10 @@ export namespace Schemas {
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
       kind: Kind;
+      /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+      math?: ExperimentMetricMathType | null;
+      /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+      math_property?: string | null;
       /** Event property filters to narrow which events are counted. */
       properties?: EventPropertyFilter[] | null;
     }
@@ -15813,14 +15817,22 @@ export namespace Schemas {
       conversion_window?: number | null;
       /** For ratio metrics: denominator source. */
       denominator?: ExperimentApiEventSource | null;
+      /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
+      denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       /** Whether higher or lower values indicate success. */
       goal?: ExperimentMetricGoal | null;
+      /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+      ignore_zeros?: boolean | null;
       kind?: 'ExperimentMetric';
+      /** For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation. */
+      lower_bound_percentile?: number | null;
       metric_type: ExperimentMetricType;
       /** Human-readable metric name. */
       name?: string | null;
       /** For ratio metrics: numerator source. */
       numerator?: ExperimentApiEventSource | null;
+      /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
+      numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       retention_window_end?: number | null;
       retention_window_start?: number | null;
       retention_window_unit?: FunnelConversionWindowTimeUnit | null;
@@ -15831,6 +15843,8 @@ export namespace Schemas {
       /** For retention metrics: start event. */
       start_event?: ExperimentApiEventSource | null;
       start_handling?: StartHandling | null;
+      /** For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation. */
+      upper_bound_percentile?: number | null;
       /** Unique identifier. Auto-generated if omitted. */
       uuid?: string | null;
     }

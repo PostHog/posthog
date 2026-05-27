@@ -6897,6 +6897,21 @@ class ExperimentApiEventSource(BaseModel):
     )
     id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
     kind: Kind
+    math: ExperimentMetricMathType | None = Field(
+        default=None,
+        description=(
+            "How to aggregate this source. Defaults to 'total' (event count). Use 'sum'"
+            " together with math_property to aggregate a numeric property — e.g. a"
+            " ratio numerator of revenue per order. Other options: 'avg', 'min', 'max',"
+            " 'unique_session', 'dau', 'unique_group', 'hogql'."
+        ),
+    )
+    math_property: str | None = Field(
+        default=None,
+        description=(
+            "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+        ),
+    )
     properties: list[EventPropertyFilter] | None = Field(
         default=None,
         description="Event property filters to narrow which events are counted.",
@@ -6934,13 +6949,39 @@ class ExperimentApiMetric(BaseModel):
     denominator: ExperimentApiEventSource | None = Field(
         default=None, description="For ratio metrics: denominator source."
     )
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the denominator aggregate."
+            " Leave unset for a binomial-style denominator, which is never clamped."
+        ),
+    )
     goal: ExperimentMetricGoal | None = Field(
         default=None, description="Whether higher or lower values indicate success."
     )
+    ignore_zeros: bool | None = Field(
+        default=None,
+        description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
+    )
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: float | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization lower percentile bound (0–1). Per-user"
+            " values below this percentile are clamped to it before aggregation."
+        ),
+    )
     metric_type: ExperimentMetricType
     name: str | None = Field(default=None, description="Human-readable metric name.")
     numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the numerator aggregate,"
+            " independently of the denominator and each with its own percentile"
+            " thresholds."
+        ),
+    )
     retention_window_end: int | None = None
     retention_window_start: int | None = None
     retention_window_unit: FunnelConversionWindowTimeUnit | None = None
@@ -6953,6 +6994,13 @@ class ExperimentApiMetric(BaseModel):
         default=None, description="For retention metrics: start event."
     )
     start_handling: StartHandling | None = None
+    upper_bound_percentile: float | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization upper percentile bound (0–1). Per-user"
+            " values above this percentile are clamped to it before aggregation."
+        ),
+    )
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 

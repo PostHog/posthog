@@ -16823,6 +16823,14 @@
                     "enum": ["EventsNode", "ActionsNode"],
                     "type": "string"
                 },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType",
+                    "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                },
+                "math_property": {
+                    "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "type": "string"
+                },
                 "properties": {
                     "description": "Event property filters to narrow which events are counted.",
                     "items": {
@@ -16886,13 +16894,25 @@
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For ratio metrics: denominator source."
                 },
+                "denominator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling",
+                    "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal",
                     "description": "Whether higher or lower values indicate success."
                 },
+                "ignore_zeros": {
+                    "description": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
+                },
+                "lower_bound_percentile": {
+                    "description": "For mean metrics: winsorization lower percentile bound (0–1). Per-user values below this percentile are clamped to it before aggregation.",
+                    "type": "number"
                 },
                 "metric_type": {
                     "$ref": "#/definitions/ExperimentMetricType"
@@ -16904,6 +16924,10 @@
                 "numerator": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For ratio metrics: numerator source."
+                },
+                "numerator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling",
+                    "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
                 },
                 "retention_window_end": {
                     "$ref": "#/definitions/integer"
@@ -16932,6 +16956,10 @@
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
                     "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "For mean metrics: winsorization upper percentile bound (0–1). Per-user values above this percentile are clamped to it before aggregation.",
+                    "type": "number"
                 },
                 "uuid": {
                     "description": "Unique identifier. Auto-generated if omitted.",
