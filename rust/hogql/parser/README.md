@@ -236,6 +236,46 @@ oracle and candidate, buckets divergences by AST shape, and prints
 shrunk reproducers. Use `--shrink-failures` to auto-reduce each
 divergence to a minimal example.
 
+Generation is **coverage-guided by default**: each oracle-accepted query
+is scored by its AST k-path coverage and nesting depth and fed to
+Hypothesis's `target()`, so the search climbs toward the structurally
+novel, deeply-nested long tail instead of sampling the grammar uniformly.
+The high-coverage Pareto front persists to a Hypothesis example database
+and is replayed first on the next run, so a long grind warm-starts from
+the best inputs found so far.
+
+The same coverage-guided `target()` + `event()` + example-database wiring is
+shared by the pytest PBTs (`test_parser_grammar_pbt.py`,
+`test_parser_pbt.py`, `test_printer_pbt.py`) — see
+[`_pbt_corpus_db.py`](../../../posthog/hogql/test/_pbt_corpus_db.py).
+
+By default the database is `MultiplexedDatabase(local, ReadOnlyDatabase(committed))`:
+runs replay the committed corpus at
+[`posthog/hogql/test/parser_pbt_corpus/`](../../../posthog/hogql/test/parser_pbt_corpus/)
+read-only and write new examples only to the local `.hypothesis` db. That
+committed dir **ships empty** (offline-only tooling didn't justify committing
+blobs — see its README), so by default there's no warm-start; everything else
+works and nothing churns. Knobs:
+
+```bash
+--no-steer            # disable target()-guided steering (uniform sampling)
+--kpath-k 3           # k-path window for the coverage signal (default 2)
+--update-corpus       # write read-write straight to the committed dir (opt-in seed)
+--corpus-dir PATH     # use an explicit read-write db dir instead (e.g. an ephemeral /tmp run)
+--no-database         # disable the example database entirely
+```
+
+To opt into a shared seed, populate it with `--update-corpus` and commit the
+new blobs; see the corpus
+[README](../../../posthog/hogql/test/parser_pbt_corpus/README.md).
+
+The run-end summary prints Hypothesis's own statistics — the per-outcome
+`event()` distribution and the best `target()` score per label (peak
+k-path novelty and AST depth reached). `--write-divergences PATH` is
+unchanged: it remains the streaming, agent-readable feed (one flushed
+JSON line per finding, as found), complementary to the opaque-blob
+example database.
+
 ### Real-query corpora via `log_corpus_diagnostic.py` / `hog_corpus_diagnostic.py`
 
 ```bash

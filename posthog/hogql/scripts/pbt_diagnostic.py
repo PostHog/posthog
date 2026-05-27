@@ -7,7 +7,7 @@ defaults to `cpp-json` vs `rust-json` (the two compiled backends);
 point `--candidate` at `python` or any other backend in a feature
 branch that adds one.
 
-Distinct from the pytest PBT in five ways:
+Distinct from the pytest PBT in several ways:
 
 1. **AST node-type pair categorization.** Each ast_mismatch is
    bucketed by `(oracle.root_node, candidate.root_node)` so the
@@ -30,9 +30,27 @@ Distinct from the pytest PBT in five ways:
    exception (`RecursionError`, a half-built parser's `RuntimeError`,
    …) is bucketed as `candidate_crash` / `oracle_crash` and the grind
    continues — surfacing the crash rather than aborting on it.
+7. **Coverage-guided steering (on by default; `--no-steer` to disable).**
+   Each oracle-accepted query is scored by its AST k-path coverage and
+   nesting depth, fed to Hypothesis's `target()`. The search climbs toward
+   structurally novel, deeply-nested queries — the long-tail surface where
+   the two visitors most often disagree — instead of sampling the grammar
+   uniformly. With the example database on (default), the high-coverage
+   Pareto front persists and is replayed first on the next run, so a long
+   grind warm-starts from the best inputs found so far.
+8. **Native distribution stats.** Per-example outcomes are emitted via
+   Hypothesis `event()` and the run-end summary prints Hypothesis's own
+   statistics (event distribution + best `target()` scores), captured from
+   a CLI run via `hypothesis.statistics.collector`.
 
 The shared parse / AST-diff / divergence-shape vocabulary lives in
 `_diagnostic_common.py` alongside this script.
+
+Note: `--write-divergences` remains the streaming, human/agent-readable
+divergence feed (one flushed JSON line per finding, as it's found). The
+example database is a separate, complementary mechanism — it persists opaque
+input-replay blobs to re-explore high-coverage corners across runs, not a
+readable log — so the two coexist rather than one replacing the other.
 
 Typical usage:
 
@@ -78,7 +96,9 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, event, given, settings, target
+from hypothesis.database import DirectoryBasedExampleDatabase
+from hypothesis.statistics import collector, describe_statistics
 
 from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,
@@ -89,8 +109,11 @@ from posthog.hogql.scripts._diagnostic_common import (
     _probe_backend,
     _safe_parse,
     _shape_for,
+    ast_depth,
+    ast_kpaths,
 )
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
+from posthog.hogql.test._pbt_corpus_db import committed_corpus_db
 from posthog.hogql.test.test_parser_grammar_pbt import (
     _PBT_SETTINGS,
     _apply_grammar_mutation,
@@ -269,7 +292,54 @@ def main() -> int:
         "--write-divergences",
         metavar="PATH",
         default=None,
-        help="Write JSONL with one entry per failing example (query + diff path)",
+        help="Write JSONL with one entry per failing example (query + diff path), flushed per line so a background grind streams findings to a foreground fixer",
+    )
+    parser.add_argument(
+        "--steer",
+        dest="steer",
+        action="store_true",
+        default=True,
+        help=(
+            "Coverage-guide generation with Hypothesis target(): climb toward "
+            "AST-k-path-novel and deeply-nested oracle-accepted queries (default: on)"
+        ),
+    )
+    parser.add_argument(
+        "--no-steer",
+        dest="steer",
+        action="store_false",
+        help="Disable target()-based steering; sample the grammar uniformly",
+    )
+    parser.add_argument(
+        "--kpath-k",
+        type=int,
+        default=2,
+        help="k for the AST k-path coverage steering signal (2 = parent->child edges, 3 = triples; default: 2)",
+    )
+    parser.add_argument(
+        "--update-corpus",
+        action="store_true",
+        help=(
+            "Write read-write straight to the committed corpus seed "
+            "(posthog/hogql/test/parser_pbt_corpus) — the deliberate 'grow the shared "
+            "corpus' run. Default (no flag) replays that seed read-only and writes new "
+            "examples only to the local .hypothesis db, so grinds don't churn committed blobs."
+        ),
+    )
+    parser.add_argument(
+        "--corpus-dir",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Use this exact dir as a read-write DirectoryBasedExampleDatabase, instead of "
+            "the default committed-seed-plus-local multiplex. Handy for an isolated/ephemeral "
+            "grind (e.g. a /tmp dir) or a per-rule corpus."
+        ),
+    )
+    parser.add_argument(
+        "--no-database",
+        action="store_true",
+        help="Disable the Hypothesis example database entirely (no replay, no persistence)",
     )
     args = parser.parse_args()
     oracle = args.oracle
@@ -335,14 +405,42 @@ def main() -> int:
         if "diff_path" in rec:
             rec["diff_path"] = [list(s) if isinstance(s, tuple) else s for s in rec["diff_path"]]
         jsonl_file.write(json.dumps(rec) + "\n")
+        # Flush per line so a background grind streams each finding to a
+        # foreground fixer in real time (the original reason for JSONL output).
+        jsonl_file.flush()
         jsonl_count += 1
 
+    # Coverage-guided steering (#3): accumulate the AST k-paths seen across the
+    # whole run. Each oracle-accepted example's novelty (new k-paths it adds)
+    # and nesting depth feed Hypothesis `target()` below, so the search climbs
+    # toward the structurally-novel, deeply-nested long tail rather than
+    # sampling the grammar uniformly. `seen_kpaths` is closed over and mutated
+    # across examples — novelty is intentionally history-dependent (that's what
+    # "coverage-guided" means), and Hypothesis tolerates a noisy target() as a
+    # search heuristic.
+    seen_kpaths: set[tuple[str, ...]] = set()
+
     # Reuse the pytest PBT's shared settings (deadline=None, slow /
-    # filter-too-much suppression) and only override `max_examples`
-    # from the CLI flag. The pytest PBT deliberately leaves
-    # `data_too_large` unsuppressed — same signal here.
+    # filter-too-much suppression) and only override `max_examples` from the
+    # CLI flag. The pytest PBT deliberately leaves `data_too_large` unsuppressed
+    # — same signal here. `database` controls where the failing examples + the
+    # `target()`-driven Pareto front are read/written:
+    #   default        — replay the committed corpus seed read-only + write local
+    #                    (inherited from `_PBT_SETTINGS`; no committed-blob churn);
+    #   --update-corpus — read-write straight to the committed seed (grow it);
+    #   --corpus-dir    — read-write at an explicit (e.g. ephemeral) dir;
+    #   --no-database   — off entirely.
+    settings_kwargs: dict[str, Any] = {"parent": _PBT_SETTINGS, "max_examples": args.n}
+    if args.no_database:
+        settings_kwargs["database"] = None
+    elif args.corpus_dir:
+        settings_kwargs["database"] = DirectoryBasedExampleDatabase(args.corpus_dir)
+    elif args.update_corpus:
+        settings_kwargs["database"] = committed_corpus_db()
+    # else: inherit `_PBT_SETTINGS`'s shared_corpus_database() (seed-replay + local)
+
     @given(query=strategy)
-    @settings(parent=_PBT_SETTINGS, max_examples=args.n)
+    @settings(**settings_kwargs)
     def run(query: str) -> None:
         counts["total"] += 1
 
@@ -352,6 +450,7 @@ def main() -> int:
             # finding — count it, but with no oracle AST there's
             # nothing to compare the candidate against, so stop here.
             counts["oracle_crash"] += 1
+            event("outcome", "oracle_crash")
             if args.accepted_only:
                 assume(False)
             return
@@ -360,10 +459,13 @@ def main() -> int:
             # must reject too. A candidate that *accepts* took an invalid
             # query — the headline failure this contract exists to catch.
             counts["oracle_reject"] += 1
+            event("outcome", "oracle_reject")
             rc_status, rc_ast, rc_detail = _safe_parse(query, args.rule, candidate)
             if rc_status == "ok":
                 counts["candidate_accepts_oracle_reject"] += 1
                 bucket = _node_type(rc_ast)
+                event("outcome", "candidate_accepts_oracle_reject")
+                event("over_accept_root", bucket)
                 shape = DivergenceShape(kind="candidate_accepts_oracle_reject")
                 shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
                 accept_reject_buckets.setdefault(bucket, []).append((query, shrunk))
@@ -380,6 +482,7 @@ def main() -> int:
                 )
             elif rc_status == "crash":
                 counts["candidate_crash"] += 1
+                event("outcome", "candidate_crash")
                 sig = rc_detail or "<no message>"
                 crash_buckets.setdefault(sig, []).append(query)
                 write_record(
@@ -396,6 +499,7 @@ def main() -> int:
             else:
                 # Both rejected — the contract is satisfied.
                 counts["both_reject"] += 1
+                event("outcome", "both_reject")
             # `--accepted-only`: discard so this doesn't count toward
             # `max_examples` — Hypothesis regenerates until `--n`
             # oracle-accepted examples land.
@@ -403,10 +507,23 @@ def main() -> int:
                 assume(False)
             return
 
+        # Steering (#3): the oracle accepted, so score this query's structure
+        # and feed it to Hypothesis's targeted search. Computed from the oracle
+        # AST we just parsed (one extra cheap walk per accepted example). Two
+        # labels: `novel_kpaths` drives coverage early; `ast_depth` keeps
+        # providing gradient after k-path coverage saturates late in a long run.
+        if args.steer:
+            kpaths = ast_kpaths(o_ast, args.kpath_k)
+            target(float(len(kpaths - seen_kpaths)), label="novel_kpaths")
+            seen_kpaths.update(kpaths)
+            target(float(ast_depth(o_ast)), label="ast_depth")
+
         c_status, c_ast, c_detail = _safe_parse(query, args.rule, candidate)
         if c_status == "reject":
             counts["candidate_reject"] += 1
             sig = c_detail or "<no message>"
+            event("outcome", "candidate_reject")
+            event("reject_sig", sig)
             shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
             shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
             reject_buckets.setdefault(sig, []).append((query, shrunk))
@@ -426,6 +543,7 @@ def main() -> int:
             # Not shrunk: a crash isn't a stable `DivergenceShape`, so
             # `_shrink_query` can't reduce toward it. Recorded full.
             counts["candidate_crash"] += 1
+            event("outcome", "candidate_crash")
             sig = c_detail or "<no message>"
             crash_buckets.setdefault(sig, []).append(query)
             write_record(
@@ -443,10 +561,13 @@ def main() -> int:
 
         if o_ast == c_ast:
             counts["match"] += 1
+            event("outcome", "match")
             return
 
         counts["ast_mismatch"] += 1
         mismatch_bucket = (_node_type(o_ast), _node_type(c_ast))
+        event("outcome", "ast_mismatch")
+        event("mismatch", f"{mismatch_bucket[0]} vs {mismatch_bucket[1]}")
         steps = _diff_path(o_ast, c_ast)
         shape = _ast_mismatch_shape(mismatch_bucket, steps)
         shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
@@ -458,8 +579,8 @@ def main() -> int:
                 "oracle": oracle,
                 "candidate": candidate,
                 "query": query,
-                "oracle_root": bucket[0],
-                "candidate_root": bucket[1],
+                "oracle_root": mismatch_bucket[0],
+                "candidate_root": mismatch_bucket[1],
                 "diff_path": steps,
             },
             shrunk,
@@ -471,11 +592,18 @@ def main() -> int:
     # have, but track the failure so the exit code reflects it: tooling
     # that invokes the diagnostic non-interactively must not read a
     # crashed run as success.
+    # Capture Hypothesis's own end-of-run statistics (the `event()` distribution
+    # + best `target()` score per label). The engine calls `note_statistics` ->
+    # the `collector` callback once `run()` finishes; under pytest this is what
+    # `--hypothesis-show-statistics` prints — here there's no pytest, so we
+    # capture the dict and print `describe_statistics` ourselves in the summary.
+    captured_stats: list[dict[str, Any]] = []
     run_ok = True
     try:
         if args.write_divergences:
             jsonl_file = open(args.write_divergences, "w")  # noqa: SIM115 — see finally
-        run()
+        with collector.with_value(captured_stats.append):
+            run()
     except Exception:
         traceback.print_exc()
         run_ok = False
@@ -487,10 +615,18 @@ def main() -> int:
     print()
     print(
         f"=== PBT run: rule={args.rule} oracle={oracle} candidate={candidate} "
-        f"jiggle={args.jiggle} max_examples={args.n} ==="
+        f"jiggle={args.jiggle} steer={args.steer} max_examples={args.n} ==="
     )
     for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         print(f"  {k:32s} {v}")
+
+    # Hypothesis's own statistics: the `event()` outcome distribution and, when
+    # steering is on, the best `target()` score per label (peak k-path novelty
+    # and AST depth reached). Captured from the CLI run via `collector` above.
+    if captured_stats:
+        print()
+        print("=== Hypothesis statistics (event distribution + target scores) ===")
+        print(describe_statistics(captured_stats[0]))
 
     # ---- rejection-parity: candidate accepted what the oracle rejected ----
     # The headline failure of the two-sided contract — a candidate that

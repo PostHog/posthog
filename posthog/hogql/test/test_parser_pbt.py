@@ -19,14 +19,18 @@ import pytest
 from hypothesis import (
     HealthCheck,
     assume,
+    event,
     given,
     settings,
     strategies as st,
+    target,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.scripts._diagnostic_common import ast_depth
+from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 
 # These tests are too slow for CI (~8 min). Run manually with:
 #   RUN_PBT=1 pytest posthog/hogql/test/test_parser_pbt.py
@@ -348,13 +352,25 @@ def _roundtrip_check(expr: ast.Expr) -> None:
 # Tests
 # ---------------------------------------------------------------------------
 
+# Shared settings base: replay the committed corpus seed read-only + write new
+# examples locally (see _pbt_corpus_db). Per-test decorators set `parent=_BASE`
+# so every PBT here uses the same database without repeating the wiring.
+_BASE = settings(
+    database=shared_corpus_database(),
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+
 
 class TestExprRoundTrip:
     """Print → parse → print yields the same HogQL string."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(parent=_BASE, max_examples=2000)
     def test_print_parse_print_idempotent(self, expr: ast.Expr) -> None:
+        # Steer (#3) toward deeper generated expression trees — the long tail
+        # where printer/parser round-tripping is most likely to drift.
+        target(float(ast_depth(expr)), label="ast_depth")
         _roundtrip_check(expr)
 
 
@@ -362,8 +378,9 @@ class TestParserBackendEquivalence:
     """Both parser backends produce equivalent ASTs for generated HogQL strings."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(parent=_BASE, max_examples=2000)
     def test_python_and_cpp_backends_agree(self, expr: ast.Expr) -> None:
+        target(float(ast_depth(expr)), label="ast_depth")
         try:
             hogql_string = _print_hogql(expr)
         except BaseHogQLError:
@@ -373,6 +390,7 @@ class TestParserBackendEquivalence:
         py_ast, cpp_ast = _parse_both_backends(hogql_string)
 
         if py_ast is None and cpp_ast is None:
+            event("outcome", "both_reject")
             assume(False)
             return  # type: ignore[unreachable]
 
@@ -401,17 +419,17 @@ class TestConstantRoundTrip:
     """Focused round-trip tests for constant values (strings, numbers, booleans, null)."""
 
     @given(s=_SAFE_STRING)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_string_constant_roundtrip(self, s: str) -> None:
         _roundtrip_check(ast.Constant(value=s))
 
     @given(n=_SAFE_INTEGER)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_integer_constant_roundtrip(self, n: int) -> None:
         _roundtrip_check(ast.Constant(value=n))
 
     @given(f=_SAFE_FLOAT)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_float_constant_roundtrip(self, f: float) -> None:
         node = ast.Constant(value=f)
         printed = _print_hogql(node)
@@ -436,6 +454,7 @@ class TestFieldRoundTrip:
     """Focused round-trip tests for field references."""
 
     @given(chain=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3))
+    @settings(parent=_BASE)
     def test_field_roundtrip(self, chain: list[str]) -> None:
         _roundtrip_check(ast.Field(chain=list[str | int](chain)))
 
@@ -447,6 +466,7 @@ class TestArrayAccessRoundTrip:
         array_chain=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=2),
         index=st.integers(min_value=1, max_value=100),
     )
+    @settings(parent=_BASE)
     def test_field_array_access_roundtrip(self, array_chain: list[str], index: int) -> None:
         node = ast.ArrayAccess(
             array=ast.Field(chain=list[str | int](array_chain)),
@@ -463,6 +483,7 @@ class TestIsDistinctFromRoundTrip:
         right=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=2),
         negated=st.booleans(),
     )
+    @settings(parent=_BASE)
     def test_is_distinct_from_roundtrip(self, left: list[str], right: list[str], negated: bool) -> None:
         node = ast.IsDistinctFrom(
             left=ast.Field(chain=list[str | int](left)),
@@ -523,6 +544,7 @@ class TestLambdaRoundTrip:
         fn_name=st.sampled_from(_LAMBDA_FUNCTIONS),
         lambda_args=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3, unique=True),
     )
+    @settings(parent=_BASE)
     def test_lambda_in_array_function_roundtrip(self, fn_name: str, lambda_args: list[str]) -> None:
         node = ast.Call(
             name=fn_name,

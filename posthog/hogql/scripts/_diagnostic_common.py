@@ -35,7 +35,7 @@ import traceback
 import subprocess
 import dataclasses
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -130,6 +130,79 @@ def _format_diff_path(steps: list) -> str:
         return f"  {label}: (no terminal value)"
     field, o_repr, c_repr = terminal
     return f"  {label}{field}\n    oracle:    {o_repr[:200]}\n    candidate: {c_repr[:200]}"
+
+
+# ---------------------------------------------------------------------------
+# AST coverage metrics — generation-steering signals for the PBT grind
+# ---------------------------------------------------------------------------
+#
+# `pbt_diagnostic.py` feeds these to Hypothesis's `target()` so the search
+# climbs toward structurally novel / deeply-nested queries — the long-tail
+# grammar surface where the two visitors are most likely to disagree. They
+# read the oracle AST already parsed during the grind and reuse `_node_fields`,
+# so they track exactly the dataclass structure the visitors build. Node-type
+# k-paths are an AST analogue of the grammar k-paths from Havrikov & Zeller,
+# "Systematically Covering Input Structure" (ASE 2019): a k-path is a window of
+# k node-type names along one root->descendant descent. AST-shape coverage is a
+# better steering signal here than raw grammar coverage because the divergences
+# are visitor bugs, and the visitor's output IS the AST.
+
+
+def _iter_child_nodes(value: Any) -> Iterator[Any]:
+    """Yield the AST dataclass nodes one level below `value`, descending
+    through intervening lists / tuples / dicts (which hold child nodes in the
+    HogQL AST) but stopping at scalars. A dataclass *type* (as opposed to an
+    instance) is a scalar for our purposes."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        yield value
+        return
+    if isinstance(value, list | tuple):
+        for item in value:
+            yield from _iter_child_nodes(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_child_nodes(item)
+
+
+def ast_kpaths(root: Any, k: int = 2, *, max_depth: int = 64) -> set[tuple[str, ...]]:
+    """All node-type k-paths in `root`: the set of length-`k` windows of AST
+    node-type names along each root->descendant path. `k=1` is the set of node
+    types present, `k=2` every parent->child edge, `k=3` every
+    grandparent->parent->child triple. Depth-bounded so a pathological tree
+    can't blow the stack."""
+    out: set[tuple[str, ...]] = set()
+
+    def walk(node: Any, chain: tuple[str, ...]) -> None:
+        chain = (*chain, _node_type(node))
+        if len(chain) >= k:
+            out.add(chain[-k:])
+        if len(chain) >= max_depth:
+            return
+        for _, value in _node_fields(node):
+            for child in _iter_child_nodes(value):
+                walk(child, chain)
+
+    walk(root, ())
+    return out
+
+
+def ast_depth(root: Any, *, max_depth: int = 256) -> int:
+    """Maximum AST node nesting depth (root = depth 1). Capped so a pathological
+    tree returns the cap rather than recursing without bound."""
+    best = 0
+
+    def walk(node: Any, d: int) -> None:
+        nonlocal best
+        if d > best:
+            best = d
+        if d >= max_depth:
+            return
+        for _, value in _node_fields(node):
+            for child in _iter_child_nodes(value):
+                walk(child, d + 1)
+
+    walk(root, 1)
+    return best
 
 
 # ---------------------------------------------------------------------------
