@@ -250,6 +250,20 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 2. **Adding a metric** (e.g. TTFB) is a schema change — add the column to `web_vitals_paths_preaggregated`, the HogQL table registration, the INSERT template, and the `_METRIC_STATE_COLUMN` map.
 3. **Bands are computed in ClickHouse from the runtime thresholds**, not stored — so a threshold change is free on the read side.
 
+## Eager baseline warming (hourly Dagster job)
+
+The lazy path computes on first read, but for high-traffic teams the dashboard's main tiles get hit constantly — there's no reason to make the first user every cycle pay the INSERT cost. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
+
+- **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
+- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`)
+- **Window**: last 28 days, fixed
+- **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`)
+- **Audience**: teams whose organization has at least one member matching the `web-analytics-pre-aggregated-tables` feature flag's `email icontains <domain>` conditions. The flag lives on the PostHog dogfooding project (team id 2 in PostHog Cloud); on self-hosted instances the flag is absent and the job is a no-op.
+
+There's no separate runtime gate — the eager job populates the same cache the lazy read path consults. For an enrolled team to actually be served from the warmed cache, the team must also be on `web-analytics-precompute-toggle` (the lazy-path rollout flag). Both flags should overlap for the same audience.
+
+This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. Together: the eager job guarantees the head of the distribution is always warm; the replay job covers the long tail of team-specific filter combinations.
+
 ## Related code
 
 - `posthog/hogql_queries/web_analytics/web_overview.py` — runner
@@ -264,3 +278,4 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 - `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
 - `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README
+- `products/web_analytics/dags/eager_web_analytics_precompute.py` — hourly baseline pre-warmer
