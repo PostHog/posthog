@@ -18,6 +18,8 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryTemporaryDatasetConfig,
 )
 
+from products.data_warehouse.backend.types import IncrementalFieldType
+
 
 def _make_inputs(**overrides) -> SourceInputs:
     defaults: dict = {
@@ -158,8 +160,6 @@ def test_bigquery_get_query_projects_enabled_columns():
 
 
 def test_bigquery_get_query_keeps_incremental_field_in_projection():
-    from products.data_warehouse.backend.types import IncrementalFieldType
-
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     query = _get_query(
         should_use_incremental_field=True,
