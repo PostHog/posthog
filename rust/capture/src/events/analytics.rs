@@ -11,7 +11,7 @@ use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json;
-use tracing::{error, instrument, warn, Span};
+use tracing::{debug, error, instrument, warn, Span};
 
 use limiters::overflow::OverflowLimiter;
 
@@ -240,7 +240,7 @@ pub async fn process_events(
                 continue;
             }
             Err(err) => {
-                error!("failed to create heatmap redirect: {err:#}");
+                warn!("failed to create heatmap redirect: {err:#}");
                 events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
@@ -343,7 +343,7 @@ pub async fn process_events(
                 "reason" => "global_rate_limit_token_distinctid",
             )
             .increment(limited_event_count);
-            warn!(
+            debug!(
                 token = context.token,
                 limited_event_count = limited_event_count,
                 distinct_id_count = limited_distinct_ids.len(),
