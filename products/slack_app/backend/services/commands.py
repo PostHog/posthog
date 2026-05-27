@@ -236,6 +236,176 @@ def _handle_default_repo_clear(
         )
 
 
+def _handle_project_show(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    user_id: int,
+    workspace_candidates: list[Integration] | None = None,
+) -> None:
+    from posthog.models.user import User
+
+    from products.slack_app.backend.services.integration_resolver import (
+        format_project_candidate_list,
+        load_integrations,
+        resolve_from_candidates,
+    )
+
+    user = User.objects.get(id=user_id)
+    if workspace_candidates is not None:
+        result = resolve_from_candidates(
+            workspace_candidates,
+            slack_team_id=slack_workspace_id,
+            slack_user_id=slack_user_id,
+            user=user,
+        )
+    else:
+        result = load_integrations(
+            slack_team_id=slack_workspace_id,
+            kinds=["slack-posthog-code"],
+            slack_user_id=slack_user_id,
+            user=user,
+        )
+
+    if result.integration is not None:
+        target = result.integration
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=(
+                f"Your mentions in this workspace route to *{target.team.organization.name} · "
+                f"{target.team.name}* (id `{target.team_id}`). "
+                "Change it with `@PostHog project <id>`."
+            ),
+        )
+        return
+
+    if not result.candidates:
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=("I couldn't find your PostHog account in any organization connected to this Slack workspace."),
+        )
+        return
+
+    lines = format_project_candidate_list(result.candidates)
+    slack.client.chat_postEphemeral(
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            "You haven't set a default project for this Slack workspace yet. Available PostHog "
+            "projects you can pick:\n"
+            f"{lines}\n\n"
+            "Set one with `@PostHog project <id>`."
+        ),
+    )
+
+
+def _handle_project_set(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    user_id: int,
+    target_team_id: int,
+    workspace_candidates: list[Integration] | None = None,
+) -> None:
+    from posthog.models.user import User
+
+    from products.slack_app.backend.models import SlackSettings
+
+    user = User.objects.get(id=user_id)
+    if not user.teams.filter(id=target_team_id).exists():
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=f"You don't have access to project `{target_team_id}`.",
+        )
+        return
+
+    if workspace_candidates is not None:
+        target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
+    else:
+        target = (
+            Integration.objects.filter(
+                kind="slack-posthog-code",
+                integration_id=slack_workspace_id,
+                team_id=target_team_id,
+            )
+            .select_related("team", "team__organization")
+            .first()
+        )
+    if target is None:
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
+        )
+        return
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"default_integration": target},
+    )
+    slack.client.chat_postEphemeral(
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            f"Default set to *{target.team.organization.name} · {target.team.name}* "
+            f"(id `{target.team_id}`). I'll route future mentions here — mention me again to "
+            "start a task."
+        ),
+    )
+
+
+def resolve_command_target(
+    *,
+    slack_team_id: str,
+    command: "RulesCommand",
+    slack_user_id: str,
+    user_id: int,
+    channel: str,
+    thread_ts: str,
+) -> tuple[list[Integration], Integration | None]:
+    """Load workspace candidates and decide which one to dispatch against.
+
+    Returns ``(candidates, target)``. ``target`` is ``None`` when the workspace
+    has multiple PostHog projects connected, no saved routing default applies,
+    and the command isn't workspace-safe — the caller should surface a
+    "pick a project" hint.
+    """
+    from posthog.models.user import User
+
+    from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
+
+    initial = load_integrations(slack_team_id=slack_team_id, kinds=["slack-posthog-code"])
+    candidates = initial.candidates
+    if not candidates:
+        return [], None
+    if command.action in ("project_show", "project_set", "help") or len(candidates) == 1:
+        return candidates, candidates[0]
+
+    result = resolve_from_candidates(
+        candidates,
+        slack_team_id=slack_team_id,
+        slack_user_id=slack_user_id,
+        user=User.objects.get(id=user_id),
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    return candidates, result.integration
+
+
 def dispatch_rules_command(
     command: "RulesCommand",
     slack: SlackIntegration,
@@ -246,9 +416,11 @@ def dispatch_rules_command(
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
+    workspace_candidates: list[Integration] | None = None,
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has
-    already resolved a single ``integration`` to act on.
+    already resolved a single ``integration`` to act on; project commands also
+    accept ``workspace_candidates`` so ``project_set`` can skip a DB lookup.
 
     ``rules add`` without an inline repo is handled here as a plain "specify the
     repo" reply. The mention workflow's picker flow must catch that case
@@ -277,3 +449,25 @@ def dispatch_rules_command(
         _handle_default_repo_show(slack, integration, channel, thread_ts, user_id)
     elif command.action == "default_clear":
         _handle_default_repo_clear(slack, integration, channel, thread_ts, user_id)
+    elif command.action == "project_show":
+        _handle_project_show(
+            slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            user_id,
+            workspace_candidates=workspace_candidates,
+        )
+    elif command.action == "project_set":
+        assert command.project_team_id is not None
+        _handle_project_set(
+            slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            user_id,
+            command.project_team_id,
+            workspace_candidates=workspace_candidates,
+        )

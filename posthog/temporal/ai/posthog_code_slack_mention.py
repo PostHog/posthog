@@ -285,52 +285,56 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
-            rules_result = await _execute_posthog_code_activity(
-                handle_posthog_code_rules_command_activity,
-                inputs,
-                channel,
-                thread_ts,
-                slack_user_id,
-                user_id,
-            )
-            if rules_result.status == "handled":
-                return
-            if rules_result.status == "needs_picker":
-                await _execute_posthog_code_activity(
-                    post_posthog_code_repo_picker_activity,
+            # Commands now route through PostHogCodeSlackMentionCommandWorkflow at the
+            # webhook layer, so this workflow never receives command text. Old
+            # in-flight workflows must still replay through the previous branch.
+            if not workflow.patched("posthog-code-mention-skip-rules-command"):
+                rules_result = await _execute_posthog_code_activity(
+                    handle_posthog_code_rules_command_activity,
                     inputs,
                     channel,
                     thread_ts,
                     slack_user_id,
-                    event,
-                    workflow.info().workflow_id,
-                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                    False,
-                )
-                try:
-                    await workflow.wait_condition(
-                        lambda: self._repo_selection_resolved,
-                        timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
-                    )
-                except TimeoutError:
-                    await _execute_posthog_code_activity(
-                        post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
-                    )
-                    return
-
-                if not self._selected_repo:
-                    return
-
-                await _execute_posthog_code_activity(
-                    create_posthog_code_routing_rule_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
                     user_id,
-                    rules_result.pending_rule_text,
-                    self._selected_repo,
                 )
-                return
+                if rules_result.status == "handled":
+                    return
+                if rules_result.status == "needs_picker":
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_repo_picker_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        event,
+                        workflow.info().workflow_id,
+                        POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                        False,
+                    )
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._repo_selection_resolved,
+                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                        )
+                    except TimeoutError:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        )
+                        return
+
+                    if not self._selected_repo:
+                        return
+
+                    await _execute_posthog_code_activity(
+                        create_posthog_code_routing_rule_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        user_id,
+                        rules_result.pending_rule_text,
+                        self._selected_repo,
+                    )
+                    return
 
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
@@ -607,7 +611,6 @@ def handle_posthog_code_rules_command_activity(
     command = _parse_rules_command(inputs.event.get("text", ""))
     if not command:
         return PostHogCodeRulesCommandResult(status="not_a_command")
-
     # Picker flow is unique to this workflow; the command service can't drive a
     # workflow signal, so catch it here before delegating.
     if command.action == "add" and not command.repository:

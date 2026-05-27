@@ -39,10 +39,16 @@ from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackMentionWorkflowInputs,
 )
+from posthog.temporal.ai.posthog_code_slack_mention_command import (
+    PostHogCodeSlackMentionCommandWorkflow,
+    PostHogCodeSlackMentionCommandWorkflowInputs,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, load_integrations
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
 logger = structlog.get_logger(__name__)
@@ -133,10 +139,29 @@ class SlackUserContext:
 
 @dataclass
 class RulesCommand:
-    action: Literal["list", "add", "remove", "help", "deprecated_default_repo"]
+    """Parsed `@PostHog <command>` mention text.
+
+    Most actions (``list``, ``add``, ``remove``, ``help``, ``default_*``) are
+    dispatched post-routing inside the Temporal workflow's first activity. The
+    ``project_*`` actions are dispatched pre-routing — they decide which
+    integration the workflow runs against — so the routing layer in `api.py`
+    handles them before ``start_workflow`` and the workflow activity ignores
+    them defensively.
+    """
+
+    action: Literal[
+        "list",
+        "add",
+        "remove",
+        "help",
+        "deprecated_default_repo",
+        "project_show",
+        "project_set",
+    ]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
+    project_team_id: int | None = None
 
 
 def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
@@ -175,8 +200,6 @@ def _normalize_slack_response(payload: Any) -> dict[str, Any]:
 
 
 def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -> dict[str, Any] | None:
-    from products.slack_app.backend.models import SlackUserProfileCache
-
     try:
         profile = SlackUserProfileCache.objects.filter(
             integration_id=integration.id, slack_user_id=slack_user_id
@@ -197,7 +220,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
 
 
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
-    from products.slack_app.backend.models import SlackUserProfileCache
+    
 
     user = user_info.get("user", {})
     profile = user.get("profile", {})
@@ -237,8 +260,6 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
 
 
 def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
-    from products.slack_app.backend.models import SlackUserProfileCache
-
     try:
         profile = SlackUserProfileCache.objects.filter(
             integration_id=integration.id,
@@ -574,6 +595,14 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
         numbers = [int(n.strip()) for n in remove_match.group(1).split(",") if n.strip().isdigit()]
         if numbers:
             return RulesCommand(action="remove", rule_numbers=numbers)
+
+    # Trailing text after the id is tolerated but ignored — we only act on the id.
+    project_match = re.fullmatch(r"project(?:\s+(\d+)(?:\s+.*)?)?", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    if project_match is not None:
+        team_id_str = project_match.group(1)
+        if team_id_str is None:
+            return RulesCommand(action="project_show")
+        return RulesCommand(action="project_set", project_team_id=int(team_id_str))
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
@@ -1214,88 +1243,195 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
+def _resolve_posthog_user_from_event(
+    *,
+    slack_user_id: str,
+    probe_integration: Integration,
+) -> User | None:
+    # Workspace-scoped lookup: any candidate integration works as a probe since the
+    # Slack email lookup is not team-bound.
+    slack_client = SlackIntegration(probe_integration)
+    try:
+        user_info = _get_slack_user_info(slack_client, probe_integration, slack_user_id)
+        slack_email = user_info.get("user", {}).get("profile", {}).get("email")
+        if not slack_email:
+            fresh = _normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
+            if fresh:
+                _persist_slack_user_info(probe_integration, slack_user_id, fresh)
+                slack_email = fresh.get("user", {}).get("profile", {}).get("email")
+        if slack_email:
+            return User.objects.filter(email=slack_email).first()
+    except Exception:
+        logger.warning(
+            "posthog_code_resolve_user_failed",
+            integration_id=probe_integration.id,
+            slack_user_id=slack_user_id,
+            exc_info=True,
+        )
+    return None
+
+
+def _post_pick_a_project_hint(
+    probe: SlackIntegration,
+    candidates: list[Integration],
+    event: dict[str, Any],
+) -> None:
+    """Tell the user that this workspace is connected to multiple PostHog
+    projects, and that they should pick one via `@PostHog project <id>`.
+    """
+    slack_user_id = event.get("user")
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return
+    text = (
+        "This Slack workspace is connected to multiple PostHog projects:\n"
+        f"{format_project_candidate_list(candidates)}\n\n"
+        "Use `@PostHog project <id>` to pick one — that also saves it as your default."
+    )
+    _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
+def _start_posthog_code_workflow(
+    workflow_cls: Any,
+    workflow_inputs: Any,
+    *,
+    id_prefix: str,
+    slack_team_id: str,
+    event: dict,
+    event_id: str | None,
+) -> None:
+    fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
+    workflow_id = f"{id_prefix}-{slack_team_id}:{fallback}"
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            workflow_cls.run,
+            workflow_inputs,
+            id=workflow_id,
+            task_queue=settings.MAX_AI_TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        )
+    )
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
     slack_team_id: str,
     event_id: str | None = None,
 ) -> str:
-    # One webhook endpoint serves both the notifications integration (kind="slack") and the
-    # coding-agent integration (kind="slack-posthog-code"). What counts as a "local match" has
-    # to depend on event type: app_mention needs the coding-agent integration specifically,
-    # while link_shared (unfurl) works with either kind. Without this, a region that has only a
-    # notifications install for a workspace would silently swallow mentions instead of
-    # proxying to the region that holds the coding-agent install.
-    integrations = list(
-        Integration.objects.filter(
-            kind__in=["slack", "slack-posthog-code"],
-            integration_id=slack_team_id,
-        )
-        .select_related("team", "team__organization", "created_by")
-        .order_by("id")
-    )
-    coding_agent_integration = next((i for i in integrations if i.kind == "slack-posthog-code"), None)
-    any_integration = integrations[0] if integrations else None
-
     event_type = event.get("type")
-    if event_type == "app_mention":
-        local_match = coding_agent_integration
-    else:
-        local_match = any_integration
+    in_region = not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN)
 
-    if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
-        if event_type == "app_mention":
-            if not _posthog_code_enabled_for_integration(local_match):
-                logger.info(
-                    "posthog_code_event_flag_off",
-                    slack_team_id=slack_team_id,
-                    organization_id=str(local_match.team.organization_id),
-                )
-                return ROUTE_HANDLED_LOCALLY
-            ignore_reason = _app_mention_ignore_reason(event)
-            if ignore_reason:
-                logger.info(
-                    "posthog_code_event_app_mention_ignored",
-                    reason=ignore_reason,
-                    slack_team_id=slack_team_id,
-                    channel=event.get("channel"),
-                    message_ts=event.get("ts"),
-                )
-                return ROUTE_HANDLED_LOCALLY
-            slack = SlackIntegration(local_match)
-            missing_scopes = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
-            if missing_scopes:
-                _notify_missing_slack_scopes(slack, event, missing_scopes)
-                return ROUTE_HANDLED_LOCALLY
-            if _resolve_pending_repo_picker_from_followup(event, local_match):
-                return ROUTE_HANDLED_LOCALLY
-            workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
-                event=event,
-                integration_id=local_match.id,
+    if event_type == "app_mention":
+        ignore_reason = _app_mention_ignore_reason(event)
+        if ignore_reason:
+            logger.info(
+                "posthog_code_event_app_mention_ignored",
+                reason=ignore_reason,
                 slack_team_id=slack_team_id,
+                channel=event.get("channel"),
+                message_ts=event.get("ts"),
             )
-            event_id_or_fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
-            workflow_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-            client = sync_connect()
-            asyncio.run(
-                client.start_workflow(
-                    PostHogCodeSlackMentionWorkflow.run,
-                    workflow_inputs,
-                    id=workflow_id,
-                    task_queue=settings.MAX_AI_TASK_QUEUE,
-                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                )
+            return ROUTE_HANDLED_LOCALLY
+
+        result = load_integrations(
+            slack_team_id=slack_team_id,
+            kinds=["slack-posthog-code"],
+            slack_user_id=str(event.get("user") or ""),
+            user=None,
+            channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
+            thread_ts=(event.get("thread_ts") or event.get("ts"))
+            if isinstance(event.get("thread_ts") or event.get("ts"), str)
+            else None,
+        )
+        if not result.candidates or not in_region:
+            return _proxy_or_no_integration(request, slack_team_id)
+
+        candidates = result.candidates
+        target = result.integration
+
+        if _parse_rules_command(event.get("text", "")) is not None:
+            return _start_command_workflow(event, candidates, slack_team_id, event_id)
+
+        mention_target = target or (candidates[0] if len(candidates) == 1 else None)
+        if mention_target is None:
+            _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
+            return ROUTE_HANDLED_LOCALLY
+
+        # Flag + scope checks only when we have a single integration to start the
+        # mention workflow against. Multi-integration paths (command workflow,
+        # pick-a-project hint) don't kick off the agent.
+        if not _posthog_code_enabled_for_integration(mention_target):
+            logger.info(
+                "posthog_code_event_flag_off",
+                slack_team_id=slack_team_id,
+                organization_id=str(mention_target.team.organization_id),
             )
-        elif event_type == "link_shared":
+            return ROUTE_HANDLED_LOCALLY
+
+        slack = SlackIntegration(mention_target)
+        missing = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
+        if missing:
+            _notify_missing_slack_scopes(slack, event, missing)
+            return ROUTE_HANDLED_LOCALLY
+
+        return _start_mention_workflow(event, mention_target, slack_team_id, event_id)
+
+    # link_shared (unfurl) works with either integration kind.
+    link_result = load_integrations(slack_team_id=slack_team_id, kinds=["slack", "slack-posthog-code"])
+    local_match = link_result.candidates[0] if link_result.candidates else None
+    if local_match and in_region:
+        if event_type == "link_shared":
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
-    elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
+    return _proxy_or_no_integration(request, slack_team_id)
+
+
+def _proxy_or_no_integration(request: HttpRequest, slack_team_id: str) -> str:
+    if request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
         success = proxy_slack_event_to_secondary_region(request)
         return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
-    else:
-        logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
-        return ROUTE_NO_INTEGRATION
+    logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
+    return ROUTE_NO_INTEGRATION
+
+
+def _start_command_workflow(
+    event: dict, integrations: list[Integration], slack_team_id: str, event_id: str | None
+) -> str:
+    _start_posthog_code_workflow(
+        PostHogCodeSlackMentionCommandWorkflow,
+        PostHogCodeSlackMentionCommandWorkflowInputs(
+            event=event,
+            integration_ids=[i.id for i in integrations],
+            slack_team_id=slack_team_id,
+        ),
+        id_prefix="posthog-code-mention-command",
+        slack_team_id=slack_team_id,
+        event=event,
+        event_id=event_id,
+    )
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _start_mention_workflow(event: dict, integration: Integration, slack_team_id: str, event_id: str | None) -> str:
+    if _resolve_pending_repo_picker_from_followup(event, integration):
+        return ROUTE_HANDLED_LOCALLY
+    _start_posthog_code_workflow(
+        PostHogCodeSlackMentionWorkflow,
+        PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=integration.id,
+            slack_team_id=slack_team_id,
+        ),
+        id_prefix="posthog-code-mention",
+        slack_team_id=slack_team_id,
+        event=event,
+        event_id=event_id,
+    )
+    return ROUTE_HANDLED_LOCALLY
 
 
 def _picker_context_cache_key(context_token: str) -> str:
