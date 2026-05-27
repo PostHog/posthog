@@ -577,6 +577,7 @@ def _waste_distribution_section(waste: WasteBreakdown) -> str:
         f"Theoretical floor: ~{_fmt_ms(floor)} — what it would cost to build "
         "the current schema as one mega-squashed initial migration. Everything "
         "above that line is migration history overhead.\n\n"
+        f"_Floor basis: {waste.one_migration_apply_floor_basis}_\n\n"
     )
 
     # Top-level slabs (the bar's view).
@@ -597,7 +598,7 @@ def _waste_distribution_section(waste: WasteBreakdown) -> str:
             "Django state-machine (squashable to ~1 pass)",
             _fmt_ms(sm_total),
             f"{sm_total / apply_total * 100:.1f}%",
-            f"~{_fmt_ms(min(sm_total, waste.ONE_MIGRATION_APPLY_FLOOR_MS))} stays, rest amortizes",
+            f"~{_fmt_ms(min(sm_total, waste.one_migration_apply_floor_ms))} stays, rest amortizes",
         ],
     ]
     parts.append("### Top-level breakdown\n\n")

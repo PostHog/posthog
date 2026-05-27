@@ -705,7 +705,7 @@ def _html_waste_distribution(waste: WasteBreakdown) -> str:
     essential_sql = waste.essential_sql_ms
     avoidable_sql = waste.avoidable_sql_ms
     sm_total = waste.state_machine_total_ms
-    sm_floor = min(sm_total, waste.ONE_MIGRATION_APPLY_FLOOR_MS)
+    sm_floor = min(sm_total, waste.one_migration_apply_floor_ms)
     sm_amortizable = waste.amortizable_state_machine_ms
     avoidable = waste.total_avoidable_ms
     floor = waste.theoretical_floor_ms

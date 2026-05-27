@@ -164,7 +164,8 @@ class Command(BaseCommand):
             timeline = build_timeline(parsed)
             alive = compute_alive_set(timeline)
             summaries = {k: v for run in runs for k, v in run.migration_summaries.items()}
-            waste = compute_waste_breakdown(profile_ops, summaries, alive)
+            all_state_ops = [so for run in runs for so in run.state_ops]
+            waste = compute_waste_breakdown(profile_ops, summaries, alive, state_ops=all_state_ops)
             self.stdout.write(
                 self.style.SUCCESS(
                     f"Waste analysis: {len(alive.fields)} alive fields, {len(alive.models)} alive models — "

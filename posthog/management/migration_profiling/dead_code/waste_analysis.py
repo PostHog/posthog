@@ -204,11 +204,13 @@ class WasteBreakdown:
     apply_total_ms: float = 0.0
     sql_total_ms: float = 0.0
 
-    # Conservative wall-clock allowance for ONE Migration.apply on a fully
-    # squashed initial migration. Picked from observed cost of PostHog's
-    # existing 0001_initial_squashed_0284_improved_caching_state_idx (5.97s).
-    # Used as the "Django state-machine you can't avoid" floor.
-    ONE_MIGRATION_APPLY_FLOOR_MS: float = 5000.0
+    # Projected Migration.apply wall-clock for a fully squashed initial
+    # against the current schema. Either calibrated from per-state-op data
+    # when state_op records are available, or falls back to the conservative
+    # 5s constant. See `_project_full_squash_floor_ms`.
+    one_migration_apply_floor_ms: float = 5000.0
+    # When calibrated, how it was computed (for the report).
+    one_migration_apply_floor_basis: str = "hardcoded conservative default (5.0s)"
 
     @property
     def avoidable_sql_ms(self) -> float:
@@ -225,9 +227,9 @@ class WasteBreakdown:
     @property
     def amortizable_state_machine_ms(self) -> float:
         """The portion of state-machine cost that would vanish under one
-        mega-squash (all migrations collapsed). The floor is fixed at one
-        Migration.apply's worth of state-rebuild for the final schema."""
-        return max(self.state_machine_total_ms - self.ONE_MIGRATION_APPLY_FLOOR_MS, 0.0)
+        mega-squash (all migrations collapsed). The floor is one Migration.apply's
+        worth of state-rebuild for the final schema."""
+        return max(self.state_machine_total_ms - self.one_migration_apply_floor_ms, 0.0)
 
     @property
     def total_avoidable_ms(self) -> float:
@@ -239,17 +241,80 @@ class WasteBreakdown:
     @property
     def theoretical_floor_ms(self) -> float:
         """Essential SQL + one Migration.apply of state-rebuild."""
-        return self.essential_sql_ms + min(self.state_machine_total_ms, self.ONE_MIGRATION_APPLY_FLOOR_MS)
+        return self.essential_sql_ms + min(self.state_machine_total_ms, self.one_migration_apply_floor_ms)
 
     @property
     def avoidable_share(self) -> float:
         return self.total_avoidable_ms / self.apply_total_ms if self.apply_total_ms else 0.0
 
 
+def _project_full_squash_floor_ms(state_ops: list[dict[str, Any]], alive: AliveSet) -> tuple[float, str]:
+    """Calibrate the cost of one Migration.apply for a fully squashed initial.
+
+    Uses the observed average cost per state_forwards call from existing
+    squashed initials in this run (where the registry grows from empty),
+    multiplied by the projected number of state ops in a full re-squash.
+
+    The growing-registry regime matters: in late history, an AlterField on a
+    700-model registry takes ~150ms because reload_model walks the relation
+    graph. In an initial squash, the same model class gets one CreateModel
+    against a smaller registry — typically ~25ms in our observed squash.
+    Projecting one against the other gives a much better floor than a
+    flat 5s constant.
+
+    Falls back to a 5s default if no existing squash is present in the run
+    (i.e., on a project without any squashed migrations yet).
+    """
+    if not state_ops:
+        return 5000.0, "no state_op records — hardcoded default (5.0s)"
+
+    # Identify existing squashed initials by their migration name (Django's
+    # `squashmigrations` convention is e.g. `0001_initial_squashed_0284_...`).
+    # Use the largest-by-op-count one as the calibration basis.
+    state_ops_by_mig: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for so in state_ops:
+        state_ops_by_mig[(so["app_label"], so["migration_name"])].append(so)
+
+    squash_ops: list[dict[str, Any]] = []
+    chosen_name: str | None = None
+    for (app, name), ops in state_ops_by_mig.items():
+        if "squashed" not in name:
+            continue
+        if len(ops) > len(squash_ops):
+            squash_ops = ops
+            chosen_name = f"{app}.{name}"
+
+    if not squash_ops:
+        return 5000.0, "no existing `*_squashed_*` migration to calibrate against — hardcoded default (5.0s)"
+
+    # Average cost per state_forwards call in the existing squash. This is
+    # the "growing registry" regime per-op cost we want to extrapolate from.
+    avg_per_op_ms = sum(so["duration_ms"] for so in squash_ops) / len(squash_ops)
+
+    # Project the number of state ops a full re-squash would have. After
+    # Django's MigrationOptimizer runs, the optimized initial typically has
+    # one CreateModel per alive model (fields baked in) + one AddIndex per
+    # alive index. Other state ops (AlterUniqueTogether, AddConstraint) are
+    # rarer; the empirical fudge (×1.15) reflects their contribution in
+    # existing squashes.
+    projected_op_count = int((len(alive.models) + len(alive.indexes)) * 1.15)
+    if projected_op_count == 0:
+        return 5000.0, "alive set is empty — hardcoded default (5.0s)"
+
+    projected_floor_ms = projected_op_count * avg_per_op_ms
+    basis = (
+        f"calibrated from {chosen_name} ({len(squash_ops)} state ops at "
+        f"{avg_per_op_ms:.1f}ms avg), projected over {projected_op_count} ops "
+        f"({len(alive.models)} alive models + {len(alive.indexes)} alive indexes × 1.15)"
+    )
+    return projected_floor_ms, basis
+
+
 def compute_waste_breakdown(
     profile_ops: list[dict[str, Any]],
     migration_summaries: dict[tuple[str, str], float],
     alive: AliveSet,
+    state_ops: list[dict[str, Any]] | None = None,
 ) -> WasteBreakdown:
     """Aggregate per-op and per-migration waste."""
     sql_by_cat: dict[str, float] = defaultdict(float)
@@ -285,6 +350,8 @@ def compute_waste_breakdown(
         else:
             state_avoidable += state_ms
 
+    floor_ms, floor_basis = _project_full_squash_floor_ms(state_ops or [], alive)
+
     return WasteBreakdown(
         sql_ms_by_category=dict(sql_by_cat),
         op_count_by_category=dict(count_by_cat),
@@ -292,4 +359,6 @@ def compute_waste_breakdown(
         state_machine_avoidable_ms=state_avoidable,
         apply_total_ms=apply_total_ms,
         sql_total_ms=sql_total_ms,
+        one_migration_apply_floor_ms=floor_ms,
+        one_migration_apply_floor_basis=floor_basis,
     )
