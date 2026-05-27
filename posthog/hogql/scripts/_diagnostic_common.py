@@ -273,13 +273,16 @@ def _ast_mismatch_shape(root_pair: tuple[str, str], steps: list) -> DivergenceSh
 # ---------------------------------------------------------------------------
 
 _GOT_RE = re.compile(r"got\s+\S+", re.IGNORECASE)
+# Collapse a single token trailing a "<reason>: <value>" message (e.g. the operand in "Unsupported interval count: a") so the same reject with a different value buckets as one shape instead of streaming near-duplicates; a multi-token tail like "expected one of: SELECT, WITH" has no single-token match and is left intact.
+_TRAILING_VALUE_RE = re.compile(r":\s*\S*\s*$")
 
 
 def _normalize_error(msg: str) -> str:
-    """Strip position-dependent suffixes so similar rejects bucket
-    together — e.g. `expected ), got Keyword(Order)` and `expected ),
-    got Number` collapse to `expected ), got <X>`."""
-    return _GOT_RE.sub("got <X>", msg)[:120]
+    """Strip variable operands so same-cause rejects bucket together. E.g.
+    `expected ), got Keyword(Order)` and `expected ), got Number` collapse to
+    `expected ), got <X>`; `Unsupported interval count: a` and `: b` collapse to
+    `Unsupported interval count: <X>`."""
+    return _TRAILING_VALUE_RE.sub(": <X>", _GOT_RE.sub("got <X>", msg))[:120]
 
 
 def _strip_locations() -> bool:

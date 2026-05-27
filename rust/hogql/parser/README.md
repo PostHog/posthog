@@ -260,6 +260,8 @@ works and nothing churns. Knobs:
 ```bash
 --no-steer            # disable target()-guided steering (uniform sampling)
 --kpath-k 3           # k-path window for the coverage signal (default 2)
+--stream-shrunk       # streaming native-shrink mode (see below)
+--max-shapes N        # (stream mode) stop after N distinct minimal divergences
 --update-corpus       # write read-write straight to the committed dir (opt-in seed)
 --corpus-dir PATH     # use an explicit read-write db dir instead (e.g. an ephemeral /tmp run)
 --no-database         # disable the example database entirely
@@ -268,6 +270,18 @@ works and nothing churns. Knobs:
 To opt into a shared seed, populate it with `--update-corpus` and commit the
 new blobs; see the corpus
 [README](../../../posthog/hogql/test/parser_pbt_corpus/README.md).
+
+**Streaming native-shrink mode (`--stream-shrunk`).** The default survey shrinks
+each divergence with a built-in token reducer. `--stream-shrunk` instead drives
+Hypothesis `find()` in a loop, so each divergence is reduced by Hypothesis's own
+structure-aware shrinker, and one MINIMAL example per unseen shape is streamed
+as found (to `--write-divergences`) rather than the run fail-fasting on the
+first. `find()` runs the divergence check inside its build context, so the same
+`target()` steering applies and the search still climbs the long tail. It needs
+a larger `--n` than the survey (`find()` restarts per shape, and feature-specific
+divergences only surface at their base rate), which suits a background grind
+feeding a foreground fixer. Targets the stable divergence classes; crashes stay
+in survey mode.
 
 The run-end summary prints Hypothesis's own statistics — the per-outcome
 `event()` distribution and the best `target()` score per label (peak
