@@ -38,7 +38,71 @@
         "summary": "List accounts",
         "title": "List accounts",
         "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-create": {
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure). The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account notebook",
+        "title": "Create account notebook",
+        "required_scopes": ["account:write"],
         "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-destroy": {
+        "description": "Permanently delete an account notebook by its `short_id`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account notebook",
+        "title": "Delete account notebook",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-list": {
+        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notebooks",
+        "title": "List account notebooks",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-retrieve": {
+        "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account notebook",
+        "title": "Get account notebook",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -70,7 +134,7 @@
         "summary": "Get account",
         "title": "Get account",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2633,6 +2697,51 @@
             "readOnlyHint": true
         }
     },
+    "file-download-batch-exports-cancel-create": {
+        "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Cancel a running file download export",
+        "title": "Cancel a running file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-create": {
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Start file download export",
+        "title": "Start file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-retrieve": {
+        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Get file download export status",
+        "title": "Get file download export status",
+        "required_scopes": ["batch_export:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "AI observability",
@@ -3250,12 +3359,12 @@
         }
     },
     "llma-personal-spend": {
-        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
         "title": "Get my LLM spend analysis",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["user:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -5611,6 +5720,22 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-list": {
         "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
@@ -5921,6 +6046,22 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-approve-create": {
+        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Approve visual review snapshots",
+        "title": "Approve visual review snapshots",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-counts-retrieve": {
         "description": "Return review state counts across all runs for the current project: `needs_review`, `clean`, `processing`, `stale`. Useful as a single call to show reviewer workload before drilling into the list.",
         "category": "Visual review",
@@ -5986,7 +6127,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Paginated.",
+        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",
@@ -5998,6 +6139,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-tolerate-create": {
+        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline image.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Tolerate visual review snapshot",
+        "title": "Tolerate visual review snapshot",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },

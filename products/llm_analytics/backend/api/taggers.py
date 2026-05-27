@@ -53,8 +53,11 @@ class TagDefinitionSerializer(serializers.Serializer):
 
 class TaggerConditionSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition")
-    rollout_percentage = serializers.IntegerField(
-        default=100, min_value=0, max_value=100, help_text="Percentage of matching events to apply this condition to"
+    rollout_percentage = serializers.FloatField(
+        default=100,
+        min_value=0,
+        max_value=100,
+        help_text="Percentage of matching events to apply this condition to",
     )
     properties = serializers.ListField(
         child=serializers.DictField(),

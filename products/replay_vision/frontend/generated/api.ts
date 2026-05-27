@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EstimateRequestApi,
+    EstimateResponseApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
@@ -16,6 +18,7 @@ import type {
     PatchedReplayScannerApi,
     ReplayObservationApi,
     ReplayScannerApi,
+    VisionObservationsListParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
 } from './api.schemas'
@@ -36,6 +39,54 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/vision/observations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/vision/observations/`
+}
+
+/**
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ */
+export const visionObservationsList = async (
+    projectId: string,
+    params: VisionObservationsListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayObservationListApi> => {
+    return apiMutator<PaginatedReplayObservationListApi>(getVisionObservationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/vision/observations/${id}/`
+}
+
+/**
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ */
+export const visionObservationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayObservationApi> => {
+    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getVisionScannersListUrl = (projectId: string, params?: VisionScannersListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -215,5 +266,25 @@ export const visionScannersObservationsRetrieve = async (
     return apiMutator<ReplayObservationApi>(getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/vision/scanners/estimate/`
+}
+
+/**
+ * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
+ */
+export const visionScannersEstimateCreate = async (
+    projectId: string,
+    estimateRequestApi?: EstimateRequestApi,
+    options?: RequestInit
+): Promise<EstimateResponseApi> => {
+    return apiMutator<EstimateResponseApi>(getVisionScannersEstimateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(estimateRequestApi),
     })
 }

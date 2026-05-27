@@ -5,7 +5,7 @@ import asyncio
 import logging
 import builtins
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -34,6 +34,7 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
+from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
@@ -48,7 +49,16 @@ from .automation_service import (
     sync_automation_schedule,
     update_automation_run_result,
 )
-from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskAutomation, TaskRun
+from .models import (
+    TASK_PRESENCE_TTL_SECONDS,
+    CodeInvite,
+    CodeInviteRedemption,
+    SandboxEnvironment,
+    Task,
+    TaskAutomation,
+    TaskPresence,
+    TaskRun,
+)
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -59,6 +69,7 @@ from .serializers import (
     SandboxEnvironmentSerializer,
     TaskAutomationSerializer,
     TaskListQuerySerializer,
+    TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -838,6 +849,67 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        request_serializer=TaskPresenceBeaconRequestSerializer,
+        responses={
+            204: OpenApiResponse(description="Presence recorded for this device."),
+            404: OpenApiResponse(description="`device_id` does not match a push token registered by the caller."),
+        },
+        summary="Beacon presence for a device watching this task",
+        description=(
+            "Idempotent upsert: marks the calling user + `device_id` as actively watching this task "
+            "for the next ~60 seconds. While at least one device for the user has a non-expired "
+            "presence row for this task, the push fanout will skip ALL of that user's other "
+            "registered devices for task notifications — the contract is 'if any device is "
+            "demonstrably watching, suppress the others'. Clients call this every ~30s while the "
+            "task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="presence",
+        required_scopes=["task:write"],
+    )
+    def presence(self, request, **kwargs):
+        if request.method == "DELETE":
+            return self._presence_leave(request)
+        return self._presence_beacon(request)
+
+    def _presence_beacon(self, request) -> Response:
+        task = cast(Task, self.get_object())
+        device_id = request.validated_data["device_id"]
+        push_token = UserPushToken.objects.filter(user=request.user, id=device_id).first()
+        if push_token is None:
+            raise NotFound("device_id does not match a push token registered by the caller")
+
+        # Lookup mirrors the unique constraint exactly so a stray row with a
+        # mismatched team/user (e.g. from a bug elsewhere) gets corrected on
+        # upsert instead of crashing into the constraint a second time.
+        # nosemgrep: idor-lookup-without-team — team scope is enforced by
+        # TaskScopedManager (DRF view sets the ContextVar) and via `task` FK
+        # whose row is fetched through self.get_object() above.
+        now = timezone.now()
+        TaskPresence.objects.update_or_create(
+            task=task,
+            push_token=push_token,
+            defaults={
+                "team": task.team,
+                "user": request.user,
+                "expires_at": now + timedelta(seconds=TASK_PRESENCE_TTL_SECONDS),
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _presence_leave(self, request) -> Response:
+        task = cast(Task, self.get_object())
+        device_id = request.validated_data["device_id"]
+        # No 404 on missing rows — the beacon-leave path runs from blur/background
+        # handlers that should be safe to call unconditionally without the client
+        # having to track whether a beacon was ever sent.
+        TaskPresence.objects.filter(task=task, push_token_id=device_id, user=request.user).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(tags=["task-automations"])

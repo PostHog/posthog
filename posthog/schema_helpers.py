@@ -90,6 +90,8 @@ def to_dict(query: BaseModel) -> dict:
                         "aggregationAxisPrefix",
                         "aggregationAxisPostfix",
                         "decimalPlaces",
+                        "xAxisLabel",
+                        "yAxisLabel",
                         "layout",
                         "toggledLifecycles",
                         "showLabelsOnSeries",
