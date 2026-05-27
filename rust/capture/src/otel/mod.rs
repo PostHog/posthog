@@ -134,10 +134,6 @@ pub async fn otel_handler(
     // size limit (4 MB) bounds the absolute maximum, but compact protobuf can
     // pack many spans into that budget.
     if raw_span_count > MAX_RAW_SPANS_PER_REQUEST {
-        warn!(
-            "OTEL request contains {} raw spans, exceeding limit of {}",
-            raw_span_count, MAX_RAW_SPANS_PER_REQUEST
-        );
         let err = CaptureError::RequestParsingError(format!(
             "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_SPANS_PER_REQUEST}"
         ));
@@ -162,10 +158,6 @@ pub async fn otel_handler(
         return Ok(Json(json!({})));
     }
     if span_count > MAX_SPANS_PER_REQUEST {
-        warn!(
-            "OTEL request contains {} AI spans, exceeding limit of {} ({} raw spans received)",
-            span_count, MAX_SPANS_PER_REQUEST, raw_span_count
-        );
         let err = CaptureError::RequestParsingError(format!(
             "Too many AI spans: {span_count} exceeds limit of {MAX_SPANS_PER_REQUEST}"
         ));

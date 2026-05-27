@@ -3,7 +3,6 @@ use bytes::Bytes;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
 use serde_json::Value;
-use tracing::warn;
 
 use crate::api::CaptureError;
 use crate::payload::decompression::decompress_gzip_to_bytes;
@@ -78,27 +77,17 @@ pub fn parse_request(
     let is_json = content_type.starts_with("application/json");
 
     if is_protobuf {
-        ExportTraceServiceRequest::decode(&body[..]).map_err(|e| {
-            warn!("Failed to decode OTEL protobuf: {}", e);
-            CaptureError::RequestParsingError(format!("Invalid protobuf: {e}"))
-        })
+        ExportTraceServiceRequest::decode(&body[..])
+            .map_err(|e| CaptureError::RequestParsingError(format!("Invalid protobuf: {e}")))
     } else if is_json {
-        let mut json_value: Value = serde_json::from_slice(&body).map_err(|e| {
-            warn!("Failed to parse OTEL JSON: {}", e);
-            CaptureError::RequestParsingError(format!("Invalid JSON: {e}"))
-        })?;
+        let mut json_value: Value = serde_json::from_slice(&body)
+            .map_err(|e| CaptureError::RequestParsingError(format!("Invalid JSON: {e}")))?;
 
         patch_otel_json(&mut json_value);
 
-        serde_json::from_value(json_value).map_err(|e| {
-            warn!("Failed to parse OTEL trace request: {}", e);
-            CaptureError::RequestParsingError(format!("Invalid OTLP trace format: {e}"))
-        })
+        serde_json::from_value(json_value)
+            .map_err(|e| CaptureError::RequestParsingError(format!("Invalid OTLP trace format: {e}")))
     } else {
-        warn!(
-            "OTEL endpoint received unsupported content type: {}",
-            content_type
-        );
         Err(CaptureError::RequestDecodingError(
             "Content-Type must be application/x-protobuf or application/json".to_string(),
         ))
