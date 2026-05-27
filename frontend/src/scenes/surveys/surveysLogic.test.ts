@@ -1,5 +1,10 @@
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { ApiConfig } from 'lib/api'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -266,6 +271,61 @@ describe('surveysLogic', () => {
                     survey_id: surveyId,
                 },
             })
+        })
+    })
+
+    describe('project ID race condition', () => {
+        let logic: ReturnType<typeof surveysLogic.build>
+        let surveysListCallCount: number
+
+        beforeEach(() => {
+            initKeaTests()
+            surveysListCallCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': () => {
+                        surveysListCallCount += 1
+                        return [200, { count: 0, results: [], next: null, previous: null }]
+                    },
+                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                },
+            })
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('does not call loadSurveys on mount before the current project ID is known', async () => {
+            jest.spyOn(ApiConfig, 'hasCurrentProjectId').mockReturnValue(false)
+
+            logic = surveysLogic()
+            logic.mount()
+
+            // Give afterMount a tick to run; surveysLogic must not eagerly load
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(surveysListCallCount).toBe(0)
+        })
+
+        it('loads surveys when the current project becomes available after mount', async () => {
+            let hasCurrentProjectId = false
+            jest.spyOn(ApiConfig, 'hasCurrentProjectId').mockImplementation(() => hasCurrentProjectId)
+
+            logic = surveysLogic()
+            logic.mount()
+
+            await Promise.resolve()
+            expect(surveysListCallCount).toBe(0)
+
+            hasCurrentProjectId = true
+
+            await expectLogic(logic, () => {
+                projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+            }).toDispatchActions(['loadSurveys', 'loadSurveysSuccess'])
+
+            expect(surveysListCallCount).toBe(1)
         })
     })
 })

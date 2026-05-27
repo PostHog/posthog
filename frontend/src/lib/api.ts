@@ -386,6 +386,10 @@ export class ApiConfig {
         return this._currentProjectId
     }
 
+    static hasCurrentProjectId(): boolean {
+        return !!this._currentProjectId
+    }
+
     static setCurrentProjectId(id: ProjectType['id']): void {
         this._currentProjectId = id
     }

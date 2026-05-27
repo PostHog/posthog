@@ -4,11 +4,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -119,12 +120,14 @@ export const surveysLogic = kea<surveysLogicType>([
             ['hasAvailableFeature'],
             teamLogic,
             ['currentTeam', 'currentTeamLoading'],
+            projectLogic,
+            ['currentProjectId'],
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
             surveysSdkLogic,
             ['teamSdkVersions'],
         ],
-        actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
+        actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent'], projectLogic, ['loadCurrentProjectSuccess']],
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -365,10 +368,15 @@ export const surveysLogic = kea<surveysLogicType>([
         setSurveysFilters: () => {
             actions.loadSurveys()
         },
+        loadCurrentProjectSuccess: ({ currentProject }) => {
+            if (currentProject && !values.dataLoading && values.data.surveys.length === 0) {
+                actions.loadSurveys()
+            }
+        },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            if (values.data.surveys.length > 0) {
+            if (values.data.surveys.length > 0 && ApiConfig.hasCurrentProjectId()) {
                 const surveyIds = values.data.surveys.map((s) => s.id).join(',')
                 actions.loadResponsesCount(surveyIds)
             }
@@ -488,6 +496,12 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadSurveys()
+        // `projectsDetail` (used by every surveys API call) reads
+        // `ApiConfig.getCurrentProjectId()` and throws when it is unset. If
+        // `projectLogic` hasn't finished loading the project yet, defer
+        // `loadSurveys` until `loadCurrentProjectSuccess` fires.
+        if (ApiConfig.hasCurrentProjectId()) {
+            actions.loadSurveys()
+        }
     }),
 ])
