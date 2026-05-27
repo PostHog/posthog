@@ -1,0 +1,9 @@
+// Pin the search input to the top of the menu, even when LemonMenu auto-scrolls
+// to the active item on open. Without this, the search is the first <li>
+// but scrolls offscreen whenever the selected option sits past the visible area.
+.Popover__content li:has(> .LemonSearchableSelect__searchHeader) {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-bg-surface-popover);
+}
