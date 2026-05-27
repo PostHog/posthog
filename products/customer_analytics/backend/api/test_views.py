@@ -17,6 +17,8 @@ from products.customer_analytics.backend.models.account import AccountAssignment
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.models.rbac.access_control import AccessControl
+
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
     def setUp(self):
@@ -945,8 +947,6 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.json()["notebooks"], [])
 
     def test_retrieve_returns_all_linked_notebooks(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         account = self._create_account()
         notebook_a = Notebook.objects.create(
             team=self.team, title="A", content=[], visibility=Notebook.Visibility.INTERNAL
@@ -963,8 +963,6 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(set(response.json()["notebooks"]), {notebook_a.short_id, notebook_b.short_id})
 
     def test_list_includes_notebooks_field(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         account = self._create_account()
         notebook = Notebook.objects.create(
             team=self.team, title="Existing", content=[], visibility=Notebook.Visibility.INTERNAL
@@ -985,8 +983,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.endpoint_base = f"/api/environments/{self.team.id}/accounts/{self.account.id}/notebooks/"
 
     def test_create_account_notebook_uses_internal_visibility(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         response = self.client.post(
             self.endpoint_base,
             {"title": "Q3 call", "content": {"type": "doc", "content": []}},
@@ -1043,8 +1039,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(data["content"], {"foo": "bar"})
 
     def test_retrieve_notebook_not_linked_to_account_returns_404(self):
-        from products.notebooks.backend.models import Notebook
-
         unrelated = Notebook.objects.create(
             team=self.team, title="Unrelated", content={}, visibility=Notebook.Visibility.DEFAULT
         )
@@ -1126,8 +1120,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertNotIn(default_notebook.short_id, short_ids)
 
     def test_create_derives_content_from_markdown_text_content(self):
-        from products.notebooks.backend.models import Notebook
-
         response = self.client.post(
             self.endpoint_base,
             {"title": "Call notes", "text_content": "# Heading\n\nSome **bold** text."},
@@ -1146,8 +1138,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(first_node["content"][0]["text"], "Heading")
 
     def test_create_preserves_caller_supplied_content(self):
-        from products.notebooks.backend.models import Notebook
-
         explicit_content = {
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
@@ -1164,8 +1154,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(notebook.content, explicit_content)
 
     def test_create_with_neither_field_leaves_content_null(self):
-        from products.notebooks.backend.models import Notebook
-
         response = self.client.post(self.endpoint_base, {"title": "Empty"}, format="json")
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
@@ -1174,8 +1162,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertIsNone(notebook.content)
 
     def test_create_with_empty_text_content_does_not_synthesize_content(self):
-        from products.notebooks.backend.models import Notebook
-
         response = self.client.post(
             self.endpoint_base,
             {"title": "Empty body", "text_content": ""},
@@ -1188,8 +1174,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertIsNone(notebook.content)
 
     def test_create_with_empty_dict_content_falls_back_to_markdown(self):
-        from products.notebooks.backend.models import Notebook
-
         response = self.client.post(
             self.endpoint_base,
             {"title": "Plain", "content": {}, "text_content": "Just a sentence."},
@@ -1274,8 +1258,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
         try:
-            from ee.models.rbac.access_control import AccessControl
-
             membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
             AccessControl.objects.create(
                 team=self.team,
@@ -1469,8 +1451,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
     # -- Account notebooks inherit object-level access from the parent account --
 
     def test_account_notebooks_404_when_parent_account_access_denied(self):
-        from ee.models.rbac.access_control import AccessControl
-
         AccessControl.objects.create(
             team=self.team,
             resource="account",
