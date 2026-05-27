@@ -1587,6 +1587,10 @@ export interface PersonActorType extends CommonActorType {
     name?: string
     distinct_ids: string[]
     is_identified: boolean
+    // Set when the person's actor_id from ClickHouse couldn't be hydrated from Postgres
+    // (typically because the person was merged into another or deleted). The row is a
+    // stub — distinct_ids and other fields may be missing.
+    is_unresolved?: boolean
 }
 
 export interface GroupActorType extends CommonActorType {

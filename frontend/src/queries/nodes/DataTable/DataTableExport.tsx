@@ -86,7 +86,10 @@ export async function startDownload(
         }
 
         if (columns.includes('person')) {
-            columns = columns.map((c: string) => (c === 'person' ? 'person.distinct_ids.0' : c))
+            // Expand the `person` column to both `person.id` (canonical UUID, always populated)
+            // and `person.distinct_ids.0` (may be blank when the person can't be hydrated).
+            // The id column makes every exported row identifiable even when distinct_ids is missing.
+            columns = columns.flatMap((c: string) => (c === 'person' ? ['person.id', 'person.distinct_ids.0'] : [c]))
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
