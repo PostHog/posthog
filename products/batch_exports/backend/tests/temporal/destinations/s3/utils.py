@@ -93,8 +93,7 @@ async def check_valid_credentials() -> bool:
 
 def has_valid_credentials() -> bool:
     """Synchronous wrapper around check_valid_credentials."""
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(check_valid_credentials())
+    return asyncio.run(check_valid_credentials())
 
 
 MetricKind = t.Literal["success", "cancellation", "failure", "rows"]

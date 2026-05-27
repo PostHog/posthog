@@ -31,6 +31,7 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_email_verification,
     send_fatal_plugin_error,
+    send_hog_function_disabled,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
@@ -623,6 +624,122 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 1
         assert memberships[0].user.email == user2.email
+
+    def test_should_send_pipeline_error_notification_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {
+                "hog_function:abc-123": True,
+                "batch_export:def-456": True,
+            },
+        }
+        self.user.save()
+
+        assert (
+            should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id="hog_function:abc-123")
+            is False
+        )
+        assert (
+            should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id="batch_export:def-456")
+            is False
+        )
+        assert (
+            should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id="hog_function:other-id")
+            is True
+        )
+        assert should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id=None) is True
+
+    def test_get_members_to_notify_for_pipeline_error_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        user2 = self._create_user("test2@posthog.com")
+
+        pipeline_id = "hog_function:test-function-id"
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {pipeline_id: True},
+        }
+        self.user.save()
+        user2.partial_notification_settings = {"plugin_disabled": True}
+        user2.save()
+
+        memberships = get_members_to_notify_for_pipeline_error(
+            cast(Team, self.user.team), failure_rate=1.0, pipeline_id=pipeline_id
+        )
+        assert len(memberships) == 1
+        assert memberships[0].user.email == user2.email
+
+        memberships = get_members_to_notify_for_pipeline_error(
+            cast(Team, self.user.team), failure_rate=1.0, pipeline_id="hog_function:other-id"
+        )
+        assert len(memberships) == 2
+
+    def test_send_fatal_plugin_error_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"plugin_config:{plugin_config.id}": True},
+        }
+        self.user.save()
+
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+    def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Test Hog Function",
+            enabled=True,
+        )
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"hog_function:{hog_function.id}": True},
+        }
+        self.user.save()
+
+        send_hog_function_disabled(str(hog_function.id))
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+    def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.user.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"batch_export:{batch_export.id}": True},
+        }
+        self.user.save()
+
+        send_batch_export_run_failure(batch_export_run.id)
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
 
     def test_send_canary_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

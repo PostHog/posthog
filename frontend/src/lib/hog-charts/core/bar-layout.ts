@@ -100,7 +100,10 @@ export function computeBarAtIndex({
 }: ComputeBarAtIndexOptions): BarRect | null {
     const isGrouped = layout === 'grouped'
     if (!isGrouped && !stackedBand) {
-        throw new Error(`computeBarAtIndex: stackedBand is required for layout '${layout}'`)
+        // Overlay / CI-band series are intentionally excluded from buildStackData, so they
+        // have no stackedBand entry. Treat them as non-renderable for the bar layer rather
+        // than throwing — hover/tooltip paths iterate every series in the chart context.
+        return null
     }
 
     const bandStart = scales.band(label)

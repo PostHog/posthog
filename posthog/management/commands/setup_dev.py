@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
@@ -54,6 +55,13 @@ class Command(BaseCommand):
                 secure_value=hash_key_value("e2e_demo_api_key"),
                 scopes=["*"],
             )
+            # Dev seed - mark the bootstrapped user's credential review as complete so
+            # the seed PAT doesn't bounce them into the partner-credential review screen
+            # on first login.
+            if user.credentials_reviewed_at is None:
+                user.credentials_reviewed_at = timezone.now()
+                user.save(update_fields=["credentials_reviewed_at"])
+
             if not options["no_data"]:
                 create_demo_data(team)
 

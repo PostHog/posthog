@@ -44,6 +44,36 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def get_implementation(self) -> SQLSourceImplementation[ConfigType, Any, Any]:
         """The driver-layer implementation for this source."""
 
+    @classmethod
+    def default_non_retryable_errors(cls) -> dict[str, str | None]:
+        """Non-retryable error patterns shared by multiple SQL sources.
+
+        Subclasses opt in by merging this into their own
+        `get_non_retryable_errors` return dict, e.g.
+        `return {**self.default_non_retryable_errors(), ...}`. The base
+        `SQLSource` itself does not call this — every existing source's
+        behavior is preserved until it explicitly opts in.
+
+        The two entries here are the ones currently duplicated across
+        ≥2 SQL sources today:
+
+        - "Source column type changed" (MySQL, MSSQL, Snowflake,
+          BigQuery, Redshift)
+        - "Cannot build decimal array from values" (MySQL, MSSQL)
+        """
+        return {
+            "Source column type changed": (
+                "A column's type changed in your source database (for example an integer column was widened to bigint) "
+                "and no longer fits the type we stored. We can't widen an existing column in place — please reset and "
+                "fully re-sync this table to adopt the new type."
+            ),
+            "Cannot build decimal array from values": (
+                "One of your numeric columns contains values that exceed our decimal storage limits "
+                "(max precision 76, max scale 32). Please constrain the column with a lower precision/scale, "
+                "cast it to text in a view, or round the values at the source."
+            ),
+        }
+
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
         """Fallback: use `id` when the driver didn't detect a PK but one is present.
 

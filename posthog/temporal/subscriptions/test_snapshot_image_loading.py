@@ -4,12 +4,13 @@ import pytest
 from unittest.mock import patch
 
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
 from posthog.temporal.subscriptions.snapshot_activities import (
     MAX_SUMMARY_IMAGES,
     SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED,
     _load_insight_images,
 )
+
+from products.product_analytics.backend.models.insight import Insight
 
 pytestmark = pytest.mark.django_db
 

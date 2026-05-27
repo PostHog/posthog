@@ -5,14 +5,29 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { accountsList } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { UserBasicType } from '~/types'
+
+import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
+import type {
+    AccountApi,
+    PatchedAccountApiProperties,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 20
 
 export type RoleFilterValue = number | null
+
+export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
+
+const ROLE_LABELS: Record<AccountRoleKey, string> = {
+    csm: 'CSM',
+    account_executive: 'Account executive',
+    account_owner: 'Account owner',
+}
+
+export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
 export interface AccountsLoadResult {
     count: number
@@ -35,6 +50,14 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
         setCurrentPage: (page: number) => ({ page }),
         refresh: true,
+        updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
+            accountId,
+            role,
+            user,
+        }),
+        roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
+        roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
+        replaceAccount: (account: AccountApi) => ({ account }),
     }),
     reducers({
         searchQuery: [
@@ -77,6 +100,27 @@ export const accountsLogic = kea<accountsLogicType>([
             1,
             {
                 setCurrentPage: (_, { page }) => page,
+            },
+        ],
+        savingRoles: [
+            {} as Record<string, true>,
+            {
+                roleUpdateStarted: (state, { accountId, role }) => ({
+                    ...state,
+                    [savingRoleKey(accountId, role)]: true,
+                }),
+                roleUpdateFinished: (state, { accountId, role }) => {
+                    const next = { ...state }
+                    delete next[savingRoleKey(accountId, role)]
+                    return next
+                },
+            },
+        ],
+        accountOverrides: [
+            {} as Record<string, AccountApi>,
+            {
+                replaceAccount: (state, { account }) => ({ ...state, [account.id]: account }),
+                loadAccountsSuccess: () => ({}),
             },
         ],
     }),
@@ -126,7 +170,17 @@ export const accountsLogic = kea<accountsLogicType>([
     })),
     selectors({
         totalCount: [(s) => [s.accounts], (a: AccountsLoadResult): number => a.count],
-        results: [(s) => [s.accounts], (a: AccountsLoadResult): AccountApi[] => a.results],
+        results: [
+            (s) => [s.accounts, s.accountOverrides],
+            (a: AccountsLoadResult, overrides: Record<string, AccountApi>): AccountApi[] =>
+                a.results.map((account) => overrides[account.id] ?? account),
+        ],
+        isRoleSaving: [
+            (s) => [s.savingRoles],
+            (savingRoles: Record<string, true>) =>
+                (accountId: string, role: AccountRoleKey): boolean =>
+                    !!savingRoles[savingRoleKey(accountId, role)],
+        ],
     }),
     listeners(({ actions, values }) => ({
         setSearchQuery: () => {
@@ -172,6 +226,30 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         refresh: () => {
             actions.loadAccounts()
+        },
+        updateAccountRole: async ({ accountId, role, user }) => {
+            if (values.isRoleSaving(accountId, role)) {
+                return
+            }
+            const account = values.results.find((a) => a.id === accountId)
+            if (!account) {
+                return
+            }
+            const nextProperties: PatchedAccountApiProperties = {
+                ...account.properties,
+                [role]: user ? { id: user.id, email: user.email } : null,
+            }
+            const projectId = String(values.currentTeamId)
+            actions.roleUpdateStarted(accountId, role)
+            try {
+                const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
+                actions.replaceAccount(updated)
+            } catch (error) {
+                posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
+                lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
+            } finally {
+                actions.roleUpdateFinished(accountId, role)
+            }
         },
     })),
     afterMount(({ actions }) => {
