@@ -140,8 +140,9 @@ function lifecycleInsight({ stacked, id, shortId, name, showValuesOnSeries }: Li
         last_modified_at: '2023-07-11T12:00:00Z',
         dashboards: [],
         dashboard_tiles: [],
-        // The order intentionally does NOT match the canonical new → resurrecting → returning →
-        // dormant order — the transform sorts by status, so the chart should look the same.
+        // The order intentionally does NOT match the chart's rendered dormant → returning →
+        // resurrecting → new order — the transform sorts by status, so the chart should look
+        // the same regardless of how the API returns the rows.
         result: [
             lifecycleSeries('returning', [42, 38, 45, 40, 50, 47, 44]),
             lifecycleSeries('new', [22, 30, 18, 24, 28, 20, 26]),
