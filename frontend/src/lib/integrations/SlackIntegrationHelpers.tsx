@@ -127,6 +127,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onInputChange={(val) => {
                     if (val) {
                         loadSlackChannelById(val)
+                        loadAllSlackChannels(false, val)
                         setLocalValue(val)
                     }
                 }}

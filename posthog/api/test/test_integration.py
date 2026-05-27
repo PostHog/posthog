@@ -1175,6 +1175,38 @@ class TestIntegrationAPIKeyAccess:
         assert data["channels"][0]["id"] == "C2"
         assert data["has_more"] is True
 
+        # Default (no params) returns all visible (non-private-without-access) channels with has_more False
+        response = client.get(
+            base_url,
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert {channel["id"] for channel in data["channels"]} == {"C1", "C2", "C3"}
+        assert data["has_more"] is False
+
+        # Pagination beyond the dataset returns empty page with has_more False
+        response = client.get(
+            f"{base_url}?limit=10&offset=10",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["channels"] == []
+        assert data["has_more"] is False
+
+        # Search + offset combine correctly — search restricts the list, then offset/limit page it
+        response = client.get(
+            f"{base_url}?search=e&limit=1&offset=1",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # "e" matches "general" and "engineering"; offset=1 skips the first match
+        assert len(data["channels"]) == 1
+        assert data["channels"][0]["id"] in {"C1", "C3"}
+        assert data["has_more"] is False
+
         mock_slack_instance.list_channels.assert_called_once()
 
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
