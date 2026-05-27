@@ -33,8 +33,9 @@ design; do not abort local-mode runs for either reason.
 Ask for explicit approval in the current conversation before:
 
 - Starting, stopping, or restarting the local PostHog dev stack.
-- Switching away from a dirty selected checkout or using a different checkout
-  than the current repo.
+- Choosing among ambiguous folders, worktrees, branches, or base refs.
+- Switching away from a dirty checkout or using a different checkout than the
+  current repo.
 - Posting any GitHub PR comment, review, or issue comment.
 - Pushing commits, force-pushing, deleting branches, or renaming branches.
 - Rerunning or canceling GitHub Actions.
@@ -44,58 +45,22 @@ Ask for explicit approval in the current conversation before:
 
 Read-only GitHub and git inspection commands are allowed.
 
-## Checkout Selection
-
-Prefer the current repo checkout. If the user names a repo and branch from a
-workspace root, use that repo's primary checkout and switch branches there when
-the tree is clean. Do not silently use a sibling review worktree, old project
-copy, or temporary checkout just because it already has the requested branch.
-
-If several checkouts could be correct, or the selected checkout is dirty and
-would need a branch switch, ask before choosing. A local-mode run includes
-committed, staged, unstaged, and untracked changes from the selected checkout,
-so choosing the wrong checkout changes what is under test.
-
-If `.agents/skills/qa-frontend/` appears in the local-mode changed-file set and
-the user did not explicitly ask to QA this skill, stop and ask whether those
-skill edits are intentional. Do not treat self-edits to this skill as ordinary
-product QA input without confirmation.
-
 ## Local Stack Control
 
 Reuse the developer's existing local setup by default. If `BASE_URL` is already
 reachable, do not start, restart, replace, or wait on a separate stack.
 
-If PostHog is not reachable, ask how the user wants to run it. Offer three
-choices:
+If PostHog is not reachable, ask before starting or restarting anything. The
+user may want to start it themselves, provide another `BASE_URL`, or approve
+agent-managed startup. If it is unclear where or how to start the service, ask
+what they prefer and consult repo/user instructions instead of hardcoding one
+workflow.
 
-1. They start or restart it themselves.
-2. They provide a different `BASE_URL`.
-3. The agent starts detached mode.
-
-Stop and wait for the user's answer before running any stack-control command.
-If they provide another URL, set `BASE_URL` to that value and rerun readiness
-checks.
-
-When the user approves agent startup, use detached mode:
-
-```bash
-flox activate -- bin/hogli up -d -y
-flox activate -- bin/hogli wait --timeout 180 -y
-```
-
-Do not run the interactive `hogli start` / `./bin/start` terminal UI from a
-headless agent session. In Codex, bare `hogli` may not be on PATH, and
-`./bin/start` may miss Flox-provided dependencies such as `flock`; prefer the
-repo-local `bin/hogli` through Flox.
-
-If the agent starts detached phrocs, stop it in cleanup with:
-
-```bash
-flox activate -- bin/hogli down -y
-```
-
-Do not stop a stack the user started themselves unless they explicitly approve.
+When the user approves agent startup, use a repo-recommended non-interactive or
+detached approach for the selected checkout. Do not run an interactive terminal
+UI from a headless agent session unless the user explicitly asks for it. Stop
+only the stack the agent started, and do not stop a stack the user started
+themselves unless they explicitly approve.
 
 After startup, use `_preflight` plus process-specific phrocs MCP checks
 (`backend`, `frontend`, and any target-specific process) as the readiness gate.

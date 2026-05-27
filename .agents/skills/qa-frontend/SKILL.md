@@ -41,34 +41,29 @@ instructions, and explicit user approval in the current conversation.
 ## Quick Use
 
 1. Decide mode (PR vs local) from the user prompt and presence of a PR ref.
-2. Resolve the target repo and branch. Prefer the current repo checkout; if the
-   user names a repo and branch from a workspace root, use that repo's primary
-   checkout and switch branches there when safe. Do not silently choose a
-   sibling review worktree just because it is already on the branch.
-3. In PR mode, require a clean working tree before doing anything else.
-4. Require a reachable local stack and working Playwright MCP session. Reuse the
-   developer's current stack by default. If nothing is reachable, ask how the
-   user wants to run PostHog: they can start it themselves, provide another
-   `BASE_URL`, or explicitly approve agent-managed detached startup. If the
-   agent starts it, stop it during cleanup unless the user asks to keep it
-   running.
-5. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
+2. In PR mode, require a clean working tree before doing anything else.
+3. Require a reachable local stack and working Playwright MCP session. Reuse the
+   developer's current setup by default. If PostHog is not reachable, always ask
+   before starting or restarting anything. If the correct repo, branch,
+   checkout, base ref, service URL, or startup command is unclear, ask the user
+   and respect their local preferences.
+4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
-6. Design behavior-focused test cases from the diff, then map each case to a
+5. Design behavior-focused test cases from the diff, then map each case to a
    frontend route.
-7. Run frontend browser and visual checks through Playwright MCP, capturing evidence.
-8. Confirm every candidate issue with one retry before calling it a finding.
-9. In PR mode, apply at most 3 confident fixes, only inside files already
+6. Run frontend browser and visual checks through Playwright MCP, capturing evidence.
+7. Confirm every candidate issue with one retry before calling it a finding.
+8. In PR mode, apply at most 3 confident fixes, only inside files already
    changed by the PR. In local mode, default to suggested patches, only edit
    after explicit approval, and never stage or commit those edits.
-10. Create a slow GIF from captured screenshots when `ffmpeg` or another
-    existing local GIF tool is available.
-11. PR mode only: after approval, upload selected evidence if configured,
+9. Create a slow GIF from captured screenshots when `ffmpeg` or another
+   existing local GIF tool is available.
+10. PR mode only: after approval, upload selected evidence if configured,
     verify PR comment connectivity, and post one final PR comment for every
     completed run, including clean runs. Push only after explicit approval.
-12. Local mode only: write the rendered report to stdout and to
+11. Local mode only: write the rendered report to stdout and to
     `.qa-frontend/runs/<run-id>/report.md`. No upload, no PR comment, no push.
-13. In PR mode, restore the original branch in a finally-style cleanup.
+12. In PR mode, restore the original branch in a finally-style cleanup.
 
 Supported invocation forms:
 
@@ -77,7 +72,6 @@ Supported invocation forms:
 /qa-frontend <PR URL or PR number> --login-username <email> --login-password <password>
 /qa-frontend                           # local mode: QA current branch + uncommitted
 /qa-frontend --base <branch-or-sha>     # local mode: diff against an explicit base
-/qa-frontend posthog branch <branch> --base <branch-or-sha>
 ```
 
 The skill is conversational, not a rigid CLI. The agent should infer mode and
@@ -130,10 +124,6 @@ Parse `$ARGUMENTS` into:
 - `LOCAL_BASE_REF`: value after `--base` or `--base-ref`. Only applies in
   local mode. Default `origin/master`, or the repo default branch if that is
   different.
-- `TARGET_REPO`: value after `--repo`, or a repo name mentioned in natural
-  language such as "repo posthog". Optional.
-- `TARGET_BRANCH`: value after `--branch`, or a branch name mentioned in natural
-  language such as "branch my-feature". Optional in local mode.
 - `AUTO_PUSH_FIXES`: boolean. True if `$ARGUMENTS` contains `--auto-push` or
   natural-language equivalents like "auto push fixes", "push fixes
   automatically", "no need to ask before pushing". Default false.
@@ -141,35 +131,11 @@ Parse `$ARGUMENTS` into:
 Do not print, log, or include `LOGIN_PASSWORD` in evidence or comments.
 Reject unknown options only if they prevent identifying `PR_REF`.
 
-### Repository and branch selection
-
-Resolve where the QA run happens before reading skill references, checking
-stack readiness, or collecting diffs.
-
-Default to the current git repository:
-
-```bash
-git rev-parse --show-toplevel
-git branch --show-current
-```
-
-If the current directory is not inside a git repository and `TARGET_REPO` is
-known, look for a direct child checkout named `TARGET_REPO` from the current
-workspace directory. Do not do broad recursive searches through review
-worktrees, old project folders, or temporary checkouts. If more than one
-checkout could be correct, ask the user which repo checkout to use.
-
-If `TARGET_BRANCH` is known and the selected checkout is not on that branch:
-
-- If the working tree is clean, switch the selected checkout to
-  `TARGET_BRANCH`.
-- If the working tree is dirty, ask before switching or choose a different
-  checkout only after the user confirms.
-
-Do not silently move the run to a sibling worktree because it already has
-`TARGET_BRANCH` checked out. Local mode tests the selected checkout's current
-state, so silently selecting a different checkout can include unrelated staged
-or unstaged changes.
+Use the current repo, branch, and working tree when that is clearly what the
+user asked to test. If multiple folders, worktrees, branches, or base refs could
+match the request, ask before choosing or switching. Do not broad-search the
+workspace and silently pick a checkout just because it happens to contain the
+requested branch.
 
 ### Run identity
 
@@ -247,10 +213,9 @@ Record:
 Treat the changed-file set as the only files an autonomous fix may touch.
 Apply the same lockfile/migration warning rules as PR mode.
 
-If the changed-file set includes `.agents/skills/qa-frontend/` and the user did
-not explicitly ask to QA changes to this skill, stop and ask whether to include
-those skill edits or clean/switch to a checkout without them. Do not silently
-treat staged or unstaged edits to this skill as product changes.
+If the changed-file set includes this skill's own files and the user did not
+explicitly ask to QA the skill, ask whether to include those edits before
+treating them as product QA input.
 
 ## Stack Readiness
 
@@ -262,68 +227,40 @@ STACK_STARTED_BY_AGENT=0
 ```
 
 Reuse the user's existing local setup by default. Do not start, restart, or
-replace the local dev stack just because you are running local-mode QA. First
-check whether PostHog is already reachable at `BASE_URL`:
+replace the local dev stack just because you are running QA. First check whether
+PostHog is already reachable at `BASE_URL`:
 
 ```bash
 curl -sf "$BASE_URL/_preflight"
 ```
 
-If that succeeds, continue to the process checks below. Do not run `hogli wait`
-or start any stack when the existing `BASE_URL` is already usable. If it fails,
-try process-specific phrocs MCP checks:
+If that succeeds, continue. Do not start, restart, replace, or wait on another
+stack when the existing `BASE_URL` is already usable. If it fails, use available
+local health checks, for example process-specific phrocs MCP checks when phrocs
+is already running:
 
 - `mcp__phrocs__get_process_status(process="backend")`
 - `mcp__phrocs__get_process_status(process="frontend")`
 
-Do not rely on the all-process status call as the first check during startup;
-it can report phrocs as unavailable while process-specific calls already work.
-If phrocs reports that `backend` is not running, or if both HTTP and MCP checks
-fail, ask the user how they want to make PostHog available. Do not choose for
-them:
+If PostHog is not reachable, ask before starting or restarting anything. The
+user may want to start it themselves, provide another `BASE_URL`, or approve
+agent-managed startup. If the right startup command is unclear, ask what they
+prefer and consult repo/user instructions instead of hardcoding a workflow. Do
+not mention team-specific env vars unless the user already brought them up.
 
-```text
-PostHog is not reachable at $BASE_URL. How would you like to run it for this QA
-pass?
+If the user approves agent-managed startup, use a repo-recommended
+non-interactive or detached approach for the selected checkout, then set
+`STACK_STARTED_BY_AGENT=1`. Avoid interactive terminal UIs from headless agent
+sessions unless the user explicitly asks for them. Stop only the stack you
+started, and only during cleanup or after user approval.
 
-1. I'll start or restart it myself.
-2. Use a different BASE_URL.
-3. You may start it in detached mode.
-```
-
-If the user wants to start it themselves, stop and wait. A common local command
-is:
-
-```bash
-hogli start
-```
-
-If the user provides another URL, set `BASE_URL` to that value and rerun the
-readiness checks. If they prefer agent-managed background mode, `hogli up -d` is
-the detached equivalent. Do not mention team-specific env vars such as billing
-service URLs unless the user already asked for them.
-
-If the user approves agent startup, use detached mode. In Codex and other
-headless shells, do not run the interactive `hogli start` / `./bin/start` TUI.
-Use the repo-local `bin/hogli` command through Flox so required tools such as
-`flock` are on PATH:
-
-```bash
-flox activate -- bin/hogli up -d -y
-flox activate -- bin/hogli wait --timeout 180 -y
-```
-
-Set `STACK_STARTED_BY_AGENT=1` after detached startup succeeds.
-
-Treat `hogli wait` as a useful diagnostic, not the only readiness source. It may
-fail because a configured but irrelevant process crashed while the UI is usable.
-After startup or a wait failure, check:
+After startup, check:
 
 ```bash
 curl -sf "$BASE_URL/_preflight"
 ```
 
-And query:
+And query available process checks:
 
 - `mcp__phrocs__get_process_status(process="backend")`
 - `mcp__phrocs__get_process_status(process="frontend")`
@@ -332,11 +269,9 @@ And query:
 
 Continue only when `_preflight` is reachable and the required process set is
 ready. If backend or frontend is not ready, stop before checkout, edits,
-uploads, comments, or pushes. If other processes crashed, treat the stack as
-degraded: read their phrocs logs, record the degradation in `run-notes.md`, and
-continue only when those processes are unrelated to the QA target. A migration
-crash is higher risk; continue only if the affected migration/storage layer is
-clearly unrelated to the target and call that out in the final report.
+uploads, comments, or pushes. If other processes look degraded but are unrelated
+to the QA target, record that in `run-notes.md` and continue only when the
+target path is usable.
 
 Prefer phrocs MCP logs:
 
