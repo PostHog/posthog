@@ -591,15 +591,11 @@ fn process_event_part(
     }
 
     // Parse the event JSON
-    let event_json_str = std::str::from_utf8(&field_data).map_err(|e| {
-        warn!("Event part is not valid UTF-8: {}", e);
-        CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string())
-    })?;
+    let event_json_str = std::str::from_utf8(&field_data)
+        .map_err(|_| CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string()))?;
 
-    let event_json = serde_json::from_str(event_json_str).map_err(|e| {
-        warn!("Event part is not valid JSON: {}", e);
-        CaptureError::RequestParsingError("Event part must be valid JSON".to_string())
-    })?;
+    let event_json = serde_json::from_str(event_json_str)
+        .map_err(|_| CaptureError::RequestParsingError("Event part must be valid JSON".to_string()))?;
 
     let part_info = PartInfo {
         name: "event".to_string(),
@@ -619,13 +615,11 @@ fn process_properties_part(
     content_encoding: Option<String>,
 ) -> Result<(Value, PartInfo), CaptureError> {
     // Parse the properties JSON
-    let properties_json_str = std::str::from_utf8(&field_data).map_err(|e| {
-        warn!("Properties part is not valid UTF-8: {}", e);
+    let properties_json_str = std::str::from_utf8(&field_data).map_err(|_| {
         CaptureError::RequestParsingError("Properties part must be valid UTF-8".to_string())
     })?;
 
-    let properties_json = serde_json::from_str(properties_json_str).map_err(|e| {
-        warn!("Properties part is not valid JSON: {}", e);
+    let properties_json = serde_json::from_str(properties_json_str).map_err(|_| {
         CaptureError::RequestParsingError("Properties part must be valid JSON".to_string())
     })?;
 
@@ -783,8 +777,6 @@ async fn retrieve_multipart_parts(
             blob_parts.push(blob_part);
             accepted_parts.push(part_info);
         } else {
-            warn!("Unknown multipart field: {}", field_name);
-
             // Reject unknown fields that don't match expected patterns
             return Err(CaptureError::RequestParsingError(format!(
                 "Unknown multipart field: '{field_name}'. Expected 'event', 'event.properties', or 'event.properties.<property_name>'"
@@ -891,10 +883,8 @@ fn parse_multipart_data(
         .and_then(|v| v.as_str())
         .ok_or_else(|| CaptureError::RequestParsingError("Event UUID is required".to_string()))
         .and_then(|uuid_str| {
-            Uuid::parse_str(uuid_str).map_err(|e| {
-                warn!("Invalid UUID format: {}", e);
-                CaptureError::RequestParsingError(format!("Invalid UUID format: {e}"))
-            })
+            Uuid::parse_str(uuid_str)
+                .map_err(|e| CaptureError::RequestParsingError(format!("Invalid UUID format: {e}")))
         })?;
 
     let timestamp = event
@@ -931,7 +921,6 @@ fn parse_multipart_data(
 fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     // Check if event is an object
     let event_obj = event.as_object().ok_or_else(|| {
-        warn!("Event must be a JSON object");
         CaptureError::RequestParsingError("Event must be a JSON object".to_string())
     })?;
 
@@ -940,7 +929,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("event")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            warn!("Event missing 'event' field");
             CaptureError::RequestParsingError("Event missing 'event' field".to_string())
         })?;
 
@@ -973,7 +961,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("distinct_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            warn!("Event missing 'distinct_id' field");
             CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
         })?;
 
@@ -988,7 +975,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("properties")
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            warn!("Event missing 'properties' field");
             CaptureError::RequestParsingError("Event missing 'properties' field".to_string())
         })?;
 
@@ -1003,7 +989,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("$ai_model")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            warn!("$ai_model must be a string");
             CaptureError::RequestParsingError("$ai_model must be a string".to_string())
         })?;
 
