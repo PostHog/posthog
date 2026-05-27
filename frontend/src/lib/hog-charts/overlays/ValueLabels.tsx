@@ -349,11 +349,46 @@ function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): st
     return (c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)') + lift
 }
 
+interface LabelDivProps {
+    candidate: Candidate
+    isHovered: boolean
+    isHorizontal: boolean
+    borderColor: string
+}
+
+// Memoized so mousemoves only commit DOM for the previously-hovered and currently-hovered
+// labels — all other labels short-circuit on the shallow prop compare.
+const LabelDiv = React.memo(function LabelDiv({
+    candidate,
+    isHovered,
+    isHorizontal,
+    borderColor,
+}: LabelDivProps): React.ReactElement {
+    return (
+        <div
+            data-attr="hog-chart-value-label"
+            style={{
+                ...LABEL_STYLE_BASE,
+                backgroundColor: candidate.color,
+                borderColor,
+                left: Math.round(candidate.x),
+                top: Math.round(candidate.y),
+                transform: transformFor(candidate, isHorizontal, isHovered),
+                willChange: isHovered ? 'transform' : undefined,
+            }}
+        >
+            {candidate.text}
+        </div>
+    )
+})
+
 export function ValueLabels({
     valueFormatter,
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
+    // Split subscriptions so candidate building runs only on layout changes — the parent
+    // still re-renders on mousemove (hover context), but the memoized children skip work.
     const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
     const { hoverIndex } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
@@ -408,26 +443,15 @@ export function ValueLabels({
 
     return (
         <>
-            {visible.map((c) => {
-                const isHovered = c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
-                return (
-                    <div
-                        key={c.key}
-                        data-attr="hog-chart-value-label"
-                        style={{
-                            ...LABEL_STYLE_BASE,
-                            backgroundColor: c.color,
-                            borderColor,
-                            left: Math.round(c.x),
-                            top: Math.round(c.y),
-                            transform: transformFor(c, isHorizontal, isHovered),
-                            willChange: isHovered ? 'transform' : undefined,
-                        }}
-                    >
-                        {c.text}
-                    </div>
-                )
-            })}
+            {visible.map((c) => (
+                <LabelDiv
+                    key={c.key}
+                    candidate={c}
+                    isHovered={c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)}
+                    isHorizontal={isHorizontal}
+                    borderColor={borderColor}
+                />
+            ))}
         </>
     )
 }
