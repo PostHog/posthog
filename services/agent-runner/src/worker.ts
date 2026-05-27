@@ -74,15 +74,24 @@ export class RunnerWorker {
 
         try {
             const state = deserializeState(job.state)
-            // The queue dequeue atomically drained `pending_inputs` into
-            // `job.drainedInputs`. Anything still sitting in the legacy
-            // in-state `pendingInputs` (from older queue rows that
-            // pre-date the column) is folded in too — order preserved.
+            // The queue dequeue SNAPSHOTS `pending_inputs` into
+            // `job.drainedInputs` (it doesn't clear the column).
+            // Anything still sitting in the legacy in-state
+            // `pendingInputs` (from older queue rows that pre-date the
+            // column) is folded in too — order preserved.
+            //
+            // The `at` timestamps of these snapshotted entries are
+            // threaded into the commit (ack/reschedule/fail/cancel) so
+            // the same UPDATE that writes state also filters out the
+            // consumed entries from pending_inputs. At-least-once: if
+            // this worker dies before committing, the next dequeue sees
+            // the same /sends again.
             const newInputs = [
                 ...state.pendingInputs,
                 ...job.drainedInputs.map((p) => ({ at: p.at, content: p.content })),
             ]
             state.pendingInputs = []
+            const drainedInputAts = job.drainedInputs.map((p) => p.at)
 
             // On turn 0, the trigger's initial input becomes the first
             // user message. We log it once here so it shows up in CH
@@ -161,11 +170,13 @@ export class RunnerWorker {
                         at: new Date().toISOString(),
                         output: outcome.output,
                     })
-                    // Persist final state on terminal transitions so the
-                    // conversation history (user + assistant messages
-                    // pushed above) survives. Without `state` here the
-                    // ack would close the row with state.messages = [].
-                    await job.ack({ state: serializeState(state) })
+                    // Persist final state on terminal transitions AND
+                    // filter the consumed pending_inputs entries in the
+                    // same UPDATE. Without `drainedInputAts` the column
+                    // would keep growing forever for at-least-once
+                    // resilience; without `state` the conversation log
+                    // would close empty.
+                    await job.ack({ state: serializeState(state), drainedInputAts })
                     return
                 case 'failed':
                     await this.publish(job.id, sessionLogger, {
@@ -173,7 +184,7 @@ export class RunnerWorker {
                         at: new Date().toISOString(),
                         error: outcome.error,
                     })
-                    await job.fail({ state: serializeState(state) })
+                    await job.fail({ state: serializeState(state), drainedInputAts })
                     return
                 case 'cancelled':
                     // Client aborted the run via /cancel/:id. The durable record
@@ -185,7 +196,7 @@ export class RunnerWorker {
                         at: new Date().toISOString(),
                         error: 'cancelled by client',
                     })
-                    await job.cancel({ state: serializeState(state) })
+                    await job.cancel({ state: serializeState(state), drainedInputAts })
                     return
                 case 'tool_call': {
                     state.messages.push(outcome.message)
@@ -240,11 +251,12 @@ export class RunnerWorker {
                     // drains the queued input on the very next poll.
                     // Otherwise park ~one minute out and wait for a
                     // future /send (or the janitor) to wake us.
-                    const hasQueuedInput = await this.queue.hasPendingInputs(job.id)
+                    const hasQueuedInput = await this.queue.hasPendingInputs(job.id, drainedInputAts)
                     const scheduledAt = hasQueuedInput ? new Date() : new Date(Date.now() + 60_000)
                     await job.reschedule({
                         scheduledAt,
                         state: serializeState(state),
+                        drainedInputAts,
                     })
                     return
                 }

@@ -58,17 +58,30 @@ describe('persistent-chat: lifecycle edges', () => {
         const cancelRes = await cancel(cluster, app.slug, sessionId, { pat: TEAM_SECRET })
         expect(cancelRes.status).toBe(202)
 
-        // Today's /cancel publishes a bus message; the worker only
-        // observes it when it's actively running the executor. For a
-        // PARKED session, the cancel doesn't reach the worker. Until
-        // we add a direct "cancel a parked job" path, this case
-        // remains a known gap — the row stays `available` (parked) and
-        // the cancel is dropped. Flag it explicitly.
-        // TODO: implement parked-cancel — update agent_sessions to
-        // status='canceled' directly from ingress when the row's
-        // current status is 'available'.
-        const status = await readSessionStatus(cluster, sessionId)
-        expect(['canceled', 'available']).toContain(status)
+        // Ingress walked the direct cancellation path:
+        // `queue.cancelIfParked` flipped status=available → canceled in
+        // a single UPDATE. The bus also got a synthetic
+        // session_failed event so /listen subscribers see a terminal
+        // signal even though no worker ran the cancel branch.
+        await waitForStatus(cluster, sessionId, ['canceled'], { timeoutMs: 5_000 })
+        expect(await readSessionStatus(cluster, sessionId)).toBe('canceled')
+    })
+
+    it('cancel of a terminal (completed) session: idempotent 202', async () => {
+        // Completed → cancel is a no-op acknowledgement. Beats 409
+        // for clients that retry on transient errors.
+        const app = await createApp(cluster.cleanup, {
+            slugSuffix: 'chat-cancel-terminal',
+            auth: { type: 'pat' },
+            encryptedEnv: { __TEST_EXECUTOR: 'chat-once' },
+        })
+        const run = await post(cluster, app.slug, { pat: TEAM_SECRET, body: { message: 'done' } })
+        const sessionId = run.body.sessionId as string
+        await waitForStatus(cluster, sessionId, ['completed'])
+
+        const res = await cancel(cluster, app.slug, sessionId, { pat: TEAM_SECRET })
+        expect(res.status).toBe(202)
+        expect(await readSessionStatus(cluster, sessionId)).toBe('completed')
     })
 
     it('/send to a completed session → 410 Gone (not 202)', async () => {

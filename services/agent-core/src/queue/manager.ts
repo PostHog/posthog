@@ -46,10 +46,10 @@ export class SessionQueueManager {
             `INSERT INTO agent_sessions
              (id, team_id, application_id, revision_id, queue_name, status, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              state, state_byte_size, principal)
+              state, state_byte_size, principal, external_key)
              VALUES ($1, $2, $3, $4, $5, 'available', $6, $7,
                      NULL, NULL, 0, 0, $7,
-                     $8, $9, $10::jsonb)`,
+                     $8, $9, $10::jsonb, $11)`,
             [
                 id,
                 job.teamId,
@@ -61,9 +61,40 @@ export class SessionQueueManager {
                 job.state ?? null,
                 stateByteSize,
                 principalJson,
+                job.externalKey ?? null,
             ]
         )
         return id
+    }
+
+    /**
+     * Resolve `(team, application, external_key)` to an active session
+     * id. Used by ingress when a trigger emits an `externalKey` — a
+     * second Slack `app_mention` in the same thread, an email reply,
+     * any future webhook follow-up — to route it as `/send` into an
+     * existing session rather than spawning a new one.
+     *
+     * Returns `null` when no active session exists; the caller then
+     * enqueues a new one. Terminal sessions are deliberately ignored
+     * so a closed thread doesn't pin its successor forever.
+     */
+    async findActiveSessionByExternalKey(
+        teamId: number,
+        applicationId: string,
+        externalKey: string
+    ): Promise<string | null> {
+        const { rows } = await this.pool.query<{ id: string }>(
+            `SELECT id::text AS id
+             FROM agent_sessions
+             WHERE team_id = $1
+               AND application_id = $2
+               AND external_key = $3
+               AND status IN ('available', 'running')
+             ORDER BY created DESC
+             LIMIT 1`,
+            [teamId, applicationId, externalKey]
+        )
+        return rows[0]?.id ?? null
     }
 
     /**
@@ -146,6 +177,49 @@ export class SessionQueueManager {
             return { kind: 'terminal' }
         }
         return { kind: 'accepted', status }
+    }
+
+    /**
+     * Cancel a parked session directly. Used by ingress when a client
+     * calls `/cancel/:id` on a session whose worker isn't holding the
+     * lock (status='available') — bus-published cancels only reach a
+     * running executor. Returns:
+     *
+     *   - `canceled`: the row was available; we flipped it to
+     *     `canceled` ourselves.
+     *   - `running`: the row is locked by a worker; the bus path is
+     *     the right one. Ingress should fall through to publishInput.
+     *   - `terminal`: already at a terminal status — nothing to do.
+     *   - `not_found`: no such session id.
+     */
+    async cancelIfParked(sessionId: string): Promise<'canceled' | 'running' | 'terminal' | 'not_found'> {
+        const { rows } = await this.pool.query<{
+            status: 'available' | 'running' | 'completed' | 'failed' | 'canceled'
+            updated: boolean
+        }>(
+            `WITH probe AS (
+                SELECT status FROM agent_sessions WHERE id = $1 FOR UPDATE
+             ), updated AS (
+                UPDATE agent_sessions
+                SET status = 'canceled',
+                    last_transition = NOW(),
+                    transition_count = transition_count + 1
+                WHERE id = $1 AND status = 'available'
+                RETURNING 1
+             )
+             SELECT probe.status, EXISTS(SELECT 1 FROM updated) AS updated FROM probe`,
+            [sessionId]
+        )
+        if (rows.length === 0) {
+            return 'not_found'
+        }
+        if (rows[0].updated) {
+            return 'canceled'
+        }
+        if (rows[0].status === 'running') {
+            return 'running'
+        }
+        return 'terminal'
     }
 
     async disconnect(): Promise<void> {

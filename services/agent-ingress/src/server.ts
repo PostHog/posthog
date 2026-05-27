@@ -256,6 +256,37 @@ async function dispatchRouteResult(
 
         case 'enqueue':
             try {
+                // Trigger emitted a stable external key (Slack thread,
+                // future webhook reply, …)? Look for an active session
+                // we should route this into as a follow-up instead of
+                // spawning a new one. The key is unique per (team,
+                // application) among non-terminal sessions.
+                if (result.externalKey) {
+                    const existing = await deps.queue.findActiveSessionByExternalKey(
+                        revision.teamId,
+                        revision.applicationId,
+                        result.externalKey
+                    )
+                    if (existing) {
+                        const append = await deps.queue.appendPendingInput(existing, result.followupContent ?? '')
+                        // The session can race terminal in the time
+                        // between the lookup and the append. `terminal`
+                        // falls through to a fresh enqueue below.
+                        if (append.kind === 'accepted') {
+                            await deps.bus.publishInput(existing, {
+                                type: 'user_message',
+                                at: new Date().toISOString(),
+                                content: result.followupContent ?? '',
+                            })
+                            res.status(202).json({
+                                sessionId: existing,
+                                trigger: result.trigger,
+                                continued: true,
+                            })
+                            return
+                        }
+                    }
+                }
                 const initialState = {
                     messages: [],
                     pendingInputs: [],
@@ -269,6 +300,7 @@ async function dispatchRouteResult(
                     queueName: deps.queueName ?? 'default',
                     state: Buffer.from(JSON.stringify(initialState), 'utf8'),
                     principal: result.principal ?? null,
+                    externalKey: result.externalKey ?? null,
                 })
                 res.status(202).json({ sessionId, trigger: result.trigger })
             } catch (err) {
@@ -300,10 +332,36 @@ async function dispatchRouteResult(
                 return
             }
             if (result.operation === 'cancel') {
-                // Publish a cancel on the session's input channel — the runner
-                // subscribes for the lifetime of the run and aborts the agent
-                // loop when it arrives.
+                // /cancel takes two paths depending on whether a worker is
+                // actively running the session:
+                //   - running: publish a `cancel` on the input bus; the
+                //     executor's subscriber aborts the in-flight turn.
+                //   - parked (status=available, awaiting input): no
+                //     worker is listening. Flip the row to `canceled`
+                //     directly from the manager. Idempotent on terminal.
                 try {
+                    const direct = await deps.queue.cancelIfParked(result.sessionId)
+                    if (direct === 'not_found') {
+                        res.status(404).json({ error: 'unknown session' })
+                        return
+                    }
+                    if (direct === 'canceled' || direct === 'terminal') {
+                        // For 'terminal' we treat /cancel as idempotent —
+                        // the client's intent is satisfied either way.
+                        // Publish a synthetic event so listeners see a
+                        // terminal cancel signal even though no worker
+                        // ran the cancel branch.
+                        if (direct === 'canceled') {
+                            await deps.bus.publishEvent(result.sessionId, {
+                                type: 'session_failed',
+                                at: new Date().toISOString(),
+                                error: 'cancelled by client',
+                            })
+                        }
+                        res.status(202).json({ ok: true })
+                        return
+                    }
+                    // direct === 'running' → fall through to the bus path.
                     await deps.bus.publishInput(result.sessionId, {
                         type: 'cancel',
                         at: new Date().toISOString(),

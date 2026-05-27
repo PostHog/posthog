@@ -28,6 +28,7 @@ export const SessionJobInitSchema = z.object({
     scheduled: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
     principal: z.unknown().nullish(),
+    externalKey: z.string().nullish(),
 })
 
 export type SessionJobInit = Omit<z.infer<typeof SessionJobInitSchema>, 'principal'> & {
@@ -38,11 +39,26 @@ export type SessionJobInit = Omit<z.infer<typeof SessionJobInitSchema>, 'princip
      * `/listen` / `/send` / `/cancel`.
      */
     principal?: Principal | null
+    /**
+     * Free-form lookup key for the session. Set by triggers that want
+     * a follow-up event (Slack reply, email follow-up, …) to route to
+     * an existing session instead of spawning a new one. Unique per
+     * (team, application) across non-terminal sessions.
+     */
+    externalKey?: string | null
 }
 
 export const RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
+    /**
+     * Pending-input `at` timestamps drained during this turn. The
+     * commit UPDATE filters them out of `pending_inputs` atomically,
+     * leaving any `/send` that raced during the turn for the next
+     * dequeue. See worker.ts dequeue notes for the at-least-once
+     * tradeoff.
+     */
+    drainedInputAts: z.array(z.string()).optional(),
 })
 
 export type RescheduleOptions = z.infer<typeof RescheduleOptionsSchema>
@@ -83,13 +99,15 @@ export interface DequeuedSessionJob {
      * final session state in the same UPDATE so the conversation log
      * is durable past terminal-state transitions. Required by chat-style
      * agents that need their last assistant message persisted.
+     * `drainedInputAts` filters out the pending_inputs entries the
+     * worker consumed this turn — at-least-once cleanup.
      */
-    ack(options?: { state?: Buffer | null }): Promise<void>
+    ack(options?: { state?: Buffer | null; drainedInputAts?: string[] }): Promise<void>
     /** Same shape as `ack`. Terminal `failed`. */
-    fail(options?: { state?: Buffer | null }): Promise<void>
+    fail(options?: { state?: Buffer | null; drainedInputAts?: string[] }): Promise<void>
     reschedule(options?: RescheduleOptions): Promise<void>
     /** Same shape as `ack`. Terminal `canceled`. */
-    cancel(options?: { state?: Buffer | null }): Promise<void>
+    cancel(options?: { state?: Buffer | null; drainedInputAts?: string[] }): Promise<void>
     heartbeat(): Promise<void>
 }
 

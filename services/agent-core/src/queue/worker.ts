@@ -170,13 +170,19 @@ export class SessionQueueWorker {
 
     private async dequeueJobs(limit: number): Promise<RawSessionRow[]> {
         const lockId = uuidv7()
-        // The CTE captures pending_inputs *before* the UPDATE clears it —
-        // RETURNING shows post-update values for the table columns, but
-        // we exfiltrate the pre-update `pending_inputs` via the CTE alias.
-        // This is what makes the drain atomic: any `/send` that races
-        // with the dequeue either commits before this UPDATE (and rides
-        // through as drained_inputs) or after (and is visible on the
-        // worker's next dequeue).
+        // SNAPSHOT (not drain) pending_inputs at dequeue. The worker
+        // sees what's queued; subsequent /send appends land in the
+        // same column. The turn-commit path (reschedule / ack / fail /
+        // cancel) is responsible for filtering out the snapshotted
+        // entries by their `at` timestamp — at-least-once semantics.
+        //
+        // Why not drain here: a worker dying mid-turn would otherwise
+        // lose the drained /sends forever. With snapshot-only, an
+        // orphaned dequeue (status=running, lock_id mismatch on
+        // commit) leaves pending_inputs intact and the NEXT dequeue
+        // sees the same messages again. Duplicate-delivery is the
+        // tradeoff; the chat agents can absorb that (state.messages
+        // is deduplicated by content+at at the executor level).
         const result = await this.pool.query<RawSessionRow>(
             `WITH available AS (
                 SELECT id, pending_inputs
@@ -193,8 +199,7 @@ export class SessionQueueWorker {
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
-                transition_count = transition_count + 1,
-                pending_inputs = '[]'::jsonb
+                transition_count = transition_count + 1
             FROM available
             WHERE agent_sessions.id = available.id
             RETURNING
@@ -240,59 +245,14 @@ export class SessionQueueWorker {
             principal: row.principal ?? null,
             drainedInputs: row.drained_inputs ?? [],
 
-            async ack(options?: { state?: Buffer | null }): Promise<void> {
+            async ack(options?: TurnCommitOptions): Promise<void> {
                 releaseGuard('ack')
-                // Terminal-state transitions (ack/fail/cancel) accept an
-                // optional final `state` write — the executor's
-                // last-turn assistant message is in there. Without
-                // persisting it the conversation history is lost on
-                // session completion (the chat-* test executors hit
-                // this; AssServerExecutor doesn't yet but will once it
-                // adopts the turn-by-turn model).
-                const setParts = [
-                    `status = 'completed'`,
-                    `lock_id = NULL`,
-                    `last_heartbeat = NULL`,
-                    `last_transition = NOW()`,
-                    `transition_count = transition_count + 1`,
-                ]
-                const params: unknown[] = [row.id, lockId]
-                if (options && 'state' in options) {
-                    params.push(options.state ?? null)
-                    setParts.push(`state = $${params.length}`)
-                    params.push(options.state ? options.state.byteLength : null)
-                    setParts.push(`state_byte_size = $${params.length}`)
-                }
-                await pool.query(
-                    `UPDATE agent_sessions
-                     SET ${setParts.join(', ')}
-                     WHERE id = $1 AND lock_id = $2`,
-                    params
-                )
+                await commitTurn(pool, row.id, lockId, 'completed', options)
             },
 
-            async fail(options?: { state?: Buffer | null }): Promise<void> {
+            async fail(options?: TurnCommitOptions): Promise<void> {
                 releaseGuard('fail')
-                const setParts = [
-                    `status = 'failed'`,
-                    `lock_id = NULL`,
-                    `last_heartbeat = NULL`,
-                    `last_transition = NOW()`,
-                    `transition_count = transition_count + 1`,
-                ]
-                const params: unknown[] = [row.id, lockId]
-                if (options && 'state' in options) {
-                    params.push(options.state ?? null)
-                    setParts.push(`state = $${params.length}`)
-                    params.push(options.state ? options.state.byteLength : null)
-                    setParts.push(`state_byte_size = $${params.length}`)
-                }
-                await pool.query(
-                    `UPDATE agent_sessions
-                     SET ${setParts.join(', ')}
-                     WHERE id = $1 AND lock_id = $2`,
-                    params
-                )
+                await commitTurn(pool, row.id, lockId, 'failed', options)
             },
 
             async reschedule(input?: RescheduleOptions): Promise<void> {
@@ -314,6 +274,17 @@ export class SessionQueueWorker {
                     params.push(options.state ? options.state.byteLength : null)
                     setClauses.push(`state_byte_size = $${params.length}`)
                 }
+                if (options?.drainedInputAts && options.drainedInputAts.length > 0) {
+                    params.push(options.drainedInputAts)
+                    setClauses.push(
+                        `pending_inputs = COALESCE(
+                            (SELECT jsonb_agg(elem)
+                             FROM jsonb_array_elements(pending_inputs) elem
+                             WHERE NOT (elem ->> 'at' = ANY($${params.length}::text[]))),
+                            '[]'::jsonb
+                         )`
+                    )
+                }
                 await pool.query(
                     `UPDATE agent_sessions SET ${setClauses.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
@@ -321,28 +292,9 @@ export class SessionQueueWorker {
                 )
             },
 
-            async cancel(options?: { state?: Buffer | null }): Promise<void> {
+            async cancel(options?: TurnCommitOptions): Promise<void> {
                 releaseGuard('cancel')
-                const setParts = [
-                    `status = 'canceled'`,
-                    `lock_id = NULL`,
-                    `last_heartbeat = NULL`,
-                    `last_transition = NOW()`,
-                    `transition_count = transition_count + 1`,
-                ]
-                const params: unknown[] = [row.id, lockId]
-                if (options && 'state' in options) {
-                    params.push(options.state ?? null)
-                    setParts.push(`state = $${params.length}`)
-                    params.push(options.state ? options.state.byteLength : null)
-                    setParts.push(`state_byte_size = $${params.length}`)
-                }
-                await pool.query(
-                    `UPDATE agent_sessions
-                     SET ${setParts.join(', ')}
-                     WHERE id = $1 AND lock_id = $2`,
-                    params
-                )
+                await commitTurn(pool, row.id, lockId, 'canceled', options)
             },
 
             async heartbeat(): Promise<void> {
@@ -392,17 +344,24 @@ export class SessionQueueWorker {
     }
 
     /**
-     * Peek at the `pending_inputs` column for a session. Used by the
-     * agent-runner's turn loop to decide whether parking after
-     * `awaiting_input` should sleep (no queued input) or wake
-     * immediately (a `/send` mid-turn already left a message that
-     * couldn't advance `scheduled` because status was 'running').
+     * Peek at `pending_inputs` for entries the worker HASN'T already
+     * consumed this turn. Used by the agent-runner's turn loop to
+     * decide whether parking after `awaiting_input` should sleep
+     * (nothing new queued) or wake immediately (a `/send` mid-turn
+     * already left a message that couldn't advance `scheduled`
+     * because status was 'running').
+     *
+     * Passing `excludeAts` filters out the snapshot the worker took
+     * at dequeue — anything left over arrived AFTER and needs a turn.
      */
-    async hasPendingInputs(sessionId: string): Promise<boolean> {
+    async hasPendingInputs(sessionId: string, excludeAts: string[] = []): Promise<boolean> {
         const { rows } = await this.pool.query<{ has: boolean }>(
-            `SELECT jsonb_array_length(pending_inputs) > 0 AS has
+            `SELECT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(pending_inputs) elem
+                WHERE NOT (elem ->> 'at' = ANY($2::text[]))
+             ) AS has
              FROM agent_sessions WHERE id = $1`,
-            [sessionId]
+            [sessionId, excludeAts]
         )
         return rows[0]?.has === true
     }
@@ -419,4 +378,63 @@ export class SessionQueueWorker {
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Options accepted by the terminal-state transitions (ack/fail/cancel)
+ * AND the parked-state transition (reschedule via RescheduleOptions).
+ * Carries the final state write plus the list of pending-input `at`
+ * timestamps the worker drained during this turn — used to filter
+ * the pending_inputs column atomically with the commit.
+ */
+export interface TurnCommitOptions {
+    state?: Buffer | null
+    /**
+     * `at` timestamps of the pending-input entries the worker consumed
+     * during this turn. The commit UPDATE removes only these from
+     * pending_inputs, leaving any /send that arrived mid-turn intact
+     * for the next dequeue. Omitting clears nothing — used by ack/
+     * fail/cancel on sessions that never had queued input.
+     */
+    drainedInputAts?: string[]
+}
+
+async function commitTurn(
+    pool: Pool,
+    sessionId: string,
+    lockId: string,
+    status: 'completed' | 'failed' | 'canceled',
+    options?: TurnCommitOptions
+): Promise<void> {
+    const setParts = [
+        `status = '${status}'`,
+        `lock_id = NULL`,
+        `last_heartbeat = NULL`,
+        `last_transition = NOW()`,
+        `transition_count = transition_count + 1`,
+    ]
+    const params: unknown[] = [sessionId, lockId]
+    if (options && 'state' in options) {
+        params.push(options.state ?? null)
+        setParts.push(`state = $${params.length}`)
+        params.push(options.state ? options.state.byteLength : null)
+        setParts.push(`state_byte_size = $${params.length}`)
+    }
+    if (options?.drainedInputAts && options.drainedInputAts.length > 0) {
+        params.push(options.drainedInputAts)
+        setParts.push(
+            `pending_inputs = COALESCE(
+                (SELECT jsonb_agg(elem)
+                 FROM jsonb_array_elements(pending_inputs) elem
+                 WHERE NOT (elem ->> 'at' = ANY($${params.length}::text[]))),
+                '[]'::jsonb
+             )`
+        )
+    }
+    await pool.query(
+        `UPDATE agent_sessions
+         SET ${setParts.join(', ')}
+         WHERE id = $1 AND lock_id = $2`,
+        params
+    )
 }
