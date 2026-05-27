@@ -22,12 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import extend_schema_field
-from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.models import Insight, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -39,6 +38,8 @@ from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.api.insight import InsightBasicSerializer
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _validate_every_15_minutes_interval(
