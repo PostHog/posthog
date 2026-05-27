@@ -509,7 +509,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
-    def test_over_quota_team_refuses_at_webhook_without_starting_workflow(
+    def test_over_quota_team_still_starts_workflow_for_in_workflow_enforcement(
         self,
         mock_sync_connect,
         mock_asyncio_run,
@@ -535,10 +535,10 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
-        # The whole point of the webhook gate: no Temporal workflow gets created
-        # for a team that's already over its AI-credits quota.
-        mock_sync_connect.assert_not_called()
-        mock_asyncio_run.assert_not_called()
-        mock_post_feedback.assert_called_once()
-        feedback_text = mock_post_feedback.call_args.args[4]
-        assert "PostHog AI credits" in feedback_text
+        # Quota enforcement now lives entirely inside the workflow — the webhook
+        # always schedules it, and the activity-level gate posts the denial
+        # before any billable LLM call. This guarantees a single owner for the
+        # quota decision instead of dual gating.
+        mock_sync_connect.assert_called_once()
+        mock_asyncio_run.assert_called_once()
+        mock_post_feedback.assert_not_called()

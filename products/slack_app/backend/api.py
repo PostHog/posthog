@@ -299,21 +299,30 @@ def lookup_slack_user_id_by_email(
     return slack_user_id
 
 
-def _refuse_mention_if_team_over_quota(
-    slack: SlackIntegration,
-    event: dict[str, Any],
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Your team has used its monthly PostHog AI credits. "
+    "Top up at https://us.posthog.com/organization/billing to continue."
+)
+
+
+def block_if_team_over_quota(
+    *,
     integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
 ) -> bool:
-    """Refuse an app_mention at the webhook layer when the team is over quota.
+    """Refuse a Slack-bot turn when the team is over its AI credits quota.
 
-    Returns True when the mention was refused and a denial was posted, so the
-    caller should bail without starting the workflow. The activity-level gate
-    inside ``PostHogCodeSlackMentionWorkflow`` is the defense in depth; doing
-    the same check here saves a Slack roundtrip, a Temporal execution, and a
-    billable classifier call for the common "team is exhausted" case.
+    Mirrors PHAI's enforcement (ee/api/conversation.py): every user-initiated
+    turn — webhook mention, task-creation activity, or follow-up reply — is
+    gated against the same Redis-backed ``QuotaResource.AI_CREDITS`` set.
+    Returns True when the team is blocked and posts a friendly in-thread
+    denial as a side effect. ``context`` is a free-form label that the call
+    site uses to disambiguate itself in structured logs.
     """
-    from posthog.temporal.ai.posthog_code_slack_mention import _QUOTA_EXHAUSTED_MESSAGE
-
     from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
     if not is_team_limited(
@@ -323,16 +332,9 @@ def _refuse_mention_if_team_over_quota(
     ):
         return False
 
-    channel = event.get("channel")
-    thread_ts = event.get("thread_ts") or event.get("ts")
-    slack_user_id = event.get("user")
-    if not channel or not thread_ts or not slack_user_id:
-        # The denial needs somewhere to land; without these the workflow
-        # would have bailed at the top of `run()` anyway.
-        return True
-
     logger.info(
-        "posthog_code_slack_mention_blocked_by_quota_at_webhook",
+        "posthog_code_slack_blocked_by_quota",
+        context=context,
         team_id=integration.team_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -342,7 +344,7 @@ def _refuse_mention_if_team_over_quota(
         channel,
         slack_user_id,
         thread_ts,
-        _QUOTA_EXHAUSTED_MESSAGE,
+        QUOTA_EXHAUSTED_MESSAGE,
         prefer_thread_message=True,
     )
     return True
@@ -1269,8 +1271,6 @@ def route_posthog_code_event_to_relevant_region(
                 _notify_missing_slack_scopes(slack, event, missing_scopes)
                 return ROUTE_HANDLED_LOCALLY
             if _resolve_pending_repo_picker_from_followup(event, local_match):
-                return ROUTE_HANDLED_LOCALLY
-            if _refuse_mention_if_team_over_quota(slack, event, local_match):
                 return ROUTE_HANDLED_LOCALLY
             workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
                 event=event,
