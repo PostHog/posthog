@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "default": "-7d",
+            "description": "Start of the window — a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "End of the window — a relative string or ISO8601 timestamp. Omit for 'now'.",
+            "type": "string"
+        },
+        "group_by_author": {
+            "default": false,
+            "description": "Set true to split results per author handle instead of one overall bucket.",
+            "type": "boolean"
+        },
+        "repo": {
+            "description": "Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

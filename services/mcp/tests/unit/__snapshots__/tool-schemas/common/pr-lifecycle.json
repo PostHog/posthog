@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "pr_number": {
+            "description": "Pull request number to inspect.",
+            "type": "number"
+        },
+        "repo": {
+            "description": "Optional 'owner/name' repository. In v1 this only labels the response.",
+            "type": "string"
+        }
+    },
+    "required": ["pr_number"],
+    "type": "object"
+}
