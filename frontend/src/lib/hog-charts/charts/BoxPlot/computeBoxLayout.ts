@@ -106,12 +106,7 @@ export function computeBoxRect({
     const meanY = scales.value(datum.mean)
     const maxY = scales.value(datum.max)
     const minY = scales.value(datum.min)
-    if (
-        !Number.isFinite(p25Y) ||
-        !Number.isFinite(p75Y) ||
-        !Number.isFinite(medianY) ||
-        !Number.isFinite(meanY)
-    ) {
+    if (!Number.isFinite(p25Y) || !Number.isFinite(p75Y) || !Number.isFinite(medianY) || !Number.isFinite(meanY)) {
         return null
     }
     if (!Number.isFinite(maxY) || !Number.isFinite(minY)) {
