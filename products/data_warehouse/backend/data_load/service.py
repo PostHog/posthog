@@ -274,7 +274,7 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
 
     return posthoganalytics.feature_enabled(
         "dwh-postgres-cdc",
-        str(team.uuid),
+        str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )

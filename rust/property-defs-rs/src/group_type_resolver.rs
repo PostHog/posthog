@@ -150,6 +150,10 @@ impl GroupTypeResolver {
         let metadata = request.metadata_mut();
         metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
         metadata.insert(
+            "x-caller-tag",
+            "property-defs/group-type-resolution".parse().unwrap(),
+        );
+        metadata.insert(
             "x-read-consistency",
             match consistency {
                 ConsistencyLevel::Strong => "strong",

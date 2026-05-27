@@ -204,6 +204,7 @@ describe('ErrorTrackingConsumer', () => {
             errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
+            cookielessManager: hub.cookielessManager,
             redisPool: hub.redisPool,
             personRepository: hub.personRepository,
         }

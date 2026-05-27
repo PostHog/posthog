@@ -11,7 +11,15 @@ import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 
-import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    CyclotronJobInputType,
+    HogFunctionSubTemplateIdType,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { alertWizardLogicType } from './alertWizardLogicType'
 
@@ -48,6 +56,12 @@ export interface AlertWizardLogicProps {
     destinations: WizardDestination[]
     disableUrlSync?: boolean
     presetTriggerKey?: HogFunctionSubTemplateIdType
+    // When set, the wizard pre-applies a `kind IN (...)` property filter on the
+    // first event of the created HogFunction. Used by the health-alerts family
+    // so a per-page entry point (e.g. the SDK Doctor scene) can scope the alert
+    // to one or more health-check kinds. Pass an empty array to mean "all kinds"
+    // explicitly; omit the prop to leave filters untouched.
+    presetTriggerKinds?: string[]
     onAlertCreated?: () => void
 }
 
@@ -59,6 +73,41 @@ function hasSubTemplateForDestination(
 ): boolean {
     const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
     return subTemplates?.some((t) => t.template_id === destination.templateId) ?? false
+}
+
+// Pre-applies `kind IN (selectedKinds)` to the first event of the sub-template's
+// filter group. A null or empty `selectedKinds` leaves filters untouched (matches
+// every kind). Used by the health-alerts family so a per-page entry point can
+// scope the resulting HogFunction to specific kinds.
+export function applyKindFilter(
+    baseFilters: CyclotronJobFiltersType | null | undefined,
+    selectedKinds: string[] | null
+): CyclotronJobFiltersType | null | undefined {
+    if (!baseFilters || !selectedKinds || selectedKinds.length === 0) {
+        return baseFilters
+    }
+    const events = baseFilters.events ?? []
+    const firstEvent = events[0]
+    if (!firstEvent) {
+        return baseFilters
+    }
+    return {
+        ...baseFilters,
+        events: [
+            {
+                ...firstEvent,
+                properties: [
+                    {
+                        key: 'kind',
+                        value: selectedKinds,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+            },
+            ...events.slice(1),
+        ],
+    }
 }
 
 function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations: WizardDestination[]): string | null {
@@ -134,6 +183,12 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 setTriggerKey: (_, { triggerKey }) => triggerKey,
                 restoreWizardState: (_, { state }) => state.triggerKey,
                 resetWizard: () => (logicProps.presetTriggerKey ?? null) as HogFunctionSubTemplateIdType | null,
+            },
+        ],
+        selectedKinds: [
+            (logicProps.presetTriggerKinds ?? null) as string[] | null,
+            {
+                resetWizard: () => (logicProps.presetTriggerKinds ?? null) as string[] | null,
             },
         ],
         alertCreated: [
@@ -430,12 +485,14 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     mergedInputs[key] = val
                 }
 
+                const filters = applyKindFilter(subTemplate.filters, values.selectedKinds)
+
                 const configuration: Record<string, any> = {
                     type: 'internal_destination',
                     template_id: destination.templateId,
                     name: subTemplate.name,
                     description: subTemplate.description,
-                    filters: subTemplate.filters,
+                    filters,
                     enabled: true,
                     masking: null,
                     inputs: mergedInputs,
