@@ -683,9 +683,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
+                'replay-vision',
             ])
         )
-        expect(flags).toHaveLength(7)
+        expect(flags).toHaveLength(8)
     })
 
     // Test the filtering logic with a direct unit test approach using
