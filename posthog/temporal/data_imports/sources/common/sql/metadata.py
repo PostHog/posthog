@@ -1,31 +1,10 @@
 """Builders for the per-schema `schema_metadata` JSON.
 
-Every SQL source persists a `schema_metadata` blob inside
-`ExternalDataSchema.sync_type_config` so the column picker, direct-query
-table builder, and per-row location routing don't need to re-query the
-source on every read.
+Persisted on `ExternalDataSchema.sync_type_config.schema_metadata` so the column
+picker and per-row routing avoid re-querying the source. `data_type` strings stay
+driver-native — no consumer should branch on case.
 
-The shape was originally introduced for Postgres (in
-`products/data_warehouse/backend/postgres_helpers.py`) but is fully
-driver-agnostic — it just stores discovered columns, foreign keys, and
-the source location triple. Hoisted here so MySQL / MSSQL / BigQuery /
-Snowflake / Redshift can populate the same blob and the column picker
-works for every SQL source without per-driver branches in the API.
-
-JSON shape:
-
-    {
-        "columns": [{"name": ..., "data_type": ..., "is_nullable": ...}],
-        "foreign_keys": [{"column": ..., "target_table": ..., "target_column": ...}],
-        "source_catalog": ... | None,
-        "source_schema": ... | None,
-        "source_table_name": ... | None,
-    }
-
-`data_type` strings are driver-native (Postgres returns lowercase
-`text`, BigQuery uppercase `STRING`, Snowflake uppercase `VARCHAR`,
-ClickHouse mixed-case `Int64`). The picker only renders them as a
-label; no consumer should branch on case.
+Shape: `{columns: [{name, data_type, is_nullable}], foreign_keys: [...], source_catalog, source_schema, source_table_name}`
 """
 
 from __future__ import annotations
@@ -40,12 +19,7 @@ def sql_schema_metadata(
     source_schema: str | None = None,
     source_table_name: str | None = None,
 ) -> dict[str, Any]:
-    """Build the `schema_metadata` JSON for one schema row.
-
-    Mirrors `postgres_schema_metadata` exactly so existing Postgres rows
-    remain compatible; non-Postgres sources adopt the same shape on
-    their next `refresh_schemas` run.
-    """
+    """Build the `schema_metadata` JSON for one schema row."""
     return {
         "columns": [
             {"name": column_name, "data_type": column_type, "is_nullable": nullable}
@@ -62,11 +36,7 @@ def sql_schema_metadata(
 
 
 def extract_available_column_names(schema_metadata: dict[str, Any] | None) -> set[str]:
-    """Return the set of column names persisted on a `schema_metadata` row.
-
-    Used by `prune_enabled_columns` to detect source-side column drops
-    on every refresh.
-    """
+    """Column names persisted on a `schema_metadata` row. Defensive against shape drift."""
     if not isinstance(schema_metadata, dict):
         return set()
     columns = schema_metadata.get("columns")

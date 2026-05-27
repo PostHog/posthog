@@ -468,10 +468,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
-        help_text=(
-            "Whether the source supports selecting a subset of columns to sync. "
-            "True for SQL sources that honor `enabled_columns`; false otherwise."
-        ),
+        help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
     )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
@@ -587,8 +584,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
-        # Coerce explicitly so a test that mocks `SourceRegistry.get_source` doesn't return a Mock
-        # attribute access that orjson can't serialize.
+        # Explicit cast: Mock attribute access returns a Mock that orjson can't serialize.
         return bool(getattr(source, "supports_column_selection", False))
 
     def get_status(self, instance: ExternalDataSource) -> str:
@@ -808,9 +804,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
-                # Direct-postgres-only update flow — keep the direct `reconcile_postgres_schemas`
-                # call so existing tests that mock `SourceRegistry.get_source` still exercise the
-                # real direct-query DataWarehouseTable rebuild.
+                # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
+                # exercise the real direct-query DataWarehouseTable rebuild.
                 from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 
                 reconcile_postgres_schemas(
@@ -1185,11 +1180,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
                 default_schema=default_source_schema,
             )
-            # Postgres writes `schema_metadata` on create so direct-mode `DataWarehouseTable` rows
-            # and the column picker have data immediately. Non-Postgres SQL sources get their
-            # `schema_metadata` populated on the next `refresh_schemas` run via
-            # `SQLSource.reconcile_schema_metadata` — that's the only API path that has the
-            # discovered `SourceSchema`s in hand by then. See PR1 plan §2.
+            # Postgres writes here so direct-mode `DataWarehouseTable` and the column picker have
+            # data immediately. Non-Postgres sources populate via `reconcile_schema_metadata` on
+            # the next `refresh_schemas` run.
             schema_metadata = (
                 sql_schema_metadata(
                     source_schema.columns if source_schema else [],
@@ -1658,12 +1651,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Persist schema_metadata for per-row routing + (direct mode) rebuild DataWarehouseTable.
-            # Postgres keeps its direct-call path (a) so existing tests that mock `SourceRegistry`
-            # still exercise the real reconcile logic, and (b) so direct-query DataWarehouseTable
-            # rebuild remains identical bit-for-bit to today. PR2 broadens reconcile to every SQL
-            # source via the `SQLSource.reconcile_schema_metadata` hook once driver-specific tests
-            # are wired up.
+            # Direct call (not via hook): tests that mock `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 

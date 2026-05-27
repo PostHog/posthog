@@ -198,14 +198,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         source_schemas: list[SourceSchema],
         team_id: int,
     ) -> list[str]:
-        """Postgres-specific reconcile.
-
-        Delegates to `reconcile_postgres_schemas` which already merges
-        `schema_metadata` per row, prunes `enabled_columns` to the new
-        column set (via the `_prune_enabled_columns_to_metadata` hook on
-        that helper), and — in direct-query mode — rebuilds the
-        `DataWarehouseTable` projection so HogQL stays in sync.
-        """
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
         from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 
         return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)

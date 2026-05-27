@@ -94,11 +94,8 @@ class SelectQueryBuilder:
         `incremental_last_value` falls back to the type's initial value so
         the semantics match today's `_build_query` implementations.
 
-        `enabled_columns` projects the SELECT clause to a subset of the
-        source columns; primary keys + the active incremental field are
-        always retained. `None` (the default) emits `SELECT *`. See
-        `common/sql/projection.compute_projected_columns` for the
-        retention/order rules.
+        `enabled_columns=None` (default) emits `SELECT *`. Otherwise projects to listed columns;
+        PKs + active incremental field always retained. See `compute_projected_columns`.
 
         `extra_table_hint` is appended verbatim after the table reference
         (e.g. MySQL `FORCE INDEX (...)`). Callers who use it must have

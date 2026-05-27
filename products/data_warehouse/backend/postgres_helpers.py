@@ -1,14 +1,9 @@
 """Postgres source helpers shared between warehouse and direct-query modes.
 
-Direct-query-mode-only utilities (DataWarehouseTable upserts, the `direct://postgres` url_pattern,
-the option keys that encode source location on a direct table) live in `direct_postgres.py`. This
-module holds the parts both modes need: source-location resolution, the reconcile/rename helpers,
-and Postgres-specific DWH-column conversion.
-
-The generic projection / `schema_metadata` JSON builders now live in
-`posthog/temporal/data_imports/sources/common/sql/{projection,metadata}.py` so MySQL, MSSQL,
-BigQuery, Snowflake, and Redshift can populate the same `schema_metadata.columns` blob and the
-column-selection picker works for every SQL source.
+Direct-query-only utilities (DataWarehouseTable upserts, the `direct://postgres`
+url_pattern, the option keys that encode source location on a direct table) live
+in `direct_postgres.py`. Generic projection / `schema_metadata` builders live in
+`posthog/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
 """
 
 from __future__ import annotations
@@ -49,8 +44,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-# Re-exported so legacy `from products.data_warehouse.backend.postgres_helpers import …` callers
-# keep working. New code should prefer importing directly from `common/sql/`.
+# Re-exports for back-compat. New code: import from `common/sql/projection`.
 filter_columns_by_enabled_columns = _filter_columns_by_enabled_columns
 filter_dwh_columns_by_enabled_columns = _filter_dwh_columns_by_enabled_columns
 
@@ -72,7 +66,7 @@ def postgres_schema_metadata(
     source_schema: str | None = None,
     source_table_name: str | None = None,
 ) -> dict[str, Any]:
-    """Backwards-compat wrapper. New callers: import `sql_schema_metadata` from `common/sql`."""
+    """Back-compat wrapper around `sql_schema_metadata`."""
     return _sql_schema_metadata(
         columns,
         foreign_keys,
@@ -236,8 +230,7 @@ def reconcile_postgres_schemas(
         matched.sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
         update_fields = ["sync_type_config", "updated_at"]
 
-        # Prune `enabled_columns` to columns that still exist at the source. Without this, a
-        # source-side column drop would cause the next sync to emit `SELECT … missing_col` and fail.
+        # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
         available_names = extract_available_column_names(schema_metadata)
         pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
         if removed_columns:

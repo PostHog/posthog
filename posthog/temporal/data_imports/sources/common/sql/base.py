@@ -51,12 +51,6 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     wiring around it.
     """
 
-    #: Whether the column-selection picker is supported for this source.
-    #: Drives the `supports_column_selection` field on the API and the
-    #: presence of the "Columns" button in the UI. Default `False` for the
-    #: base class; concrete sources opt in. PR1 flips Postgres only — PR2
-    #: flips MySQL / MSSQL / BigQuery / Snowflake / Redshift once their
-    #: `build_pipeline` honors `enabled_columns`.
     supports_column_selection: bool = False
 
     @property
@@ -160,24 +154,10 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         source_schemas: list[SourceSchema],
         team_id: int,
     ) -> list[str]:
-        """Persist `schema_metadata` for each discovered schema on the source.
+        """Persist `schema_metadata` per row and prune stale `enabled_columns`.
 
-        Called from the `refresh_schemas` flow after a fresh discovery.
-        The default implementation:
-
-        - Writes `sync_type_config.schema_metadata` for every matching
-          row, **merging** with the existing dict so unrelated keys
-          (`incremental_field`, `primary_key_columns`, `cdc_*`,
-          `dwh_storage_key`, …) survive.
-        - Prunes each row's `enabled_columns` to the intersection with
-          the newly discovered column set so a source-side column drop
-          can't break the next sync.
-
-        Returns the list of schema names this hook soft-deleted. The
-        default impl never soft-deletes (warehouse-mode add/remove is
-        handled by `sync_old_schemas_with_new_schemas` upstream), so it
-        returns `[]`. Postgres overrides to also rebuild direct-query
-        `DataWarehouseTable` rows and report soft-deleted direct rows.
+        Returns schema names this hook soft-deleted (default impl never does;
+        override to handle direct-query table cleanup).
         """
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 

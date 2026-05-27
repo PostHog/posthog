@@ -1,10 +1,7 @@
-"""Shared SQL fragment builders used by both the row-level and partitioned read paths.
+"""Shared SQL fragment builders for the row-level and partitioned read paths.
 
-The projection logic lives in `common/sql/projection`. This module's
-`build_select_clause` wraps `compute_projected_columns` and renders each
-identifier through `psycopg.sql.Identifier` so psycopg's escaping rules
-apply — keeps the Postgres callers handing a `sql.Composable` to
-`sql.SQL(...).format(...)`.
+Projection logic lives in `common/sql/projection`. Here we wrap it with
+`psycopg.sql.Identifier` so callers can compose `sql.Composable` fragments.
 """
 
 from __future__ import annotations
@@ -21,13 +18,7 @@ def build_select_clause(
     primary_keys: Optional[list[str]],
     incremental_field: Optional[str],
 ) -> sql.Composable:
-    """Build the SELECT-list fragment for a Postgres read.
-
-    Returns `sql.SQL("*")` when no projection applies, otherwise a
-    comma-joined `sql.Identifier(...)` sequence — same SQL the previous
-    in-module implementation produced. PKs + active incremental field
-    are always retained; see `common/sql/projection.compute_projected_columns`.
-    """
+    """Build the SELECT-list fragment as a `psycopg.sql.Composable`."""
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     if projected is None:
         return sql.SQL("*")
