@@ -361,3 +361,60 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             )
 
         return parsed
+
+
+class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
+    """Single entry in a PUT body for a `suggested_reviewers` artefact.
+
+    Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
+    The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
+    it must map to an org member on this team with a linked GitHub login.
+    """
+
+    github_login = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=200,
+        help_text="GitHub login (case-insensitive). Stored lowercased.",
+    )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "PostHog user UUID. Must be an org member on this team with a linked GitHub identity. "
+            "If supplied together with `github_login`, the server-resolved login from the user wins."
+        ),
+    )
+    github_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Optional human-readable display name. Not backfilled from GitHub by the server.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("github_login") and not attrs.get("user_uuid"):
+            raise serializers.ValidationError("Each entry must include `github_login` or `user_uuid` (or both).")
+        return attrs
+
+
+class SignalReportArtefactWriteSerializer(serializers.Serializer):
+    """PUT body for replacing a `suggested_reviewers` artefact's content.
+
+    Only `suggested_reviewers` artefacts may be modified via this endpoint;
+    the viewset enforces the type check before validation runs.
+    """
+
+    MAX_ENTRIES = 10
+
+    content = SuggestedReviewerEntryWriteSerializer(
+        many=True,
+        allow_empty=True,
+        help_text=(
+            f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
+        ),
+    )
+
+    def validate_content(self, value: list[dict]) -> list[dict]:
+        if len(value) > self.MAX_ENTRIES:
+            raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
+        return value

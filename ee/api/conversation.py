@@ -7,6 +7,7 @@ from typing import cast
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 
 import pydantic
 import structlog
@@ -18,7 +19,7 @@ from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.mixins import DestroyModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -186,7 +187,9 @@ class QueueMessageUpdateSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["max"])
-class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class ConversationViewSet(
+    TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
+):
     scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
@@ -203,7 +206,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def _ensure_queue_access(self, request: Request, conversation_id: str) -> Response | None:
         try:
             # nosemgrep: idor-lookup-without-team (instance scoped to team via get_queryset)
-            conversation = Conversation.objects.get(id=conversation_id)
+            conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id)
         except Conversation.DoesNotExist:
             return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
         if conversation.user != request.user or conversation.team != self.team:
@@ -214,7 +217,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return Response({"messages": queue, "max_queue_messages": queue_store.max_messages})
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.select_related("user")
+        queryset = queryset.select_related("user").exclude(deleted=True)
 
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
@@ -250,7 +253,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = request.data.get("conversation")
         if conversation_id:
             try:
-                conversation = Conversation.objects.get(id=conversation_id, team=self.team)
+                conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id, team=self.team)
                 if conversation.type == Conversation.Type.DEEP_RESEARCH:
                     return True
             except (Conversation.DoesNotExist, ValidationError):
@@ -347,6 +350,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 return Response(
                     {"error": "Cannot access other users' conversations"}, status=status.HTTP_400_BAD_REQUEST
                 )
+            if conversation.deleted:
+                return Response({"error": "Conversation does not exist"}, status=status.HTTP_404_NOT_FOUND)
         except Conversation.DoesNotExist:
             # Conversation doesn't exist, create it if we have a message
             if not has_message:
@@ -581,6 +586,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             logger.exception("Failed to cancel conversation", conversation_id=conversation.id, error=str(e))
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        description="Delete a conversation.",
+        responses={204: None},
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        instance: Conversation = self.get_object()
+        Conversation.objects.filter(pk=instance.pk).update(deleted=True, deleted_at=timezone.now())
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["POST"], url_path="append_message")

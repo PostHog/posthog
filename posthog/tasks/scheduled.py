@@ -16,13 +16,6 @@ from posthog.tasks.email import (
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
-from posthog.tasks.feature_flags import (
-    cleanup_stale_flag_definitions_expiry_tracking_task,
-    cleanup_stale_flags_expiry_tracking_task,
-    compute_feature_flag_metrics,
-    refresh_expiring_flag_definitions_cache_entries,
-    refresh_expiring_flags_cache_entries,
-)
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flag_definitions_without_cohorts_cache_task,
@@ -78,6 +71,13 @@ from posthog.utils import get_crontab, get_instance_region
 from products.conversations.backend.tasks import wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.feature_flags.backend.tasks import (
+    cleanup_stale_flag_definitions_expiry_tracking_task,
+    cleanup_stale_flags_expiry_tracking_task,
+    compute_feature_flag_metrics,
+    refresh_expiring_flag_definitions_cache_entries,
+    refresh_expiring_flags_cache_entries,
+)
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60

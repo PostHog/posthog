@@ -22,12 +22,10 @@ from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.schema import FunnelLayout, NodeKind
 
-from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import InsightVariable
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.security.url_validation import is_url_allowed
@@ -36,6 +34,8 @@ from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reach
 from posthog.utils import absolute_uri
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
 

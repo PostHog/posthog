@@ -33,10 +33,10 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties,
+                   group_type_index, group_key, group_properties::text as "group_properties!",
                    created_at,
-                   properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    version
             FROM posthog_group
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
@@ -80,10 +80,10 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties,
+                   g.group_type_index, g.group_key, g.group_properties::text as "group_properties!",
                    g.created_at,
-                   g.properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   g.properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   g.properties_last_updated_at::text as "properties_last_updated_at?",
+                   g.properties_last_operation::text as "properties_last_operation?",
                    g.version
             FROM posthog_group g
             INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
@@ -138,10 +138,10 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties,
+                   g.group_type_index, g.group_key, g.group_properties::text as "group_properties!",
                    g.created_at,
-                   g.properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   g.properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   g.properties_last_updated_at::text as "properties_last_updated_at?",
+                   g.properties_last_operation::text as "properties_last_operation?",
                    g.version
             FROM posthog_group g
             INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
@@ -475,10 +475,10 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties,
+                   group_type_index, group_key, group_properties::text as "group_properties!",
                    created_at,
-                   properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    version
             FROM posthog_group
             WHERE team_id = $1
@@ -551,10 +551,10 @@ impl GroupStorage for PostgresStorage {
             INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties,
+                      group_type_index, group_key, group_properties::text as "group_properties!",
                       created_at,
-                      properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                      properties_last_operation as "properties_last_operation?: serde_json::Value",
+                      properties_last_updated_at::text as "properties_last_updated_at?",
+                      properties_last_operation::text as "properties_last_operation?",
                       version
             "#,
             team_id as i32,
@@ -604,10 +604,10 @@ impl GroupStorage for PostgresStorage {
                 version = version + 1
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties,
+                      group_type_index, group_key, group_properties::text as "group_properties!",
                       created_at,
-                      properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                      properties_last_operation as "properties_last_operation?: serde_json::Value",
+                      properties_last_updated_at::text as "properties_last_updated_at?",
+                      properties_last_operation::text as "properties_last_operation?",
                       version
             "#,
             team_id as i32,

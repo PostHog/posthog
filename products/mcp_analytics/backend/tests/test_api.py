@@ -1,13 +1,16 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from django.core.cache import cache
 
 from posthog.models.utils import uuid7
 
+from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
 def _sorted_uuid7s(n: int) -> list[str]:
@@ -73,7 +76,7 @@ class TestMCPAnalyticsFacade(APIBaseTest):
         assert submissions[0].kind == enums.SubmissionKind.MISSING_CAPABILITY
 
 
-class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
+class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         # Listing results are cached briefly; clear so each test sees fresh data.
@@ -288,3 +291,87 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         # order — the two pages cover every session in id-ASC order, no skips/dupes.
         paged = [s.session_id for s in first.results] + [s.session_id for s in second.results]
         assert paged == ids
+
+
+class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _seed_intent_event(self, session_id: str, intent: str, tool: str = "query_run") -> None:
+        _create_event(
+            team=self.team,
+            event="mcp_tool_call",
+            distinct_id="seed",
+            timestamp=datetime.now(tz=UTC),
+            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+        )
+
+    def test_returns_cached_intent_without_calling_llm(self) -> None:
+        session_id = str(uuid7())
+        MCPSession.objects.create(team=self.team, session_id=session_id, intent="already summarised")
+
+        with patch.object(intent_generation, "summarize_intents") as mock_summarize:
+            result = api.generate_session_intent(self.team, session_id=session_id)
+
+        assert result == "already summarised"
+        mock_summarize.assert_not_called()
+
+    def test_generates_persists_and_returns_summary(self) -> None:
+        session_id = str(uuid7())
+        self._seed_intent_event(session_id, "check the signups funnel")
+        self._seed_intent_event(session_id, "compare to last week")
+
+        with patch.object(
+            intent_generation, "summarize_intents", return_value="Investigating signup funnel trends."
+        ) as mock:
+            result = api.generate_session_intent(self.team, session_id=session_id)
+
+        assert result == "Investigating signup funnel trends."
+        mock.assert_called_once()
+        assert (
+            MCPSession.objects.get(team=self.team, session_id=session_id).intent
+            == "Investigating signup funnel trends."
+        )
+
+    def test_second_call_returns_persisted_without_regenerating(self) -> None:
+        session_id = str(uuid7())
+        self._seed_intent_event(session_id, "check the signups funnel")
+
+        with patch.object(intent_generation, "summarize_intents", return_value="First summary.") as mock:
+            api.generate_session_intent(self.team, session_id=session_id)
+            again = api.generate_session_intent(self.team, session_id=session_id)
+
+        assert again == "First summary."
+        mock.assert_called_once()
+
+    def test_no_recorded_intents_returns_message_without_calling_llm_or_persisting(self) -> None:
+        session_id = str(uuid7())
+        # mcp_tool_call event without a $mcp_intent property.
+        _create_event(
+            team=self.team,
+            event="mcp_tool_call",
+            distinct_id="seed",
+            timestamp=datetime.now(tz=UTC),
+            properties={"$mcp_session_id": session_id, "$mcp_tool_name": "query_run"},
+        )
+
+        with patch.object(intent_generation, "summarize_intents") as mock_summarize:
+            result = api.generate_session_intent(self.team, session_id=session_id)
+
+        assert result == intent_generation.NO_INTENT_MESSAGE
+        mock_summarize.assert_not_called()
+        # Not persisted — the session stays retryable and the listing doesn't show a non-intent.
+        assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
+
+    def test_list_attaches_persisted_intent(self) -> None:
+        session_id = str(uuid7())
+        self._seed_intent_event(session_id, "raw per-call intent")
+        MCPSession.objects.create(team=self.team, session_id=session_id, intent="Persisted summary.")
+
+        sessions = [
+            s for s in api.list_mcp_sessions(self.team, limit=50, offset=0).results if s.session_id == session_id
+        ]
+
+        assert len(sessions) == 1
+        assert sessions[0].intent == "Persisted summary."

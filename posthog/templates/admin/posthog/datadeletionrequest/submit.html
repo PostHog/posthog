@@ -93,11 +93,34 @@
     {% else %}
         <p style="color: #666; margin: 4px 0;">No stats have been fetched yet.</p>
     {% endif %}
-    <form method="post" action="{{ fetch_stats_url }}" style="margin-top: 12px;">
+    <form method="post" action="{{ fetch_stats_url }}" style="margin-top: 12px; display: inline-block;">
         {% csrf_token %}
         <input type="submit" value="{% if obj.stats_calculated_at %}Refresh stats{% else %}Fetch stats{% endif %}" style="padding: 8px 14px;" />
     </form>
+    {% if is_clickhouse_team %}
+        <form method="post" action="{{ preview_stats_url }}" style="margin-top: 12px; display: inline-block; margin-left: 8px;">
+            {% csrf_token %}
+            <input type="submit" value="Show stats now (don't save)" style="padding: 8px 14px;" />
+        </form>
+    {% endif %}
 </fieldset>
+
+{% if preview_stats %}
+<fieldset style="margin: 20px 0; padding: 16px; border: 1px dashed #0c5460; border-radius: 4px; background: #d1ecf1; color: #0c5460;">
+    <legend style="font-weight: bold; padding: 0 8px;">Preview (not saved)</legend>
+    <table style="border-collapse: collapse; width: 100%;">
+        <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Matching events</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.count|default:"0" }}</td></tr>
+        {% if preview_stats.min_timestamp is not None %}
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Min timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.min_timestamp|default:"—" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Max timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.max_timestamp|default:"—" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Part count</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.part_count|default:"0" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Parts size</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.parts_size|default:"0" }} bytes</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Total rows in affected parts</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.parts_row_count|default:"0" }}</td></tr>
+        {% endif %}
+        <tr><th style="text-align: left; padding: 6px 8px;">Previewed at</th><td style="padding: 6px 8px;">{{ preview_stats.calculated_at }}</td></tr>
+    </table>
+</fieldset>
+{% endif %}
 
 {% if missing_properties %}
 <div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #dc3545; border-radius: 4px; background: #f8d7da; color: #721c24;">
