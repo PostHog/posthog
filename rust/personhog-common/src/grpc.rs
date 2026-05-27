@@ -23,10 +23,19 @@ use tower::{Layer, Service};
 /// Header name for client identification in gRPC metadata.
 const CLIENT_NAME_HEADER: &str = "x-client-name";
 
+/// Header name for caller-tag attribution in gRPC metadata.
+/// Identifies the code path / feature area within a service that
+/// triggered the request (e.g., "api/feature-flags", "celery/cohort-calculation").
+const CALLER_TAG_HEADER: &str = "x-caller-tag";
+
 tokio::task_local! {
     /// Per-request client name, set by `GrpcMetricsLayer` and readable
     /// anywhere in the request's async call chain via `current_client_name()`.
     pub static CLIENT_NAME: Arc<str>;
+
+    /// Per-request caller tag, set by `GrpcMetricsLayer` and readable
+    /// anywhere in the request's async call chain via `current_caller_tag()`.
+    pub static CALLER_TAG: Arc<str>;
 }
 
 /// Get the current client name from the task-local, or `"unknown"` if not set.
@@ -38,11 +47,29 @@ pub fn current_client_name() -> Arc<str> {
         .unwrap_or_else(|_| Arc::from("unknown"))
 }
 
+/// Get the current caller tag from the task-local, or `"unknown"` if not set.
+pub fn current_caller_tag() -> Arc<str> {
+    CALLER_TAG
+        .try_with(|t| t.clone())
+        .unwrap_or_else(|_| Arc::from("unknown"))
+}
+
 /// Extract the client name from HTTP headers, defaulting to `"unknown"`.
 fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
     request
         .headers()
         .get(CLIENT_NAME_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown")
+        .into()
+}
+
+/// Extract the caller tag from HTTP headers, defaulting to `"unknown"`.
+fn extract_caller_tag<B>(request: &Request<B>) -> Arc<str> {
+    request
+        .headers()
+        .get(CALLER_TAG_HEADER)
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
@@ -257,15 +284,22 @@ where
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
         let method = extract_grpc_method(request.uri().path());
         let client = extract_client_name(&request);
+        let caller_tag = extract_caller_tag(&request);
         gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
             .increment(1.0);
 
         let start = Instant::now();
-        // Call inner inside the scope so any synchronous work in call() sees CLIENT_NAME.
-        let inner = CLIENT_NAME.sync_scope(client.clone(), || self.inner.call(request));
+        // Call inner inside both scopes so any synchronous work in call()
+        // sees CLIENT_NAME and CALLER_TAG.
+        let inner = CLIENT_NAME.sync_scope(client.clone(), || {
+            CALLER_TAG.sync_scope(caller_tag.clone(), || self.inner.call(request))
+        });
 
         GrpcMetricsFuture {
-            inner: CLIENT_NAME.scope(client.clone(), inner),
+            inner: CLIENT_NAME.scope(
+                client.clone(),
+                CALLER_TAG.scope(caller_tag, inner),
+            ),
             method,
             client,
             start,
@@ -276,14 +310,14 @@ where
 
 /// Future returned by [`GrpcMetricsService`].
 ///
-/// Wraps the inner service future with task-local client name propagation
-/// and records request metrics (counter, histogram, in-flight gauge) on
-/// completion or cancellation. Lives inline in the caller's async state
-/// machine — no heap allocation or dynamic dispatch.
+/// Wraps the inner service future with task-local client name and caller tag
+/// propagation, and records request metrics (counter, histogram, in-flight
+/// gauge) on completion or cancellation. Lives inline in the caller's async
+/// state machine — no heap allocation or dynamic dispatch.
 #[pin_project(PinnedDrop)]
 pub struct GrpcMetricsFuture<F> {
     #[pin]
-    inner: TaskLocalFuture<Arc<str>, F>,
+    inner: TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, F>>,
     method: String,
     client: Arc<str>,
     start: Instant,
@@ -638,5 +672,36 @@ mod tests {
         assert_eq!(extract_grpc_method("/a.b.c/Method"), "Method");
         assert_eq!(extract_grpc_method("/"), "unknown");
         assert_eq!(extract_grpc_method(""), "unknown");
+    }
+
+    #[test]
+    fn extract_caller_tag_from_headers() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", "api/feature-flags")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "api/feature-flags");
+    }
+
+    #[test]
+    fn extract_caller_tag_defaults_to_unknown() {
+        let req = Request::builder().uri("/pkg.Svc/Method").body(()).unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "unknown");
+    }
+
+    #[test]
+    fn extract_caller_tag_treats_empty_as_unknown() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", "")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "unknown");
+    }
+
+    #[test]
+    fn current_caller_tag_defaults_outside_scope() {
+        assert_eq!(&*current_caller_tag(), "unknown");
     }
 }
