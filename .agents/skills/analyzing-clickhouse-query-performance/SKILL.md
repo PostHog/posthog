@@ -96,7 +96,9 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
    `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable
    bucket. Always include the **JSON-extracted property breakdown** (`references/query-patterns.md` §7):
    the top event vs person property names pulled from JSON blobs in the slow set, and which teams use
-   each. These are the materialization candidates and a required report output.
+   each. These are the materialization candidates and a required report output. `HogQLQuery` (arbitrary
+   user- and AI-authored SQL) deserves its own deep dive, including how much is AI-written and why it is
+   slow; see `references/hogql-deep-dive.md`.
 7. **Root-cause the worst offenders.** For the top findings, do not stop at "team X is slow": pull the
    full query and form a hypothesis for _why_, then test it with EXPLAIN. See
    `references/investigation-playbook.md`. A useful finding includes a why ("scans full history because
@@ -146,3 +148,6 @@ A report should contain, in order:
   the relevant PostHog codebase paths).
 - `references/materialization-analysis.md`: finding properties to materialize and columns to drop,
   run across both US and EU.
+- `references/hogql-deep-dive.md`: analyzing `HogQLQuery` (arbitrary user/AI SQL) specifically,
+  including how to identify AI-written HogQL (`lc_product`/`lc_feature`, not `ai_query_source`) and the
+  causes that make ad-hoc and AI queries slow.
