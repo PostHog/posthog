@@ -252,4 +252,101 @@ describe('RequestStateResolver', () => {
             expect(JSON.parse((await redis.get(sessionKey('mcpClientName')))!)).toBe('fresh-from-init')
         })
     })
+
+    describe('token rotation across the same mcp-session-id', () => {
+        // OAuth refresh emits a new bearer token but well-behaved clients keep
+        // the same `Mcp-Session-Id` for transport continuity. The cache must
+        // partition on `userHash = hash(token)` so token-A's resolved
+        // projectId / distinctId never leak into token-B's request — while the
+        // *session* cache stays shared so the client identity (name/version/
+        // protocol) outlives the rotation.
+
+        const sessionId = 'sess-rotated'
+        const tokenA = 'phx_token_a'
+        const tokenB = 'phx_token_b'
+        const sessionScope = hash(sessionId)
+        const tokenAScope = hash(tokenA)
+        const tokenBScope = hash(tokenB)
+
+        let redis: RedisLike
+        beforeEach(() => {
+            redis = fakeRedis()
+        })
+
+        it('serves fresh token-scoped cache when the same session-id is reused with a new token', async () => {
+            const { resolver, setDefaultSpy } = buildResolver(redis)
+
+            // Phase 1 — token-A pins project-A and seeds the session-scoped
+            // client info. Header is the projectId source, so `setDefault…`
+            // does not fire.
+            await resolver.resolve(
+                makeProps({
+                    userHash: tokenAScope,
+                    apiToken: tokenA,
+                    mcpSessionId: sessionId,
+                    mcpClientName: 'claude-code',
+                    mcpClientVersion: '1.0.0',
+                    mcpProtocolVersion: '2024-11-05',
+                    projectId: 'project-A',
+                })
+            )
+            expect(setDefaultSpy).not.toHaveBeenCalled()
+            expect(JSON.parse((await redis.get(`mcp:token:${tokenAScope}:projectId`))!)).toBe('project-A')
+
+            // Phase 2 — token-B reuses the same session-id; no projectId
+            // header. If token-A's tokenCache leaked across, the resolver
+            // would read 'project-A' and short-circuit `setDefault…`.
+            const propsB = makeProps({
+                userHash: tokenBScope,
+                apiToken: tokenB,
+                mcpSessionId: sessionId,
+            })
+            await resolver.resolve(propsB)
+
+            // Token-scoped lookup missed → `setDefault…` was invoked exactly
+            // once for token-B's request, proving the cache is partitioned by
+            // userHash and not leaking across the rotation.
+            expect(setDefaultSpy).toHaveBeenCalledOnce()
+
+            // Token-A's scope is untouched and isolated; token-B's scope holds
+            // nothing yet because the `setDefault…` mock is stubbed to not
+            // write through (the *write* path is exercised elsewhere — the
+            // contract that matters here is that the *read* missed).
+            expect(JSON.parse((await redis.get(`mcp:token:${tokenAScope}:projectId`))!)).toBe('project-A')
+            expect(await redis.get(`mcp:token:${tokenBScope}:projectId`)).toBeNull()
+
+            // Session-scoped data is intentionally shared across the rotation
+            // — client identity survives an OAuth refresh.
+            expect(propsB.mcpClientName).toBe('claude-code')
+            expect(propsB.mcpClientVersion).toBe('1.0.0')
+            expect(propsB.mcpProtocolVersion).toBe('2024-11-05')
+            expect(JSON.parse((await redis.get(`mcp:session:${sessionScope}:mcpClientName`))!)).toBe('claude-code')
+        })
+
+        it('keyspaces tokenCache writes per-token even when sessions are interleaved', async () => {
+            // Two concurrent sessions on the same client process — distinct
+            // tokens, distinct session-ids — must not share a tokenCache row.
+            const { resolver } = buildResolver(redis)
+
+            await resolver.resolve(
+                makeProps({
+                    userHash: tokenAScope,
+                    apiToken: tokenA,
+                    mcpSessionId: 'sess-a',
+                    projectId: 'project-A',
+                })
+            )
+            await resolver.resolve(
+                makeProps({
+                    userHash: tokenBScope,
+                    apiToken: tokenB,
+                    mcpSessionId: 'sess-b',
+                    projectId: 'project-B',
+                })
+            )
+
+            expect(JSON.parse((await redis.get(`mcp:token:${tokenAScope}:projectId`))!)).toBe('project-A')
+            expect(JSON.parse((await redis.get(`mcp:token:${tokenBScope}:projectId`))!)).toBe('project-B')
+        })
+    })
 })
