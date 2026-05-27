@@ -474,8 +474,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.email
-                                    ? 'From is required'
+                                from: !emailValue?.from?.integrationId
+                                    ? 'Choose who to send this email from'
                                     : getTemplatingError(emailValue?.from?.email, emailTemplating),
                                 to: !emailValue?.to?.email
                                     ? 'To is required'
