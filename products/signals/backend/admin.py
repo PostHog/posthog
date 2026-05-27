@@ -2,7 +2,14 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from .models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalScratchpad,
+    SignalSourceConfig,
+)
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -92,6 +99,26 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
 
     @admin.display(description="Team")
     def team_link(self, config: SignalScoutConfig):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[config.team.pk]),
+            config.team.name,
+        )
+
+
+@admin.register(SignalSourceConfig)
+class SignalSourceConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "team_link", "source_product", "source_type", "enabled", "created_at", "updated_at")
+    list_display_links = ("id",)
+    list_filter = ("source_product", "source_type", "enabled")
+    search_fields = ("id", "team__name", "team__organization__name")
+    raw_id_fields = ("team", "created_by")
+    readonly_fields = ("id", "created_at", "updated_at")
+    list_select_related = ("team", "team__organization")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, config: SignalSourceConfig):
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[config.team.pk]),
