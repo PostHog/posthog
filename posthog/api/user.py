@@ -383,6 +383,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("user_serializer.requires_credential_review")
     def get_requires_credential_review(self, instance: User) -> bool:
+        if settings.E2E_TESTING:
+            return False  # E2E test users always have a seeded PersonalAPIKey
         if instance.credentials_reviewed_at is not None:
             return False
         return PersonalAPIKey.objects.filter(user=instance).exists()
