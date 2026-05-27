@@ -302,6 +302,9 @@ tools:
     feature-flags-versions-retrieve:
         operation: feature_flags_versions_retrieve
         enabled: false
+    flag-value-values-retrieve:
+        operation: flag_value_values_retrieve
+        enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
         enabled: false

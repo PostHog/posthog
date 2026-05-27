@@ -116,6 +116,24 @@ REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Re
 
 NUM_2FA_BACKUP_CODES = 10
 
+MAX_PIPELINE_NOTIFICATIONS = 1000
+_PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+
+def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
+    for pipeline_id in incoming:
+        if not isinstance(pipeline_id, str) or not _PIPELINE_ID_PATTERN.match(pipeline_id):
+            raise serializers.ValidationError(
+                f"Invalid pipeline id: {pipeline_id!r}",
+                code="invalid_input",
+            )
+    if len(merged) > MAX_PIPELINE_NOTIFICATIONS:
+        raise serializers.ValidationError(
+            f"pipeline_notifications_disabled cannot have more than {MAX_PIPELINE_NOTIFICATIONS} entries",
+            code="invalid_input",
+        )
+
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -492,6 +510,7 @@ class UserSerializer(serializers.ModelSerializer):
             "error_tracking_weekly_digest_project_enabled",
             "web_analytics_weekly_digest_project_enabled",
             "organization_member_join_email_disabled",
+            "pipeline_notifications_disabled",
         )
 
         for key, value in notification_settings.items():
@@ -515,7 +534,10 @@ class UserSerializer(serializers.ModelSerializer):
                             f"Notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                current_settings[key] = {**current_settings.get(key, {}), **value}
+                merged = {**current_settings.get(key, {}), **value}
+                if key == "pipeline_notifications_disabled":
+                    _validate_pipeline_notifications(value, merged)
+                current_settings[key] = merged
             elif key == "realtime_notifications_disabled":
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
@@ -540,10 +562,10 @@ class UserSerializer(serializers.ModelSerializer):
                                 code="invalid_input",
                             )
                 existing = current_settings.get("realtime_notifications_disabled", {}) or {}
-                merged: dict[str, dict[str, bool]] = {**existing}
+                realtime_merged: dict[str, dict[str, bool]] = {**existing}
                 for type_key, team_map in value.items():
-                    merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
-                current_settings["realtime_notifications_disabled"] = merged
+                    realtime_merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
+                current_settings["realtime_notifications_disabled"] = realtime_merged
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
