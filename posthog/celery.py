@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import os
 import time
 import errno
+import contextvars
 
 from django.dispatch import receiver
 
@@ -194,6 +197,20 @@ def on_worker_process_shutdown(**kwargs) -> None:
         multiprocess.mark_process_dead(os.getpid())
 
 
+# -- personhog caller-tag for Celery tasks --
+
+_caller_tag_tokens: dict[str, contextvars.Token[str]] = {}
+
+
+def _celery_caller_tag(task_name: str) -> str:
+    """Derive a personhog caller tag from a Celery task name.
+
+    "posthog.tasks.calculate_cohort.calculate_cohort_ch" → "celery/calculate_cohort_ch"
+    """
+    short = task_name.rsplit(".", 1)[-1] if "." in task_name else task_name
+    return f"celery/{short}"
+
+
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def prerun_signal_handler(task_id, task, **kwargs):
@@ -201,6 +218,7 @@ def prerun_signal_handler(task_id, task, **kwargs):
 
     from posthog.clickhouse.client.connection import Workload, set_default_clickhouse_workload_type
     from posthog.clickhouse.query_tagging import tag_queries
+    from posthog.personhog_client.interceptor import set_caller_tag
 
     statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
     tag_queries(kind="celery", id=task.name)
@@ -208,17 +226,24 @@ def prerun_signal_handler(task_id, task, **kwargs):
 
     task_timings[task_id] = time.time()
 
+    _caller_tag_tokens[task_id] = set_caller_tag(_celery_caller_tag(task.name))
+
     CELERY_TASK_PRE_RUN_COUNTER.labels(task_name=task.name).inc()
 
 
 @task_postrun.connect
 def postrun_signal_handler(task_id, task, **kwargs):
     from posthog.clickhouse.query_tagging import reset_query_tags
+    from posthog.personhog_client.interceptor import _caller_tag
 
     if task_id in task_timings:
         start_time = task_timings.pop(task_id, None)
         if start_time:
             CELERY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
+
+    token = _caller_tag_tokens.pop(task_id, None)
+    if token is not None:
+        _caller_tag.reset(token)
 
     reset_query_tags()
 

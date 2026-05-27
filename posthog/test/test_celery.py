@@ -1,7 +1,22 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.celery import _celery_caller_tag
 from posthog.tasks.tasks import clickhouse_errors_count
+
+
+class TestCeleryCallerTag(TestCase):
+    @parameterized.expand(
+        [
+            ("dotted_task", "posthog.tasks.calculate_cohort.calculate_cohort_ch", "celery/calculate_cohort_ch"),
+            ("simple_name", "my_task", "celery/my_task"),
+            ("deeply_nested", "a.b.c.d.run", "celery/run"),
+        ]
+    )
+    def test_derives_tag_from_task_name(self, _name: str, task_name: str, expected: str) -> None:
+        self.assertEqual(_celery_caller_tag(task_name), expected)
 
 
 class TestCeleryMetrics(TestCase):
