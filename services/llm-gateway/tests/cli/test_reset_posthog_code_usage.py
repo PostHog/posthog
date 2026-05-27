@@ -1,9 +1,10 @@
+import argparse
 from collections.abc import AsyncGenerator
 
 import pytest
 from fakeredis import aioredis as fakeredis
 
-from llm_gateway.cli.reset_posthog_code_usage import reset_usage
+from llm_gateway.cli.reset_posthog_code_usage import _non_empty_user_id, reset_usage
 
 
 @pytest.fixture
@@ -31,11 +32,14 @@ class TestResetUsage:
         for k in keys:
             assert await redis.get(k) is None
 
-    async def test_dry_run_counts_without_deleting(self, redis: fakeredis.FakeRedis) -> None:
+    @pytest.mark.parametrize("user_id", [None, "100"])
+    async def test_dry_run_counts_without_deleting(
+        self, redis: fakeredis.FakeRedis, user_id: str | None
+    ) -> None:
         await redis.set("ratelimit:cost:user:user_cost_burst:posthog_code:100", "1.0")
         await redis.set("ratelimit:cost:user:user_cost_sustained:posthog_code:100:period:0", "1.0")
 
-        deleted = await reset_usage(redis, dry_run=True)
+        deleted = await reset_usage(redis, dry_run=True, user_id=user_id)
 
         assert deleted == 2
         assert await redis.get("ratelimit:cost:user:user_cost_burst:posthog_code:100") is not None
@@ -70,7 +74,7 @@ class TestResetUsage:
             "ratelimit:cost:user:user_cost_burst:posthog_code:100:tm2",
             "ratelimit:cost:user:user_cost_sustained:posthog_code:100:tm2:period:1",
         ]
-        # Other users — including one whose id is a prefix of the target's id (1 vs 100)
+        # Other users, including one whose id is a prefix of the target's id (1 vs 100)
         # and one whose id starts with the target's id (1000 vs 100).
         other_keys = [
             "ratelimit:cost:user:user_cost_burst:posthog_code:1",
@@ -90,13 +94,24 @@ class TestResetUsage:
         for k in other_keys:
             assert await redis.get(k) is not None
 
-    async def test_user_id_dry_run_counts_without_deleting(self, redis: fakeredis.FakeRedis) -> None:
-        await redis.set("ratelimit:cost:user:user_cost_burst:posthog_code:100", "1.0")
-        await redis.set("ratelimit:cost:user:user_cost_sustained:posthog_code:100:period:0", "1.0")
-        await redis.set("ratelimit:cost:user:user_cost_burst:posthog_code:200", "1.0")
+    async def test_user_id_glob_metachars_do_not_expand_match(self, redis: fakeredis.FakeRedis) -> None:
+        # A user_id like "10*" must be treated as a literal id, not a glob that
+        # would match every user starting with "10".
+        survivors = [
+            "ratelimit:cost:user:user_cost_burst:posthog_code:100",
+            "ratelimit:cost:user:user_cost_burst:posthog_code:1000",
+            "ratelimit:cost:user:user_cost_burst:posthog_code:10abc",
+            "ratelimit:cost:user:user_cost_sustained:posthog_code:100:period:0",
+        ]
+        for k in survivors:
+            await redis.set(k, "1.0")
 
-        deleted = await reset_usage(redis, dry_run=True, user_id="100")
+        deleted = await reset_usage(redis, dry_run=False, user_id="10*")
 
-        assert deleted == 2
-        assert await redis.get("ratelimit:cost:user:user_cost_burst:posthog_code:100") is not None
-        assert await redis.get("ratelimit:cost:user:user_cost_burst:posthog_code:200") is not None
+        assert deleted == 0
+        for k in survivors:
+            assert await redis.get(k) is not None
+
+    def test_non_empty_user_id_rejects_empty_string(self) -> None:
+        with pytest.raises(argparse.ArgumentTypeError):
+            _non_empty_user_id("")
