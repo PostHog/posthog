@@ -130,10 +130,9 @@ tools:
             idempotent: false
         title: Emit a finding for a run
         description: >
-            Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the
-            deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT
-            idempotent — a second call with the same `finding_id` emits a second signal, so emit each
-            finding exactly once and never retry an emit.
+            Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic
+            `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
+            the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
     signals-scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true
@@ -168,7 +167,8 @@ tools:
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Pass `text` for a case-insensitive substring match on the
             run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to`
-            (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.
+            (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at
+            100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
