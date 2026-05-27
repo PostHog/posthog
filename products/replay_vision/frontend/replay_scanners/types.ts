@@ -219,20 +219,7 @@ export interface IndexerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | IndexerScanner
 
-export interface VisionUsagePoint {
-    date: string
-    count: number
-}
-
-export interface VisionQuota {
-    used: number
-    limit: number
-    policy: 'block' | 'usage_based'
-    period_start: string
-    period_end: string
-    /** Daily observation counts across the current period. Optional until the backend exposes it. */
-    usage_history?: VisionUsagePoint[]
-}
+export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
 
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.

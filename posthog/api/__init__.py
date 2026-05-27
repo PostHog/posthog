@@ -120,6 +120,7 @@ from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
     ReplayScannerViewSet,
     SessionReplayObservationViewSet,
+    VisionQuotaViewSet,
 )
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
@@ -1657,6 +1658,12 @@ environments_router.register(
     r"vision/observations",
     SessionReplayObservationViewSet,
     "environment_vision_observations",
+    ["team_id"],
+)
+environments_router.register(
+    r"vision/quota",
+    VisionQuotaViewSet,
+    "environment_vision_quota",
     ["team_id"],
 )
 

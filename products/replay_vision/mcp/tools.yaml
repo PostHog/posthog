@@ -15,6 +15,9 @@ tools:
     vision-observations-retrieve:
         operation: vision_observations_retrieve
         enabled: false
+    vision-quota-retrieve:
+        operation: environment_vision_quota_retrieve
+        enabled: false
     vision-scanners-create:
         operation: vision_scanners_create
         enabled: true
