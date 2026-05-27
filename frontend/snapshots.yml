@@ -1956,6 +1956,10 @@ snapshots:
         hash: v1.k794b7964.d669cc7bd939e7cd9bae4003a228e194a6c383d827feb04baf491a89dfc0b698.eD11DZ4cr8p1GMBdBaTW1doXInEVj9CIhnyMP8RNpFo
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
+    insights-stickinesslinechart--area--dark:
+        hash: v1.k794b7964.c8f70afcdd044f3df9c45bd8f83a5f7b9b6c2ff56fd36da9f74f196ebc0b56b9.0zlUNlGlxnyFebgcM3MlWfSHhFSI2YJb2jxigbCMjkQ
+    insights-stickinesslinechart--area--light:
+        hash: v1.k794b7964.5d7b49d8f4ebb24543f100ed4014d0f8a5832a5db40525f482fb096eadd7acb4.DMdwu1bhfT1dAJWNVYf72l00l5XMKia53ratuSW3CyE
     insights-stickinesslinechart--default--dark:
         hash: v1.k794b7964.f6ce3c9177a7fa2b7d23d13e7121d089a2617f581baec1eaff9980bd40905199.A5l8DG-UgcNxzLuJwxvElIEzmOGud3QUrquboobhJvM
     insights-stickinesslinechart--default--light:
