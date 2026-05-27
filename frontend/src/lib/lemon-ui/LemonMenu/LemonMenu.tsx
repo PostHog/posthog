@@ -110,13 +110,6 @@ export interface LemonMenuProps
      * @default true
      */
     focusBasedKeyboardNavigation?: boolean
-    /**
-     * Scroll the active item into view when the menu opens. Disable in menus where the top of the
-     * list is more important than the active item — e.g. a searchable menu whose search input lives
-     * as the first menu item and would otherwise be scrolled offscreen.
-     * @default true
-     */
-    scrollToActiveOnOpen?: boolean
 }
 
 export function LemonMenu({
@@ -125,7 +118,6 @@ export function LemonMenu({
     tooltipPlacement,
     onVisibilityChange,
     focusBasedKeyboardNavigation = true,
-    scrollToActiveOnOpen = true,
     ...dropdownProps
 }: LemonMenuProps): JSX.Element {
     const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLElement, HTMLButtonElement>(
@@ -137,14 +129,14 @@ export function LemonMenu({
     const _onVisibilityChange = useCallback(
         (visible: boolean) => {
             onVisibilityChange?.(visible)
-            if (visible && scrollToActiveOnOpen && activeItemIndex && activeItemIndex > -1) {
+            if (visible && activeItemIndex && activeItemIndex > -1) {
                 // Scroll the active item into view once the menu is open (i.e. in the next tick)
                 setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
             }
         },
         // no need to update this when itemsRef changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [onVisibilityChange, activeItemIndex, scrollToActiveOnOpen]
+        [onVisibilityChange, activeItemIndex]
     )
 
     return (
