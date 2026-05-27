@@ -26,9 +26,10 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workflows_config"] == {"capture_engagement_events": False}
 
-    def test_patch_creates_extension_row_and_enables_capture(self) -> None:
-        assert not TeamWorkflowsConfig.objects.filter(team=self.team).exists()
-
+    def test_patch_enables_capture(self) -> None:
+        # APIBaseTest.setUp may trigger the workflows_config cached_property (which calls
+        # get_or_create_team_extension) so the extension row can already exist with the default
+        # value. Either way, the patch must end with the row present and capture enabled.
         response = self.client.patch(self.url, {"workflows_config": {"capture_engagement_events": True}})
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workflows_config"] == {"capture_engagement_events": True}
@@ -55,7 +56,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
     def test_patch_rejects_non_boolean_capture_engagement_events(self) -> None:
         response = self.client.patch(self.url, {"workflows_config": {"capture_engagement_events": "yes please"}})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "workflows_config"
+        # DRF nested-serializer validation surfaces the inner field path, not the parent name.
+        assert response.json()["attr"] == "workflows_config__capture_engagement_events"
 
     def test_patch_ignores_unknown_keys_in_workflows_config(self) -> None:
         # ModelSerializer silently drops fields not in Meta.fields — this regression-tests that
