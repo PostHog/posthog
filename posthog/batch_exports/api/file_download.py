@@ -15,7 +15,7 @@ from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -178,6 +178,14 @@ class RetrieveOutputSerializer(serializers.Serializer):
     )
 
 
+class TooManyConcurrentFileDownloads(APIException):
+    """Raised when a team creates too many file download batch exports."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_code = "too_many_concurrent_file_downloads"
+    default_detail = "Too many concurrent file download batch exports for this team."
+
+
 @extend_schema(tags=["batch_exports"])
 class FileDownloadBatchExportOnDemandViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
@@ -211,6 +219,19 @@ class FileDownloadBatchExportOnDemandViewSet(
         """Create and start a batch export on demand run to download a file."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # TODO: Race condition
+        # Concurrent requests could race and exceed the limit.
+        # But the margin in which this would be possible should be small.
+        current_count = BatchExportRun.objects.filter(
+            status__in=(BatchExportRun.Status.STARTING, BatchExportRun.Status.RUNNING),
+            batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+            batch_export_on_demand__team_id=self.team_id,
+        ).count()
+
+        if current_count >= settings.BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM:
+            raise TooManyConcurrentFileDownloads()
+
         instance = serializer.save()
 
         try:
