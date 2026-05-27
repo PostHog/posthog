@@ -3874,6 +3874,22 @@ snapshots:
         hash: v1.k794b7964.e55e3f17536c13f7561cd6275dc2c63e9950e7f83394de972364ba0b51211c58.S9fUa5v1eSxXT-D7D7lmS3os0kSj8a1gIhb7EPsivNc
     replay-tabs-home-success--second-recording-in-list--light:
         hash: v1.k794b7964.36ceb39895861de3d53bf2bb36ab9803c836b8cdef6a7ac4fb1d7dfee1bf3e26.OVDv2SGgEZpivhEYSsajGdVchscMaXMBMLAY-YDW3dw
+    scenes-app-ai-observability-clustercard--default--dark:
+        hash: v1.k794b7964.b52003430ca42f6ccab28d62f0fe64ad91f127545e84bd43fb64c1ed4d3e81bc.t3RP33V9PWx79luc4NgTcByuAMALgAuejhiT7VqHTnw
+    scenes-app-ai-observability-clustercard--default--light:
+        hash: v1.k794b7964.591cf6ff422c6513b940049ed617718ef29076c538da7ec3d43bf0cfda930334.J3lT3Gdg7QQbBkuoXR03yxGoYW1TwH79QHpri8BWEs8
+    scenes-app-ai-observability-clustercard--grid--dark:
+        hash: v1.k794b7964.77fe7bd587009395d844e80d94b0493f7b22d0dcde4f3e536fcf8f55f657c1e4.CM3issGmaz4l9lHijMQjqlMPlsFQACRQNKX1HznBoeY
+    scenes-app-ai-observability-clustercard--grid--light:
+        hash: v1.k794b7964.20f47d4512844cd6752c6ef6c6585e9d33a45e934bfe0ae0568902a283b7b18a.xmbyIYS2nLDC1kEiRylhzKh7Qo3SsrQSEPmc_JPc-TA
+    scenes-app-ai-observability-clustercard--outlier-cluster--dark:
+        hash: v1.k794b7964.62c1fa128a6d81faf023ef07b64573b65bc63ad134a5dc1d1fc799060ec5bb31.4k11QyYYgyzFC-FDWNfJnXKBnczssQJdxs8IPDUpGYQ
+    scenes-app-ai-observability-clustercard--outlier-cluster--light:
+        hash: v1.k794b7964.7fac8faa9ff9b6569f876cc2fe371289411fcf7dc10562263b55121953a9e4cc.03ixIQOl__kh4Kr_0W7vN7SSKzvCViAyYNfZCYX24Kc
+    scenes-app-ai-observability-clustercard--without-metrics--dark:
+        hash: v1.k794b7964.4ae457c288f6aa7cd869268709ef94d72973df06f58478d69ff79feb47a1296a.i_GgGzKI_nl7bJT3mzTCEMgFFNWYCKKJd5NtLIc6GZM
+    scenes-app-ai-observability-clustercard--without-metrics--light:
+        hash: v1.k794b7964.0d79d8c30ef8057a40264755a73acc3f8e8bdf04e227fd6f089f3acc411c3cf5.bjusiYCt_UzXBYxiJDAgVu7GFlVKug1lP_tkmTsR6dU
     scenes-app-ai-observability-conversation-display--anthropic--dark:
         hash: v1.k794b7964.9c97c85c94605b8ce34469ddb269688ff84d0c3aa87818e6f9c94745c114a434.o6eqWM3HKURlW-MBuPGhIw6sslncdZGR6-pBuz1FVBM
     scenes-app-ai-observability-conversation-display--anthropic--light:
