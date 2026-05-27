@@ -24,16 +24,24 @@ export function CreateProjectModal({
     isVisible,
     onClose,
     inline = false,
+    initialName = '',
 }: {
     isVisible: boolean
     onClose?: () => void
     inline?: boolean
+    initialName?: string
 }): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { createProject } = useActions(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
-    const [name, setName] = useState<string>('')
+    const [name, setName] = useState<string>(initialName)
+
+    useEffect(() => {
+        if (isVisible) {
+            setName(initialName)
+        }
+    }, [isVisible, initialName])
 
     const closeModal: () => void = () => {
         if (onClose) {

@@ -96,12 +96,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             : allPendingInviteItems
 
         // Create the "create" item - show different label based on search
+        const trimmedSearch = searchValue.trim()
         const createItem: CreateProjectItem = {
             type: 'create',
             id: 'create-new-project',
-            label: 'New project',
-            // TODO: Uncomment this when we have a way to create projects with a name
-            // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
+            label: trimmedSearch ? `Create '${trimmedSearch}'` : 'New project',
         }
 
         return [...filteredProjects, ...filteredInvites, createItem] as ListItem[]
@@ -119,10 +118,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const handleItemClick = useCallback(
         (item: ListItem) => {
             if (item.type === 'create') {
+                const initialName = searchValue.trim()
                 guardAvailableFeature(
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                     () => {
-                        showCreateProjectModal()
+                        showCreateProjectModal(initialName || undefined)
                         setAccountMenuOpen(false)
                     },
                     {
@@ -151,6 +151,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             showCreateProjectModal,
             currentOrganization?.teams?.length,
             setAccountMenuOpen,
+            searchValue,
         ]
     )
 
