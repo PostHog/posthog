@@ -152,6 +152,15 @@ where
                 .and_then(|v| v.to_str().ok())
                 .is_some_and(|v| v.split(',').any(|e| e.trim() == "gzip"));
 
+        let method = request
+            .uri()
+            .path()
+            .rsplit_once('/')
+            .map(|(_, m)| m)
+            .filter(|m| !m.is_empty())
+            .unwrap_or("unknown")
+            .to_string();
+
         let config = self.config.clone();
         let mut inner = self.inner.clone();
 
@@ -163,7 +172,7 @@ where
             // without collecting or copying — zero overhead for the common case
             // where the client doesn't accept gzip or the feature is disabled.
             if !accepts_gzip {
-                counter!("grpc_gzip_responses_total", "outcome" => "passthrough").increment(1);
+                counter!("grpc_gzip_responses_total", "outcome" => "passthrough", "method" => method.clone()).increment(1);
                 let body = body.map_err(|e| Status::internal(e.to_string()));
                 let boxed: ResponseBody = Box::pin(body);
                 return Ok(Response::from_parts(parts, boxed));
@@ -192,7 +201,7 @@ where
                     },
                     Some(Err(e)) => {
                         warn!(error = %e, "Failed to read response body for compression");
-                        counter!("grpc_gzip_responses_total", "outcome" => "collect_error")
+                        counter!("grpc_gzip_responses_total", "outcome" => "collect_error", "method" => method.clone())
                             .increment(1);
                         // Synthesize a grpc-status trailer so the client gets a
                         // clean error instead of a protocol violation from a
@@ -227,7 +236,7 @@ where
                 || payload_size < config.min_payload_size
                 || already_compressed
             {
-                counter!("grpc_gzip_responses_total", "outcome" => "passthrough").increment(1);
+                counter!("grpc_gzip_responses_total", "outcome" => "passthrough", "method" => method.clone()).increment(1);
                 let data = concat_chunks(&chunks);
                 let boxed: ResponseBody = Box::pin(PrecomputedBody::new(data, trailers));
                 return Ok(Response::from_parts(parts, boxed));
@@ -243,11 +252,13 @@ where
 
             match compressed {
                 Ok(Ok(bytes)) => {
-                    histogram!("grpc_gzip_compression_duration_ms")
+                    histogram!("grpc_gzip_compression_duration_ms", "method" => method.clone())
                         .record(elapsed.as_secs_f64() * 1000.0);
-                    histogram!("grpc_gzip_uncompressed_bytes").record(payload_size as f64);
-                    histogram!("grpc_gzip_compressed_bytes").record(bytes.len() as f64);
-                    counter!("grpc_gzip_responses_total", "outcome" => "compressed").increment(1);
+                    histogram!("grpc_gzip_uncompressed_bytes", "method" => method.clone())
+                        .record(payload_size as f64);
+                    histogram!("grpc_gzip_compressed_bytes", "method" => method.clone())
+                        .record(bytes.len() as f64);
+                    counter!("grpc_gzip_responses_total", "outcome" => "compressed", "method" => method.clone()).increment(1);
 
                     let mut frame = BytesMut::with_capacity(GRPC_HEADER_SIZE + bytes.len());
                     frame.put_u8(1); // compression flag
@@ -264,14 +275,14 @@ where
                 }
                 Ok(Err(e)) => {
                     warn!(error = %e, "gzip compression failed, returning uncompressed");
-                    counter!("grpc_gzip_responses_total", "outcome" => "compress_error")
+                    counter!("grpc_gzip_responses_total", "outcome" => "compress_error", "method" => method.clone())
                         .increment(1);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
                 Err(e) => {
                     warn!(error = %e, "spawn_blocking panicked, returning uncompressed");
-                    counter!("grpc_gzip_responses_total", "outcome" => "spawn_error").increment(1);
+                    counter!("grpc_gzip_responses_total", "outcome" => "spawn_error", "method" => method.clone()).increment(1);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
