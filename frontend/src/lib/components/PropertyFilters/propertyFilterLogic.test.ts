@@ -118,6 +118,23 @@ describe('propertyFilterLogic', () => {
             const cb = await setFilterAndCheck(filter, false)
             expect(cb).not.toHaveBeenCalled()
         })
+
+        it('calls onChange when the value is the boolean false (e.g. flag dependency set to false)', async () => {
+            const filter = {
+                key: '911',
+                type: PropertyFilterType.Flag,
+                operator: PropertyOperator.FlagEvaluatesTo,
+                value: false,
+            } as AnyPropertyFilter
+            const cb = await setFilterAndCheck(filter, false)
+            expect(cb).toHaveBeenCalledTimes(1)
+            expect(cb.mock.calls[0][0][0]).toMatchObject({ value: false })
+        })
+
+        it('calls onChange when the value is the number 0', async () => {
+            const cb = await setFilterAndCheck(eventFilter('$browser', 0 as any, PropertyOperator.Exact), false)
+            expect(cb).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('filter IDs are stable across mutations', () => {

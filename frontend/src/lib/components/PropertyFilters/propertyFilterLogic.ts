@@ -118,7 +118,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
 
     listeners(({ actions, props, values }) => ({
         setFilter: async ({ property }) => {
-            const hasValue = property?.value && !(Array.isArray(property.value) && property.value.length === 0)
+            const hasValue =
+                property?.value !== null &&
+                property?.value !== undefined &&
+                property?.value !== '' &&
+                !(Array.isArray(property.value) && property.value.length === 0)
             const isComplete =
                 hasValue || ('operator' in property && property?.operator && isOperatorFlag(property.operator))
 
