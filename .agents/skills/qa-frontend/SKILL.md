@@ -42,10 +42,12 @@ instructions, and explicit user approval in the current conversation.
 
 1. Decide mode (PR vs local) from the user prompt and presence of a PR ref.
 2. In PR mode, require a clean working tree before doing anything else.
-3. Require a reachable local stack and working Playwright MCP session. If the
-   stack is down, ask whether to start it in detached mode or let the user start
-   it manually. If the agent starts it, stop it during cleanup unless the user
-   asks to keep it running.
+3. Require a reachable local stack and working Playwright MCP session. Reuse the
+   developer's current stack by default. If nothing is reachable, ask how the
+   user wants to run PostHog: they can start it themselves, provide another
+   `BASE_URL`, or explicitly approve agent-managed detached startup. If the
+   agent starts it, stop it during cleanup unless the user asks to keep it
+   running.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
 5. Design behavior-focused test cases from the diff, then map each case to a
@@ -215,14 +217,17 @@ BASE_URL="${BASE_URL:-http://localhost:8010}"
 STACK_STARTED_BY_AGENT=0
 ```
 
-First check whether PostHog is already reachable:
+Reuse the user's existing local setup by default. Do not start, restart, or
+replace the local dev stack just because you are running local-mode QA. First
+check whether PostHog is already reachable at `BASE_URL`:
 
 ```bash
 curl -sf "$BASE_URL/_preflight"
 ```
 
-If that succeeds, continue to the process checks below. If it fails, try
-process-specific phrocs MCP checks:
+If that succeeds, continue to the process checks below. Do not run `hogli wait`
+or start any stack when the existing `BASE_URL` is already usable. If it fails,
+try process-specific phrocs MCP checks:
 
 - `mcp__phrocs__get_process_status(process="backend")`
 - `mcp__phrocs__get_process_status(process="frontend")`
@@ -230,22 +235,29 @@ process-specific phrocs MCP checks:
 Do not rely on the all-process status call as the first check during startup;
 it can report phrocs as unavailable while process-specific calls already work.
 If phrocs reports that `backend` is not running, or if both HTTP and MCP checks
-fail, ask the user:
+fail, ask the user how they want to make PostHog available. Do not choose for
+them:
 
 ```text
-PostHog is not reachable at $BASE_URL. Should I start the local dev stack in
-detached mode, or would you prefer to start it yourself?
+PostHog is not reachable at $BASE_URL. How would you like to run it for this QA
+pass?
+
+1. I'll start or restart it myself.
+2. Use a different BASE_URL.
+3. You may start it in detached mode.
 ```
 
-If the user wants to start it themselves, stop and give this hint:
+If the user wants to start it themselves, stop and wait. A common local command
+is:
 
 ```bash
 hogli start
 ```
 
-If they prefer background mode, `hogli up -d` is the detached equivalent. Do
-not mention team-specific env vars such as billing service URLs unless the user
-already asked for them.
+If the user provides another URL, set `BASE_URL` to that value and rerun the
+readiness checks. If they prefer agent-managed background mode, `hogli up -d` is
+the detached equivalent. Do not mention team-specific env vars such as billing
+service URLs unless the user already asked for them.
 
 If the user approves agent startup, use detached mode. In Codex and other
 headless shells, do not run the interactive `hogli start` / `./bin/start` TUI.

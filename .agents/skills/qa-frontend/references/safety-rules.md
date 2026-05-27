@@ -44,8 +44,19 @@ Read-only GitHub and git inspection commands are allowed.
 
 ## Local Stack Control
 
-If PostHog is not reachable, ask whether the user wants the agent to start it
-or whether they prefer to start it themselves.
+Reuse the developer's existing local setup by default. If `BASE_URL` is already
+reachable, do not start, restart, replace, or wait on a separate stack.
+
+If PostHog is not reachable, ask how the user wants to run it. Offer three
+choices:
+
+1. They start or restart it themselves.
+2. They provide a different `BASE_URL`.
+3. The agent starts detached mode.
+
+Stop and wait for the user's answer before running any stack-control command.
+If they provide another URL, set `BASE_URL` to that value and rerun readiness
+checks.
 
 When the user approves agent startup, use detached mode:
 
