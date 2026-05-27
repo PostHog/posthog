@@ -153,9 +153,8 @@ def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClien
     cache_key = f"id_jag:jwks_uri:{issuer}"
     jwks_uri = cache.get(cache_key)
     if not jwks_uri:
-        _check_url(f"{issuer}/.well-known/openid-configuration", "OIDC discovery")
         try:
-            resp = requests.get(f"{issuer}/.well-known/openid-configuration", timeout=10)
+            resp = requests.get(f"{issuer}/.well-known/openid-configuration", timeout=10, allow_redirects=False)
             resp.raise_for_status()
             metadata = resp.json()
         except requests.RequestException as e:
