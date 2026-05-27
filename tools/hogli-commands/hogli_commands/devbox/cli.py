@@ -34,6 +34,7 @@ from .coder import (
     coder_authenticated,
     coder_installed,
     coder_reachable,
+    coder_ssh_alias_configured,
     create_task,
     create_workspace,
     delete_user_secret,
@@ -581,6 +582,9 @@ def devbox_doctor() -> None:
     _doctor_check("coder CLI installed", installed)
     authenticated = installed and coder_authenticated()
     _doctor_check("Coder authenticated", authenticated)
+    # The Host coder.* block is a wildcard, so any name probes whether
+    # `coder config-ssh` has run -- the prerequisite for devbox:ssh/exec.
+    _doctor_check("SSH access configured (devbox:ssh/exec)", coder_ssh_alias_configured("probe"))
 
     if not authenticated:
         _doctor_footer()
@@ -1207,6 +1211,10 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
     """
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace_name)
+    if not coder_ssh_alias_configured(name):
+        _fail(
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+        )
     exec_replace(name, list(command))
 
 

@@ -1253,6 +1253,29 @@ def exec_replace(name: str, command: list[str]) -> None:
     os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
 
 
+def coder_ssh_alias_configured(name: str) -> bool:
+    """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
+
+    :func:`exec_replace` and :func:`ssh_replace` connect through the
+    ``Host coder.*`` block that ``coder config-ssh`` writes during
+    ``devbox:setup``. When that block is absent, ``ssh coder.<name>`` fails with
+    an opaque ``Could not resolve hostname``; callers check this first so they
+    can point at setup instead. The block is a wildcard, so any ``name`` probes
+    it. Returns ``False`` if ``ssh`` is missing or errors.
+    """
+    try:
+        result = subprocess.run(["ssh", "-G", _ssh_host_alias(name)], capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        if line.startswith("proxycommand "):
+            value = line[len("proxycommand ") :].strip()
+            return bool(value) and value.lower() != "none"
+    return False
+
+
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     """Port-forward to a workspace and replace the current process."""
     _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
@@ -1291,19 +1314,6 @@ def create_task(
     else:
         args.append(prompt)
     _run_or_exit(args)
-
-
-def run_in_workspace(
-    name: str, command: list[str], *, capture_output: bool = False
-) -> subprocess.CompletedProcess[str]:
-    """Run a command in the workspace via `coder ssh`."""
-    args = ["coder", "ssh", name, "--", *command]
-    return _run(args, capture_output=capture_output)
-
-
-def replace_with_workspace_command(name: str, command: list[str]) -> None:
-    """Run a workspace command and replace the current process."""
-    _run_or_exit(["coder", "ssh", name, "--", *command])
 
 
 def open_in_browser(name: str) -> None:
