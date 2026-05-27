@@ -1464,6 +1464,10 @@ snapshots:
         hash: v1.k794b7964.e3ef4fd9cc4b6d78c9b770bd7ba6d8113539cd73ce87b31013306f745ea9202f.9NtMQB2_LUzXfE_zDhDnKUsCgHVWc4ttxT2tpksLyhw
     errortracking-exceptioncard--exception-card-session-timeline-without-steps--light:
         hash: v1.k794b7964.56e62ea17d56098dfa8d66ad4499e743df46e0c1924f8df73f2b6478079c48ea.oSzjIEqfVs8iFv6Ed8nN0I07e3StdO56qy6oIoeRrUA
+    errortracking-stacktraceactions--default--dark:
+        hash: v1.k794b7964.91672c912d93ad2ed58f1ba200f7ca1fcaee83297f5936f2399c53d47a154d6f.7oRecDOjn9XKHnTyts_9Ko_lK_576I_0NXnJh1gu6V0
+    errortracking-stacktraceactions--default--light:
+        hash: v1.k794b7964.e71e9c6c659253a5ebb77c302c3a4ca30a1026d722dc20bcecd9cdfa412aa2c3.24lOV34SOsFGjAvDzHMQaw-XNf7eQrd8VyBsY839SLw
     errortracking-stacktracedisplay--generic-display-empty--dark:
         hash: v1.k794b7964.c6ab3cf58033c6b078df8533c0fb3bf4e99ad647d2d10fef3c12265f9d8c1151.R27Z2h6kgWs7HZgZQXOoQN5MKDt9L0SNXqtRdq9d8XY
     errortracking-stacktracedisplay--generic-display-empty--light:
@@ -4795,7 +4799,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
-        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.xupnP9sdcp25xPBOMzrhSHwtRpKPLKHaqLDBncapvQA
+        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.gaL7vRk-pWoOUkiPi-NGCd1W72x-M5l9jk5Qu-UcjwI
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.3gc3UBg-8GVo4HkNBH7UrogK2q1uh9pXPDjTdYGT8nc
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
