@@ -13,6 +13,10 @@ import boto3
 import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio import (
+    activity,
+    workflow as temporal_workflow,
+)
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -899,3 +903,117 @@ async def test_run_postgres_job(
         folder_path = await sync_to_async(job_1.folder_path)()
         job_1_team_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/")
         assert len(job_1_team_objects["Contents"]) == 3
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_external_data_job_workflow_completes_when_import_activity_signals_skip_post_import(team, **kwargs):
+    """Drive `ExternalDataJobWorkflow` through the CDC-streaming skip branch and assert it
+    exits cleanly. The branch logs through `workflow.logger`, which wraps stdlib `Logger` and
+    rejects unknown kwargs — a regression to direct kwargs (e.g. `schema_id="..."`) raises
+    TypeError, the workflow's catch-all flips status to FAILED, and the finally block calls
+    `update_external_data_job_model`. This was the prod failure mode for Postgres CDC syncs
+    after the snapshot → streaming transition.
+
+    The assertion: when `import_data_activity_sync` returns `consumer_manages_job_status=True`
+    + `skip_post_import_activities=True`, the workflow's finally block must skip the update
+    activity ([external_data_job.py:484-486](posthog/temporal/data_imports/external_data_job.py:484))
+    because the consumer owns the job's terminal status. So `update_external_data_job_model`
+    should never be called. If the log call inside the skip branch raises, the except path
+    flips status to FAILED and the update activity DOES get called — that's the regression.
+    """
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+    )
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    # Stub `import_data_activity_sync` to return the CDCHandledExternally shape. Same registered
+    # name as the real activity so the worker dispatches to this one. The real activity would
+    # have marked the job Completed itself before returning this payload — we don't need to
+    # replicate that here, only the return signal that drives the workflow branch.
+    @activity.defn(name="import_data_activity_sync")
+    async def stub_skip_post_import(inputs: ImportDataActivityInputs) -> dict:
+        return {
+            "should_trigger_cdp_producer": False,
+            "consumer_manages_job_status": True,
+            "skip_post_import_activities": True,
+        }
+
+    # `consumer_manages_job_status=True` + COMPLETED status makes the workflow's finally block
+    # skip `update_external_data_job_model` ([external_data_job.py:484-486]) — so we don't
+    # need a real implementation, but we do need to register a stub by the same name so the
+    # worker can dispatch to it if the branch were to fall through to the failure path.
+    @activity.defn(name="update_external_data_job_model")
+    async def stub_update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
+        return None
+
+    # Spy on `workflow.logger`. The skip branch calls `workflow.logger.info(msg, ...)` — if
+    # any kwarg other than the stdlib-accepted ones (extra/exc_info/stack_info/stacklevel)
+    # shows up in the spy's call_args, the call would crash a real worker because
+    # `Logger._log` rejects unknown kwargs. We patch the module-level singleton with a Mock
+    # so the call always succeeds inside the workflow runtime (avoiding the replay/level
+    # short-circuit that hides the bug); we then check the recorded kwargs ourselves.
+    with mock.patch.object(temporal_workflow, "logger") as logger_spy:
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=[
+                    create_external_data_job_model_activity,
+                    stub_update_external_data_job_model,
+                    stub_skip_post_import,
+                    create_source_templates,
+                    calculate_table_size_activity,
+                    check_billing_limits_activity,
+                    sync_new_schemas_activity,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox so the workflow can see the patched logger
+            ):
+                await activity_environment.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    allowed_kwargs = {"extra", "exc_info", "stack_info", "stacklevel"}
+    bad_log_calls: list[tuple[str, dict]] = []
+    for log_method in ("debug", "info", "warning", "error", "exception", "critical", "log"):
+        method_mock = getattr(logger_spy, log_method)
+        for call in method_mock.call_args_list:
+            bad = {k: v for k, v in call.kwargs.items() if k not in allowed_kwargs}
+            if bad:
+                bad_log_calls.append((log_method, bad))
+
+    assert not bad_log_calls, (
+        "workflow.logger call in the CDC-streaming skip branch passes structured fields as "
+        "direct kwargs — stdlib Logger rejects these with TypeError in real workers. Wrap them "
+        f"in extra={{...}} instead. Offending calls: {bad_log_calls}"
+    )
+
+    # Belt-and-braces: confirm the spy was actually called, otherwise an over-eager refactor
+    # could remove the log line entirely and the kwarg check would silently pass.
+    assert logger_spy.info.called, "workflow.logger.info was not called — skip branch may not have been reached"
