@@ -831,6 +831,49 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     assert run.status == ExternalDataJob.Status.COMPLETED
 
 
+def test_workflow_logger_calls_in_external_data_job_workflow_pass_extras_via_extra_kwarg():
+    """`workflow.logger` wraps stdlib `Logger`, which rejects unknown kwargs with TypeError —
+    structured fields must go through `extra={...}`. A regression to direct kwargs (e.g.
+    `schema_id="..."`) crashes workers; that's the prod failure that broke Postgres CDC syncs.
+
+    Walks `external_data_job.py`'s AST and asserts every `workflow.logger.<level>(...)` call
+    passes only kwargs accepted by stdlib `Logger._log`. A runtime test would be preferable
+    but Temporal's replay-suppression makes triggering the actual TypeError from a workflow
+    test environment unreliable, so we pin the call shape here instead.
+    """
+    import ast
+    import inspect
+
+    from posthog.temporal.data_imports import external_data_job
+
+    tree = ast.parse(inspect.getsource(external_data_job))
+    allowed_kwargs = {"extra", "exc_info", "stack_info", "stacklevel"}
+    log_levels = {"debug", "info", "warning", "error", "exception", "critical", "log"}
+
+    offenders: list[tuple[int, str, list[str]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        # Match `<something>.logger.<level>(...)` — covers `workflow.logger.info(...)`.
+        if not (
+            isinstance(func, ast.Attribute)
+            and func.attr in log_levels
+            and isinstance(func.value, ast.Attribute)
+            and func.value.attr == "logger"
+        ):
+            continue
+        bad = [kw.arg for kw in node.keywords if kw.arg is not None and kw.arg not in allowed_kwargs]
+        if bad:
+            offenders.append((node.lineno, func.attr, bad))
+
+    assert not offenders, (
+        "workflow.logger calls pass structured fields as direct kwargs — stdlib Logger rejects "
+        "these with TypeError. Wrap them in extra={...} instead. Offending calls:\n"
+        + "\n".join(f"  external_data_job.py:{line} workflow.logger.{lvl}(...) — {kws}" for line, lvl, kws in offenders)
+    )
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_run_postgres_job(
