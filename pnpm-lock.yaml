@@ -1015,7 +1015,7 @@ importers:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       liquidjs:
-        specifier: ^10.25.7
+        specifier: ^10.27.0
         version: 10.27.0
       lodash.difference:
         specifier: ^4.5.0
@@ -1542,7 +1542,7 @@ importers:
         specifier: ^0.7.15
         version: 0.7.16
       liquidjs:
-        specifier: ^10.25.7
+        specifier: ^10.27.0
         version: 10.27.0
       lodash:
         specifier: ^4.18.1
@@ -1563,7 +1563,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.1
       nodemailer:
-        specifier: ^7.0.11
+        specifier: ^7.0.13
         version: 7.0.13
       p-limit:
         specifier: 3.1.0
