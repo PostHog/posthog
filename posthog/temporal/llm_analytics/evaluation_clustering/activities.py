@@ -176,7 +176,7 @@ def _items_from_eval_ids(
     join's ``target_trace_id`` when available, because downstream navigation
     (scatter plot clicks, cluster detail fallback links) treats ``trace_id`` as
     a real trace identifier and otherwise lands on
-    ``/llm-analytics/traces/<evaluation_uuid>`` which doesn't exist. When
+    ``/ai-observability/traces/<evaluation_uuid>`` which doesn't exist. When
     metadata is missing (generation purged, etc.) we fall back to the eval uuid
     — no navigation is possible in that case but the cluster still renders.
     """
@@ -382,7 +382,7 @@ def _emit_sync(inputs: EmitEvaluationClusterEventsInputs) -> ClusteringResult:
     # Build cluster items using the metadata join so each member carries the
     # real target_trace_id — without this, frontend navigation fall-backs
     # (scatter plot clicks, list-item links before the summary resolves) would
-    # route to /llm-analytics/traces/<evaluation_uuid> and 404.
+    # route to /ai-observability/traces/<evaluation_uuid> and 404.
     items = _items_from_eval_ids(inputs.eval_ids, inputs.eval_metadata)
     # Timestamps: eval events have their own timestamps. The simplest reliable
     # approach is to use the linked generation's window_end as a proxy — the

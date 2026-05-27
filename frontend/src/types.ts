@@ -1,11 +1,11 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
+import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-import { LogLevel } from '@posthog/rrweb-plugin-console-record'
-import { eventWithTime } from '@posthog/rrweb-types'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
@@ -32,6 +32,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
+import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
@@ -329,6 +330,7 @@ export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
     active_realtime_notification_types?: readonly string[]
+    requires_credential_review?: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -418,6 +420,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
+    pipeline_notifications_disabled?: Record<string, boolean>
 }
 
 export interface InAppNotification {
@@ -461,6 +464,11 @@ export interface PersonalAPIKeyType {
     scoped_teams?: TeamType['id'][] | null
 }
 
+export interface ProjectSecretAPIKeyRequest {
+    label: string
+    scopes: ProjectSecretAPIKeyAllowedScope[]
+}
+
 export interface OrganizationBasicType {
     id: string
     name: string
@@ -489,6 +497,10 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_training_opted_in?: boolean
+    is_ai_training_locked?: boolean
+    is_ai_training_cta_shown?: boolean
+    is_hipaa?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
@@ -2410,6 +2422,7 @@ export interface EndpointType extends WithAccessControl {
     materialization?: EndpointVersionMaterializationType
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
+    tags?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -2949,6 +2962,8 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
     min_decimal_places?: number
+    x_axis_label?: string
+    y_axis_label?: string
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -3823,6 +3838,7 @@ export interface Survey extends WithAccessControl {
     headline_summary?: string | null
     headline_response_count?: number | null
     form_content?: Record<string, unknown> | null
+    base_language?: string | null
     translations?: Record<
         string,
         {
@@ -5363,7 +5379,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
-    | 'replay_lens'
+    | 'replay_scanner'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -5529,6 +5545,7 @@ export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
+    PROJECT_SECRET_API_KEY = 'ProjectSecretAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
@@ -5559,6 +5576,7 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EVALUATION = 'Evaluation',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
@@ -5570,6 +5588,7 @@ export enum ActivityScope {
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    INSTANCE_SETTING = 'InstanceSetting',
 }
 
 export type CommentType = {
@@ -5898,6 +5917,12 @@ export interface ExternalDataSourceSyncSchema {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     /**
+     * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
+     * reason this endpoint is currently unreachable. `null`/undefined = endpoint is
+     * available. The UI should disable selection and surface this string when set.
+     */
+    permission_error?: string | null
+    /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
      */
@@ -5951,6 +5976,12 @@ export interface ExternalDataJob {
     rows_synced: number
     latest_error: string
     workflow_run_id?: string
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows
+     * produced for the same schema: `incremental_merge` (consolidated table) vs `scd2_append`
+     * (cdc-only history table). `null` for non-CDC syncs.
+     */
+    cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
 }
 
 export interface SimpleDataWarehouseTable {

@@ -26,7 +26,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
@@ -44,7 +44,7 @@ from posthog.models import Element, Filter, Person, PropertyDefinition, User
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import (
@@ -70,7 +70,8 @@ EVENT_VALUES_COUNTER = Counter(
     labelnames=["has_event_name", "auth"],
 )
 
-QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+QUERY_DEFAULT_EXPORT_LIMIT = 1_000
+EVENT_LIST_MAX_LIMIT = 1_000
 
 # Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
 EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
@@ -273,7 +274,7 @@ class EventViewSet(
             else:
                 limit = DEFAULT_RETURNED_ROWS
 
-            limit = min(limit, MAX_SELECT_RETURNED_ROWS)
+            limit = min(limit, EVENT_LIST_MAX_LIMIT)
 
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
@@ -415,14 +416,9 @@ class EventViewSet(
             capture_exception(ex)
             raise
 
-    def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
-        distinct_ids = [event["distinct_id"] for event in query_result]
-        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        distinct_to_person: dict[str, Person] = {}
-        for person in persons:
-            for distinct_id in person.distinct_ids:
-                distinct_to_person[distinct_id] = person
-        return distinct_to_person
+    def _get_people(self, query_result: List[dict], team: Team) -> "dict[str, Person]":  # noqa: UP006
+        distinct_ids = list({event["distinct_id"] for event in query_result})
+        return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     @extend_schema(
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],

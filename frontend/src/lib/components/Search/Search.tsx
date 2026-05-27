@@ -144,7 +144,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         query: 'SQL query',
         product_analytics: 'Product analytics',
         web_analytics: 'Web analytics',
-        llm_analytics: 'LLM analytics',
+        llm_analytics: 'AI observability',
         revenue_analytics: 'Revenue analytics',
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',

@@ -21,8 +21,6 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    FlagValueResponseApi,
-    FlagValueValuesRetrieveParams,
     InvitesListParams,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
@@ -1250,42 +1248,6 @@ export const fileSystemUnfiledRetrieve = async (projectId: string, options?: Req
     })
 }
 
-export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagValueValuesRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/flag_value/values/?${stringifiedParams}`
-        : `/api/projects/${projectId}/flag_value/values/`
-}
-
-/**
- * Get possible values for a feature flag.
-
-Query parameters:
-- key: The flag ID (required)
-Returns:
-
-- Array of objects with 'name' field containing possible values
- */
-export const flagValueValuesRetrieve = async (
-    projectId: string,
-    params?: FlagValueValuesRetrieveParams,
-    options?: RequestInit
-): Promise<FlagValueResponseApi> => {
-    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getInsightsSharingListUrl = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/`
 }
@@ -1586,6 +1548,14 @@ export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string)
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -1924,6 +1894,20 @@ export const usersDestroy = async (uuid: string, options?: RequestInit): Promise
     return apiMutator<void>(getUsersDestroyUrl(uuid), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUsersCredentialsReviewCompleteCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/credentials_review_complete/`
+}
+
+/**
+ * Mark the user as having reviewed their existing credentials. Idempotent. Flips `requires_credential_review` to False so the post-login interstitial isn't shown again. Does not modify any credentials; the user revokes individual Personal API Keys via the existing PAT endpoints from the same screen.
+ */
+export const usersCredentialsReviewCompleteCreate = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersCredentialsReviewCompleteCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -132,8 +132,8 @@ PropertyAccessControl
 QueryTabState
 QuickFilter
 QuickFilterContext
-ReplayLens
 ReplayObservation
+ReplayScanner
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem

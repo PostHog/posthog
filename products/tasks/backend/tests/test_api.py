@@ -786,6 +786,115 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertTrue(task.deleted)
         self.assertIsNotNone(task.deleted_at)
 
+    @parameterized.expand(
+        [
+            # (archived_param, expected_titles)
+            ("default_excludes_archived", None, {"Active"}),
+            ("archived_true_returns_only_archived", "true", {"Archived"}),
+            ("archived_all_returns_both", "all", {"Active", "Archived"}),
+            ("archived_false_returns_only_active", "false", {"Active"}),
+        ]
+    )
+    def test_list_tasks_archived_filter(self, _name, archived_param, expected_titles):
+        active_task = self.create_task("Active")
+        archived_task = self.create_task("Archived")
+        archived_task.archived = True
+        archived_task.archived_at = django_timezone.now()
+        archived_task.save(update_fields=["archived", "archived_at"])
+
+        url = "/api/projects/@current/tasks/"
+        if archived_param is not None:
+            url = f"{url}?archived={archived_param}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        titles = {task["title"] for task in results}
+        self.assertEqual(titles, expected_titles)
+        # The expected set drives which task UUIDs we expect to come back.
+        expected_ids: set[str] = set()
+        if "Active" in expected_titles:
+            expected_ids.add(str(active_task.id))
+        if "Archived" in expected_titles:
+            expected_ids.add(str(archived_task.id))
+        self.assertEqual({task["id"] for task in results}, expected_ids)
+
+    def test_list_tasks_rejects_invalid_archived_value(self):
+        self.create_task("Active")
+
+        response = self.client.get("/api/projects/@current/tasks/?archived=foo")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_archived_task_still_works(self):
+        task = self.create_task("Archived")
+        task.archived = True
+        task.archived_at = django_timezone.now()
+        task.save(update_fields=["archived", "archived_at"])
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["archived"])
+        self.assertIsNotNone(data["archived_at"])
+
+    def test_patch_archived_true_stamps_archived_at(self):
+        task = self.create_task("Mine")
+        self.assertFalse(task.archived)
+        self.assertIsNone(task.archived_at)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"archived": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["archived"])
+        self.assertIsNotNone(data["archived_at"])
+
+        task.refresh_from_db()
+        self.assertTrue(task.archived)
+        self.assertIsNotNone(task.archived_at)
+
+    def test_patch_archived_false_clears_archived_at(self):
+        task = self.create_task("Mine")
+        task.archived = True
+        task.archived_at = django_timezone.now()
+        task.save(update_fields=["archived", "archived_at"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"archived": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["archived"])
+        self.assertIsNone(data["archived_at"])
+
+        task.refresh_from_db()
+        self.assertFalse(task.archived)
+        self.assertIsNone(task.archived_at)
+
+    def test_patch_archived_idempotent_preserves_archived_at(self):
+        task = self.create_task("Mine")
+        original_archived_at = django_timezone.now() - timedelta(days=1)
+        task.archived = True
+        task.archived_at = original_archived_at
+        task.save(update_fields=["archived", "archived_at"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"archived": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task.refresh_from_db()
+        self.assertTrue(task.archived)
+        # archived_at should not be re-stamped because the value did not transition.
+        self.assertEqual(task.archived_at, original_archived_at)
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
         task = self.create_task()
@@ -3363,7 +3472,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        mock_heartbeat.assert_called_once()
+        mock_heartbeat.assert_called_once_with(agent_active=True)
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")

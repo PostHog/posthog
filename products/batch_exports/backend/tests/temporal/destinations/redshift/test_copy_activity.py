@@ -28,8 +28,8 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
-    has_valid_credentials,
 )
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,

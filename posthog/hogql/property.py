@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
+import re2
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -56,9 +57,9 @@ from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
 from products.actions.backend.models.action import Action, ActionStepJSON
-from products.data_warehouse.backend.models import DataWarehouseJoin
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -88,6 +89,27 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     return (major, minor, patch)
 
 
+# Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
+# `sortableSemver` returning NULL for invalid input because ClickHouse forbids
+# `Nullable(Array(...))`, and an `Array(Nullable(Int64))` with a NULL element sorts
+# as the *greatest* array — which would incorrectly include invalid versions in
+# `>= filter` queries. Instead we gate every semver comparison on this regex
+# matching the property side, so invalid values are dropped before the array
+# comparison happens. Matches Rust `semver::Version::parse` (X.Y.Z, no leading
+# zeros, optional 'v' prefix, optional pre-release / build suffix).
+STRICT_SEMVER_REGEX = r"^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][^\s]*)?\s*$"
+
+
+def _gate_on_valid_semver(expr: ast.Expr, comparison: ast.Expr) -> ast.And:
+    """Wrap a semver comparison so it only fires on rows where `expr` is strict semver."""
+    return ast.And(
+        exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
+            comparison,
+        ]
+    )
+
+
 def semver_range_compare(
     expr: ast.Expr,
     value: ast.Any,
@@ -104,7 +126,7 @@ def semver_range_compare(
         bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
 
     Returns:
-        AST node representing: sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+        AST node representing: match(expr, valid_semver) AND sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
     """
     if not isinstance(value, str):
         raise QueryError(f"{operator_name} operator requires a semver string value")
@@ -116,6 +138,7 @@ def semver_range_compare(
 
     return ast.And(
         exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Call(name="sortableSemver", args=[expr]),
@@ -436,6 +459,18 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     )
 
 
+def _validate_regex(value: ValueT) -> None:
+    """Reject an invalid regular expression with a clear user-facing error rather
+    than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
+    same RE2 engine ClickHouse uses validates the pattern here."""
+    if not isinstance(value, str):
+        return
+    try:
+        re2.compile(value)
+    except re2.error as err:
+        raise QueryError(f"Invalid regular expression: '{value}'") from err
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -490,6 +525,7 @@ def _expr_to_compare_op(
             values_list = cast(list, [value])
         return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -498,6 +534,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -581,40 +618,58 @@ def _expr_to_compare_op(
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     elif operator == PropertyOperator.SEMVER_EQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_NEQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Lt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_TILDE:
         return semver_range_compare(expr, value, "Tilde", _tilde_bounds)

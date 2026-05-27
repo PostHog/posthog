@@ -12,7 +12,7 @@ import { modalsLogic } from '../modalsLogic'
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
-    const { updateExperiment, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { updateExperimentSettings, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeStatsEngineModal } = useActions(modalsLogic)
     const { isStatsEngineModalOpen } = useValues(modalsLogic)
 
@@ -67,7 +67,7 @@ export function StatsMethodModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={() => {
-                            updateExperiment({ stats_config: experiment.stats_config })
+                            updateExperimentSettings({ stats_config: experiment.stats_config })
                             closeStatsEngineModal()
                         }}
                     >

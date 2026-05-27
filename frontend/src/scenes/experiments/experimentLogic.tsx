@@ -26,6 +26,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -136,8 +137,6 @@ export const NEW_EXPERIMENT: Experiment = {
     },
     user_access_level: AccessControlLevel.Editor,
 }
-
-export const DEFAULT_MDE = 30
 
 export const FORM_MODES = {
     create: 'create',
@@ -587,6 +586,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as funnelMetricInsightLoading'],
             sharedMetricsLogic,
             ['sharedMetrics'],
+            experimentsConfigLogic,
+            ['experimentsConfig', 'defaultMinimumDetectableEffect'],
         ],
         actions: [
             experimentsLogic,
@@ -653,6 +654,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
+        updateExperimentSettings: (update: Partial<Experiment>) => ({ update }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
@@ -1653,6 +1655,12 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             actions.refreshExperimentResults(true, 'config_change')
         },
+        updateExperimentSettings: async ({ update }) => {
+            // Settings like stats config, CUPED, and conversion-window handling change
+            // how metrics and exposures are computed, so persist then re-query.
+            await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            actions.refreshExperimentResults(true, 'config_change')
+        },
         resetRunningExperiment: async () => {
             try {
                 const response: Experiment = await api.create(
@@ -2438,9 +2446,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment],
-            (newExperiment): number => {
-                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
+            (s) => [s.experiment, s.defaultMinimumDetectableEffect],
+            (newExperiment, defaultMinimumDetectableEffect): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
             },
         ],
         recommendedSampleSize: [

@@ -115,6 +115,42 @@ cohort_calculation_history: PostgresTable = PostgresTable(
     },
 )
 
+accounts: PostgresTable = PostgresTable(
+    name="accounts",
+    postgres_table_name="customer_analytics_account",
+    access_scope="customer_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_id": StringDatabaseField(name="external_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "properties": StringJSONDatabaseField(name="properties"),
+        "stripe_customer_id": ExpressionField(
+            name="stripe_customer_id",
+            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
+        ),
+        "hubspot_deal_id": ExpressionField(
+            name="hubspot_deal_id",
+            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
+        ),
+        "billing_id": ExpressionField(
+            name="billing_id",
+            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
+        ),
+        "sfdc_id": ExpressionField(
+            name="sfdc_id",
+            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
+        ),
+        "zendesk_id": ExpressionField(
+            name="zendesk_id",
+            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
+        ),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -153,6 +189,30 @@ dashboards: PostgresTable = PostgresTable(
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
         "variables": StringJSONDatabaseField(name="variables"),
+    },
+)
+
+dashboard_tiles: PostgresTable = PostgresTable(
+    name="dashboard_tiles",
+    postgres_table_name="posthog_dashboardtile",
+    access_scope="dashboard",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id"),
+        "insight_id": IntegerDatabaseField(name="insight_id", nullable=True),
+        "text_id": IntegerDatabaseField(name="text_id", nullable=True),
+        "button_tile_id": StringDatabaseField(name="button_tile_id", nullable=True),
+        "layouts": StringJSONDatabaseField(name="layouts"),
+        "color": StringDatabaseField(name="color", nullable=True),
+        "show_description": BooleanDatabaseField(name="show_description", nullable=True),
+        "transparent_background": BooleanDatabaseField(name="transparent_background", nullable=True),
+        "filters_overrides": StringJSONDatabaseField(name="filters_overrides", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True, nullable=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_deleted"]), ast.Constant(value=False)]),
+        ),
     },
 )
 
@@ -1085,6 +1145,7 @@ sandbox_environments: PostgresTable = PostgresTable(
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "accounts": TableNode(name="accounts", table=accounts),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
@@ -1094,6 +1155,7 @@ class SystemTables(TableNode):
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),

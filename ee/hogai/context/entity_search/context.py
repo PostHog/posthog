@@ -14,7 +14,7 @@ from posthog.api.search import (
     EntityConfig,
     search_entities as search_entities_fts,
 )
-from posthog.models import Cohort, FeatureFlag, Insight, Team, User
+from posthog.models import Cohort, Insight, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
@@ -22,6 +22,7 @@ from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
 

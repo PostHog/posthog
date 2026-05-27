@@ -8,7 +8,7 @@ from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConf
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, JSONLinkPaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
-from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:

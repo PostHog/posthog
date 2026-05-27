@@ -13,6 +13,8 @@ RELATED_OBJECTS = (
     "feature_flag",
     "experiment_saved_metric",
     "ticket",
+    "account",
+    "endpoint",
 )
 
 
@@ -71,7 +73,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     feature_flag = models.ForeignKey(
-        "FeatureFlag",
+        "feature_flags.FeatureFlag",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -86,6 +88,20 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     )
     ticket = models.ForeignKey(
         "conversations.Ticket",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    account = models.ForeignKey(
+        "customer_analytics.Account",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    endpoint = models.ForeignKey(
+        "endpoints.Endpoint",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

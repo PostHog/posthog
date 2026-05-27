@@ -47,7 +47,7 @@ from posthog.helpers.user_devices import (
     has_valid_known_device_cookie,
 )
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
-from posthog.models import FeatureFlag, User
+from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -55,6 +55,8 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -1583,6 +1585,44 @@ class TestPasswordResetAPI(APIBaseTest):
                 "attr": "token",
             },
         )
+
+    @parameterized.expand(
+        [
+            ("none_becomes_true", None),
+            ("true_stays_true", True),
+            ("false_becomes_true", False),
+        ]
+    )
+    def test_password_reset_flips_is_email_verified_to_true(self, _name, initial_state):
+        self.user.is_email_verified = initial_state
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, True)
+
+    def test_password_reset_does_not_clear_pending_email(self):
+        self.user.is_email_verified = False
+        self.user.pending_email = "new-address@example.com"
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pending_email, "new-address@example.com")
 
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):

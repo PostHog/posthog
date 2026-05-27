@@ -5,7 +5,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
 import { CompatMessage } from './types'
-import { formatLLMEventTitle, normalizeMessages } from './utils'
+import { formatLLMEventTitle, normalizeMessages, readAiOutput } from './utils'
 
 interface EventMetrics {
     latency?: number
@@ -68,10 +68,7 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
     if (isGeneration) {
         // For generations, normalize messages without tools
         const inputMessages: CompatMessage[] = normalizeMessages(event.properties.$ai_input, 'user')
-        const outputMessages: CompatMessage[] = normalizeMessages(
-            event.properties.$ai_output_choices ?? event.properties.$ai_output,
-            'assistant'
-        )
+        const outputMessages: CompatMessage[] = normalizeMessages(readAiOutput(event.properties), 'assistant')
 
         const messages: CompatMessage[] = []
         if (inputMessages.length > 0) {
