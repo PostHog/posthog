@@ -149,7 +149,8 @@ tools:
         title: Get endpoint versions
         description: >
             List all versions for an endpoint, in descending order (latest first). Each version contains the query
-            snapshot, description, data freshness, and materialization status at that point in time.
+            snapshot, description, data freshness, last execution time, and materialization status at that point in
+            time.
     endpoints-get-all:
         operation: endpoints_list
         enabled: true
@@ -168,10 +169,38 @@ tools:
             each endpoint.
     endpoints-last-execution-times-create:
         operation: endpoints_last_execution_times_create
-        enabled: false
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get endpoints last execution times
+        description: >
+            Get the most recent execution time per endpoint (over the past 6 months, personal API key calls only). Pass
+            an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called in the
+            window are omitted from the response. Use this to find unused endpoints during an audit.
+        include_params:
+            - names
     endpoints-materialization-preview-create:
         operation: endpoints_materialization_preview_create
-        enabled: false
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Preview endpoint materialization
+        description: >
+            Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL,
+            detected range pairs, and aggregate re-aggregation info, plus a rejection reason if the query is not
+            eligible. Supports an optional version body param. Read-only — does not enable materialization.
+        include_params:
+            - version
+            - bucket_overrides
     endpoints-run-retrieve:
         operation: endpoints_run_retrieve
         enabled: false

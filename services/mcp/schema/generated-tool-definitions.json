@@ -1389,7 +1389,7 @@
         }
     },
     "endpoint-versions": {
-        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, data freshness, and materialization status at that point in time.",
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, data freshness, last execution time, and materialization status at that point in time.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Get endpoint versions",
@@ -1408,6 +1408,36 @@
         "feature": "endpoints",
         "summary": "Get all endpoints",
         "title": "Get all endpoints",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoints-last-execution-times-create": {
+        "description": "Get the most recent execution time per endpoint. Pass an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the response. Use this to find unused endpoints during an audit.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoints last execution times",
+        "title": "Get endpoints last execution times",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoints-materialization-preview-create": {
+        "description": "Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL, detected range pairs, and aggregate re-aggregation info, plus a rejection reason if the query is not eligible. Supports an optional version body param. Read-only — does not enable materialization.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Preview endpoint materialization",
+        "title": "Preview endpoint materialization",
         "required_scopes": ["endpoint:read"],
         "annotations": {
             "destructiveHint": false,

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -157,6 +157,26 @@ export const EndpointsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
+ */
+export const EndpointsMaterializationPreviewCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.object({
+    version: zod.number().optional(),
+    bucket_overrides: zod
+        .record(zod.string(), zod.string())
+        .nullish()
+        .describe('Per-column bucket function overrides, e.g. {"timestamp": "hour"}'),
 })
 
 /**
@@ -1347,4 +1367,27 @@ export const EndpointsVersionsListQueryParams = /* @__PURE__ */ zod.object({
     is_active: zod.boolean().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Get the last execution time per endpoint, or per endpoint version when include_versions is true. Timestamps are recorded by the run path with 30-minute granularity.
+ */
+export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const endpointsLastExecutionTimesCreateBodyIncludeVersionsDefault = null
+
+export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
+    include_versions: zod
+        .union([zod.boolean(), zod.null()])
+        .default(endpointsLastExecutionTimesCreateBodyIncludeVersionsDefault)
+        .describe(
+            'When true, response rows are `[name, version, last_executed_at]` covering every version that has been executed. When false (default), rows are `[name, last_executed_at]` at endpoint granularity.'
+        ),
+    names: zod.array(zod.string()),
 })

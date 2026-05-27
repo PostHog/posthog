@@ -5,7 +5,10 @@ import type { Schemas } from '@/api/generated'
 import {
     EndpointsCreateBody,
     EndpointsDestroyParams,
+    EndpointsLastExecutionTimesCreateBody,
     EndpointsListQueryParams,
+    EndpointsMaterializationPreviewCreateBody,
+    EndpointsMaterializationPreviewCreateParams,
     EndpointsMaterializationStatusRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsOpenapiSpecRetrieveQueryParams,
@@ -276,6 +279,57 @@ const endpointsGetAll = (): ToolBase<
     },
 })
 
+const EndpointsLastExecutionTimesCreateSchema = EndpointsLastExecutionTimesCreateBody.omit({ include_versions: true })
+
+const endpointsLastExecutionTimesCreate = (): ToolBase<
+    typeof EndpointsLastExecutionTimesCreateSchema,
+    Schemas.QueryStatusResponse
+> => ({
+    name: 'endpoints-last-execution-times-create',
+    schema: EndpointsLastExecutionTimesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsLastExecutionTimesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.names !== undefined) {
+            body['names'] = params.names
+        }
+        const result = await context.api.request<Schemas.QueryStatusResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/last_execution_times/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EndpointsMaterializationPreviewCreateSchema = EndpointsMaterializationPreviewCreateParams.omit({
+    project_id: true,
+}).extend(EndpointsMaterializationPreviewCreateBody.shape)
+
+const endpointsMaterializationPreviewCreate = (): ToolBase<
+    typeof EndpointsMaterializationPreviewCreateSchema,
+    unknown
+> => ({
+    name: 'endpoints-materialization-preview-create',
+    schema: EndpointsMaterializationPreviewCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        if (params.bucket_overrides !== undefined) {
+            body['bucket_overrides'] = params.bucket_overrides
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_preview/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-create': endpointCreate,
     'endpoint-delete': endpointDelete,
@@ -286,4 +340,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-update': endpointUpdate,
     'endpoint-versions': endpointVersions,
     'endpoints-get-all': endpointsGetAll,
+    'endpoints-last-execution-times-create': endpointsLastExecutionTimesCreate,
+    'endpoints-materialization-preview-create': endpointsMaterializationPreviewCreate,
 }
