@@ -395,8 +395,8 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
             QuotaResource,
-            _dispatch_recordings_remote_config_sync,
             add_limited_team_tokens,
+            dispatch_recordings_remote_config_sync,
             update_organization_usage_fields,
         )
 
@@ -419,7 +419,7 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
             )
 
             if resource == QuotaResource.RECORDINGS:
-                _dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+                dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -431,7 +431,7 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
             QuotaResource,
-            _dispatch_recordings_remote_config_sync,
+            dispatch_recordings_remote_config_sync,
             remove_limited_team_tokens,
             update_organization_usage_fields,
         )
@@ -449,7 +449,7 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
             )
 
         if resource == QuotaResource.RECORDINGS:
-            _dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+            dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """

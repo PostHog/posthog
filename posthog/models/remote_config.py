@@ -194,7 +194,7 @@ class RemoteConfig(UUIDTModel):
         }
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
-    def build_config(self):
+    def build_config(self, bypass_recordings_quota_cache: bool = False):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
@@ -256,7 +256,9 @@ class RemoteConfig(UUIDTModel):
             from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_recordings = list_limited_team_attributes(
-                QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.RECORDINGS,
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                use_cache=not bypass_recordings_quota_cache,
             )
 
             if team.api_token in limited_tokens_recordings:
@@ -384,15 +386,15 @@ class RemoteConfig(UUIDTModel):
 
         return site_apps_js + site_functions_js
 
-    def sync(self, force: bool = False):
+    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
         """
-        When called we sync to any configured CDNs as well as redis for the /decide endpoint
+        When called we sync to any configured CDNs as well as redis for the /decide endpoint.
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
         try:
-            config = self.build_config()
+            config = self.build_config(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
 
             if not force and config == self.config:
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()

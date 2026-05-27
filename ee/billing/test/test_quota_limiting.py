@@ -2077,33 +2077,39 @@ class TestQuotaLimiting(BaseTest):
             # flip it to `in quota_limited_orgs["events"]` in the same PR.
             assert str(org_id) not in quota_limited_orgs["events"]
 
-    # `update_team_remote_config` is lazy-imported inside `_dispatch_recordings_remote_config_sync`,
+    # `update_team_remote_config` is lazy-imported inside `dispatch_recordings_remote_config_sync`,
     # so patches target `posthog.tasks.remote_config.update_team_remote_config` directly.
 
     @parameterized.expand(
         [
             (
-                "becomes_limited",
-                False,
+                "newly_limited",
+                None,
                 {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 6_000, "limit": 5_000}},
                 1,
             ),
             (
-                "becomes_unlimited",
-                True,
+                "active_member_becomes_unlimited",
+                10_000,
                 {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
                 1,
             ),
             (
-                "non_recordings_resource_over_limit",
-                False,
-                {"events": {"usage": 1_000_000, "limit": 100}, "recordings": {"usage": 0, "limit": 5_000}},
-                0,
+                "expired_member_becomes_unlimited",
+                -10_000,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
+                1,
             ),
             (
                 "still_limited_no_transition",
-                True,
+                10_000,
                 {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 6_000, "limit": 5_000}},
+                0,
+            ),
+            (
+                "non_recordings_resource_over_limit",
+                None,
+                {"events": {"usage": 1_000_000, "limit": 100}, "recordings": {"usage": 0, "limit": 5_000}},
                 0,
             ),
         ]
@@ -2113,16 +2119,16 @@ class TestQuotaLimiting(BaseTest):
     def test_update_org_billing_quotas_recordings_remote_config_dispatch(
         self,
         _name,
-        prepopulate_recordings_limited,
+        prepopulate_zset_score_offset,
         usage_overrides,
         expected_dispatch_count,
         mock_update_remote_config,
     ) -> None:
-        if prepopulate_recordings_limited:
-            now_ts = timezone.now().timestamp()
+        if prepopulate_zset_score_offset is not None:
+            score = int(timezone.now().timestamp()) + prepopulate_zset_score_offset
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
-                {self.team.api_token: int(now_ts + 10_000)},
+                {self.team.api_token: score},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
 
@@ -2137,45 +2143,85 @@ class TestQuotaLimiting(BaseTest):
 
         assert mock_update_remote_config.apply_async.call_count == expected_dispatch_count
         if expected_dispatch_count > 0:
-            mock_update_remote_config.apply_async.assert_called_with(args=[self.team.id], countdown=35)
+            mock_update_remote_config.apply_async.assert_called_with(
+                args=[self.team.id],
+                kwargs={"bypass_recordings_quota_cache": True},
+                countdown=35,
+            )
 
-    @patch("posthog.tasks.remote_config.update_team_remote_config")
-    @patch("posthoganalytics.capture")
     @freeze_time("2021-01-25T00:00:00Z")
-    def test_update_all_orgs_billing_quotas_dispatches_for_recordings_transitions(
-        self, patch_capture, mock_update_remote_config
-    ) -> None:
-        with self.settings(USE_TZ=False):
-            self.organization.usage = {
-                "events": {"usage": 1, "limit": 100, "todays_usage": 0},
-                "recordings": {"usage": 6_000, "limit": 5_000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            }
-            self.organization.customer_trust_scores = zero_trust_scores()
-            self.organization.save()
-
-            update_all_orgs_billing_quotas()
-
-        mock_update_remote_config.apply_async.assert_called_once_with(args=[self.team.id], countdown=35)
-
     @patch("posthog.tasks.remote_config.update_team_remote_config")
-    @patch("posthoganalytics.capture")
-    @freeze_time("2021-01-25T00:00:00Z")
-    def test_update_all_orgs_billing_quotas_skips_dispatch_in_dry_run(
-        self, patch_capture, mock_update_remote_config
-    ) -> None:
-        with self.settings(USE_TZ=False):
-            self.organization.usage = {
-                "events": {"usage": 1, "limit": 100, "todays_usage": 0},
-                "recordings": {"usage": 6_000, "limit": 5_000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            }
-            self.organization.customer_trust_scores = zero_trust_scores()
-            self.organization.save()
+    def test_update_org_billing_quotas_no_teams_no_dispatch(self, mock_update_remote_config) -> None:
+        """An org with no teams (or only teams with empty api_tokens) takes the observe-only
+        branch — no Redis mutations, no dispatch, no crash."""
+        self.organization.teams.all().delete()
+        self.organization.usage = {
+            "events": {"usage": 1, "limit": 100},
+            "recordings": {"usage": 6_000, "limit": 5_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
 
-            update_all_orgs_billing_quotas(dry_run=True)
+        update_org_billing_quotas(self.organization)
 
         mock_update_remote_config.apply_async.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("active_member_becomes_unlimited", 10_000, 1, 1, False, 1, False),
+            ("expired_member_becomes_unlimited", -10_000, 1, 1, False, 1, False),
+            ("still_limited_no_dispatch", 10_000, 6_000, 1, False, 0, True),
+            ("non_recordings_over_limit_no_dispatch", None, 1, 1_000_000, False, 0, False),
+            ("dry_run_skips_dispatch_and_mutation", 10_000, 1, 1, True, 0, True),
+        ]
+    )
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T00:00:00Z")
+    def test_update_all_orgs_billing_quotas_recordings_remote_config_dispatch(
+        self,
+        _name,
+        prepopulate_zset_score_offset,
+        usage_recordings,
+        usage_events,
+        dry_run,
+        expected_dispatch_count,
+        expected_token_in_recordings_zset_after,
+        patch_capture,
+        mock_update_remote_config,
+    ) -> None:
+        recordings_zset_key = "@posthog/quota-limits/recordings"
+
+        if prepopulate_zset_score_offset is not None:
+            score = int(timezone.now().timestamp()) + prepopulate_zset_score_offset
+            replace_limited_team_tokens(
+                QuotaResource.RECORDINGS,
+                {self.team.api_token: score},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": usage_events, "limit": 100, "todays_usage": 0},
+                "recordings": {"usage": usage_recordings, "limit": 5_000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            update_all_orgs_billing_quotas(dry_run=dry_run)
+
+        assert mock_update_remote_config.apply_async.call_count == expected_dispatch_count
+        if expected_dispatch_count > 0:
+            mock_update_remote_config.apply_async.assert_called_with(
+                args=[self.team.id],
+                kwargs={"bypass_recordings_quota_cache": True},
+                countdown=35,
+            )
+
+        members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
+        assert (self.team.api_token in members_after) is expected_token_in_recordings_zset_after
 
 
 def _full_usage_counters(**overrides: int) -> UsageCounters:

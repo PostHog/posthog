@@ -413,6 +413,7 @@ class TestOrganization(BaseTest):
             self.assertEqual(dispatched_team_ids, {self.team.id, second_team.id})
             for call in mock_update_remote_config.apply_async.call_args_list:
                 self.assertEqual(call.kwargs.get("countdown"), 35)
+                self.assertEqual(call.kwargs.get("kwargs"), {"bypass_recordings_quota_cache": True})
         else:
             mock_update_remote_config.apply_async.assert_not_called()
 
