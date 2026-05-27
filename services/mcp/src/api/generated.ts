@@ -20430,6 +20430,27 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
     } as const;
 
+    /**
+     * Typed output for view set `list`.
+     */
+    export interface ListOutput {
+      /** ID of the file download batch export run. */
+      id: string;
+      /** Current status of the file download batch export run.
+
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `FailedBilling` - Failed Billing
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
+      status: BatchExportRunStatusEnum;
+    }
+
     export interface LiveDebuggerBreakpoint {
       readonly id: string;
       /** @nullable */
@@ -21611,6 +21632,15 @@ export namespace Schemas {
       readonly sync_interval: string | null;
     }
 
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    export type NotebookParentResource = {
+      readonly type: 'account';
+      readonly id: string;
+    } | null;
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -21646,6 +21676,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+         * @nullable
+         */
+      readonly parent_resource: NotebookParentResource;
       _create_in_folder?: string;
     }
 
@@ -23027,6 +23062,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedListOutputList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ListOutput[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -28856,6 +28900,15 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
     }
 
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    export type PatchedNotebookParentResource = {
+      readonly type: 'account';
+      readonly id: string;
+    } | null;
+
     export interface PatchedNotebook {
       /** UUID of the notebook. */
       readonly id?: string;
@@ -28891,6 +28944,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /**
+         * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+         * @nullable
+         */
+      readonly parent_resource?: PatchedNotebookParentResource;
       _create_in_folder?: string;
     }
 
@@ -38959,6 +39017,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsFileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -44261,6 +44330,17 @@ export namespace Schemas {
     groups?: string;
     };
 
+    export type FileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type FileDownloadBatchExportsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -46865,6 +46945,11 @@ export namespace Schemas {
      * Filter to a single workflow (e.g. 'onboarding').
      */
     workflow_id?: string;
+    };
+
+    export type WizardSessionsStreamRetrieveParams = {
+    skill_id?: string;
+    workflow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
