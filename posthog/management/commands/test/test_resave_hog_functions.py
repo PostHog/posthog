@@ -3,8 +3,9 @@ from unittest.mock import call, patch
 
 from django.core.management import call_command
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.integration import Integration
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 class TestResaveHogFunctions(BaseTest):

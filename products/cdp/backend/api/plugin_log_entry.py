@@ -5,9 +5,10 @@ from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.plugin import PluginsAccessLevelPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.plugin import PluginLogEntry, PluginLogEntryType, fetch_plugin_log_entries
+
+from products.cdp.backend.api.plugin import PluginsAccessLevelPermission
+from products.cdp.backend.models.plugin import PluginLogEntry, PluginLogEntryType, fetch_plugin_log_entries
 
 
 class PluginLogEntrySerializer(DataclassSerializer):

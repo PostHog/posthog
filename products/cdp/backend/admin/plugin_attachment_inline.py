@@ -5,7 +5,7 @@ from django.db.models import Model
 from django.http import HttpRequest
 from django.utils.html import format_html
 
-from posthog.models import PluginAttachment
+from products.cdp.backend.models.plugin import PluginAttachment
 
 ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES = 1024 * 1024
 

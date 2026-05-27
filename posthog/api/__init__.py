@@ -37,6 +37,7 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -157,8 +158,6 @@ from . import (
     exports,
     health_issue,
     hog,
-    hog_function,
-    hog_function_template,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -171,8 +170,6 @@ from . import (
     organization_invite,
     organization_member,
     personal_api_key,
-    plugin,
-    plugin_log_entry,
     project_secret_api_key,
     proxy_record,
     query,

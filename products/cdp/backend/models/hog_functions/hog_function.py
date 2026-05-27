@@ -15,8 +15,6 @@ from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.cohort.cohort import is_cohort_recalculation_only_save
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
@@ -28,6 +26,8 @@ from posthog.plugins.plugin_server_api import (
 from posthog.utils import absolute_uri
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.plugin import sync_team_inject_web_apps
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -74,15 +74,16 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 
 class HogFunction(FileSystemSyncMixin, UUIDTModel):
     class Meta:
+        db_table = "posthog_hogfunction"
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
         ]
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
@@ -109,7 +110,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
     hog_function_template = models.ForeignKey(
-        "posthog.HogFunctionTemplate",
+        "cdp.HogFunctionTemplate",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -259,14 +260,14 @@ def action_saved(sender, instance: Action, created, **kwargs):
     # Whenever an action is saved we want to load all hog functions using it
     # and trigger a refresh of the filters bytecode
 
-    from posthog.tasks.hog_functions import refresh_affected_hog_functions
+    from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
     refresh_affected_hog_functions.delay(action_id=instance.id)
 
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: Team, created, **kwargs):
-    from posthog.tasks.hog_functions import refresh_affected_hog_functions
+    from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
     refresh_affected_hog_functions.delay(team_id=instance.id)
 
@@ -286,7 +287,7 @@ def cohort_saved(sender, instance, **kwargs):
         for f in team.test_account_filters
         if isinstance(f, dict)
     ):
-        from posthog.tasks.hog_functions import refresh_affected_hog_functions
+        from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
         refresh_affected_hog_functions.delay(cohort_id=instance.id)
 
@@ -304,10 +305,11 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    from posthog.api.hog_function import HogFunctionSerializer
     from posthog.cdp.templates.hog_function_template import sync_template_to_db
-    from posthog.models.hog_function_template import HogFunctionTemplate
     from posthog.plugins.plugin_server_api import get_hog_function_templates
+
+    from products.cdp.backend.api.hog_function import HogFunctionSerializer
+    from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
     if settings.DISABLE_MMDB or not created:
         return

@@ -22,6 +22,9 @@ class Hook(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = "ee_hook"
+
     def clean(self):
         """Validation for events."""
         if self.event not in HOOK_EVENTS:

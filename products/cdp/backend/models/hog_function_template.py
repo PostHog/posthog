@@ -59,6 +59,7 @@ class HogFunctionTemplate(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "posthog_hogfunctiontemplate"
         unique_together = ("template_id", "sha")
         indexes = [
             models.Index(fields=["template_id", "sha"]),

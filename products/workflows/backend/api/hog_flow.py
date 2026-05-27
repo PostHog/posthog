@@ -32,9 +32,9 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.models import Team
-from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE,
     get_user_blast_radius,

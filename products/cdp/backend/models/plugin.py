@@ -20,6 +20,7 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
+from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.plugins.access import can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
@@ -30,8 +31,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-
-from .utils import UUIDTModel, sane_repr
 
 try:
     from posthog.clickhouse.client import sync_execute
@@ -201,6 +200,9 @@ class Plugin(models.Model):
 
     objects: PluginManager = PluginManager()
 
+    class Meta:
+        db_table = "posthog_plugin"
+
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
 
     def __str__(self) -> str:
@@ -225,8 +227,8 @@ class Plugin(models.Model):
 
 
 class PluginConfig(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True)
+    plugin = models.ForeignKey("cdp.Plugin", on_delete=models.CASCADE)
     enabled = models.BooleanField(default=False)
     order = models.IntegerField()
     config = models.JSONField(default=dict)
@@ -259,6 +261,7 @@ class PluginConfig(models.Model):
     )
 
     class Meta:
+        db_table = "posthog_pluginconfig"
         indexes = [
             models.Index(fields=["web_token"]),
             models.Index(fields=["enabled"]),
@@ -266,13 +269,16 @@ class PluginConfig(models.Model):
 
 
 class PluginAttachment(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True)
+    plugin_config = models.ForeignKey("cdp.PluginConfig", on_delete=models.CASCADE, null=True)
     key = models.CharField(max_length=200)
     content_type = models.CharField(max_length=200)
     file_name = models.CharField(max_length=200)
     file_size = models.IntegerField()
     contents = models.BinaryField()
+
+    class Meta:
+        db_table = "posthog_pluginattachment"
 
     def parse_contents(self) -> str | None:
         contents: bytes | None = bytes(self.contents) if self.contents else None
@@ -288,11 +294,12 @@ class PluginAttachment(models.Model):
 
 
 class PluginStorage(models.Model):
-    plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    plugin_config = models.ForeignKey("cdp.PluginConfig", on_delete=models.CASCADE)
     key = models.CharField(max_length=200)
     value = models.TextField(blank=True, null=True)
 
     class Meta:
+        db_table = "posthog_pluginstorage"
         constraints = [
             models.UniqueConstraint(
                 fields=["plugin_config_id", "key"],
@@ -455,6 +462,7 @@ class PluginSourceFileManager(models.Manager):
 
 class PluginSourceFile(UUIDTModel):
     class Meta:
+        db_table = "posthog_pluginsourcefile"
         constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
     class Status(models.TextChoices):
@@ -462,7 +470,7 @@ class PluginSourceFile(UUIDTModel):
         TRANSPILED = "TRANSPILED", "transpiled"
         ERROR = "ERROR", "error"
 
-    plugin = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    plugin = models.ForeignKey("cdp.Plugin", on_delete=models.CASCADE)
     filename = models.CharField(max_length=200, blank=False)
     # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
     source = models.TextField(blank=True, null=True)

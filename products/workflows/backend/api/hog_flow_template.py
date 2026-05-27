@@ -16,8 +16,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.hog_function_template import HogFunctionTemplate
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.templates import get_global_template_by_id, load_global_templates

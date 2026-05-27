@@ -21,7 +21,6 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -46,16 +45,18 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import (
+from posthog.plugins.plugin_server_api import create_hog_invocation_test
+
+from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     HogFunction,
     HogFunctionState,
     HogFunctionType,
 )
-from posthog.models.hog_functions.utils import humanize_hog_function_type
-from posthog.models.plugin import TranspilerError
-from posthog.plugins.plugin_server_api import create_hog_invocation_test
+from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
+from products.cdp.backend.models.plugin import TranspilerError
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024

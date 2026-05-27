@@ -1,8 +1,8 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
-from posthog.models import PluginConfig
+from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
+from products.cdp.backend.models.plugin import PluginConfig
 
 
 @admin.register(PluginConfig)

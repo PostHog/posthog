@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 def refresh_affected_hog_functions(
     team_id: Optional[int] = None, action_id: Optional[int] = None, cohort_id: Optional[int] = None
 ) -> int:
-    from posthog.models.hog_functions.hog_function import HogFunction
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     affected_hog_functions: list[HogFunction] = []
 

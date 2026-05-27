@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from posthog.models.hog_functions.hog_function import HogFunctionType
+from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
 
 
 def humanize_hog_function_type(hog_type: str | None) -> str:

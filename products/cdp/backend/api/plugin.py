@@ -21,12 +21,11 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.event_usage import report_user_action
-from posthog.models import Plugin, PluginAttachment, PluginConfig, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
@@ -39,13 +38,22 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginSourceFile, transpile, update_validated_data_from_url
 from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
 from posthog.utils import format_query_params_absolute_url
+
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.plugin import (
+    Plugin,
+    PluginAttachment,
+    PluginConfig,
+    PluginSourceFile,
+    transpile,
+    update_validated_data_from_url,
+)
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"

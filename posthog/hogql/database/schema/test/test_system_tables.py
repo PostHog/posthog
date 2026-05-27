@@ -22,11 +22,11 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.conversations.backend.models import Ticket
 from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard

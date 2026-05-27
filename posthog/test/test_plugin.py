@@ -6,7 +6,6 @@ from unittest.mock import patch
 from django.core import exceptions
 
 from posthog.cdp.templates.helpers import mock_transpile
-from posthog.models import Plugin, PluginSourceFile
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,
@@ -23,6 +22,8 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_RAW_WITHOUT_PLUGIN_JS,
     HELLO_WORLD_PLUGIN_SITE_TS,
 )
+
+from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
 
 
 class TestPlugin(BaseTest):

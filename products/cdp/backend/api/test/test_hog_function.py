@@ -10,15 +10,15 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
-from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 
@@ -2382,7 +2382,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         """
         Creating a HogFunction with a template_id that does not exist in the DB should raise a validation error and not create the object.
         """
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         initial_count = HogFunction.objects.count()
         response = self.client.post(
