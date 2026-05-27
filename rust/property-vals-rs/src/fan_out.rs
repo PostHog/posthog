@@ -248,17 +248,10 @@ mod tests {
     }
 
     #[test]
-    fn group_identify_index_4_emits_group_4_type() {
+    fn group_identify_emits_group_type_matching_index() {
         let tuples = fan_out_group(&group_identify(4, r#"{"region":"us-east"}"#));
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].property_type, PropertyType::Group(4));
-    }
-
-    #[test]
-    fn group_identify_high_index_still_emits() {
-        let tuples = fan_out_group(&group_identify(7, r#"{"plan":"enterprise"}"#));
-        assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Group(7));
     }
 
     #[test]

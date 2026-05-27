@@ -3,16 +3,46 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import type { UserBasicType } from '~/types'
 
-import { accountsList } from 'products/customer_analytics/frontend/generated/api'
+import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
+import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_PAGE_SIZE, accountsLogic } from './accountsLogic'
+import { ACCOUNTS_PAGE_SIZE, accountsLogic, savingRoleKey } from './accountsLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
+    accountsPartialUpdate: jest.fn(),
 }))
 
 const mockAccountsList = accountsList as jest.MockedFunction<typeof accountsList>
+const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+
+const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
+    id: 'acc-1',
+    name: 'Acme',
+    external_id: 'ext-1',
+    properties: {
+        csm: { id: 1, email: 'csm@example.com' },
+        stripe_customer_id: 'cus_123',
+    },
+    tags: [],
+    notebooks: [],
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+})
+
+const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
+    ({
+        id: 42,
+        uuid: 'user-uuid-42',
+        first_name: 'Alex',
+        last_name: 'Mercer',
+        email: 'alex@example.com',
+        ...overrides,
+    }) as UserBasicType
 
 describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
@@ -168,5 +198,108 @@ describe('accountsLogic', () => {
             String(MOCK_DEFAULT_TEAM.id),
             expect.objectContaining({ tags: '["priority"]' })
         )
+    })
+
+    describe('updateAccountRole', () => {
+        const existingAccount = buildAccount()
+
+        beforeEach(async () => {
+            mockAccountsList.mockResolvedValue({
+                count: 1,
+                next: null,
+                previous: null,
+                results: [existingAccount],
+            })
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('PATCHes the merged properties payload with the new assignment', async () => {
+            const user = buildUser()
+            const updated = buildAccount({
+                properties: {
+                    csm: { id: user.id, email: user.email },
+                    stripe_customer_id: 'cus_123',
+                },
+            })
+            mockAccountsPartialUpdate.mockResolvedValue(updated)
+
+            logic.actions.updateAccountRole('acc-1', 'csm', user)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                properties: {
+                    csm: { id: user.id, email: user.email },
+                    stripe_customer_id: 'cus_123',
+                },
+            })
+            expect(logic.values.results[0].properties?.csm).toEqual({ id: user.id, email: user.email })
+        })
+
+        it('sends null when clearing an assignment', async () => {
+            mockAccountsPartialUpdate.mockResolvedValue(
+                buildAccount({ properties: { csm: null, stripe_customer_id: 'cus_123' } })
+            )
+
+            logic.actions.updateAccountRole('acc-1', 'csm', null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                properties: {
+                    csm: null,
+                    stripe_customer_id: 'cus_123',
+                },
+            })
+        })
+
+        it('flips savingRoles during the in-flight window', async () => {
+            const key = savingRoleKey('acc-1', 'account_executive')
+            let resolveUpdate!: (value: AccountApi) => void
+            mockAccountsPartialUpdate.mockReturnValueOnce(
+                new Promise<AccountApi>((resolve) => {
+                    resolveUpdate = resolve
+                })
+            )
+
+            logic.actions.updateAccountRole('acc-1', 'account_executive', buildUser())
+            await new Promise<void>((r) => setTimeout(r, 0))
+            expect(logic.values.savingRoles[key]).toBe(true)
+            expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(true)
+
+            resolveUpdate(buildAccount())
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.savingRoles[key]).toBeUndefined()
+            expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(false)
+        })
+
+        it('leaves the row untouched on failure', async () => {
+            mockAccountsPartialUpdate.mockRejectedValueOnce(new Error('boom'))
+
+            logic.actions.updateAccountRole('acc-1', 'account_owner', buildUser())
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.results[0]).toEqual(existingAccount)
+            expect(logic.values.isRoleSaving('acc-1', 'account_owner')).toBe(false)
+        })
+
+        it('is a no-op while a save for the same role is already in flight', async () => {
+            let resolveFirst!: (value: AccountApi) => void
+            mockAccountsPartialUpdate.mockReturnValueOnce(
+                new Promise<AccountApi>((resolve) => {
+                    resolveFirst = resolve
+                })
+            )
+
+            logic.actions.updateAccountRole('acc-1', 'csm', buildUser({ id: 1, email: 'first@example.com' }))
+            await new Promise<void>((r) => setTimeout(r, 0))
+            logic.actions.updateAccountRole('acc-1', 'csm', buildUser({ id: 2, email: 'second@example.com' }))
+            await new Promise<void>((r) => setTimeout(r, 0))
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledTimes(1)
+
+            resolveFirst(buildAccount())
+            await expectLogic(logic).toFinishAllListeners()
+        })
     })
 })

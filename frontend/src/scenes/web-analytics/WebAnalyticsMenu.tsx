@@ -60,7 +60,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     Filter out internal and test users
                 </ButtonPrimitive>
                 {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
-                    <Tooltip title="When on, eligible web analytics tiles (currently overview and paths) load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                    <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
                         <ButtonPrimitive
                             menuItem
                             onClick={() => {
