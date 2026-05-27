@@ -729,12 +729,14 @@ async fn flush_chunk(
                 *flushed_counts += chunk_counts;
                 inc(FLAGS_BILLING_ENTRIES_FLUSHED, &[], chunk_counts);
                 chunk_entries.clear();
-                // The caller still needs to know an error happened (so it
-                // doesn't stamp `last_successful_flush_epoch_ms` and so
-                // `BailOnError` bails on subsequent chunks instead of
-                // attempting them on a possibly-degraded connection). But
-                // there is nothing to requeue and the `BestEffort` accounting
-                // already balances because `flushed_counts` went up.
+                // Under `BailOnError` we still need to signal an error so
+                // the caller stops attempting subsequent chunks on a
+                // possibly-degraded connection. Under `BestEffort` the
+                // return is informational; the caller treats it the same
+                // as `Ok`. The staleness epoch is not affected by this
+                // return value — it's gated on `flushed_counts ==
+                // total_counts`, which holds for an Applied-only tick and
+                // stamps by design.
                 return match policy {
                     FlushPolicy::BailOnError => ChunkOutcome::ErrBail { error_type },
                     FlushPolicy::BestEffort => ChunkOutcome::Err,
