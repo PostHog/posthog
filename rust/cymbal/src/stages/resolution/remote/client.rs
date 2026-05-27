@@ -1,0 +1,119 @@
+use std::time::Duration;
+
+use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_client::CymbalResolutionClient;
+use cymbal_proto::cymbal::resolution::v1::{Outcome, ResolveRequest};
+use futures::StreamExt;
+use thiserror::Error;
+use tonic::transport::Channel;
+use tonic::{Code, Request, Status};
+
+/// Errors observable by the remote resolver's retry logic. The `retryable`
+/// half is what cymbal will retry against another endpoint; `terminal` is
+/// surfaced as a handled error so the rest of `/process` can move on.
+#[derive(Debug, Error)]
+pub enum RemoteCallError {
+    #[error("remote resolution rpc returned retryable status {0:?}")]
+    Retryable(Status),
+    #[error("remote resolution rpc returned terminal status {0:?}")]
+    Terminal(Status),
+    #[error("remote resolution rpc deadline exceeded after {0:?}")]
+    Deadline(Duration),
+}
+
+impl RemoteCallError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            RemoteCallError::Retryable(_) | RemoteCallError::Deadline(_)
+        )
+    }
+
+    /// Short tag suitable for metric labels. Keeps the cardinality bounded
+    /// to the gRPC code set plus "deadline" so dashboards can distinguish
+    /// transport classes without exploding labels.
+    pub fn reason_tag(&self) -> &'static str {
+        match self {
+            RemoteCallError::Deadline(_) => "deadline",
+            RemoteCallError::Retryable(status) | RemoteCallError::Terminal(status) => {
+                code_tag(status.code())
+            }
+        }
+    }
+}
+
+fn code_tag(code: Code) -> &'static str {
+    match code {
+        Code::Ok => "ok",
+        Code::Cancelled => "cancelled",
+        Code::Unknown => "unknown",
+        Code::InvalidArgument => "invalid_argument",
+        Code::DeadlineExceeded => "deadline_exceeded",
+        Code::NotFound => "not_found",
+        Code::AlreadyExists => "already_exists",
+        Code::PermissionDenied => "permission_denied",
+        Code::ResourceExhausted => "resource_exhausted",
+        Code::FailedPrecondition => "failed_precondition",
+        Code::Aborted => "aborted",
+        Code::OutOfRange => "out_of_range",
+        Code::Unimplemented => "unimplemented",
+        Code::Internal => "internal",
+        Code::Unavailable => "unavailable",
+        Code::DataLoss => "data_loss",
+        Code::Unauthenticated => "unauthenticated",
+    }
+}
+
+/// Issue one `Resolve` RPC against the given channel and drain its server
+/// stream into a vector of outcomes. The caller (the stage-owned
+/// orchestration layer) is responsible for retrying against another endpoint
+/// when this returns a retryable error.
+///
+/// The deadline is enforced two ways: as a gRPC request metadata timeout
+/// (server-observable), and as a tokio `timeout` wrapping the entire stream
+/// drain (caller-observable). Either one tripping returns
+/// [`RemoteCallError::Deadline`].
+pub async fn resolve(
+    channel: Channel,
+    request: ResolveRequest,
+    deadline: Duration,
+) -> Result<Vec<Outcome>, RemoteCallError> {
+    let mut tonic_request = Request::new(request);
+    tonic_request.set_timeout(deadline);
+
+    let mut client = CymbalResolutionClient::new(channel);
+
+    let stream_future = client.resolve(tonic_request);
+    let response = match tokio::time::timeout(deadline, stream_future).await {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(status)) => return Err(classify_status(status)),
+        Err(_) => return Err(RemoteCallError::Deadline(deadline)),
+    };
+
+    let mut stream = response.into_inner();
+    let mut outcomes: Vec<Outcome> = Vec::new();
+    loop {
+        match tokio::time::timeout(deadline, stream.next()).await {
+            Ok(Some(Ok(outcome))) => outcomes.push(outcome),
+            Ok(Some(Err(status))) => return Err(classify_status(status)),
+            Ok(None) => break,
+            Err(_) => return Err(RemoteCallError::Deadline(deadline)),
+        }
+    }
+    Ok(outcomes)
+}
+
+fn classify_status(status: Status) -> RemoteCallError {
+    match status.code() {
+        // Transport/availability/timeouts → retry against another endpoint.
+        Code::Unavailable
+        | Code::ResourceExhausted
+        | Code::DeadlineExceeded
+        | Code::Aborted
+        | Code::Cancelled
+        | Code::Unknown
+        | Code::Internal => RemoteCallError::Retryable(status),
+        // Everything else (InvalidArgument, NotFound, PermissionDenied, …) is
+        // terminal; retrying will keep failing the same way.
+        _ => RemoteCallError::Terminal(status),
+    }
+}

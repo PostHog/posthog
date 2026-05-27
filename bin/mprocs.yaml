@@ -229,6 +229,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-resolution:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-resolution
+        capability: error_symbolication
+        ready_pattern: 'gRPC server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \

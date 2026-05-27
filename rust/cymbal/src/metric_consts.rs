@@ -126,3 +126,25 @@ pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_g
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
+
+// Remote resolution — minimal set. Each metric below has a distinct purpose.
+//
+// RED: REQUESTS (rate + errors via outcome label) + LATENCY (duration).
+// USE: POOL_SIZE (saturation gate / DNS health) + ENDPOINT_IN_FLIGHT
+//      (per-endpoint utilization).
+// Rollout: SAMPLING (remote/local decision).
+// Retry shape: ATTEMPTS_PER_REQUEST (right-tail for storm detection).
+// Subscription health: LOAD_SUBSCRIPTIONS (connect/reconnect). When the
+//   Subscribe stream goes stale the pool excludes the pod outright;
+//   the resulting REQUESTS{outcome=pool_empty} ticks are the
+//   "routing is starved of fresh load data" signal.
+pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
+pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
+pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
+pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
+pub const REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT: &str =
+    "cymbal_remote_resolution_endpoint_in_flight";
+pub const REMOTE_RESOLUTION_ATTEMPTS_PER_REQUEST: &str =
+    "cymbal_remote_resolution_attempts_per_request";
+pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
+    "cymbal_remote_resolution_load_subscriptions_total";

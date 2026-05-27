@@ -178,6 +178,100 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // ----------------------------------------------------------------------
+    // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.
+    //
+    // When `remote_resolution_enabled` is true, cymbal routes exception-level
+    // symbol resolution through the configured `cymbal-resolution` service
+    // pool instead of running the local resolver inline. There is no silent
+    // local fallback: if the pool can't satisfy the request, the stage
+    // surfaces the failure to its caller. Local mode (the default) is
+    // unchanged.
+    // ----------------------------------------------------------------------
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ENABLED", default = "false")]
+    pub remote_resolution_enabled: bool,
+
+    /// Hostname of the cymbal-resolution service. Resolved via DNS, then each
+    /// returned address gets its own gRPC channel in the endpoint pool.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_HOST", default = "")]
+    pub remote_resolution_host: String,
+
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_PORT", default = "50061")]
+    pub remote_resolution_port: u16,
+
+    /// How often to re-resolve the configured hostname and refresh the pool.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS", default = "30")]
+    pub remote_resolution_dns_refresh_secs: u64,
+
+    /// Per-call deadline for a single Resolve RPC, in milliseconds. The
+    /// stage enforces this independently of any transport-level keepalive.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS", default = "15000")]
+    pub remote_resolution_deadline_ms: u64,
+
+    /// Connection establishment timeout for a single endpoint, in
+    /// milliseconds. Endpoints that exceed this are skipped for routing.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_CONNECT_TIMEOUT_MS", default = "1000")]
+    pub remote_resolution_connect_timeout_ms: u64,
+
+    /// Maximum number of caller-side retries against the endpoint pool when
+    /// transport, load shedding, or explicit `retry` outcomes are observed.
+    /// `0` disables retries; the first attempt still runs.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_MAX_RETRIES", default = "2")]
+    pub remote_resolution_max_retries: u32,
+
+    /// Initial backoff applied between caller-side retries, in milliseconds.
+    /// Each subsequent attempt doubles the wait (capped at
+    /// `CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS`), plus up to ~50% random
+    /// jitter so a fleet of cymbal pods does not synchronize retries against a
+    /// briefly-degraded upstream.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_RETRY_BACKOFF_MS", default = "50")]
+    pub remote_resolution_retry_backoff_ms: u64,
+
+    /// Upper bound on the retry backoff window, in milliseconds. The exponential
+    /// schedule never sleeps longer than this between attempts.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS",
+        default = "1000"
+    )]
+    pub remote_resolution_retry_max_backoff_ms: u64,
+
+    /// Deterministic event-level rollout sample for remote resolution.
+    /// Defaults to `0.0` so flipping `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
+    /// alone does not start sending traffic — the rollout has to be ramped
+    /// explicitly. Values outside 0.0..=1.0 are clamped by
+    /// `RemoteResolutionConfig`, matching the defensive normalization used
+    /// by adjacent duration knobs.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
+    pub remote_resolution_sample_rate: f64,
+
+    /// Maximum exception-level items to include in one remote ResolveRequest.
+    /// Chunking is event-atomic: an event's exceptions are never split across
+    /// chunks, so a single event with more than this many exceptions will be
+    /// sent as one oversized chunk. Byte-level chunking is intentionally
+    /// absent — the server is the right place to signal "send smaller"
+    /// (future LoadEvent extension).
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_MAX_BATCH_ITEMS", default = "64")]
+    pub remote_resolution_max_batch_items: usize,
+
+    /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
+    /// cymbal-resolution load event bus. The server clamps to its own bounds
+    /// (see cymbal-resolution `SUBSCRIBE_MIN_TICK_MS`/`SUBSCRIBE_MAX_TICK_MS`),
+    /// so this is only a hint.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS",
+        default = "1000"
+    )]
+    pub remote_resolution_subscribe_tick_hint_ms: u64,
+
+    /// Backoff between reconnect attempts when a per-endpoint subscription
+    /// stream terminates, in milliseconds. Kept small so a transient blip
+    /// doesn't keep the pool blind for long.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_RECONNECT_BACKOFF_MS",
+        default = "500"
+    )]
+    pub remote_resolution_subscribe_reconnect_backoff_ms: u64,
 }
 
 impl Config {

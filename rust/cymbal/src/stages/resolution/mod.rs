@@ -5,6 +5,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 pub mod exception;
 pub mod frame;
 pub mod properties;
+pub mod remote;
 pub mod symbol;
 
 use crate::{
@@ -13,7 +14,10 @@ use crate::{
     metric_consts::RESOLUTION_STAGE,
     stages::pipeline::ExceptionEventPipelineItem,
     stages::resolution::{
-        exception::ExceptionResolver, frame::FrameResolver, properties::PropertiesResolver,
+        exception::ExceptionResolver,
+        frame::FrameResolver,
+        properties::PropertiesResolver,
+        remote::resolver::{resolve_batch, RemoteResolutionContext},
         symbol::SymbolResolver,
     },
     types::{
@@ -26,6 +30,12 @@ use crate::{
 pub struct ResolutionStage {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
+    /// When `Some`, the resolution stage can route sampled events through the
+    /// remote `cymbal.resolution.v1` client path. Unsampled events still use
+    /// local exception+frame resolution. There is no local fallback for events
+    /// selected for remote processing: if the remote pool can't serve the
+    /// request, the orchestration layer surfaces an unhandled error.
+    pub remote: Option<RemoteResolutionContext>,
 }
 
 impl From<&Arc<AppContext>> for ResolutionStage {
@@ -33,6 +43,7 @@ impl From<&Arc<AppContext>> for ResolutionStage {
         Self {
             symbol_resolver: app_context.as_ref().symbol_resolver.clone(),
             symbol_resolution_limiter: app_context.as_ref().symbol_resolution_limiter.clone(),
+            remote: app_context.as_ref().remote_resolution.clone(),
         }
     }
 }
@@ -58,6 +69,20 @@ impl Stage for ResolutionStage {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
+        if let Some(remote) = self.remote.clone() {
+            // Remote mode: the stage owns orchestration across the incoming
+            // batch, including deterministic rollout sampling. Sampled events
+            // use grouped/chunked ResolveRequests, and unsampled events use
+            // the local exception/frame operators. PropertiesResolver still
+            // runs afterwards because it operates on the resolved exception
+            // list shape independently of how exception/frame resolution was
+            // performed.
+            return resolve_batch(batch, remote, self.clone())
+                .await?
+                .apply_operator(PropertiesResolver, self.clone())
+                .await;
+        }
+
         batch
             .apply_operator(ExceptionResolver, self.clone())
             .await?

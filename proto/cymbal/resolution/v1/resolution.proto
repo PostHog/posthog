@@ -1,0 +1,214 @@
+syntax = "proto3";
+package cymbal.resolution.v1;
+
+// CymbalResolution is the internal API used by cymbal to offload symbol
+// resolution work. This contract is deliberately resolution-specific: cymbal
+// remains the owner of HTTP /process ingestion, grouping, issue linking,
+// suppression, alerting, and final response shaping.
+//
+// Connection model
+// ----------------
+// The service exposes two independent server-streaming RPCs, intentionally
+// split so callers can pick what to consume:
+//
+// * Resolve — one request → one stream of per-item outcomes + terminal
+//   summary. Purely about resolution work; carries no load signal. Caller
+//   dialled once per batch.
+// * Subscribe — long-lived server stream of LoadEvent messages emitted on a
+//   periodic tick. Callers (typically the cymbal endpoint pool) keep this
+//   open per endpoint and use the latest LoadEvent for routing decisions.
+//   Independent of any Resolve in flight.
+service CymbalResolution {
+  // Resolve resolves one batch of exception-level symbol-resolution items.
+  // The server streams one ItemOutcome per accepted item whenever possible,
+  // and a terminal BatchSummary. When cymbal enables this remote path, Retry
+  // outcomes are caller-side retry/reroute signals rather than permission to
+  // silently fall back to local resolution. Load/health information is *not*
+  // emitted on this stream — callers should consume Subscribe for that.
+  rpc Resolve(ResolveRequest) returns (stream Outcome);
+
+  // Subscribe opens a long-lived load event bus for one server instance.
+  // The server pushes a LoadEvent on a periodic tick (cadence is server
+  // controlled but the caller may suggest one via SubscribeRequest.tick_hint_ms).
+  // The stream is independent of Resolve traffic and is intended for the
+  // cymbal endpoint pool to route on server-reported load instead of
+  // estimating it from caller-side in-flight counts.
+  rpc Subscribe(SubscribeRequest) returns (stream LoadEvent);
+}
+
+// ResolveRequest is one internal cymbal symbol-resolution batch. Items are
+// exception-level units so cymbal can reconcile partial outcomes back to the
+// owning event and exception list without exposing the rest of the HTTP
+// /process payload here.
+message ResolveRequest {
+  // Caller-generated batch identity used in logs and outcome correlation.
+  string batch_id = 1;
+  // Exception-resolution items. Each item must have a stable item_id and the
+  // zero-based item_index it occupied in this repeated field.
+  repeated ExceptionResolutionItem items = 2;
+}
+
+// ExceptionResolutionItem is the accounting unit for v1 behavior.
+message ExceptionResolutionItem {
+  // Stable caller-generated identity for retries and reconciliation. This value
+  // should stay the same when cymbal retries the same exception on another
+  // endpoint.
+  string item_id = 1;
+  // Zero-based position in ResolveRequest.items. Together with item_id this lets
+  // cymbal restore ordering and detect missing, duplicate, or stale outcomes.
+  uint32 item_index = 2;
+  // PostHog team that owns the symbol sets and frame cache used for resolution.
+  int32 team_id = 3;
+  // Symbol-resolution payload for one exception.
+  ExceptionResolution exception = 4;
+}
+
+// ExceptionResolution carries the serialized cymbal exception plus the small
+// amount of event-level symbol context needed by existing frame resolution.
+// JSON bytes intentionally mirror cymbal's Rust serde shapes for the first
+// internal version; callers and servers should treat them as typed JSON, not as
+// opaque user-provided blobs.
+message ExceptionResolution {
+  // Serialized rust/cymbal Exception before frame and exception remapping.
+  bytes exception_json = 1;
+  // Serialized Vec<AppleDebugImage>. Empty when the exception has no Apple
+  // frames or the event did not provide debug images.
+  bytes apple_debug_images_json = 2;
+}
+
+// Outcome is one streamed server message for a Resolve request. item_outcome
+// is the only accounting variant; batch_summary is terminal and should be
+// emitted once per accepted batch. Load/health information used to ship as a
+// `service_info` variant on this oneof but moved to the Subscribe RPC; the
+// tag is reserved so old wire payloads decode as unknown rather than aliasing
+// a future field.
+message Outcome {
+  // Echo of ResolveRequest.batch_id for correlation across multiplexed client
+  // logs.
+  string batch_id = 1;
+  // Monotonic per-stream sequence assigned by the server for diagnostics.
+  uint64 sequence = 2;
+
+  oneof message {
+    ItemOutcome item_outcome = 10;
+    BatchSummary batch_summary = 12;
+  }
+  reserved 11;
+  reserved "service_info";
+}
+
+// ItemOutcome accounts for one ExceptionResolutionItem.
+message ItemOutcome {
+  string item_id = 1;
+  uint32 item_index = 2;
+
+  oneof result {
+    Done done = 10;
+    Error error = 11;
+    Retry retry = 12;
+  }
+}
+
+// Done means the item completed and contains the resolved exception payload.
+message Done {
+  // Serialized rust/cymbal Exception after frame resolution and exception
+  // remapping. It replaces only the submitted exception item, not the full
+  // event or exception list.
+  bytes resolved_exception_json = 1;
+}
+
+// Error is a terminal item failure. Cymbal should reconcile the item as failed
+// rather than retrying it or falling back to local resolution in remote mode.
+message Error {
+  string code = 1;
+  string message = 2;
+  // Optional structured diagnostics. Implementations must not require callers
+  // to understand this field for control flow.
+  bytes details_json = 3;
+}
+
+// Retry means the service did not complete the item and cymbal may retry or
+// reroute it according to caller-side policy. It is deliberately separate from
+// Error so retryable service pressure cannot be mistaken for resolved failure.
+message Retry {
+  string code = 1;
+  string message = 2;
+  // Optional server hint in milliseconds. A zero value means no hint.
+  uint32 retry_after_ms = 3;
+}
+
+// SubscribeRequest opens a long-lived stream of LoadEvent ticks. v1 is
+// intentionally tiny: callers describe themselves for logs and may hint a
+// cadence, but the server has the final say so a misbehaving caller cannot
+// induce excess work.
+message SubscribeRequest {
+  // Free-form identifier for the subscribing process. Used in server logs and
+  // metrics labels; not interpreted otherwise. Recommended format is
+  // `<service>/<instance>`.
+  string subscriber_id = 1;
+  // Caller-preferred tick cadence, in milliseconds. The server may clamp this
+  // to a safe range; a zero value means "use the server default". This is a
+  // hint and not a contract.
+  uint32 tick_hint_ms = 2;
+}
+
+// LoadEvent is one tick on the load event bus. Emitted independently of any
+// Resolve work; the same fields that used to ship inline as ServiceInfo on
+// Outcome streams now ship here. Callers should treat the latest LoadEvent
+// per endpoint as the routing-relevant snapshot.
+message LoadEvent {
+  // Stable identity of the cymbal-resolution pod that emitted this event.
+  // Useful for correlating logs across multiple endpoints behind a single
+  // service hostname.
+  string service_instance_id = 1;
+  // Server-observed degradation flag. Callers should de-prioritize routing
+  // new requests to a degraded endpoint without removing it from the pool.
+  bool degraded = 2;
+  // True when the pod is preparing to shut down. Routers should stop sending
+  // new work; in-flight requests are still served.
+  bool draining = 3;
+  // Number of symbol-resolution slots currently in use. Always paired with
+  // max_in_flight so callers can compute a load ratio without knowing the
+  // pod's configured ceiling out of band.
+  uint32 in_flight = 4;
+  // Maximum number of symbol-resolution slots the pod is willing to hold
+  // concurrently. Effectively the denominator for load ratio.
+  uint32 max_in_flight = 5;
+  // Monotonic per-subscription sequence assigned by the server, starting at 1
+  // for the first tick of each Subscribe stream. Lets callers detect a
+  // reconnected stream that restarted counting.
+  uint64 sequence = 6;
+  // Optional short human-readable note (e.g. "warming up"). Not interpreted
+  // by the router; safe to leave empty.
+  string message = 7;
+  // Suggested maximum number of items the server wants to receive in one
+  // `Resolve` request right now. The client uses this to size per-team
+  // chunks before routing. `0` means "no suggestion — use the client's
+  // own ceiling"; non-zero replaces the client config until a fresher
+  // event arrives. Typically tracks the server's item-admission capacity
+  // (`MAX_ITEM_CONCURRENCY`) but the server is free to lower it under
+  // pressure to ask callers to shrink batches.
+  uint32 suggested_max_batch_items = 8;
+}
+
+// BatchSummary is the terminal reconciliation record for the stream. Counts are
+// over ItemOutcome messages only.
+message BatchSummary {
+  uint32 submitted_items = 1;
+  uint32 item_outcomes = 2;
+  uint32 done_items = 3;
+  uint32 error_items = 4;
+  uint32 retry_items = 5;
+  // Items submitted by the caller that did not receive an ItemOutcome before
+  // the summary. Empty means the server believes the batch is fully accounted.
+  repeated ItemReference missing_items = 6;
+  // Items for which the server emitted more than one ItemOutcome. Empty means
+  // every accounted item was emitted once.
+  repeated ItemReference duplicate_items = 7;
+}
+
+// ItemReference identifies an item without repeating its full payload.
+message ItemReference {
+  string item_id = 1;
+  uint32 item_index = 2;
+}

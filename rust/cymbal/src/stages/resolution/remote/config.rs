@@ -1,0 +1,97 @@
+use std::time::Duration;
+
+use crate::config::Config;
+use crate::error::UnhandledError;
+
+/// Narrowed view of [`crate::config::Config`] containing only the fields used
+/// by the remote resolution client. Keeping a dedicated struct lets the pool,
+/// DNS, and resolver modules be exercised in tests without touching cymbal's
+/// full env-var surface.
+#[derive(Clone, Debug)]
+pub struct RemoteResolutionConfig {
+    pub host: String,
+    pub port: u16,
+    pub dns_refresh: Duration,
+    pub request_deadline: Duration,
+    pub connect_timeout: Duration,
+    pub max_retries: u32,
+    /// Initial backoff between retries; doubles each attempt up to `retry_max_backoff`.
+    pub retry_backoff: Duration,
+    /// Ceiling for the exponential retry backoff window.
+    pub retry_max_backoff: Duration,
+    /// Event-level deterministic sample rate for sending eligible events to
+    /// cymbal-resolution. Defaults to 1.0 so enabling remote mode preserves
+    /// the existing full-remote behavior unless explicitly rolled out lower.
+    pub sample_rate: f64,
+    /// Maximum exception items per grouped ResolveRequest. Chunking is
+    /// event-atomic: an event's exceptions are never split, so a single event
+    /// with more than this many exceptions ships as one oversized chunk.
+    pub max_batch_items: usize,
+    /// Cadence hint sent on `SubscribeRequest.tick_hint_ms`. The server may
+    /// clamp this; the caller relies on whatever cadence the server settles on.
+    /// Doubles as the freshness window: snapshots older than `2 *
+    /// subscribe_tick_hint` are treated as "no signal" and the pool falls back
+    /// to caller-side in-flight estimation. Coupling staleness to the tick
+    /// removes a knob that previously had to be tuned in lockstep.
+    pub subscribe_tick_hint: Duration,
+    /// Backoff applied before a per-endpoint subscription task reconnects after
+    /// the stream ends or errors. Kept small so a transient blip doesn't leave
+    /// the pool routing on stale data for long.
+    pub subscribe_reconnect_backoff: Duration,
+}
+
+impl RemoteResolutionConfig {
+    pub fn from_config(config: &Config) -> Result<Self, UnhandledError> {
+        if config.remote_resolution_host.trim().is_empty() {
+            return Err(UnhandledError::Other(
+                "remote resolution enabled but CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
+            ));
+        }
+        Ok(Self {
+            host: config.remote_resolution_host.clone(),
+            port: config.remote_resolution_port,
+            dns_refresh: Duration::from_secs(config.remote_resolution_dns_refresh_secs.max(1)),
+            request_deadline: Duration::from_millis(config.remote_resolution_deadline_ms.max(1)),
+            connect_timeout: Duration::from_millis(
+                config.remote_resolution_connect_timeout_ms.max(1),
+            ),
+            max_retries: config.remote_resolution_max_retries,
+            retry_backoff: Duration::from_millis(config.remote_resolution_retry_backoff_ms.max(1)),
+            retry_max_backoff: Duration::from_millis(
+                config
+                    .remote_resolution_retry_max_backoff_ms
+                    .max(config.remote_resolution_retry_backoff_ms.max(1)),
+            ),
+            sample_rate: normalized_sample_rate(config.remote_resolution_sample_rate),
+            max_batch_items: config.remote_resolution_max_batch_items.max(1),
+            subscribe_tick_hint: Duration::from_millis(
+                config.remote_resolution_subscribe_tick_hint_ms.max(1),
+            ),
+            subscribe_reconnect_backoff: Duration::from_millis(
+                config
+                    .remote_resolution_subscribe_reconnect_backoff_ms
+                    .max(1),
+            ),
+        })
+    }
+}
+
+fn normalized_sample_rate(sample_rate: f64) -> f64 {
+    if !sample_rate.is_finite() {
+        return 1.0;
+    }
+    sample_rate.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_sample_rate;
+
+    #[test]
+    fn sample_rate_is_clamped_to_valid_range() {
+        assert_eq!(normalized_sample_rate(-0.5), 0.0);
+        assert_eq!(normalized_sample_rate(0.25), 0.25);
+        assert_eq!(normalized_sample_rate(1.5), 1.0);
+        assert_eq!(normalized_sample_rate(f64::NAN), 1.0);
+    }
+}

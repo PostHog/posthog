@@ -2,6 +2,37 @@
 
 You throw 'em, we catch 'em.
 
+Cymbal owns the HTTP ingress and full processing pipeline (fingerprinting,
+suppression, Kafka producers, issue linking). Symbol resolution can run
+either inline inside the cymbal binary (default) or be offloaded to the
+[`cymbal-resolution`](../cymbal-resolution/README.md) gRPC service via the
+`cymbal.resolution.v1` contract. The remote path is opt-in via
+`CYMBAL_REMOTE_RESOLUTION_ENABLED=true` and has **no silent local fallback**
+— see the [cymbal-resolution README](../cymbal-resolution/README.md) for
+rollout, configuration, and operator guidance.
+
+## Remote resolution behavior
+
+The public HTTP contract stays `POST /process`: callers send an array of
+events and receive an equally sized array in the same order, with `null` in a
+slot only when the normal cymbal pipeline suppresses that event. The
+Node.js error-tracking consumer can keep using its existing DNS/team routing
+and HTTP body-size chunking because remote symbol resolution happens behind
+the same cymbal HTTP boundary.
+
+When remote resolution is enabled, `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`
+controls a deterministic event-level rollout. Events selected for remote
+processing are grouped per-team and packed into event-atomic
+`ResolveRequest` chunks capped by `CYMBAL_REMOTE_RESOLUTION_MAX_BATCH_ITEMS`
+(an event's exceptions are never split across chunks). Sampled remote
+attempts do not fall back to local resolution if the remote pool fails;
+unsampled events use the inline local exception and frame resolvers and
+then rejoin the same properties/grouping/linking pipeline.
+
+See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
+compatibility checklist and [`../cymbal-resolution/README.md`](../cymbal-resolution/README.md)
+for rollout and dashboard guidance.
+
 ### Terms
 
 We use a lot of terms in this and other error tracking code, with implied meanings. Here are some of them:
