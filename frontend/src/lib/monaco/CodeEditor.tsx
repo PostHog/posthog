@@ -274,6 +274,10 @@ export function CodeEditor({
     const disposeEditor = (): void => {
         try {
             if (diffEditorRef.current) {
+                // Detach models from the DiffEditorWidget before disposing,
+                // so Monaco's onWillDispose listeners don't fire against
+                // models that are about to be torn down.
+                diffEditorRef.current.setModel(null)
                 diffEditorRef.current.dispose()
             } else {
                 editorRef.current?.dispose()
@@ -538,6 +542,8 @@ export function CodeEditor({
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
                 modified={value}
+                keepCurrentOriginalModel
+                keepCurrentModifiedModel
                 options={{
                     ...editorOptions,
                     renderSideBySide: false,
