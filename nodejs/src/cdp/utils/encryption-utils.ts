@@ -58,16 +58,28 @@ export class EncryptedFields {
     /**
      * Decrypts an inputs dict (as stored on a HogFlow action) by Fernet-decrypting any input
      * whose `value` is an inline-encrypted wrapper. Non-encrypted entries pass through.
+     *
+     * Decryption is gated by `inputs_schema`: only keys explicitly flagged `secret: true` are
+     * considered. Any inline-encrypted wrapper on a non-secret key is left as-is. This mirrors
+     * the Python write-side rule (posthog/cdp/hog_flow_inputs.py) and prevents a non-secret
+     * input from being used as a decryption oracle if a valid encrypted blob ever leaks.
      */
     decryptInlineInputs<T extends Record<string, { value?: unknown } & Record<string, unknown>> | null | undefined>(
-        inputs: T
+        inputs: T,
+        inputs_schema: ReadonlyArray<{ key: string; secret?: boolean }> | null | undefined
     ): T {
         if (!inputs) {
             return inputs
         }
+        const secretKeys = new Set<string>()
+        for (const schema of inputs_schema ?? []) {
+            if (schema?.secret && schema.key) {
+                secretKeys.add(schema.key)
+            }
+        }
         const result: Record<string, { value?: unknown } & Record<string, unknown>> = {}
         for (const [key, item] of Object.entries(inputs)) {
-            if (item && isInlineEncryptedValue(item.value)) {
+            if (item && secretKeys.has(key) && isInlineEncryptedValue(item.value)) {
                 const token = item.value[INLINE_ENCRYPTED_MARKER]
                 const decryptedJson = this.decrypt(token)
                 let decryptedValue: unknown = item.value

@@ -34,8 +34,9 @@ export class HogFlowFunctionsService {
 
         // Workflows encrypt secret inputs inline (see posthog/cdp/hog_flow_inputs.py). Decrypt
         // them here so the hog executor sees the plaintext values it needs to invoke the
-        // destination.
-        const decryptedInputs = this.encryptedFields.decryptInlineInputs(inputs)
+        // destination. Gating by `inputs_schema` ensures only schema-declared secret fields are
+        // decrypted — a non-secret input carrying an encrypted blob is left untouched.
+        const decryptedInputs = this.encryptedFields.decryptInlineInputs(inputs, template.inputs_schema)
 
         const hogFunction: HogFunctionType = {
             id: hogFlow.id,

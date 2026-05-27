@@ -1788,4 +1788,81 @@ describe('Hogflow Executor', () => {
             expect(emailBilling).toHaveLength(2)
         })
     })
+
+    describe('encrypted secret inputs', () => {
+        it('decrypts inline-encrypted secrets end-to-end when running the workflow', async () => {
+            // Full hogflow path: an action's `inputs[secret].value` is a `__ph_encrypted`
+            // wrapper at rest. When `executor.execute` runs the workflow, the secret must be
+            // decrypted before the hog code sees it — the destination's fetch call should
+            // receive the plaintext token in the Authorization header, never the wrapper.
+            const SECRET = 'workflow-bearer-token'
+            const secretTemplate = await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-test-hogflow-executor-secret-e2e',
+                name: 'Encrypted secret executor e2e template',
+                code: `fetch('http://localhost/secret-test', {
+                    'method': 'POST',
+                    'headers': { 'Authorization': f'Bearer {inputs.access_token}' },
+                    'body': { 'name': inputs.name }
+                })`,
+                inputs_schema: [
+                    { key: 'name', type: 'string', required: true },
+                    { key: 'access_token', type: 'string', secret: true, required: true },
+                ],
+            })
+
+            const encryptedAccessToken = {
+                __ph_encrypted: hub.encryptedFields.encrypt(JSON.stringify(SECRET)),
+            }
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        function_secret: {
+                            type: 'function',
+                            config: {
+                                template_id: secretTemplate.template_id,
+                                inputs: {
+                                    name: { value: 'Workflow secret test' },
+                                    access_token: { value: encryptedAccessToken },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_secret', type: 'continue' },
+                        { from: 'function_secret', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    event: '$pageview',
+                    properties: { $current_url: 'https://posthog.com' },
+                },
+            })
+
+            mockFetch.mockClear()
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+
+            const secretFetchCall = mockFetch.mock.calls.find(([url]) => url === 'http://localhost/secret-test')
+            expect(secretFetchCall).toBeDefined()
+            expect((secretFetchCall![1] as any).headers.Authorization).toBe(`Bearer ${SECRET}`)
+            // The stored wrapper must never appear on the wire.
+            expect(JSON.stringify(secretFetchCall![1])).not.toContain('__ph_encrypted')
+            expect(JSON.stringify(secretFetchCall![1])).not.toContain(encryptedAccessToken.__ph_encrypted)
+        })
+    })
 })
