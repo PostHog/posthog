@@ -57,6 +57,16 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
     }
 
     const tabs: (LemonTab<EditorTab> | false)[] = [
+        !isNew && {
+            key: 'observations' as EditorTab,
+            label: 'Observations',
+            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
+        },
+        {
+            key: 'triggers',
+            label: 'Triggers',
+            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
+        },
         {
             key: 'configuration',
             label: 'Configuration',
@@ -120,16 +130,6 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                     </Field>
                 </div>
             ),
-        },
-        {
-            key: 'triggers',
-            label: 'Triggers',
-            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
-        },
-        !isNew && {
-            key: 'observations' as EditorTab,
-            label: 'Observations',
-            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
         },
     ]
 
