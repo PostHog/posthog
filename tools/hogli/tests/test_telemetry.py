@@ -246,6 +246,7 @@ class TestOutcome:
             (0, "success"),
             (1, "error"),
             (2, "error"),
+            (128, "error"),  # application-error idiom (e.g. git fatal), not a signal
             (130, "interrupted"),  # SIGINT (Ctrl-C)
             (143, "interrupted"),  # SIGTERM
             (-13, "interrupted"),  # subprocess killed by signal

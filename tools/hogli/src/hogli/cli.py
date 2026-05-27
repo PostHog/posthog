@@ -188,6 +188,9 @@ def cli(ctx: click.Context) -> None:
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
+        # telemetry:on still shows the notice (it arms tracking by setting
+        # first_run_notice_shown); only off/status suppress it. This set is
+        # intentionally narrower than _TELEMETRY_META_COMMANDS below.
         if ctx.invoked_subcommand not in {"telemetry:off", "telemetry:status"}:
             telemetry.show_first_run_notice_if_needed()
 
@@ -547,8 +550,10 @@ def _outcome(exit_code: int) -> str:
     """Classify an exit code so signal kills are distinct from real failures."""
     if exit_code == 0:
         return "success"
-    # Killed by a signal: negative (subprocess) or 128 + signum (e.g. 130 SIGINT).
-    if exit_code < 0 or exit_code >= 128:
+    # Killed by a signal: a negative subprocess returncode, or the shell's
+    # 128 + signum convention (e.g. 130 SIGINT). Exactly 128 is excluded -- it's
+    # an application-error idiom (e.g. git's fatal errors), not a signal.
+    if exit_code < 0 or exit_code > 128:
         return "interrupted"
     return "error"
 
