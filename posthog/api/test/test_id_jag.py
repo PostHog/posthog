@@ -205,6 +205,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
     def test_intersection_with_requested_scope(self) -> None:
         assertion = _make_id_jag(scope="feature_flag:read feature_flag:write dashboard:read")
@@ -371,12 +372,14 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_rejects_unverified_domain_in_sub(self) -> None:
         # Trust is rooted in the verified-domain → org mapping. An ID-JAG whose
-        # `sub` doesn't belong to a verified domain on any PostHog org is rejected.
+        # `sub` doesn't belong to a verified domain on any PostHog org is
+        # rejected with the uniform pre-signature error so we don't leak which
+        # domains a tenant has verified.
         assertion = _make_id_jag(sub="someone@not-verified.example.org")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
-        self.assertIn("verified domain", resp.json()["error_description"].lower())
+        self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
     def test_rejects_when_no_matching_user_exists(self) -> None:
         # Domain is verified but no User row exists for the sub email — fail
@@ -543,7 +546,9 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
-        self.assertIn("id_jag_issuer_url", resp.json()["error_description"].lower())
+        # Uniform response — the specific reason (id_jag_issuer_url unset) must
+        # not be echoed to unauthenticated callers; it's logged for ops only.
+        self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
     def test_rejects_when_id_jag_iss_does_not_match_domain_issuer(self) -> None:
         # The IdP binding is exact-match on the issuer URL — even a sibling IdP
@@ -556,7 +561,9 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
-        self.assertIn("iss does not match", resp.json()["error_description"].lower())
+        # Uniform response — do not disclose that the IdP issuer is wrong vs.
+        # that the domain isn't bound at all.
+        self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
     def test_issuer_match_is_slash_normalized(self) -> None:
         # Store the issuer without trailing slash; ID-JAG carries one. The

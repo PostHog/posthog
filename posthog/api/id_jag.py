@@ -45,6 +45,9 @@ ACCESS_TOKEN_TYPE = "at+jwt"
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
 
+GENERIC_ID_JAG_REJECTION = "ID-JAG could not be verified"
+
+
 class IdJagError(Exception):
     """
     OAuth-style token-endpoint error. The HTTP body shape follows RFC 6749
@@ -245,7 +248,14 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     org_domain, error = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_email, issuer)
     if org_domain is None or error:
-        raise InvalidGrantError(error or "ID-JAG configuration is invalid")
+        # Do not echo the specific reason — see GENERIC_ID_JAG_REJECTION.
+        logger.info(
+            "id_jag_token_rejected",
+            reason=error or "ID-JAG configuration is invalid",
+            issuer=issuer,
+            stage="pre_signature_domain_lookup",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
     expected_issuer = (org_domain.id_jag_issuer_url or "").rstrip("/")
     provider_name = org_domain.domain
@@ -297,7 +307,15 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     claim_issuer = (claims.get("iss") or "").rstrip("/")
     if claim_issuer != expected_issuer:
-        raise InvalidGrantError("ID-JAG iss does not match the IdP configured for this email's domain")
+        # Mirror the pre-signature path so the response surface is uniform.
+        logger.info(
+            "id_jag_token_rejected",
+            reason="ID-JAG iss does not match the IdP configured for this email's domain",
+            claim_issuer=claim_issuer,
+            expected_issuer=expected_issuer,
+            stage="post_signature_iss_check",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
     resource = claims.get("resource")
     if not resource:

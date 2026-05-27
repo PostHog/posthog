@@ -20,7 +20,6 @@ from django.utils import timezone
 
 import jwt
 import structlog
-from cryptography.hazmat.primitives import serialization
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -32,7 +31,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
-from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_public_key
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
@@ -477,24 +476,8 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
         if not match:
             return None
         token = match.group(1).strip()
-        # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith(("phx_", "pha_", "phs_")):
-            return None
+
         return token
-
-    @classmethod
-    def _public_key(cls) -> Any:
-        """Derive the verification key from the configured OIDC RSA private key.
-
-        We don't memoize because the PEM is parsed once per request and parsing
-        is cheap (~ tens of microseconds); caching would risk staleness on
-        in-process key rotation.
-        """
-        pem = getattr(settings, "OIDC_RSA_PRIVATE_KEY", None)
-        if not pem:
-            return None
-        private_key = serialization.load_pem_private_key(pem.encode(), password=None)
-        return private_key.public_key()
 
     @classmethod
     def _parse_sub(cls, sub: str) -> Optional[tuple[str, str]]:
@@ -512,6 +495,10 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def _is_id_jag_token(cls, token: str) -> bool:
+        # Personal/OAuth API key prefixes are reserved for those auth backends.
+        if token.startswith(("phx_", "pha_", "phs_")):
+            return False
+
         if token.count(".") != 2:
             return False
         try:
@@ -528,7 +515,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not self._is_id_jag_token(token):
                 return None
 
-            public_key = self._public_key()
+            public_key = get_oidc_public_key()
             if public_key is None:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
