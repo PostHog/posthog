@@ -1,4 +1,3 @@
-import { isIdJagAccessToken } from '@/lib/auth-errors'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
     buildInsufficientScopeChallenge,
@@ -6,6 +5,7 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
+import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { getPostHogClient } from '@/lib/posthog'

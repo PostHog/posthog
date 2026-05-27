@@ -799,9 +799,9 @@ class UserViewSet(
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         OAuthAccessTokenAuthentication,
-        IDJagAccessTokenAuthentication,
         PersonalAPIKeyAuthentication,
     ]
     permission_classes = [
