@@ -63,18 +63,23 @@ _ONBOARDING_FEEDBACK = [
 
 
 def _build_survey_specs(rng: random.Random) -> list[dict[str, Any]]:
-    # IDs need to be stable per spec instance so the question id and the
-    # response key (`$survey_response_<qid>`) match.
-    q_nps = str(uuid.uuid4())
-    q_csat = str(uuid.uuid4())
-    q_plan = str(uuid.uuid4())
-    q_features = str(uuid.uuid4())
-    q_open = str(uuid.uuid4())
-    q_link = str(uuid.uuid4())
+    # IDs must be deterministic per seeded `rng` (i.e. per team) so re-runs
+    # produce the same IDs that were persisted on the first run — otherwise
+    # freshly-emitted `$survey_response_<qid>` keys would not match the IDs
+    # stored on `survey.questions` and per-question breakdowns would break.
+    def _make_uid() -> str:
+        return str(uuid.UUID(int=rng.getrandbits(128)))
 
-    q_onb_rating = str(uuid.uuid4())
-    q_onb_source = str(uuid.uuid4())
-    q_onb_open = str(uuid.uuid4())
+    q_nps = _make_uid()
+    q_csat = _make_uid()
+    q_plan = _make_uid()
+    q_features = _make_uid()
+    q_open = _make_uid()
+    q_link = _make_uid()
+
+    q_onb_rating = _make_uid()
+    q_onb_source = _make_uid()
+    q_onb_open = _make_uid()
 
     response_fns: dict[str, Callable[[], Any]] = {
         q_nps: lambda: _nps_score(rng),
@@ -214,9 +219,11 @@ def seed_demo_surveys(
     """Create demo surveys for `team` and emit realistic `survey sent` events
     using personas drawn from the matrix.
 
-    Idempotent on the Survey rows (matched by `(team, name)`); events are
-    appended on every run. Failures are logged and swallowed so a survey seed
-    bug never breaks the rest of `generate_demo_data`."""
+    Idempotent: the Survey rows are matched by `(team, name)`, and response
+    events are only emitted on the run that first creates the survey, so
+    counts do not inflate across repeated `generate_demo_data` runs. Failures
+    are logged and swallowed so a survey seed bug never breaks the rest of
+    `generate_demo_data`."""
     rng = random.Random(f"survey-seed-{team.id}")
     respondents = _collect_respondents(matrix)
     if not respondents:
@@ -238,7 +245,8 @@ def seed_demo_surveys(
             },
         )
         if not was_new:
-            print(f"  Survey '{survey.name}' already exists — appending responses.")
+            print(f"  Survey '{survey.name}' already exists — skipping response seeding.")
+            continue
 
         sample_size = min(spec["n_responses"], len(respondents))
         chosen = rng.sample(respondents, sample_size)
