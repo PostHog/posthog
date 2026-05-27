@@ -259,6 +259,7 @@ pub trait Emitter {
     /// Mark a node as position-less so downstream `with_pos` calls leave it bare. Mirrors cpp visitors that emit a node without `addPositionInfo(json, ctx)` — Python AST shows dataclass defaults (None). Example: `NamedArgument`.
     fn no_pos(&self, value: Self::Value) -> Self::Value;
     /// Override existing `start` / `end` keys, unlike the idempotent `with_pos`. Used when the outer span needs to include tokens the inner expression's wrap didn't see.
+    #[allow(dead_code)] // Position primitive retained for both backends; current span-stamping paths go through `set_field` / `with_pos`.
     fn replace_pos(&self, value: Self::Value, start: Self::Value, end: Self::Value) -> Self::Value;
 
     // ===== Inspection =====

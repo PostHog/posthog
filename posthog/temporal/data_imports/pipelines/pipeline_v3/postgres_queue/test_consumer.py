@@ -172,6 +172,35 @@ class TestProcessGroup:
         mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_halts_group_when_batch_does_not_succeed(self):
+        consumer = _make_consumer(max_attempts=3)
+        processed: list[int] = []
+
+        async def fail_on_one(batch):
+            processed.append(batch.batch_index)
+            if batch.batch_index == 1:
+                raise RuntimeError("boom")
+
+        consumer._process_batch = fail_on_one
+
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        # batch 2 must not be processed once batch 1 enters waiting_retry
+        assert processed == [0, 1]
+
+    @pytest.mark.asyncio
     async def test_stops_on_shutdown(self):
         consumer = _make_consumer()
         processed: list[int] = []
@@ -224,6 +253,7 @@ class TestRecoverySweep:
             batch_id=stale_batch.id,
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
+            error_response={"error": "executing timed out — pod restart or OOM"},
         )
 
     @pytest.mark.asyncio

@@ -180,7 +180,7 @@ regex = "1.11.1"
 fancy-regex = "0.17"
 lz-str = "0.2.1"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
-tonic = { version = "0.12.3", features = ["zstd"] }
+tonic = { version = "0.12.3", features = ["zstd", "gzip"] }
 tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
   "uuid",

@@ -1,6 +1,6 @@
 import traceback
 
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ApplicationError, FailureError
 
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
@@ -15,9 +15,13 @@ def truncate_for_temporal_payload(value: str, limit: int) -> str:
 
 
 def unwrap_temporal_cause(exc: BaseException) -> ApplicationError | None:
-    if isinstance(exc, ActivityError) and isinstance(exc.cause, ApplicationError):
-        return exc.cause
-    return None
+    """Walk past Temporal's failure wrappers (ActivityError, ChildWorkflowError, …) to the underlying ApplicationError."""
+    if isinstance(exc, ApplicationError):
+        return None  # already at the leaf; nothing to unwrap
+    current: BaseException | None = exc
+    while isinstance(current, FailureError) and not isinstance(current, ApplicationError):
+        current = current.cause
+    return current if isinstance(current, ApplicationError) else None
 
 
 def resolve_exception_class(exc: BaseException) -> str:
