@@ -1755,8 +1755,8 @@ def get_teams_with_sdk_logs_records_in_period(
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
     (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
-    pre-filter on `logs34` — without it, scanning the `resource_attributes` map cluster-wide hits
-    the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+    pre-filter on the `logs` table — without it, scanning the `resource_attributes` map cluster-wide
+    hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
     """
     if not team_ids_with_logs:
         return {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}

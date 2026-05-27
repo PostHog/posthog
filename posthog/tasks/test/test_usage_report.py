@@ -2788,23 +2788,19 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
-        assert org_1_report["web_logs_records_in_period"] == 3
-        assert org_1_report["ios_logs_records_in_period"] == 2
-        assert org_1_report["react_native_logs_records_in_period"] == 4
-        assert org_1_report["android_logs_records_in_period"] == 1
-        assert org_1_report["flutter_logs_records_in_period"] == 0
-
-        assert org_1_report["teams"]["3"]["web_logs_records_in_period"] == 3
-        assert org_1_report["teams"]["3"]["ios_logs_records_in_period"] == 2
-        assert org_1_report["teams"]["3"]["android_logs_records_in_period"] == 1
-        assert org_1_report["teams"]["3"]["react_native_logs_records_in_period"] == 0
-
-        assert org_1_report["teams"]["4"]["react_native_logs_records_in_period"] == 4
-        assert org_1_report["teams"]["4"]["web_logs_records_in_period"] == 0
-        assert org_1_report["teams"]["4"]["ios_logs_records_in_period"] == 0
-
-        # Excluded by the pre-filter despite having log records.
-        assert org_1_report["teams"]["5"]["ios_logs_records_in_period"] == 0
+        # Expected per-SDK counts by scope. posthog-node (server SDK) and the infra log with no
+        # telemetry.sdk.name are not counted; flutter ships no logs yet; team 5 has log records but
+        # no app_metrics2 row, so the pre-filter drops it entirely.
+        expected_counts: dict[str, tuple[dict, dict[str, int]]] = {
+            "org": (org_1_report, {"web": 3, "ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
+            "team 3": (org_1_report["teams"]["3"], {"web": 3, "ios": 2, "android": 1, "react_native": 0}),
+            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "web": 0, "ios": 0}),
+            "team 5": (org_1_report["teams"]["5"], {"ios": 0, "web": 0}),
+        }
+        for scope, (counters, per_sdk) in expected_counts.items():
+            for sdk, expected in per_sdk.items():
+                field = f"{sdk}_logs_records_in_period"
+                assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
 
 
 @freeze_time("2022-01-10T10:00:00Z")
