@@ -6,10 +6,14 @@ import grpc
 from parameterized import parameterized
 
 from posthog.personhog_client.interceptor import (
+    CallerTagInterceptor,
     ClientNameInterceptor,
     ConsistencyHeaderInterceptor,
     _MutableClientCallDetails,
     _with_metadata,
+    get_caller_tag,
+    personhog_caller_tag,
+    set_caller_tag,
 )
 from posthog.personhog_client.proto import (
     CONSISTENCY_LEVEL_EVENTUAL,
@@ -141,3 +145,60 @@ class TestConsistencyHeaderInterceptor(BaseTest):
         self.assertEqual(len(captured_details), 1)
         metadata = dict(captured_details[0].metadata)
         self.assertEqual(metadata["x-read-consistency"], expected)
+
+
+class TestCallerTagInterceptor(BaseTest):
+    def test_injects_default_unknown_tag(self) -> None:
+        interceptor = CallerTagInterceptor()
+        original_details = _make_call_details()
+        captured_details: list[grpc.ClientCallDetails] = []
+
+        def mock_continuation(details: grpc.ClientCallDetails, request: object) -> str:
+            captured_details.append(details)
+            return "ok"
+
+        result = interceptor.intercept_unary_unary(mock_continuation, original_details, request=b"")
+
+        self.assertEqual(result, "ok")
+        metadata = dict(captured_details[0].metadata)
+        self.assertEqual(metadata["x-caller-tag"], "unknown")
+
+    def test_injects_tag_from_context(self) -> None:
+        interceptor = CallerTagInterceptor()
+        original_details = _make_call_details()
+        captured_details: list[grpc.ClientCallDetails] = []
+
+        def mock_continuation(details: grpc.ClientCallDetails, request: object) -> str:
+            captured_details.append(details)
+            return "ok"
+
+        with personhog_caller_tag("api/feature-flags"):
+            interceptor.intercept_unary_unary(mock_continuation, original_details, request=b"")
+
+        metadata = dict(captured_details[0].metadata)
+        self.assertEqual(metadata["x-caller-tag"], "api/feature-flags")
+
+
+class TestCallerTagContextManager(BaseTest):
+    def test_default_is_unknown(self) -> None:
+        self.assertEqual(get_caller_tag(), "unknown")
+
+    def test_context_manager_sets_and_resets(self) -> None:
+        self.assertEqual(get_caller_tag(), "unknown")
+        with personhog_caller_tag("celery/cohort-calculation"):
+            self.assertEqual(get_caller_tag(), "celery/cohort-calculation")
+        self.assertEqual(get_caller_tag(), "unknown")
+
+    def test_nesting(self) -> None:
+        with personhog_caller_tag("outer"):
+            self.assertEqual(get_caller_tag(), "outer")
+            with personhog_caller_tag("inner"):
+                self.assertEqual(get_caller_tag(), "inner")
+            self.assertEqual(get_caller_tag(), "outer")
+
+    def test_set_caller_tag_function(self) -> None:
+        token = set_caller_tag("manual-tag")
+        self.assertEqual(get_caller_tag(), "manual-tag")
+        from posthog.personhog_client.interceptor import _caller_tag
+
+        _caller_tag.reset(token)
