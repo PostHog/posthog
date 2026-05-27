@@ -1,5 +1,6 @@
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
+import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
@@ -83,17 +84,31 @@ export function failureKindDescription(kind: FailureKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL = 'gemini-3-flash-preview'
+export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
     { value: 'disabled', label: 'Disabled' },
 ]
 
-export const MODEL_OPTIONS: { value: string; label: string }[] = [
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
-    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3 Flash Lite' },
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = [
+    { value: ScannerModelEnumApi.Gemini3FlashPreview, label: 'Gemini 3 Flash' },
+    { value: ScannerModelEnumApi.Gemini31FlashLitePreview, label: 'Gemini 3 Flash Lite' },
 ]
+
+export function modelLabel(model: string | null | undefined): string {
+    if (!model) {
+        return '—'
+    }
+    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
+}
+
+export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
+    if (!scannerType) {
+        return '—'
+    }
+    return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
+}
 
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [
     {
@@ -123,9 +138,9 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
     },
 ]
 
-export type EditorTab = 'configuration' | 'triggers' | 'observations'
+export type EditorTab = 'observations' | 'triggers' | 'configuration'
 
-export const ALL_EDITOR_TABS: EditorTab[] = ['configuration', 'triggers', 'observations']
+export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'triggers', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string
@@ -140,6 +155,7 @@ export interface ClassifierScannerConfig {
     prompt: string
     tags: string[]
     multi_label: boolean
+    allow_freeform_tags?: boolean
 }
 
 export interface ScorerScannerConfig {

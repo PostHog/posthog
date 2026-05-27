@@ -514,7 +514,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
 ])
 
 /**
- * Get a run of a batch export on demand.
+ * Get a batch export on demand run.
 
 If the underlying batch export run has completed, we return keys to the
 generated file downloads so that users may download them by making a request
