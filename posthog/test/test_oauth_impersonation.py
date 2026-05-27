@@ -10,18 +10,25 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.signing import TimestampSigner
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 from loginas import settings as la_settings
 from parameterized import parameterized
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.oauth.views import _impersonator_id_for_request
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
 from posthog.models import OAuthApplication, User
 from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthRefreshToken
 
+TEST_OAUTH2_PROVIDER_WITH_RSA = {
+    **settings.OAUTH2_PROVIDER,
+    "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+}
 
+
+@override_settings(OAUTH2_PROVIDER=TEST_OAUTH2_PROVIDER_WITH_RSA)
 class TestImpersonationOAuthRevocation(BaseTest):
     def test_user_logged_out_revokes_only_impersonated_tokens(self) -> None:
         admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
@@ -98,6 +105,7 @@ class TestImpersonationOAuthRevocation(BaseTest):
         self.assertTrue(OAuthAccessToken.objects.filter(pk=customer_owned.pk).exists())
 
 
+@override_settings(OAUTH2_PROVIDER=TEST_OAUTH2_PROVIDER_WITH_RSA)
 class TestImpersonationOAuthTokenIssuance(APIBaseTest):
     """Code-exchange flow: tokens minted from an impersonation-tagged grant must be
     short-lived and refresh-less, so they expire at the impersonation idle timeout

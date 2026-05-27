@@ -90,6 +90,15 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # trip DEBUG-mode `UntaggedQueryError`.
         tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
 
+        # The HTTP path tags the wrapped query payload in
+        # `posthog/api/services/query.py`, but the weekly digest workflow
+        # (and any other non-HTTP caller) reaches the runner directly and
+        # leaves `log_comment.query` empty. Tag the inner query so every
+        # web-analytics row in `system.query_log` carries `dateRange`,
+        # properties, etc., and so each runner in a long-lived activity
+        # records its own payload instead of inheriting the first one.
+        tag_queries(query=self.query.model_dump(mode="json"))
+
         query_kind = getattr(self.query, "kind", "Unknown")
         breakdown_value = getattr(self.query, "breakdownBy", None)
         breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
