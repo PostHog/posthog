@@ -133,7 +133,6 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         setStep: (step: WizardStep) => ({ step }),
         setDestinationKey: (destinationKey: string) => ({ destinationKey }),
         setTriggerKey: (triggerKey: HogFunctionSubTemplateIdType) => ({ triggerKey }),
-        setKinds: (kinds: string[]) => ({ kinds }),
         setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
         restoreWizardState: (state: {
             step: WizardStep
@@ -189,7 +188,6 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         selectedKinds: [
             (logicProps.presetTriggerKinds ?? null) as string[] | null,
             {
-                setKinds: (_, { kinds }) => kinds,
                 resetWizard: () => (logicProps.presetTriggerKinds ?? null) as string[] | null,
             },
         ],
