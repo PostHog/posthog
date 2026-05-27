@@ -602,27 +602,6 @@ def test_load_property_removal_request_rejects_empty_properties():
         load_property_removal_request(context, config)
 
 
-@pytest.mark.django_db
-def test_load_property_removal_request_rejects_empty_both_properties():
-    """Both properties and person_properties empty → Failure."""
-    request = DataDeletionRequest.objects.create(
-        team_id=PROP_TEAM_ID,
-        request_type=RequestType.PROPERTY_REMOVAL,
-        events=["$pageview"],
-        properties=[],
-        person_properties=[],
-        start_time=datetime.now() - timedelta(days=7),
-        end_time=datetime.now(),
-        status=RequestStatus.APPROVED,
-    )
-
-    config = DataDeletionRequestConfig(request_id=str(request.pk))
-    context = build_op_context()
-
-    with pytest.raises(Exception, match="no properties or person_properties specified"):
-        load_property_removal_request(context, config)
-
-
 def _insert_events_with_person_properties(events: list[tuple], client: Client) -> None:
     """Insert events with (team_id, event, uuid, timestamp, person_properties_json)."""
     client.execute(

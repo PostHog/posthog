@@ -99,33 +99,18 @@ def _temp_table_name(team_id: int, request_id: str) -> str:
     return f"tmp_dag_team_{team_id}_prop_rm_{request_id[:8]}"
 
 
-def _property_filter_clause(properties: list[str]) -> str:
-    if len(properties) == 1:
-        return jsonhas_expr(properties[0], "fp_0")
-    exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+def _property_filter_clause(props: list[str], prefix: str = "fp_", column: str = "properties") -> str:
+    if len(props) == 1:
+        return jsonhas_expr(props[0], f"{prefix}0", column=column)
+    exprs = [jsonhas_expr(prop, f"{prefix}{i}", column=column) for i, prop in enumerate(props)]
     return f"({' OR '.join(exprs)})"
 
 
-def _property_filter_params(properties: list[str]) -> dict:
+def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
     params: dict[str, str] = {}
-    for i, prop in enumerate(properties):
+    for i, prop in enumerate(props):
         for j, part in enumerate(prop.split(".")):
-            params[f"fp_{i}_{j}"] = part
-    return params
-
-
-def _person_property_filter_clause(person_properties: list[str]) -> str:
-    if len(person_properties) == 1:
-        return jsonhas_expr(person_properties[0], "pp_0", column="person_properties")
-    exprs = [jsonhas_expr(prop, f"pp_{i}", column="person_properties") for i, prop in enumerate(person_properties)]
-    return f"({' OR '.join(exprs)})"
-
-
-def _person_property_filter_params(person_properties: list[str]) -> dict:
-    params: dict[str, str] = {}
-    for i, prop in enumerate(person_properties):
-        for j, part in enumerate(prop.split(".")):
-            params[f"pp_{i}_{j}"] = part
+            params[f"{prefix}{i}_{j}"] = part
     return params
 
 
@@ -138,7 +123,7 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
         **_property_filter_params(ctx.properties),
     }
     if ctx.person_properties:
-        params.update(_person_property_filter_params(ctx.person_properties))
+        params.update(_property_filter_params(ctx.person_properties, prefix="pp_"))
     return params
 
 
@@ -220,7 +205,9 @@ def _property_removal_where(
     if mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(mat_cols))
     if ctx.person_properties:
-        presence_clauses.append(_person_property_filter_clause(ctx.person_properties))
+        presence_clauses.append(
+            _property_filter_clause(ctx.person_properties, prefix="pp_", column="person_properties")
+        )
     if person_mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(person_mat_cols))
     if not presence_clauses:
@@ -610,8 +597,10 @@ def process_property_removal_per_shard(
             log_query(label, sql)
             return client.execute(sql, params, settings=settings)
 
-        affected_mat_cols = _get_affected_mat_columns(
-            client, "events", properties, table_column="properties", log=log_query
+        affected_mat_cols = (
+            _get_affected_mat_columns(client, "events", properties, table_column="properties", log=log_query)
+            if properties
+            else []
         )
         affected_person_mat_cols = (
             _get_affected_mat_columns(
@@ -673,12 +662,12 @@ def process_property_removal_per_shard(
             verify_clauses.append(_property_filter_clause(properties))
             verify_clauses.extend(_mat_col_presence_clauses(affected_mat_cols))
         if person_properties:
-            verify_clauses.append(_person_property_filter_clause(person_properties))
+            verify_clauses.append(_property_filter_clause(person_properties, prefix="pp_", column="person_properties"))
             verify_clauses.extend(_mat_col_presence_clauses(affected_person_mat_cols))
         verify_predicate = f"({' OR '.join(verify_clauses)})" if len(verify_clauses) > 1 else verify_clauses[0]
         verify_params: dict = {**_property_filter_params(properties)}
         if person_properties:
-            verify_params.update(_person_property_filter_params(person_properties))
+            verify_params.update(_property_filter_params(person_properties, prefix="pp_"))
         remaining = execute(
             "verify-temp-clean",
             f"SELECT count() FROM {db}.{temp} WHERE {verify_predicate}",
