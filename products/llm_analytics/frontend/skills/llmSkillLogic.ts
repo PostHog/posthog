@@ -138,7 +138,10 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         loadFileContents: true,
         setFileContentsLoading: (loading: boolean) => ({ loading }),
         toggleOutlineExpanded: true,
-        setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
+        setDiffFromVersion: (version: number) => ({ version }),
+        setDiffToVersion: (version: number) => ({ version }),
+        openDiff: true,
+        closeDiff: true,
     }),
 
     reducers(({ props }) => ({
@@ -183,17 +186,35 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 setMode: (_, { mode }) => mode,
             },
         ],
-        compareVersion: [
+        diffFromVersion: [
             null as number | null,
             {
-                setCompareVersion: (_, { compareVersion }) => compareVersion,
+                setDiffFromVersion: (_, { version }) => version,
+                closeDiff: () => null,
                 loadSkillSuccess: () => null,
             },
         ],
-        compareSkill: [
+        diffToVersion: [
+            null as number | null,
+            {
+                setDiffToVersion: (_, { version }) => version,
+                closeDiff: () => null,
+                loadSkillSuccess: () => null,
+            },
+        ],
+        diffFromSkill: [
             null as LLMSkillApi | null,
             {
-                setCompareVersion: () => null,
+                setDiffFromVersion: () => null,
+                closeDiff: () => null,
+                loadSkillSuccess: () => null,
+            },
+        ],
+        diffToSkill: [
+            null as LLMSkillApi | null,
+            {
+                setDiffToVersion: () => null,
+                closeDiff: () => null,
                 loadSkillSuccess: () => null,
             },
         ],
@@ -207,9 +228,16 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     version: props.selectedVersion ?? undefined,
                 }),
         },
-        compareSkill: {
+        diffFromSkill: {
             __default: null as LLMSkillApi | null,
-            loadCompareSkill: async (version: number) => {
+            loadDiffFromSkill: async (version: number) => {
+                const resolved = await fetchResolvedSkill(props.skillName, { version, limit: 1 })
+                return resolved as LLMSkillApi
+            },
+        },
+        diffToSkill: {
+            __default: null as LLMSkillApi | null,
+            loadDiffToSkill: async (version: number) => {
                 const resolved = await fetchResolvedSkill(props.skillName, { version, limit: 1 })
                 return resolved as LLMSkillApi
             },
@@ -382,22 +410,49 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
 
         canLoadMoreVersions: [(s) => [s.skill], (skill) => (isSkill(skill) ? skill.has_more : false)],
 
-        isDiffVisible: [(s) => [s.compareVersion], (compareVersion): boolean => compareVersion !== null],
+        isDiffVisible: [
+            (s) => [s.diffFromVersion, s.diffToVersion],
+            (from, to): boolean => from !== null && to !== null,
+        ],
 
         canCompareVersions: [(s) => [s.skill], (skill): boolean => isSkill(skill) && skill.version_count > 1],
 
-        compareVersionOptions: [
+        diffVersionOptions: [
             (s) => [s.skill, s.versions],
             (skill, versions: LLMSkillVersionSummaryApi[]): Array<{ value: number; label: string }> => {
                 if (!isSkill(skill)) {
                     return []
                 }
-                return versions
-                    .filter((v) => v.version !== skill.version)
-                    .map((v) => ({
-                        value: v.version,
-                        label: `v${v.version}${v.is_latest ? ' (latest)' : ''}`,
-                    }))
+                return versions.map((v) => ({
+                    value: v.version,
+                    label: `v${v.version}${v.is_latest ? ' (latest)' : ''}`,
+                }))
+            },
+        ],
+
+        diffFromBody: [
+            (s) => [s.skill, s.diffFromVersion, s.diffFromSkill],
+            (skill, fromVersion, diffFromSkill): string | null => {
+                if (fromVersion === null) {
+                    return null
+                }
+                if (isSkill(skill) && fromVersion === skill.version) {
+                    return skill.body
+                }
+                return diffFromSkill?.body ?? null
+            },
+        ],
+
+        diffToBody: [
+            (s) => [s.skill, s.diffToVersion, s.diffToSkill],
+            (skill, toVersion, diffToSkill): string | null => {
+                if (toVersion === null) {
+                    return null
+                }
+                if (isSkill(skill) && toVersion === skill.version) {
+                    return skill.body
+                }
+                return diffToSkill?.body ?? null
             },
         ],
     }),
@@ -494,13 +549,38 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             }
         },
 
-        setCompareVersion: ({ compareVersion }) => {
-            if (compareVersion !== null) {
-                actions.loadCompareSkill(compareVersion)
+        setDiffFromVersion: ({ version }) => {
+            if (isSkill(values.skill) && version !== values.skill.version) {
+                actions.loadDiffFromSkill(version)
             }
         },
 
-        loadCompareSkillFailure: () => {
+        setDiffToVersion: ({ version }) => {
+            if (isSkill(values.skill) && version !== values.skill.version) {
+                actions.loadDiffToSkill(version)
+            }
+        },
+
+        openDiff: () => {
+            if (!isSkill(values.skill)) {
+                return
+            }
+            const currentVersion = values.skill.version
+            const olderVersions = values.versions.filter((v) => v.version < currentVersion)
+            const previousVersion = olderVersions.find((v) => v.version === currentVersion - 1)
+            const fromVersion = previousVersion?.version ?? olderVersions[0]?.version
+            if (fromVersion === undefined) {
+                return
+            }
+            actions.setDiffFromVersion(fromVersion)
+            actions.setDiffToVersion(currentVersion)
+        },
+
+        loadDiffFromSkillFailure: () => {
+            lemonToast.error('Failed to load comparison version')
+        },
+
+        loadDiffToSkillFailure: () => {
             lemonToast.error('Failed to load comparison version')
         },
     })),

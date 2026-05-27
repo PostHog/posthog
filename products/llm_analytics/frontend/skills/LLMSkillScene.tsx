@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -26,11 +26,10 @@ import { MarkdownOutline } from '../components/MarkdownOutline'
 import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
+import { SkillVersionDiff } from './SkillVersionDiff'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
-
-const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
@@ -252,10 +251,22 @@ export function LLMSkillScene(): JSX.Element {
 }
 
 function SkillViewDetails(): JSX.Element {
-    const { skill, isOutlineExpanded, isDiffVisible, canCompareVersions, compareVersionOptions } =
-        useValues(llmSkillLogic)
+    const {
+        skill,
+        isOutlineExpanded,
+        isDiffVisible,
+        canCompareVersions,
+        diffVersionOptions,
+        diffFromVersion,
+        diffToVersion,
+        diffFromBody,
+        diffToBody,
+        diffFromSkillLoading,
+        diffToSkillLoading,
+    } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
-    const { toggleOutlineExpanded, setCompareVersion } = useActions(llmSkillLogic)
+    const { toggleOutlineExpanded, openDiff, closeDiff, setDiffFromVersion, setDiffToVersion } =
+        useActions(llmSkillLogic)
     const markdownContainerRef = useRef<HTMLDivElement | null>(null)
     const selectedFilePath = typeof searchParams?.file === 'string' ? searchParams.file : null
 
@@ -331,27 +342,25 @@ function SkillViewDetails(): JSX.Element {
                             size="xsmall"
                             type={isDiffVisible ? 'primary' : 'secondary'}
                             icon={<IconColumns />}
-                            onClick={() => {
-                                if (isDiffVisible) {
-                                    setCompareVersion(null)
-                                } else {
-                                    const firstOption = compareVersionOptions[0]?.value
-                                    const defaultVersion = compareVersionOptions.some(
-                                        (o) => o.value === skill.version - 1
-                                    )
-                                        ? skill.version - 1
-                                        : (firstOption ?? null)
-                                    setCompareVersion(defaultVersion)
-                                }
-                            }}
+                            onClick={() => (isDiffVisible ? closeDiff() : openDiff())}
                             data-attr="llma-skill-compare-versions-button"
                         >
                             Compare versions
                         </LemonButton>
                     )}
                 </div>
-                {isDiffVisible ? (
-                    <SkillDiffView />
+                {isDiffVisible && diffFromVersion !== null && diffToVersion !== null ? (
+                    <SkillVersionDiff
+                        fromVersion={diffFromVersion}
+                        toVersion={diffToVersion}
+                        fromBody={diffFromBody}
+                        toBody={diffToBody}
+                        isFromLoading={diffFromSkillLoading}
+                        isToLoading={diffToSkillLoading}
+                        versionOptions={diffVersionOptions}
+                        onFromVersionChange={setDiffFromVersion}
+                        onToVersionChange={setDiffToVersion}
+                    />
                 ) : (
                     <>
                         <MarkdownOutline
@@ -399,74 +408,6 @@ function SkillViewDetails(): JSX.Element {
                 <div>Published {dayjs(skill.created_at).format('MMM D, YYYY h:mm A')}</div>
                 <div>First version created {dayjs(skill.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
-        </div>
-    )
-}
-
-function SkillDiffView(): JSX.Element {
-    const { skill, compareSkill, compareSkillLoading, compareVersion, compareVersionOptions } = useValues(llmSkillLogic)
-    const { setCompareVersion } = useActions(llmSkillLogic)
-
-    if (!skill || !isSkill(skill)) {
-        return <></>
-    }
-
-    const currentVersion = skill.version
-    const original = compareSkill?.body ?? ''
-    const modified = skill.body
-
-    return (
-        <div className="mt-2 space-y-3" data-attr="llma-skill-diff-view">
-            <div className="flex items-center gap-2">
-                <span className="text-sm text-secondary">Comparing</span>
-                <LemonSelect
-                    size="small"
-                    value={compareVersion}
-                    options={compareVersionOptions}
-                    onChange={(value) => setCompareVersion(value)}
-                    data-attr="llma-skill-diff-version-select"
-                />
-                <span className="text-sm text-secondary">with v{currentVersion} (current)</span>
-            </div>
-            {compareSkillLoading ? (
-                <div className="space-y-2 rounded border p-4">
-                    <LemonSkeleton active className="h-4 w-full" />
-                    <LemonSkeleton active className="h-4 w-3/4" />
-                    <LemonSkeleton active className="h-4 w-1/2" />
-                </div>
-            ) : !compareSkill ? (
-                <LemonBanner type="warning">
-                    Failed to load version for comparison. Try selecting a different version.
-                </LemonBanner>
-            ) : (
-                <div className="overflow-hidden rounded border">
-                    <Suspense
-                        fallback={
-                            <div className="space-y-2 p-4">
-                                <LemonSkeleton active className="h-4 w-full" />
-                                <LemonSkeleton active className="h-4 w-3/4" />
-                            </div>
-                        }
-                    >
-                        <MonacoDiffEditor
-                            original={original}
-                            value={modified}
-                            modified={modified}
-                            language="markdown"
-                            options={{
-                                readOnly: true,
-                                renderSideBySide: true,
-                                minimap: { enabled: false },
-                                scrollBeyondLastLine: false,
-                                wordWrap: 'on',
-                                lineNumbers: 'off',
-                                folding: false,
-                                hideUnchangedRegions: { enabled: true },
-                            }}
-                        />
-                    </Suspense>
-                </div>
-            )}
         </div>
     )
 }
@@ -844,8 +785,8 @@ function SkillVersionSidebar({
     loadMoreVersions: () => void
     searchParams: Record<string, any>
 }): JSX.Element {
-    const { compareVersion } = useValues(llmSkillLogic)
-    const { setCompareVersion } = useActions(llmSkillLogic)
+    const { diffFromVersion, isDiffVisible } = useValues(llmSkillLogic)
+    const { setDiffFromVersion, setDiffToVersion, closeDiff } = useActions(llmSkillLogic)
 
     return (
         <aside className="w-full shrink-0 2xl:sticky 2xl:top-4 2xl:mt-3 2xl:w-80">
@@ -862,7 +803,8 @@ function SkillVersionSidebar({
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                     {versions.map((versionSkill) => {
                         const selected = skill?.id === versionSkill.id
-                        const isCompareTarget = compareVersion === versionSkill.version
+                        const isCompareTarget =
+                            isDiffVisible && diffFromVersion === versionSkill.version && !selected
                         const canCompare = skill?.version !== versionSkill.version
                         const cleanedParams = { ...searchParams }
                         delete cleanedParams.edit
@@ -898,7 +840,7 @@ function SkillVersionSidebar({
                                             </LemonTag>
                                         ) : null}
                                     </div>
-                                    {canCompare && (
+                                    {canCompare && skill && (
                                         <LemonButton
                                             size="xsmall"
                                             noPadding
@@ -911,7 +853,12 @@ function SkillVersionSidebar({
                                             onClick={(e) => {
                                                 e.preventDefault()
                                                 e.stopPropagation()
-                                                setCompareVersion(isCompareTarget ? null : versionSkill.version)
+                                                if (isCompareTarget) {
+                                                    closeDiff()
+                                                } else {
+                                                    setDiffFromVersion(versionSkill.version)
+                                                    setDiffToVersion(skill.version)
+                                                }
                                             }}
                                             data-attr={`llma-skill-compare-version-${versionSkill.version}`}
                                         />
