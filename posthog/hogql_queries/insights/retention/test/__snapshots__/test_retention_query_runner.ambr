@@ -6,9 +6,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT events.`$group_0` AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -49,9 +50,10 @@
             actor_activity.actor_id AS key
      FROM
        (SELECT events.`$group_0` AS actor_id,
-               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS start_event_timestamps,
+               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS _shared_event_timestamps,
+               _shared_event_timestamps AS start_event_timestamps,
                arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS return_event_timestamps,
+               _shared_event_timestamps AS return_event_timestamps,
                arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
                arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
         FROM events
@@ -82,9 +84,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT events.`$group_1` AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -114,9 +117,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT events.`$group_0` AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -157,9 +161,10 @@
             actor_activity.actor_id AS key
      FROM
        (SELECT events.`$group_0` AS actor_id,
-               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS start_event_timestamps,
+               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS _shared_event_timestamps,
+               _shared_event_timestamps AS start_event_timestamps,
                arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS return_event_timestamps,
+               _shared_event_timestamps AS return_event_timestamps,
                arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
                arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
         FROM events
@@ -190,9 +195,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT events.`$group_1` AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-26 00:00:00.000000', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -222,9 +228,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(x)), range(0, 11)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 3), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -311,9 +318,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(x)), range(0, 11)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 3), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -400,9 +408,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(x)), range(0, 11)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 11), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -448,9 +457,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(x)), range(0, 11)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 11), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -751,9 +761,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(x)), range(0, 11)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 11), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -790,9 +801,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'US/Pacific')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'US/Pacific')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(x)), range(0, 11)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'US/Pacific')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 11), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -829,9 +841,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
@@ -868,9 +881,10 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-08 00:00:00', 'UTC')), 3)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS start_event_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-08 00:00:00', 'UTC')), 3)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _shared_event_timestamps,
+            _shared_event_timestamps AS start_event_timestamps,
             arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2020-06-08 00:00:00', 'UTC')), 3), toIntervalWeek(x)), range(0, 7)) AS date_range,
-            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-08 00:00:00', 'UTC')), 3)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            _shared_event_timestamps AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date, _start_event_timestamps) -> if(has(_start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range, arrayResize([start_event_timestamps], length(date_range), start_event_timestamps)))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 7), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
      FROM events
