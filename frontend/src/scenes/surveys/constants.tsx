@@ -515,7 +515,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             url: '',
             seenSurveyWaitPeriodInDays: 14,
             actions: null,
-            events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+            events: { repeatedActivation: true, values: [{ name: '$pageview' }] },
         },
         description: 'Get user context when errors occur to debug faster.',
         tagType: 'default',
