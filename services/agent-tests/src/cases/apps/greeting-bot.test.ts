@@ -21,9 +21,9 @@ import { resolve } from 'node:path'
 
 import { bundleAndUpload } from '../../harness/bundle'
 import { chatFlow } from '../../harness/chat'
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
-import { DEFAULT_TEST_MODEL, REAL_LLM, describeRealLlm } from '../../harness/llm'
+import { REAL_LLM, describeRealLlm } from '../../harness/llm'
 
 // Path to the fixture project. Bundling compiles its TS so the path needs
 // to point at the source tree (not dist) regardless of where jest runs from.
@@ -41,16 +41,10 @@ describeRealLlm('app: greeting bot (real Claude, two-turn chat)', () => {
             return
         }
 
-        // The runner subprocess loads the SDK natively in its own node
-        // process — no in-jest ESM/CJS dance needed. `ANTHROPIC_API_KEY`
-        // and `ANTHROPIC_MODEL` flow through `opts.env`.
-        cluster = await startCluster({
-            executor: 'sdk',
-            env: {
-                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
-                ANTHROPIC_MODEL: DEFAULT_TEST_MODEL,
-            },
-        })
+        // Shared runner is started with ANTHROPIC_API_KEY by globalSetup.
+        // Apps with no `__TEST_EXECUTOR` marker fall through to the real
+        // SDK executor — exactly what this test wants.
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
 
         const uploaded = await bundleAndUpload(cluster.cleanup, FIXTURE_DIR)
@@ -63,11 +57,7 @@ describeRealLlm('app: greeting bot (real Claude, two-turn chat)', () => {
     }, 60_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('asks for the user name on the first turn, then greets the name on the second', async () => {

@@ -18,28 +18,28 @@ import { collectSse, post, waitForStatus } from '../../harness/clients'
  * `collectSse` closes the connection as soon as it sees `session_completed`
  * — no need for a separate timeout/teardown.
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp } from '../../harness/fixtures'
 
 describe('/listen SSE e2e', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ executor: 'slow-cancellable' })
+        cluster = await openSharedCluster()
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('streams the run lifecycle as SSE events terminating in session_completed', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'listen-public',
             auth: { type: 'public' },
+            // Use the slow-cancellable executor so the runner sleeps long
+            // enough for the SSE subscriber to attach before the events
+            // start flowing (Redis pubsub has no replay).
+            encryptedEnv: { __TEST_EXECUTOR: 'slow-cancellable' },
         })
 
         const run = await post(cluster, app.slug)

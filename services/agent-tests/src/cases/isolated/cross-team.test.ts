@@ -21,7 +21,7 @@ import { post, readPrincipal } from '../../harness/clients'
  * Also verifies that when team B's PAT does authenticate the stamped
  * principal correctly reflects team B's orgId — not a hardcoded 1.
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, createSecondaryTeam, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_A_SECRET = 'e2e-team-a-secret'
@@ -32,18 +32,14 @@ describe('cross-team PAT isolation', () => {
     let teamBId: number
 
     beforeAll(async () => {
-        cluster = await startCluster()
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_A_SECRET)
         const teamB = await createSecondaryTeam(cluster.cleanup, 'e2e-team-b', TEAM_B_SECRET)
         teamBId = teamB.teamId
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('team A PAT against a team B agent → 401 (team-scoping closure rejects)', async () => {

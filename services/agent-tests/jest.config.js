@@ -15,6 +15,17 @@ module.exports = {
     testMatch: ['<rootDir>/src/cases/**/*.test.ts'],
     // Real DB + Kafka + ClickHouse round trips need more headroom than unit tests.
     testTimeout: 30_000,
+    // Boot one shared ingress + runner for the entire test run. The router
+    // executor dispatches per-app via `__TEST_EXECUTOR` in encrypted_env,
+    // so every suite hits the same bins. Cuts suite startup from ~5s × N
+    // suites to ~5s total. See src/harness/global-setup.ts.
+    globalSetup: '<rootDir>/src/harness/global-setup.ts',
+    globalTeardown: '<rootDir>/src/harness/global-teardown.ts',
+    // Force serial execution. Suites are designed to share the cluster
+    // and isolate via unique app slugs; parallel workers would each open
+    // their own pools (fine) but per-test cleanup ordering across
+    // workers is harder to reason about. Local dev cost is already low.
+    maxWorkers: 1,
     moduleNameMapper: {
         // @repo/ass-server is workspace-linked from agent-stack; the dual
         // ESM+CJS bundle's `exports` field isn't followed by jest's CJS

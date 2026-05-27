@@ -12,34 +12,35 @@ import { post, postSlack, send } from '../../harness/clients'
  * a PAT caller authenticates but the service principal it produces
  * doesn't match the session's user principal — 403.
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-strict-team-secret'
 const SLACK_SIGNING_SECRET = 'e2e-strict-slack-signing'
+// `__TEST_EXECUTOR` routes the shared runner to the principal-echo stub
+// per-app; `SLACK_SIGNING_SECRET` is referenced by the Slack-triggered
+// app's trigger config. Both flow through encrypted_env.
+const APP_ENV = { __TEST_EXECUTOR: 'principal-echo', SLACK_SIGNING_SECRET }
 
 describe('strict principal-match on /send', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({
-            executor: 'principal-echo',
-            secrets: { SLACK_SIGNING_SECRET },
-        })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
         await createIdentitySpace(cluster.cleanup, 'e2e-slack')
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('pat agent: /send with the same PAT as the creator → 202', async () => {
-        const app = await createApp(cluster.cleanup, { slugSuffix: 'strict-pat-ok', auth: { type: 'pat' } })
+        const app = await createApp(cluster.cleanup, {
+            slugSuffix: 'strict-pat-ok',
+            auth: { type: 'pat' },
+            encryptedEnv: APP_ENV,
+        })
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET })
         expect(run.status).toBe(202)
         const followup = await send(cluster, app.slug, run.body.sessionId, 'hi there', { pat: TEAM_SECRET })
@@ -47,7 +48,11 @@ describe('strict principal-match on /send', () => {
     })
 
     it('pat agent: /send with wrong PAT → 401 (auth fails before strict-match)', async () => {
-        const app = await createApp(cluster.cleanup, { slugSuffix: 'strict-pat-wrong', auth: { type: 'pat' } })
+        const app = await createApp(cluster.cleanup, {
+            slugSuffix: 'strict-pat-wrong',
+            auth: { type: 'pat' },
+            encryptedEnv: APP_ENV,
+        })
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET })
         expect(run.status).toBe(202)
         const followup = await send(cluster, app.slug, run.body.sessionId, 'hi there', { pat: 'wrong-pat' })
@@ -72,6 +77,7 @@ describe('strict principal-match on /send', () => {
                     signing_secret_name: 'SLACK_SIGNING_SECRET',
                 },
             ],
+            encryptedEnv: APP_ENV,
         })
         const run = await postSlack(cluster, app.slug, {
             teamId: 'T_OWNER',
@@ -84,7 +90,11 @@ describe('strict principal-match on /send', () => {
     })
 
     it('public agent: /send without auth → 202 (both principals are null, no strict-match conflict)', async () => {
-        const app = await createApp(cluster.cleanup, { slugSuffix: 'strict-public', auth: { type: 'public' } })
+        const app = await createApp(cluster.cleanup, {
+            slugSuffix: 'strict-public',
+            auth: { type: 'public' },
+            encryptedEnv: APP_ENV,
+        })
         const run = await post(cluster, app.slug)
         expect(run.status).toBe(202)
         const followup = await send(cluster, app.slug, run.body.sessionId, 'hi there')

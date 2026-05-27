@@ -15,6 +15,8 @@ export interface PosthogDbConfig {
     maxConnections?: number
     idleTimeoutMs?: number
     statementTimeoutMs?: number
+    /** See `createAgentPgPool`. Tests turn this on so jest workers exit cleanly. */
+    allowExitOnIdle?: boolean
 }
 
 export class PosthogDbClient {
@@ -29,6 +31,7 @@ export class PosthogDbClient {
                 maxConnections: config.maxConnections,
                 idleTimeoutMs: config.idleTimeoutMs,
                 statementTimeoutMs: config.statementTimeoutMs ?? 5_000,
+                allowExitOnIdle: config.allowExitOnIdle,
             },
             10
         )

@@ -20,7 +20,7 @@ import { createHmac } from 'node:crypto'
 import supertest from 'supertest'
 
 import { hostFor } from '../../harness/clients'
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-slack-sig-team-secret'
@@ -46,7 +46,7 @@ describe('slack signature failure paths', () => {
     let slug: string
 
     beforeAll(async () => {
-        cluster = await startCluster({ secrets: { SLACK_SIGNING_SECRET } })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
         await createIdentitySpace(cluster.cleanup, 'e2e-slack-sig')
         const app = await createApp(cluster.cleanup, {
@@ -64,16 +64,13 @@ describe('slack signature failure paths', () => {
                     signing_secret_name: 'SLACK_SIGNING_SECRET',
                 },
             ],
+            encryptedEnv: { SLACK_SIGNING_SECRET },
         })
         slug = app.slug
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('missing x-slack-signature → 401', async () => {

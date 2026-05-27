@@ -20,9 +20,8 @@
  */
 import supertest from 'supertest'
 
-import { post, readSessionStatus, waitForStatus } from '../../harness/clients'
-import { hostFor } from '../../harness/clients'
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { hostFor, post, readSessionStatus, waitForStatus } from '../../harness/clients'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-cancel-team-secret'
@@ -31,22 +30,22 @@ describe('/cancel runtime e2e', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ executor: 'slow-cancellable' })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('a /cancel during a slow turn lands the session in `canceled` with a session_failed("cancelled by client") log line', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'cancel-pat',
             auth: { type: 'pat' },
+            // Routes the shared runner to the slow-cancellable executor —
+            // that's the one that subscribes to bus.subscribeInput and
+            // observes the cancel signal we send below.
+            encryptedEnv: { __TEST_EXECUTOR: 'slow-cancellable' },
         })
 
         const run = await post(cluster, app.slug, { pat: TEAM_SECRET })

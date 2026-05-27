@@ -16,7 +16,7 @@ import supertest from 'supertest'
 
 import { post } from '../../harness/clients'
 import { hostFor } from '../../harness/clients'
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-routing-team-secret'
@@ -26,16 +26,12 @@ describe('routing edges', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ secrets: { SLACK_SIGNING_SECRET } })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('agent has only a slack trigger — POST /run → 404 (no trigger for the request)', async () => {
@@ -51,6 +47,7 @@ describe('routing edges', () => {
                     signing_secret_name: 'SLACK_SIGNING_SECRET',
                 },
             ],
+            encryptedEnv: { SLACK_SIGNING_SECRET },
         })
         const res = await post(cluster, app.slug, { pat: TEAM_SECRET })
         // route() rejects: `no trigger registered for POST /run`.

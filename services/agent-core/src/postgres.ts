@@ -45,6 +45,14 @@ export interface AgentPgPoolConfig {
     idleTimeoutMs?: number
     /** Per-statement timeout. Omitted from the Pool when undefined. */
     statementTimeoutMs?: number
+    /**
+     * `pg`'s `allowExitOnIdle` flag — when true, the pool's internal idle
+     * timer is `unref()`'d, so a node process whose only pending work is
+     * an idle pg connection can exit cleanly. Default off (prod services
+     * want the pool to keep the loop alive); tests opt in so jest's
+     * worker process drops naturally after the suite finishes.
+     */
+    allowExitOnIdle?: boolean
 }
 
 /**
@@ -60,5 +68,6 @@ export function createAgentPgPool(config: AgentPgPoolConfig, defaultMax = 10): P
         max: config.maxConnections ?? defaultMax,
         idleTimeoutMillis: config.idleTimeoutMs ?? 30_000,
         ...(config.statementTimeoutMs !== undefined ? { statement_timeout: config.statementTimeoutMs } : {}),
+        ...(config.allowExitOnIdle ? { allowExitOnIdle: true } : {}),
     })
 }

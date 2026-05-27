@@ -88,21 +88,25 @@ async function main(): Promise<void> {
 
     const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
 
-    let executor: SessionExecutor
-    switch (testExecutorKind) {
-        case 'echo':
-            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=echo — running deterministic EchoExecutor, no SDK calls')
-            executor = new EchoExecutor()
-            break
-        case 'principal-echo':
-            // Pure-test affordance: render the caller principal into the
-            // assistant message so the harness can assert end-to-end
-            // (ingress → queue → runner → executor → bus → Kafka → CH).
-            // Lives here (not in the lib) because it's gated by env and
-            // never exported.
-            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=principal-echo — runs without the SDK')
-            executor = {
-                runTurn: async (input) => ({
+    // Factory map: each test-executor kind builds one `SessionExecutor`.
+    // Shared by the single-kind selector below AND the `router` kind, which
+    // dispatches per-job by reading `__TEST_EXECUTOR` from the app's
+    // decrypted env. The router model lets one shared runner serve every
+    // e2e suite without each suite spawning its own subprocess.
+    const sdkExecutor: SessionExecutor = new AssServerExecutor({
+        bundleStore,
+        repository,
+        sandboxInstances,
+        bus,
+        logProducer,
+    })
+    const testExecutors: Record<string, SessionExecutor> = {
+        echo: new EchoExecutor(),
+        // Render the caller principal into the assistant message so the
+        // harness can assert end-to-end (ingress → runner → bus → Kafka → CH).
+        'principal-echo': {
+            runTurn: (input) =>
+                Promise.resolve({
                     kind: 'completed',
                     message: {
                         role: 'assistant',
@@ -114,70 +118,90 @@ async function main(): Promise<void> {
                         principal: input.job.principal,
                     },
                 }),
-            }
-            break
-        case 'slow-cancellable':
-            // Subscribes to the session's input channel and sleeps up to 10s
-            // while watching for a `cancel`. Lets the /cancel and /listen
-            // runtime e2e tests drive the lifecycle without the real SDK:
-            //   - /cancel test posts /cancel mid-sleep → executor returns
-            //     `cancelled` → worker writes `cancelled by client`.
-            //   - /listen test attaches SSE during the sleep window, observes
-            //     turn_started → assistant_message → session_completed.
-            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=slow-cancellable — sleeps up to 10s; cancel-aware')
-            executor = {
-                runTurn: async (input) => {
-                    const sessionId = input.job.sessionId
-                    let cancelled = false
-                    const unsubscribe = await bus.subscribeInput(sessionId, (msg) => {
-                        if (msg.type === 'cancel') {
-                            cancelled = true
-                        }
-                    })
-                    try {
-                        const start = Date.now()
-                        while (!cancelled && Date.now() - start < 10_000) {
-                            await new Promise((r) => setTimeout(r, 50))
-                        }
-                    } finally {
-                        await unsubscribe().catch(() => {})
+        },
+        // Subscribes to the bus and sleeps up to 10s, observing `cancel`.
+        // Powers the /cancel and /listen runtime e2e tests.
+        'slow-cancellable': {
+            runTurn: async (input) => {
+                const sessionId = input.job.sessionId
+                let cancelled = false
+                const unsubscribe = await bus.subscribeInput(sessionId, (msg) => {
+                    if (msg.type === 'cancel') {
+                        cancelled = true
                     }
-                    if (cancelled) {
-                        return { kind: 'cancelled' }
+                })
+                try {
+                    const start = Date.now()
+                    while (!cancelled && Date.now() - start < 10_000) {
+                        await new Promise((r) => setTimeout(r, 50))
                     }
-                    return {
-                        kind: 'completed',
-                        message: {
-                            role: 'assistant',
-                            content: 'slow-cancellable: completed without cancel',
-                            at: new Date().toISOString(),
-                        },
-                        output: { ok: true },
-                    }
-                },
-            }
-            break
-        case 'failure':
-            // Deterministic `failed` outcome — the failure-path e2e test
-            // asserts the queue row lands in `failed` and the
-            // `session_failed` event reaches log_entries with this message.
-            logger.warn('AGENT_RUNNER_TEST_EXECUTOR=failure — every turn returns failed')
-            executor = {
-                runTurn: async () => ({
+                } finally {
+                    await unsubscribe().catch(() => {})
+                }
+                if (cancelled) {
+                    return { kind: 'cancelled' }
+                }
+                return {
+                    kind: 'completed',
+                    message: {
+                        role: 'assistant',
+                        content: 'slow-cancellable: completed without cancel',
+                        at: new Date().toISOString(),
+                    },
+                    output: { ok: true },
+                }
+            },
+        },
+        // Forces the worker's failure branch.
+        failure: {
+            runTurn: () =>
+                Promise.resolve({
                     kind: 'failed',
                     error: 'forced failure for e2e test',
                 }),
+        },
+        sdk: sdkExecutor,
+    }
+
+    /**
+     * Reads `__TEST_EXECUTOR` from the job's decrypted env. The harness
+     * stamps this into `encrypted_env` per app, so a SINGLE runner serves
+     * every shape of e2e test without per-suite subprocesses.
+     *
+     * Falls back to the real SDK when no marker is present. That choice is
+     * deliberate: production has no marker and we never want a router
+     * default that silently swallows real traffic.
+     */
+    const routerExecutor: SessionExecutor = {
+        runTurn: (input) => {
+            const kind = input.job.secrets.__TEST_EXECUTOR
+            if (!kind || kind === 'sdk') {
+                return sdkExecutor.runTurn(input)
             }
-            break
-        case undefined:
-        case '':
-        case 'sdk':
-            executor = new AssServerExecutor({ bundleStore, repository, sandboxInstances, bus, logProducer })
-            break
-        default:
-            throw new Error(
-                `Unknown AGENT_RUNNER_TEST_EXECUTOR='${testExecutorKind}'. Expected: echo, principal-echo, slow-cancellable, failure, sdk.`
-            )
+            const inner = testExecutors[kind]
+            if (!inner) {
+                return Promise.resolve({
+                    kind: 'failed',
+                    error: `router: unknown __TEST_EXECUTOR='${kind}' — expected one of ${Object.keys(testExecutors).join(', ')}`,
+                })
+            }
+            return inner.runTurn(input)
+        },
+    }
+
+    let executor: SessionExecutor
+    if (!testExecutorKind || testExecutorKind === 'sdk') {
+        executor = sdkExecutor
+    } else if (testExecutorKind === 'router') {
+        logger.warn('AGENT_RUNNER_TEST_EXECUTOR=router — dispatching per-job via __TEST_EXECUTOR in app env')
+        executor = routerExecutor
+    } else if (testExecutors[testExecutorKind]) {
+        logger.warn(`AGENT_RUNNER_TEST_EXECUTOR=${testExecutorKind} — single-kind test executor (legacy mode)`)
+        executor = testExecutors[testExecutorKind]
+    } else {
+        throw new Error(
+            `Unknown AGENT_RUNNER_TEST_EXECUTOR='${testExecutorKind}'. Expected: ${['router', 'sdk', ...Object.keys(testExecutors)].join(', ')}.`
+        )
     }
 
     const runner = await createRunner({

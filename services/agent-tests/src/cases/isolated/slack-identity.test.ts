@@ -5,7 +5,7 @@ import { postSlack, readPrincipal } from '../../harness/clients'
  * asserts both the stamped `user` principal AND that the AgentUser row was
  * actually persisted in the identity space.
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-slack-team-secret'
@@ -18,21 +18,20 @@ describe('Slack identity e2e', () => {
     let spaceId: string
 
     beforeAll(async () => {
-        cluster = await startCluster({ secrets: { SLACK_SIGNING_SECRET } })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
         const space = await createIdentitySpace(cluster.cleanup, 'e2e-slack')
         spaceId = space.spaceId
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     async function makeSlackAgent(suffix: string, trusted: '*' | string[]): Promise<{ slug: string }> {
+        // Slack signing secret lives in each Slack-using app's encrypted_env
+        // (the runner's default loadSecret reads it from there). The shared
+        // cluster has no per-cluster signing-secret override.
         return createApp(cluster.cleanup, {
             slugSuffix: suffix,
             auth: { type: 'webhook_signature', provider: 'slack' },
@@ -45,6 +44,7 @@ describe('Slack identity e2e', () => {
                     signing_secret_name: 'SLACK_SIGNING_SECRET',
                 },
             ],
+            encryptedEnv: { SLACK_SIGNING_SECRET },
         })
     }
 

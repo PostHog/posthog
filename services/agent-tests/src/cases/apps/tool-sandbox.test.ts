@@ -26,9 +26,9 @@ import { resolve } from 'node:path'
 
 import { bundleAndUpload } from '../../harness/bundle'
 import { chatFlow } from '../../harness/chat'
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
-import { DEFAULT_TEST_MODEL, REAL_LLM, describeRealLlm } from '../../harness/llm'
+import { REAL_LLM, describeRealLlm } from '../../harness/llm'
 
 const FIXTURE_DIR = resolve(__dirname, '../../../fixtures/tooly')
 
@@ -45,17 +45,10 @@ describeRealLlm('app: tool-using agent (custom tool runs through DockerToolSandb
             return
         }
 
-        cluster = await startCluster({
-            executor: 'sdk',
-            env: {
-                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
-                ANTHROPIC_MODEL: DEFAULT_TEST_MODEL,
-                // Pin the sandbox provider so the test fails fast and clearly
-                // if Docker isn't running — beats waiting for Modal creds to
-                // get auto-selected and then erroring on "not implemented".
-                AGENT_RUNNER_TOOL_SANDBOX: 'docker',
-            },
-        })
+        // Shared cluster boots with ANTHROPIC_API_KEY + Docker sandbox in
+        // globalSetup. This test's app has no `__TEST_EXECUTOR` marker,
+        // so the router falls through to the real SDK executor.
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
 
         const uploaded = await bundleAndUpload(cluster.cleanup, FIXTURE_DIR)
@@ -68,11 +61,7 @@ describeRealLlm('app: tool-using agent (custom tool runs through DockerToolSandb
     }, 120_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 60_000)
 
     it('calls a sandboxed custom tool and threads its output back to the user + log_entries + SandboxInstance', async () => {

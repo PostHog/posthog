@@ -13,7 +13,7 @@ import { post, readSessionStatus, waitForStatus } from '../../harness/clients'
  * production worker has a dedicated failure branch and it was previously
  * uncovered end to end.
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-failure-team-secret'
@@ -23,22 +23,19 @@ describe('runtime failure path', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ executor: 'failure' })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('an executor returning `kind: failed` walks through to a `failed` queue row + `session_failed` log entry', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'failure-pat',
             auth: { type: 'pat' },
+            encryptedEnv: { __TEST_EXECUTOR: 'failure' },
         })
 
         const res = await post(cluster, app.slug, { pat: TEAM_SECRET })

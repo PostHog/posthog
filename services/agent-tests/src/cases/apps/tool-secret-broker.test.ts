@@ -20,9 +20,9 @@ import { resolve } from 'node:path'
 
 import { bundleAndUpload } from '../../harness/bundle'
 import { chatFlow } from '../../harness/chat'
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
-import { DEFAULT_TEST_MODEL, REAL_LLM, describeRealLlm } from '../../harness/llm'
+import { REAL_LLM, describeRealLlm } from '../../harness/llm'
 
 const FIXTURE_DIR = resolve(__dirname, '../../../fixtures/wired')
 const TEAM_SECRET = 'e2e-app-wired-team-secret'
@@ -86,14 +86,7 @@ describeRealLlm('app: SecretBroker substitutes a nonce at egress and never leaks
         if (!REAL_LLM) {
             return
         }
-        cluster = await startCluster({
-            executor: 'sdk',
-            env: {
-                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
-                ANTHROPIC_MODEL: DEFAULT_TEST_MODEL,
-                AGENT_RUNNER_TOOL_SANDBOX: 'docker',
-            },
-        })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
         const uploaded = await bundleAndUpload(cluster.cleanup, FIXTURE_DIR)
         const wired = uploaded.find((b) => b.agentSlug === 'e2e-wired')
@@ -105,11 +98,7 @@ describeRealLlm('app: SecretBroker substitutes a nonce at egress and never leaks
     }, 120_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 60_000)
 
     it('calls the webhook via a substituted nonce; webhook-tester records the request, log_entries never see the URL', async () => {

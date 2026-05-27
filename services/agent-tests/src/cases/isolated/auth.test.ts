@@ -8,27 +8,28 @@ import { post, readPrincipal } from '../../harness/clients'
  * there's nothing to dequeue. The runtime path is exercised in
  * `runtime.test.ts` — this file focuses on Layer-1 caller-auth behaviour.
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-auth-team-secret'
 const SHARED_SECRET_ENV = 'E2E_SHARED_SECRET'
 const SHARED_SECRET_VALUE = 'e2e-shared-secret-value'
+// The shared-secret value lives in the app's encrypted_env now (was a
+// global override on the per-suite cluster). The ingress's default
+// loadSecret reads the app's env via `repository.decryptEnv`, so each
+// app that uses `shared_secret` auth puts the value in its own env.
+const SHARED_SECRET_APP_ENV = { [SHARED_SECRET_ENV]: SHARED_SECRET_VALUE }
 
 describe('caller-auth e2e', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({ secrets: { [SHARED_SECRET_ENV]: SHARED_SECRET_VALUE } })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     /* ===== public ===== */
@@ -103,6 +104,7 @@ describe('caller-auth e2e', () => {
             const app = await createApp(cluster.cleanup, {
                 slugSuffix: 'shared-ok',
                 auth: { type: 'shared_secret', secret_name: SHARED_SECRET_ENV, header: 'x-shared-secret' },
+                encryptedEnv: SHARED_SECRET_APP_ENV,
             })
             const res = await post(cluster, app.slug, {
                 sharedSecret: { header: 'x-shared-secret', value: SHARED_SECRET_VALUE },
@@ -119,6 +121,7 @@ describe('caller-auth e2e', () => {
             const app = await createApp(cluster.cleanup, {
                 slugSuffix: 'shared-wrong',
                 auth: { type: 'shared_secret', secret_name: SHARED_SECRET_ENV, header: 'x-shared-secret' },
+                encryptedEnv: SHARED_SECRET_APP_ENV,
             })
             const res = await post(cluster, app.slug, {
                 sharedSecret: { header: 'x-shared-secret', value: 'wrong' },
@@ -130,6 +133,7 @@ describe('caller-auth e2e', () => {
             const app = await createApp(cluster.cleanup, {
                 slugSuffix: 'shared-missing',
                 auth: { type: 'shared_secret', secret_name: SHARED_SECRET_ENV, header: 'x-shared-secret' },
+                encryptedEnv: SHARED_SECRET_APP_ENV,
             })
             const res = await post(cluster, app.slug)
             expect(res.status).toBe(401)

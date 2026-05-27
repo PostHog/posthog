@@ -10,16 +10,20 @@
  * node-level wall the moment `AssServerExecutor` resolves. Spawning each
  * service as a fresh node process sidesteps the entire CJS/ESM ladder.
  *
- * Lifecycle:
- *   - `startCluster(opts)` connects pools, spawns ingress + runner, polls
- *     ingress `/health` until ready, returns the handle.
- *   - `cluster.stop()` — SIGTERM both subprocesses, wait for clean exits,
- *     drain pools.
+ * Two lifecycle shapes:
  *
- * Tests own their cluster (one per suite). Fixtures register teardown on
- * `cluster.cleanup`; `afterAll` runs cleanup then stop.
+ *   1. `startCluster(opts)` — spawns its own ingress + runner, returns a
+ *      handle that owns both. `cluster.stop()` SIGTERMs them. Used by
+ *      tests that need an isolated cluster (e.g. a different executor).
+ *
+ *   2. `openSharedCluster()` — connects to bins spawned by the jest
+ *      globalSetup, opens this-process pools, returns the same handle
+ *      shape with a no-op `stop()`. The shared bins are torn down by
+ *      globalTeardown. Mirrors production: one ingress + one runner
+ *      serve every test app.
  */
 import { type ChildProcess, spawn } from 'node:child_process'
+import { createWriteStream, openSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { Pool } from 'pg'
 
@@ -38,6 +42,7 @@ import {
 
 import { ClickHouseClient } from './clickhouse'
 import { CleanupRegistry } from './fixtures'
+import { readSharedState } from './shared-state'
 
 loadDevEnv()
 
@@ -55,7 +60,7 @@ const ENCRYPTION_SALT = '00beef0000beef0000beef0000beef00'
 const INGRESS_BIN = resolvePath(__dirname, '../../../agent-ingress/dist/index.js')
 const RUNNER_BIN = resolvePath(__dirname, '../../../agent-runner/dist/index.js')
 
-export type ExecutorKind = 'echo' | 'principal-echo' | 'slow-cancellable' | 'failure' | 'sdk'
+export type ExecutorKind = 'echo' | 'principal-echo' | 'slow-cancellable' | 'failure' | 'sdk' | 'router'
 
 export interface ClusterOptions {
     /**
@@ -96,9 +101,69 @@ export interface AgentCluster {
 const INTERNAL_HEADER = 'x-posthog-internal'
 
 export async function startCluster(opts: ClusterOptions = {}): Promise<AgentCluster> {
-    // 1. Probe every wire fast — clear hogli pointer beats a cryptic mid-test failure.
-    const posthog = new Pool({ connectionString: POSTHOG_DB_URL })
-    const queue = new Pool({ connectionString: QUEUE_DB_URL })
+    const spawned = await spawnBins(opts)
+    return openCluster(spawned)
+}
+
+interface SharedResources {
+    spawned: SpawnedBins
+    posthog: Pool
+    queue: Pool
+    queueManager: SessionQueueManager
+    repository: ApplicationsRepository
+    encryption: EncryptedFields
+    identities: IdentitiesRepository
+    bundleStore: BundleStore
+    sandboxInstances: SandboxInstancesRepository
+    clickhouse: ClickHouseClient
+}
+
+let sharedResources: SharedResources | null = null
+
+/**
+ * Connect to bins spawned by the jest globalSetup. Opens this-worker's
+ * pools, ClickHouse client, etc. on first call and caches them — every
+ * subsequent suite reuses the same connection pools. Each call still
+ * returns a FRESH `CleanupRegistry` so suites don't step on each other's
+ * teardown ordering when their afterAll runs.
+ *
+ * `stop()` is a no-op for the bins (globalTeardown owns those) and a
+ * no-op for the pools (kept alive across suites; jest's `forceExit`
+ * tears them down at end of run).
+ */
+export async function openSharedCluster(): Promise<AgentCluster> {
+    if (!sharedResources) {
+        sharedResources = await initSharedResources()
+    }
+    const r = sharedResources
+    return {
+        ingressUrl: r.spawned.ingressUrl,
+        port: r.spawned.port,
+        posthog: r.posthog,
+        queue: r.queue,
+        queueManager: r.queueManager,
+        repository: r.repository,
+        encryption: r.encryption,
+        identities: r.identities,
+        bundleStore: r.bundleStore,
+        sandboxInstances: r.sandboxInstances,
+        clickhouse: r.clickhouse,
+        cleanup: new CleanupRegistry({ posthog: r.posthog, queue: r.queue }, r.encryption),
+        internalSecret: r.spawned.internalSecret,
+        internalHeader: INTERNAL_HEADER,
+        stop: () => Promise.resolve(),
+    }
+}
+
+async function initSharedResources(): Promise<SharedResources> {
+    // `allowExitOnIdle: true` so jest's worker process drops cleanly after
+    // the last test. Without it the pg pool's idle-connection timer keeps
+    // the event loop alive and jest hangs forever waiting for "open
+    // handles" to settle — historical workaround was `forceExit: true`,
+    // which masks real leaks. This is the proper fix.
+    const state = readSharedState()
+    const posthog = new Pool({ connectionString: POSTHOG_DB_URL, allowExitOnIdle: true })
+    const queue = new Pool({ connectionString: QUEUE_DB_URL, allowExitOnIdle: true })
     await probe(posthog, 'PostHog Postgres', POSTHOG_DB_URL)
     await probe(queue, 'queue Postgres', QUEUE_DB_URL)
 
@@ -107,20 +172,81 @@ export async function startCluster(opts: ClusterOptions = {}): Promise<AgentClus
         throw wrap(err, 'ClickHouse', CLICKHOUSE_URL)
     })
 
-    // 2. Harness-side deps for fixtures + assertions (NOT shared with the
-    //    subprocesses — those construct their own from the env we pass).
-    const posthogDb = new PosthogDbClient({ dbUrl: POSTHOG_DB_URL })
+    const posthogDb = new PosthogDbClient({ dbUrl: POSTHOG_DB_URL, allowExitOnIdle: true })
     const encryption = new EncryptedFields(ENCRYPTION_SALT)
     const repository = new ApplicationsRepository({ db: posthogDb, encryption })
     const identities = new IdentitiesRepository({ db: posthogDb })
     const sandboxInstances = new SandboxInstancesRepository({ db: posthogDb })
     const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
-    const queueManager = new SessionQueueManager({ pool: { dbUrl: QUEUE_DB_URL } })
+    const queueManager = new SessionQueueManager({ pool: { dbUrl: QUEUE_DB_URL, allowExitOnIdle: true } })
     await queueManager.connect()
 
-    // 3. Per-cluster knobs — random per run, plumbed into both subprocesses.
-    const queueName = `e2e-${Math.random().toString(36).slice(2, 10)}`
-    const internalSecret = `e2e-internal-${Math.random().toString(36).slice(2, 12)}`
+    return {
+        spawned: {
+            ingressUrl: state.ingressUrl,
+            port: state.port,
+            internalSecret: state.internalSecret,
+            queueName: state.queueName,
+            ingressProc: null,
+            runnerProc: null,
+        },
+        posthog,
+        queue,
+        queueManager,
+        repository,
+        encryption,
+        identities,
+        bundleStore,
+        sandboxInstances,
+        clickhouse,
+    }
+}
+
+export interface SpawnedBins {
+    ingressUrl: string
+    port: number
+    internalSecret: string
+    queueName: string
+    /** When connected to externally-spawned bins (e.g. globalSetup), no child handle to manage. */
+    ingressProc: ChildProcess | null
+    runnerProc: ChildProcess | null
+}
+
+/**
+ * Spawn ingress + runner subprocesses with the right env. Used by both
+ * `startCluster()` (test-suite-local cluster) and the jest globalSetup
+ * (shared cluster). Returns the child handles so the caller can manage
+ * lifecycle.
+ */
+export interface SpawnBinsOptions extends ClusterOptions {
+    /**
+     * When set, redirect ingress/runner stdout+stderr to these files
+     * instead of inheriting the parent's stdio. Used by globalSetup —
+     * the bins outlive the jest test workers, so inheriting stdio would
+     * dangle once the parent jest process exits.
+     */
+    logFiles?: { ingress: string; runner: string }
+    /**
+     * Optional override for the per-cluster internal secret / queue name.
+     * Useful in tests that need stable values across reconnects (e.g. an
+     * external supervisor). Random per cluster by default.
+     */
+    internalSecret?: string
+    queueName?: string
+}
+
+export async function spawnBins(opts: SpawnBinsOptions = {}): Promise<SpawnedBins> {
+    // Probe wires before paying the subprocess-spawn cost — clear hogli
+    // pointer beats a cryptic mid-spawn failure.
+    const probePool = new Pool({ connectionString: POSTHOG_DB_URL, max: 1 })
+    try {
+        await probe(probePool, 'PostHog Postgres', POSTHOG_DB_URL)
+    } finally {
+        await probePool.end()
+    }
+
+    const queueName = opts.queueName ?? `e2e-${Math.random().toString(36).slice(2, 10)}`
+    const internalSecret = opts.internalSecret ?? `e2e-internal-${Math.random().toString(36).slice(2, 12)}`
     const port = await pickFreePort()
     const secrets = opts.secrets ?? {}
 
@@ -147,22 +273,17 @@ export async function startCluster(opts: ClusterOptions = {}): Promise<AgentClus
         PORT: String(port),
         AGENT_INGRESS_TEST_INTERNAL_SECRET: internalSecret,
         AGENT_INGRESS_TEST_SECRETS_JSON: JSON.stringify(secrets),
+        AGENT_INGRESS_QUEUE_NAME: queueName,
     }
     const runnerEnv: NodeJS.ProcessEnv = {
         ...sharedEnv,
         AGENT_RUNNER_TEST_EXECUTOR: opts.executor ?? 'echo',
-        // The runner's stub executors don't need a key; the sdk executor does.
-        // Caller threads ANTHROPIC_API_KEY through opts.env in that case.
     }
-    // Ingress doesn't enqueue with a `queueName` override yet via env. We
-    // wire it indirectly: ingress reads the queue name from a dedicated
-    // env (added below), passes it via createIngress(overrides.queueName).
-    ingressEnv.AGENT_INGRESS_QUEUE_NAME = queueName
 
-    const ingressProc = spawnService('agent-ingress', INGRESS_BIN, ingressEnv)
-    const runnerProc = spawnService('agent-runner', RUNNER_BIN, runnerEnv)
+    const ingressProc = spawnService('agent-ingress', INGRESS_BIN, ingressEnv, opts.logFiles?.ingress)
+    const runnerProc = spawnService('agent-runner', RUNNER_BIN, runnerEnv, opts.logFiles?.runner)
 
-    // 4. Wait for ingress to bind. /health is unguarded; we just need a 2xx.
+    // Wait for ingress to bind. /health is unguarded; we just need a 2xx.
     const ingressUrl = `http://127.0.0.1:${port}`
     try {
         await waitForHealth(ingressUrl, { timeoutMs: 30_000 })
@@ -172,11 +293,41 @@ export async function startCluster(opts: ClusterOptions = {}): Promise<AgentClus
         throw err
     }
 
+    return { ingressUrl, port, internalSecret, queueName, ingressProc, runnerProc }
+}
+
+/**
+ * Open this-process resources (pools, ClickHouse client, fixtures registry)
+ * attached to the given bins. `stop()` SIGTERMs any owned child processes
+ * and closes this-process pools — caller-owned bins (i.e. `ingressProc:
+ * null`) are left alone for the external supervisor (globalTeardown) to
+ * handle.
+ */
+async function openCluster(spawned: SpawnedBins): Promise<AgentCluster> {
+    const posthog = new Pool({ connectionString: POSTHOG_DB_URL })
+    const queue = new Pool({ connectionString: QUEUE_DB_URL })
+    await probe(posthog, 'PostHog Postgres', POSTHOG_DB_URL)
+    await probe(queue, 'queue Postgres', QUEUE_DB_URL)
+
+    const clickhouse = new ClickHouseClient({ url: CLICKHOUSE_URL })
+    await clickhouse.ping().catch((err) => {
+        throw wrap(err, 'ClickHouse', CLICKHOUSE_URL)
+    })
+
+    const posthogDb = new PosthogDbClient({ dbUrl: POSTHOG_DB_URL })
+    const encryption = new EncryptedFields(ENCRYPTION_SALT)
+    const repository = new ApplicationsRepository({ db: posthogDb, encryption })
+    const identities = new IdentitiesRepository({ db: posthogDb })
+    const sandboxInstances = new SandboxInstancesRepository({ db: posthogDb })
+    const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
+    const queueManager = new SessionQueueManager({ pool: { dbUrl: QUEUE_DB_URL } })
+    await queueManager.connect()
+
     const cleanup = new CleanupRegistry({ posthog, queue }, encryption)
 
     return {
-        ingressUrl,
-        port,
+        ingressUrl: spawned.ingressUrl,
+        port: spawned.port,
         posthog,
         queue,
         queueManager,
@@ -187,11 +338,17 @@ export async function startCluster(opts: ClusterOptions = {}): Promise<AgentClus
         sandboxInstances,
         clickhouse,
         cleanup,
-        internalSecret,
+        internalSecret: spawned.internalSecret,
         internalHeader: INTERNAL_HEADER,
         async stop() {
-            await terminate(ingressProc, 'agent-ingress')
-            await terminate(runnerProc, 'agent-runner')
+            // External supervisor (globalTeardown) handles the bins when
+            // these are null — only close this-process resources.
+            if (spawned.ingressProc) {
+                await terminate(spawned.ingressProc, 'agent-ingress')
+            }
+            if (spawned.runnerProc) {
+                await terminate(spawned.runnerProc, 'agent-runner')
+            }
             await queueManager.disconnect()
             await posthogDb.disconnect()
             await posthog.end()
@@ -222,15 +379,32 @@ function wrap(err: unknown, wire: string, target: string): Error {
  * runner / ingress logs are visible during a test run; stdout is piped
  * (and discarded) to keep jest's output clean.
  */
-function spawnService(name: string, bin: string, env: NodeJS.ProcessEnv): ChildProcess {
-    const child = spawn(process.execPath, [bin], {
-        env,
-        // stdout → ignore (chatty pino logs); stderr → inherit so genuine
-        // errors land in the jest output. Set AGENT_TESTS_VERBOSE=1 to
-        // inherit stdout too — useful when debugging "why isn't this
-        // service doing X" questions.
-        stdio: ['ignore', process.env.AGENT_TESTS_VERBOSE ? 'inherit' : 'ignore', 'inherit'],
-    })
+function spawnService(name: string, bin: string, env: NodeJS.ProcessEnv, logFile?: string): ChildProcess {
+    // When logFile is set, stdout+stderr go to the file (used by
+    // globalSetup — the bins outlive jest workers, so file-backed logs
+    // are the only persistent way to inspect them).
+    // Otherwise inherit stderr (genuine errors land in jest output); stdout
+    // is gated on AGENT_TESTS_VERBOSE to avoid drowning the test report.
+    const child = logFile
+        ? (() => {
+              // Truncate-on-open to keep dev tail-able and avoid append-bloat
+              // across runs; the previous run's logs are gone.
+              const fd = openSync(logFile, 'w')
+              try {
+                  const writer = createWriteStream(logFile, { flags: 'a', fd })
+                  writer.write(`[${new Date().toISOString()}] ${name} spawned with PID …\n`)
+              } catch {
+                  /* logging is best-effort */
+              }
+              return spawn(process.execPath, [bin], {
+                  env,
+                  stdio: ['ignore', fd, fd],
+              })
+          })()
+        : spawn(process.execPath, [bin], {
+              env,
+              stdio: ['ignore', process.env.AGENT_TESTS_VERBOSE ? 'inherit' : 'ignore', 'inherit'],
+          })
     child.on('exit', (code, signal) => {
         if (code !== null && code !== 0) {
             logger.warn({ name, code, signal }, 'subprocess exited with non-zero code')

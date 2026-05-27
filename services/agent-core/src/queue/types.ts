@@ -8,6 +8,8 @@ export interface PoolConfig {
     dbUrl: string
     maxConnections?: number
     idleTimeoutMs?: number
+    /** See `createAgentPgPool`. Tests turn this on so jest workers exit cleanly. */
+    allowExitOnIdle?: boolean
 }
 
 const uuidSchema = z.string().uuid()

@@ -19,38 +19,37 @@ import { post, postSlack, readPrincipal, waitForStatus } from '../../harness/cli
  *   2. agent_sessions.principal matches what was stamped → ingress persisted it
  *   3. log_entries(instance_id=sessionId) has rows       → Kafka→CH path is alive
  */
-import { type AgentCluster, startCluster } from '../../harness/cluster'
+import { type AgentCluster, openSharedCluster } from '../../harness/cluster'
 import { renderPrincipal } from '../../harness/executors'
 import { createApp, createIdentitySpace, setTeamSecret } from '../../harness/fixtures'
 
 const TEAM_SECRET = 'e2e-runtime-team-secret'
 const SLACK_SIGNING_SECRET = 'e2e-runtime-slack-signing'
 const TRUSTED_WORKSPACE = 'T_RUNTIME_OWNER'
+// Stamped into every app this suite creates: __TEST_EXECUTOR routes the
+// shared runner's per-job dispatcher to `principal-echo`, and the Slack
+// signing secret is referenced by `signing_secret_name: SLACK_SIGNING_SECRET`
+// in the slack-triggered app's trigger config.
+const APP_ENV = { __TEST_EXECUTOR: 'principal-echo', SLACK_SIGNING_SECRET }
 
 describe('runtime: ingress → runner → executor → logs', () => {
     let cluster: AgentCluster
 
     beforeAll(async () => {
-        cluster = await startCluster({
-            executor: 'principal-echo',
-            secrets: { SLACK_SIGNING_SECRET },
-        })
+        cluster = await openSharedCluster()
         await setTeamSecret(cluster.cleanup, TEAM_SECRET)
         await createIdentitySpace(cluster.cleanup, 'e2e-slack')
     }, 30_000)
 
     afterAll(async () => {
-        if (!cluster) {
-            return
-        }
-        await cluster.cleanup.runAll()
-        await cluster.stop()
+        await cluster?.cleanup.runAll()
     }, 30_000)
 
     it('a pat-auth agent enqueues, runs, surfaces the principal in the assistant message, and lands it in ClickHouse', async () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'runtime-pat',
             auth: { type: 'pat' },
+            encryptedEnv: APP_ENV,
         })
 
         // 1. POST /run with a valid PAT.
@@ -105,6 +104,7 @@ describe('runtime: ingress → runner → executor → logs', () => {
                     signing_secret_name: 'SLACK_SIGNING_SECRET',
                 },
             ],
+            encryptedEnv: APP_ENV,
         })
 
         const res = await postSlack(cluster, app.slug, {
@@ -135,6 +135,7 @@ describe('runtime: ingress → runner → executor → logs', () => {
         const app = await createApp(cluster.cleanup, {
             slugSuffix: 'runtime-public',
             auth: { type: 'public' },
+            encryptedEnv: APP_ENV,
         })
         const res = await post(cluster, app.slug)
         expect(res.status).toBe(202)
