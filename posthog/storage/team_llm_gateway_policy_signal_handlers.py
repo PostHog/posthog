@@ -15,7 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models.signals import post_save, pre_delete, pre_save
+from django.db.models.signals import post_init, post_save, pre_delete
 
 import structlog
 
@@ -26,36 +26,34 @@ from posthog.tasks.team_llm_gateway_policy import update_team_llm_gateway_policy
 
 logger = structlog.get_logger(__name__)
 
+# Stashes the api_token a Team instance was loaded/constructed with, so post_save
+# can detect a rotation without re-reading the row from the DB.
+_LOADED_API_TOKEN_ATTR = "_llm_gateway_loaded_api_token"
 
-def _capture_old_api_token(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+
+def _snapshot_api_token(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """
-    Stash the previous api_token on the instance so the post_save handler can
-    invalidate the cache entry keyed by the OLD token after a rotation. The
-    post_save handler pops it once read, so a kept-alive instance saved twice
-    (A->B->C) re-snapshots on each save instead of clearing A twice.
+    Record the instance's current api_token on post_init so the post_save handler
+    can spot a rotation by comparison. This is the from_db-snapshot pattern: it
+    adds no query (api_token has a field default, so it is populated at __init__),
+    unlike a pre_save SELECT which would add one DB read to every Team.save().
+    Skip when api_token is deferred (e.g. a .only() fetch) so we never trigger a
+    lazy load.
     """
-    if not instance.pk or instance._state.adding:
+    if "api_token" in instance.get_deferred_fields():
         return
-
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "api_token" not in update_fields:
-        return
-
-    try:
-        old_team = Team.objects.only("api_token").get(pk=instance.pk)
-        instance._old_api_token = old_team.api_token  # type: ignore[attr-defined]
-    except Team.DoesNotExist:
-        pass
+    instance.__dict__[_LOADED_API_TOKEN_ATTR] = instance.api_token
 
 
 def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     if not settings.FLAGS_REDIS_URL:
         return
 
-    # Pop, don't peek: a stale stash left on the instance would clear the wrong
-    # token on the next save (see _capture_old_api_token).
-    old_api_token = instance.__dict__.pop("_old_api_token", None)
+    old_api_token = instance.__dict__.get(_LOADED_API_TOKEN_ATTR)
     rotated = bool(old_api_token and old_api_token != instance.api_token)
+    # Re-snapshot so a kept-alive instance saved again (A->B->C) compares against
+    # the just-saved token instead of clearing the original twice.
+    instance.__dict__[_LOADED_API_TOKEN_ATTR] = instance.api_token
 
     def enqueue_task() -> None:
         try:
@@ -87,6 +85,6 @@ def _clear_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) ->
 
 
 def connect_signal_handlers() -> None:
-    pre_save.connect(_capture_old_api_token, sender=Team)
+    post_init.connect(_snapshot_api_token, sender=Team)
     post_save.connect(_update_cache_on_save, sender=Team)
     pre_delete.connect(_clear_cache_on_delete, sender=Team)

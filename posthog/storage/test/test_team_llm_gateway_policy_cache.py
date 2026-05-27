@@ -187,8 +187,8 @@ class TestLLMGatewayPolicySignals(BaseTest):
     ):
         """
         Two rotations on the same kept-alive instance (A->B->C) must clear A then
-        B. post_save pops the stashed old token so the second save re-snapshots,
-        instead of clearing A twice and leaking B for the full cache TTL.
+        B. post_save re-snapshots the saved token so the second save compares
+        against B, instead of clearing A twice and leaking B for the full cache TTL.
         """
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
