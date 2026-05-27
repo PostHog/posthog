@@ -39,55 +39,76 @@ def _secret_keys(inputs_schema: list[dict[str, Any]] | None) -> set[str]:
     return {str(s["key"]) for s in inputs_schema if s.get("secret") and "key" in s}
 
 
-def encrypt_secret_inputs(
+def resolve_secret_inputs(
     inputs: dict[str, Any] | None,
     inputs_schema: list[dict[str, Any]] | None,
     existing_inputs: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Return a new inputs dict where every secret field's value is Fernet-encrypted in place.
+    """Compute the final stored shape for every secret-flagged schema key.
 
-    Resilience rules:
-    - Values that are already encrypted are kept as-is (allows partial-update writes).
-    - If the incoming value is missing/empty AND the existing stored value is encrypted, the
-      existing encrypted value is preserved (so PATCH-style updates don't wipe the secret).
-    - Non-secret inputs pass through unchanged.
+    Secret inputs arrive in four shapes and each maps to a single resolved value:
+
+    - **Already-encrypted wrapper** (e.g. draft → active re-validation submits the stored
+      payload as-is) → kept verbatim.
+    - **Placeholder** (`{"secret": True}` or empty value — frontend marker for "user didn't
+      touch this") → restored from `existing_inputs` if there's a prior encrypted value, or
+      kept as-is otherwise.
+    - **Missing entirely** (key absent from `inputs` because the frontend stripped it from
+      the outgoing payload) → restored from `existing_inputs` if there's a prior encrypted
+      value, or omitted from the result entirely.
+    - **Fresh plaintext** → Fernet-encrypted in place. Bytecode/templating siblings are
+      stripped because secrets are never templated and a plaintext-derived bytecode
+      alongside an encrypted blob would be misleading.
+
+    Returns a new dict keyed only by secret schema keys. Caller is expected to merge it
+    with separately-validated non-secret inputs. Non-secret keys present in the input dict
+    are ignored — this function is purely about resolving secrets.
     """
-
-    if not inputs:
-        return inputs or {}
 
     secret_keys = _secret_keys(inputs_schema)
     if not secret_keys:
-        return inputs
+        return {}
 
+    inputs = inputs or {}
     existing = existing_inputs or {}
     result: dict[str, Any] = {}
-    for key, item in inputs.items():
-        if key not in secret_keys or not isinstance(item, dict):
-            result[key] = item
+
+    for key in secret_keys:
+        incoming_raw = inputs.get(key)
+        incoming = incoming_raw if isinstance(incoming_raw, dict) else None
+        existing_item_raw = existing.get(key)
+        existing_item = existing_item_raw if isinstance(existing_item_raw, dict) else None
+        existing_value = existing_item.get("value") if existing_item else None
+
+        if incoming is None:
+            # Key absent from the request. Preserve any prior encrypted value; otherwise
+            # leave the secret unset.
+            if _is_encrypted_value(existing_value):
+                result[key] = existing_item
             continue
 
-        value = item.get("value")
-        is_empty = value in (None, "", {})
-        existing_item = existing.get(key) if isinstance(existing, dict) else None
-        existing_value = existing_item.get("value") if isinstance(existing_item, dict) else None
+        incoming_value = incoming.get("value")
 
-        if _is_encrypted_value(value):
-            # Already encrypted (e.g. round-tripped from storage) — keep verbatim.
-            result[key] = item
-        elif is_empty and _is_encrypted_value(existing_value):
-            # Caller left the secret untouched — preserve what we already have.
-            merged = {**item, "value": existing_value}
-            result[key] = merged
-        elif is_empty:
-            # No previous value and nothing to encrypt — store the item as-is.
-            result[key] = item
-        else:
-            # Strip bytecode/templating: secret values are never templated and we don't want
-            # plaintext-derived bytecode to remain alongside the encrypted blob.
-            stripped = {k: v for k, v in item.items() if k not in ("bytecode", "transpiled", "input_deps")}
-            stripped["value"] = _encrypt_value(value)
-            result[key] = stripped
+        if _is_encrypted_value(incoming_value):
+            # Already encrypted — keep verbatim.
+            result[key] = incoming
+            continue
+
+        is_placeholder = incoming.get("secret") is True or incoming_value in (None, "", {})
+        if is_placeholder:
+            # User didn't change the secret. Restore the prior encrypted value, or fall
+            # back to whatever the caller sent (empty/placeholder).
+            if _is_encrypted_value(existing_value):
+                result[key] = {**incoming, "value": existing_value}
+            else:
+                result[key] = incoming
+            continue
+
+        # Fresh plaintext — encrypt. Strip templating siblings: secrets are never templated
+        # and we don't want plaintext-derived bytecode living alongside the ciphertext.
+        stripped = {k: v for k, v in incoming.items() if k not in ("bytecode", "transpiled", "input_deps")}
+        stripped["value"] = _encrypt_value(incoming_value)
+        result[key] = stripped
 
     return result
 

@@ -26,7 +26,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.hog_flow_inputs import INLINE_ENCRYPTED_MARKER, encrypt_secret_inputs, mask_secret_inputs_for_read
+from posthog.cdp.hog_flow_inputs import mask_secret_inputs_for_read, resolve_secret_inputs
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -141,79 +141,46 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"template_id": "Template not found"})
             else:
                 input_schema = template.inputs_schema
-                inputs = data.get("config", {}).get("inputs", {})
+                inputs = data.get("config", {}).get("inputs", {}) or {}
 
-                # Secret inputs may arrive as the `{"secret": true}` placeholder when the user
-                # didn't change them. The standard validator (string/email/etc. type checks)
-                # would reject those, so we strip them out before validation and restore them
-                # afterwards from the previously-stored encrypted value.
                 existing_actions = self.context.get("existing_actions_by_id") or {}
                 existing_inputs = (existing_actions.get(data.get("id")) or {}).get("config", {}).get("inputs", {})
-                secret_keys = {
+
+                # Resolve secrets and validate non-secrets as two independent computations,
+                # then merge. Keeps the standard inputs validator unaware of secret-only shapes
+                # (placeholders, already-encrypted wrappers) it would otherwise reject.
+                resolved_secrets = resolve_secret_inputs(inputs, input_schema, existing_inputs)
+
+                secret_key_set = {
                     str(s["key"])
                     for s in (input_schema or [])
                     if isinstance(s, dict) and s.get("secret") and "key" in s
                 }
-                stripped_placeholders: dict = {}
-                if not isinstance(inputs, dict):
-                    inputs = {}
-                # Some clients (notably the workflow editor's test panel) strip secret inputs
-                # from outgoing payloads entirely instead of sending the `{"secret": true}`
-                # placeholder. Inject the placeholder for any secret key missing from the
-                # request so the restore logic below kicks in uniformly.
-                for key in secret_keys:
-                    if key not in inputs and key in existing_inputs:
-                        inputs[key] = {"secret": True}
-                for key in list(inputs.keys()):
-                    if key not in secret_keys:
-                        continue
-                    item = inputs[key]
-                    if not isinstance(item, dict):
-                        continue
-                    value = item.get("value")
-                    is_placeholder = item.get("secret") is True or value in (None, "", {})
-                    is_already_encrypted = isinstance(value, dict) and INLINE_ENCRYPTED_MARKER in value
-                    if is_placeholder or is_already_encrypted:
-                        # Placeholder: restore from previously-stored encrypted value.
-                        # Already-encrypted: pass it through verbatim (e.g. draft → active
-                        # re-validation runs against the stored payload).
-                        stripped_placeholders[key] = item if is_already_encrypted else existing_inputs.get(key)
-                        del inputs[key]
+                non_secret_inputs = {k: v for k, v in inputs.items() if k not in secret_key_set}
+                non_secret_schema = [s for s in (input_schema or []) if not (isinstance(s, dict) and s.get("secret"))]
 
-                # Hide secret keys we've already stripped from the inner validator so it doesn't
-                # re-reject them as required. The outer logic below restores them from the stored
-                # ciphertext after the inner serializer returns.
-                inner_inputs_schema = [
-                    s
-                    for s in (input_schema or [])
-                    if not (isinstance(s, dict) and s.get("key") in stripped_placeholders)
-                ]
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
-                        "inputs_schema": inner_inputs_schema,
-                        "inputs": inputs,
+                        "inputs_schema": non_secret_schema,
+                        "inputs": non_secret_inputs,
                     },
                     context={"function_type": template.type},
                 )
 
+                # In non-draft mode an invalid non-secret input is a hard error. In draft mode
+                # we tolerate it and persist the raw incoming non-secrets, but secrets are
+                # still resolved/encrypted so a draft never stores plaintext secrets.
                 if is_draft:
-                    if function_config_serializer.is_valid():
-                        data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    validated_non_secrets = (
+                        function_config_serializer.validated_data["inputs"]
+                        if function_config_serializer.is_valid()
+                        else non_secret_inputs
+                    )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
-                    data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    validated_non_secrets = function_config_serializer.validated_data["inputs"]
 
-                # Restore any stripped placeholders from the previously-stored value.
-                for key, prev_value in stripped_placeholders.items():
-                    if prev_value is not None:
-                        data["config"]["inputs"][key] = prev_value
-
-                # Encrypt any (newly-provided plaintext) secret inputs in place.
-                data["config"]["inputs"] = encrypt_secret_inputs(
-                    data["config"].get("inputs") or {},
-                    input_schema,
-                    existing_inputs=existing_inputs,
-                )
+                data["config"]["inputs"] = {**validated_non_secrets, **resolved_secrets}
 
         conditions = data.get("config", {}).get("conditions", [])
 

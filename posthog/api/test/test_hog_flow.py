@@ -354,6 +354,51 @@ class TestHogFlowAPI(APIBaseTest):
         refreshed = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
         assert refreshed == first_stored
 
+    def test_hog_flow_secret_input_is_re_encrypted_when_patched_with_new_plaintext(self):
+        # User rotates the token: PATCH submits a brand-new plaintext value for the secret
+        # field. The stored ciphertext must be replaced with a fresh encrypted blob of the
+        # new value (not silently preserved from the old one).
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-secret-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "access_token": {"value": "original-token"},
+                },
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        hog_flow_id = create_response.json()["id"]
+        first_stored = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
+
+        update_payload = dict(hog_flow)
+        update_payload["actions"] = [
+            hog_flow["actions"][0],
+            {
+                **action,
+                "config": {
+                    "template_id": "template-secret-webhook",
+                    "inputs": {
+                        "url": {"value": "https://example.com"},
+                        "access_token": {"value": "rotated-token"},
+                    },
+                },
+            },
+        ]
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}", update_payload, content_type="application/json"
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+
+        refreshed = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
+        # The stored ciphertext must change (we re-encrypted) and must decrypt to the new value.
+        assert refreshed["value"][INLINE_ENCRYPTED_MARKER] != first_stored["value"][INLINE_ENCRYPTED_MARKER]
+        decrypted = EncryptedTextField().decrypt(refreshed["value"][INLINE_ENCRYPTED_MARKER])
+        assert decrypted == '"rotated-token"'
+
     def test_hog_flow_invocation_test_endpoint_hydrates_secrets_from_context_instance(self):
         # The invocations endpoint binds `HogFlowSerializer` as a *nested* serializer under
         # `HogFlowInvocationSerializer`, so DRF does not set `self.instance`. The serializer
