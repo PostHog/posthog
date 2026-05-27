@@ -66,7 +66,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         assert response["results"][0]["person"] is None
 
@@ -873,7 +873,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
         flush_persons_and_events()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         assert response.status_code == status.HTTP_200_OK
         response_json = response.json()
