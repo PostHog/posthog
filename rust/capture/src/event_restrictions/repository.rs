@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use common_redis::{Client as RedisClient, CustomRedisError};
 use metrics::counter;
 use serde::Deserialize;
-use tracing::warn;
 
 use super::types::{Restriction, RestrictionFilters, RestrictionScope, RestrictionType};
 
@@ -156,7 +155,7 @@ impl EventRestrictionsRepository for RedisRestrictionsRepository {
         let key = self.build_key(restriction_type);
         let restriction_type_str = restriction_type.as_str();
 
-        let json_str = match self.redis.get(key.clone()).await {
+        let json_str = match self.redis.get(key).await {
             Ok(s) => s,
             Err(CustomRedisError::NotFound) => {
                 counter!(
@@ -174,7 +173,6 @@ impl EventRestrictionsRepository for RedisRestrictionsRepository {
                     "result" => "error"
                 )
                 .increment(1);
-                warn!(key = %key, error = %e, "Failed to fetch restrictions from Redis");
                 return Err(e);
             }
         };
@@ -196,7 +194,6 @@ impl EventRestrictionsRepository for RedisRestrictionsRepository {
                     "result" => "parse_error"
                 )
                 .increment(1);
-                warn!(key = %key, error = %e, "Failed to parse restrictions from Redis");
                 Err(CustomRedisError::ParseError(format!(
                     "Failed to parse JSON: {}",
                     e
