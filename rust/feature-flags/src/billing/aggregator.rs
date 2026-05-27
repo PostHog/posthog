@@ -992,9 +992,18 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     // the data isn't in Redis.
     let requeued_counts: u64 = requeue.iter().map(|(_, c)| *c).sum();
     if !requeue.is_empty() {
-        inner
-            .in_flight_uncredited
-            .fetch_sub(requeued_counts, Ordering::Relaxed);
+        // Under the loop's accounting invariant `requeued_counts <=
+        // in_flight_uncredited`, so this never underflows. Use a saturating
+        // update anyway so the clamp-on-drift defense at the per-chunk
+        // store sites holds end-to-end: a refactor that pushed
+        // `requeued_counts` past the residual would otherwise wrap to
+        // ~u64::MAX here and be re-credited as `shutdown_drop`.
+        let _ =
+            inner
+                .in_flight_uncredited
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                    Some(v.saturating_sub(requeued_counts))
+                });
         let mut merged: HashMap<AggregationKey, u64> = {
             let mut pending = inner.pending.lock().unwrap();
             std::mem::take(&mut *pending)
