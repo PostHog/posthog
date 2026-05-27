@@ -93,6 +93,16 @@ export class ToolCatalog {
                 jsonSchema = toJsonSchemaCompat(preBuilt.base.schema, { strictUnions: true }) as Record<string, unknown>
                 delete jsonSchema['$schema']
                 delete jsonSchema['additionalProperties']
+                // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
+                // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
+                // Add it so the schema satisfies the MCP tool contract; the union constraint
+                // still applies via the nested anyOf/oneOf.
+                if (
+                    !jsonSchema['type'] &&
+                    (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))
+                ) {
+                    jsonSchema = { type: 'object', ...jsonSchema }
+                }
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }

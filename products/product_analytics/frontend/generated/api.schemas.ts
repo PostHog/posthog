@@ -3042,6 +3042,19 @@ export interface HogQLMetadataResponseApi {
     warnings: HogQLNoticeApi[]
 }
 
+export interface DataWarehouseSyncWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+}
+
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
@@ -3071,6 +3084,8 @@ export interface Response3Api {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response4Api {
@@ -3138,6 +3153,32 @@ export interface Response6Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+}
+
+export interface Response7Api {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    samplingRate?: SamplingRateApi | null
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean | null
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean | null
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
@@ -4705,6 +4746,8 @@ export interface HogQLQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface HogQLVariableApi {
@@ -4895,6 +4938,10 @@ export interface WebGoalsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean | null
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean | null
 }
 
 export interface WebGoalsQueryApi {
@@ -4927,6 +4974,8 @@ export interface WebGoalsQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6358,6 +6407,7 @@ export type DataTableNodeApiResponse =
     | Response4Api
     | Response5Api
     | Response6Api
+    | Response7Api
     | Response8Api
     | Response9Api
     | Response10Api

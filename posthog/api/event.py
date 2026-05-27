@@ -26,7 +26,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
@@ -70,7 +70,8 @@ EVENT_VALUES_COUNTER = Counter(
     labelnames=["has_event_name", "auth"],
 )
 
-QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+QUERY_DEFAULT_EXPORT_LIMIT = 1_000
+EVENT_LIST_MAX_LIMIT = 1_000
 
 # Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
 EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
@@ -273,7 +274,7 @@ class EventViewSet(
             else:
                 limit = DEFAULT_RETURNED_ROWS
 
-            limit = min(limit, MAX_SELECT_RETURNED_ROWS)
+            limit = min(limit, EVENT_LIST_MAX_LIMIT)
 
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
