@@ -11,11 +11,10 @@ import { ChartDisplayType } from '~/types'
 import { getMetricsSqlEditorTabId, metricsSceneLogic } from '../metricsSceneLogic'
 import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
 
-// `metrics` is only registered under the `posthog.` HogQL namespace (see
-// posthog/hogql/database/database.py). The WHERE bound lets ClickHouse prune
-// daily partitions instead of cross-partition merging to satisfy the ORDER BY.
-const DEFAULT_METRICS_QUERY =
-    'SELECT timestamp, metric_name, value FROM posthog.metrics WHERE timestamp > now() - INTERVAL 1 DAY ORDER BY timestamp DESC LIMIT 100'
+// `metrics` is only registered under the `posthog.` HogQL namespace
+// (posthog/hogql/database/database.py), so unlike `logs` it must be
+// referenced fully qualified.
+const DEFAULT_METRICS_QUERY = 'SELECT * FROM posthog.metrics LIMIT 10'
 
 export interface MetricsSqlEditorProps {
     id: string
