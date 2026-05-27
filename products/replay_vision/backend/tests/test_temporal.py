@@ -521,33 +521,71 @@ class TestObservationStateMetricsAndLogs:
         )
 
     @pytest.mark.parametrize(
-        "terminal_status",
-        [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED, ObservationStatus.INELIGIBLE],
+        "observation_status, metric_status, log_event, run_activity",
+        [
+            (
+                ObservationStatus.FAILED,
+                "failed",
+                "replay_vision.observation.failed",
+                lambda obs_id: mark_observation_failed_activity(
+                    MarkObservationFailedInputs(
+                        observation_id=obs_id,
+                        error_reason="internal_error:late retry",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+            (
+                ObservationStatus.INELIGIBLE,
+                "ineligible",
+                "replay_vision.observation.ineligible",
+                lambda obs_id: mark_observation_ineligible_activity(
+                    MarkObservationIneligibleInputs(
+                        observation_id=obs_id,
+                        error_reason="too_short:late retry",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+            (
+                ObservationStatus.SUCCEEDED,
+                "succeeded",
+                "replay_vision.observation.succeeded",
+                lambda obs_id: mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=obs_id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.8)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+        ],
+        ids=["failed", "ineligible", "succeeded"],
     )
-    def test_no_counter_or_log_when_update_affects_zero_rows(self, terminal_status: ObservationStatus) -> None:
-        # Idempotent retry against an already-terminal row must not double-count.
+    def test_no_counter_or_log_when_update_affects_zero_rows(
+        self,
+        observation_status: ObservationStatus,
+        metric_status: str,
+        log_event: str,
+        run_activity,
+    ) -> None:
+        # Idempotent retry against an already-terminal row must not double-count or re-log.
         scanner = _make_scanner()
         observation = _make_observation(
-            scanner, status=terminal_status, completed_at=timezone.now(), error_reason="original"
+            scanner, status=observation_status, completed_at=timezone.now(), error_reason="original"
         )
-        before_obs = _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor")
-        before_kind = _counter_value("replay_vision_failure_kinds_total", kind="internal_error", scanner_type="monitor")
+        before_obs = _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
 
         with capture_logs() as logs:
-            mark_observation_failed_activity(
-                MarkObservationFailedInputs(
-                    observation_id=observation.id,
-                    error_reason="internal_error:late retry",
-                    scanner_type=ScannerType.MONITOR,
-                )
-            )
+            run_activity(observation.id)
 
-        assert _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor") == before_obs
         assert (
-            _counter_value("replay_vision_failure_kinds_total", kind="internal_error", scanner_type="monitor")
-            == before_kind
+            _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+            == before_obs
         )
-        assert [r for r in logs if r.get("event") == "replay_vision.observation.failed"] == []
+        assert [r for r in logs if r.get("event") == log_event] == []
 
     def test_activity_duration_histogram_records_failure_observation(self) -> None:
         scanner = _make_scanner()
