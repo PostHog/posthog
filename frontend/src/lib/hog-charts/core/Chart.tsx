@@ -56,6 +56,17 @@ const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
     pointerEvents: 'none',
 }
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
+const DEFAULT_HOVER_ANIMATION_MS = 150
+
+function resolveHoverAnimationMs(animateHover: boolean | number | undefined): number {
+    if (animateHover === true) {
+        return DEFAULT_HOVER_ANIMATION_MS
+    }
+    if (typeof animateHover === 'number') {
+        return animateHover
+    }
+    return 0
+}
 
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
@@ -127,7 +138,7 @@ export function Chart<Meta = unknown>({
         animateHover,
         margins: marginsOverride,
     } = config ?? {}
-    const hoverAnimationMs = animateHover === true ? 150 : typeof animateHover === 'number' ? animateHover : 0
+    const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,

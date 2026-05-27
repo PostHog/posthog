@@ -5,6 +5,7 @@ import { type BarChartPrivate, computeBarAtIndex, computeBarTrackRect, computeSe
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
+    type BarShadow,
     drawBarHighlight,
     drawBars,
     drawBarTracks,
@@ -70,6 +71,21 @@ export interface BarChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+}
+
+// Negative offsetY casts the shadow upward from the bar's top edge onto the visible
+// track region above the bar — reads as the bar sitting on top of the track instead
+// of being haloed.
+const DEFAULT_BAR_SHADOW: BarShadow = { color: 'rgba(0,0,0,0.30)', blur: 12, offsetY: -4 }
+
+function resolveBarShadow(barShadow: BarChartConfig['barShadow']): BarShadow | undefined {
+    if (barShadow === true) {
+        return DEFAULT_BAR_SHADOW
+    }
+    if (barShadow === false || barShadow == null) {
+        return undefined
+    }
+    return barShadow
 }
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
@@ -283,25 +299,22 @@ function BarChartInner<Meta = unknown>({
                 }
             }
 
-            const resolvedShadow =
-                barShadow === true
-                    ? // Negative offsetY casts the shadow upward from the bar's top edge onto
-                      // the visible track region above the bar — reads as the bar sitting on
-                      // top of the track instead of being haloed.
-                      { color: 'rgba(0,0,0,0.30)', blur: 12, offsetY: -4 }
-                    : barShadow === false || barShadow == null
-                      ? undefined
-                      : barShadow
+            const resolvedShadow = resolveBarShadow(barShadow)
             // Clip the shadow pass to the plot area so a 100% bar's upward shadow can't
-            // bleed past the chart's top edge as a stray dark band.
+            // bleed past the chart's top edge as a stray dark band. Set shadow state once on
+            // the outer save so per-series `drawBars` calls don't re-apply it.
             if (resolvedShadow) {
                 ctx.save()
                 ctx.beginPath()
                 ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
                 ctx.clip()
+                ctx.shadowColor = resolvedShadow.color
+                ctx.shadowBlur = resolvedShadow.blur
+                ctx.shadowOffsetX = resolvedShadow.offsetX ?? 0
+                ctx.shadowOffsetY = resolvedShadow.offsetY ?? 0
             }
             for (const { series: s, bars } of seriesBars) {
-                drawBars(baseDrawCtx, s, bars, barCornerRadius, resolvedShadow)
+                drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
             if (resolvedShadow) {
                 ctx.restore()
@@ -322,7 +335,7 @@ function BarChartInner<Meta = unknown>({
 
     // Tracks the last drawn highlight key so we can restart the fade when the visual state
     // changes at the same hoverIndex (e.g. cursor moves from a bar's fill into its track).
-    const lastHoverKeyRef = useRef('')
+    const lastHoverKeyRef = useRef<string | null>(null)
 
     const drawHover = useCallback(
         ({
@@ -337,7 +350,7 @@ function BarChartInner<Meta = unknown>({
         }: ChartDrawArgs): DrawHoverResult => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
-                lastHoverKeyRef.current = ''
+                lastHoverKeyRef.current = null
                 return false
             }
             const hoveredLabel = drawLabels[hoverIndex]
@@ -356,15 +369,14 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis,
                 })
                 if (hits.size === 0) {
-                    lastHoverKeyRef.current = ''
+                    lastHoverKeyRef.current = null
                     return false
                 }
                 hitKeys = hits
             }
-            // Phase 1: compute everything we'd draw and a key describing it. The key has to
-            // distinguish bar-fill highlights from track highlights because they appear in the
-            // same hoverIndex band — without that, moving cursor from a bar into its track
-            // wouldn't trigger a fade.
+            // The hover key has to distinguish bar-fill highlights from track highlights —
+            // they share a hoverIndex band, so without per-series state in the key, moving
+            // the cursor from a bar into its track wouldn't trigger a fade restart.
             type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
             const items: DrawItem[] = []
             let composition = ''
@@ -400,18 +412,17 @@ function BarChartInner<Meta = unknown>({
                 composition += isTrackHighlight ? 't' : 'b'
             }
             if (items.length === 0) {
-                lastHoverKeyRef.current = ''
+                lastHoverKeyRef.current = null
                 return false
             }
+            // If the visual state changed since the last drawn frame, restart the fade so
+            // the new highlight eases in from 0 instead of popping in at full alpha.
             const currentKey = `${hoverIndex}:${composition}`
-            // Phase 2: if the visual state changed since the last drawn frame, restart the
-            // fade so the new highlight eases in from 0 instead of popping in at full alpha.
             let alpha = hoverProgress
             if (currentKey !== lastHoverKeyRef.current) {
                 alpha = resetHoverFade()
                 lastHoverKeyRef.current = currentKey
             }
-            // Phase 3: draw.
             ctx.save()
             ctx.globalAlpha = alpha
             for (const { series: s, bar, isTrackHighlight } of items) {
@@ -438,6 +449,7 @@ function BarChartInner<Meta = unknown>({
                 }
             }
             ctx.restore()
+            return true
         },
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, barTrack]
     )

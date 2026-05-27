@@ -263,11 +263,11 @@ export interface ChartDrawArgs {
     resetHoverFade: () => number
 }
 
-/** Return type for a chart type's `drawHover` callback. Returning `false` tells the
- *  framework that nothing visible was drawn this frame (e.g. cursor in a gap) so the
- *  hover-fade timer should not elapse against the invisible frames. Returning `true` or
- *  `void` is treated as "drew something". */
-export type DrawHoverResult = boolean | void
+/** Return type for a chart type's `drawHover` callback. `true` = drew a visible highlight
+ *  this frame; `false` = nothing visible (e.g. cursor in a gap) and the hover-fade timer
+ *  should not elapse against the invisible frames. Every code path must return explicitly
+ *  so a missing return is caught at compile time. */
+export type DrawHoverResult = boolean
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number

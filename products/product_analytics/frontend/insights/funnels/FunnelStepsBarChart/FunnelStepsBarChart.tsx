@@ -17,12 +17,11 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
-// Floor per-step width — below this the legend text overlaps; scroll horizontally instead.
-const MIN_STEP_WIDTH_PX = 210
-// Ceiling per-step width — without it, few-step funnels stretch each bar across half the
-// chart with huge gaps. The bar layer clusters at the start of the plot; gridlines still
-// span the full width so the chart doesn't look truncated.
-const MAX_STEP_WIDTH_PX = 320
+// Per-step width — without a cap, few-step funnels stretch each bar across half the chart
+// with huge gaps. The bar layer clusters at the start of the plot; gridlines still span
+// the full width so the chart doesn't look truncated. Also doubles as the legend column
+// width so the two stay aligned, and as the floor for horizontal-scroll on narrow viewports.
+const STEP_WIDTH_PX = 320
 
 // X-axis is hidden — steps are identified by the legend row below the chart. The y-axis
 // shows the conversion rate from the basis step (0–100%) so the bar heights are readable
@@ -76,7 +75,7 @@ export function FunnelStepsBarChart({
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
-    const barsWidth = steps.length * MAX_STEP_WIDTH_PX
+    const barsWidth = steps.length * STEP_WIDTH_PX
     const chartConfig = useMemo<BarChartConfig>(() => ({ ...baseChartConfig, maxBandRange: barsWidth }), [barsWidth])
 
     const onPointClick = useCallback(
@@ -111,11 +110,7 @@ export function FunnelStepsBarChart({
 
     return (
         <div className="flex w-full flex-1 flex-col overflow-x-auto" data-attr="funnel-steps-bar-chart">
-            <div
-                className="flex flex-1 flex-col"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ minWidth: steps.length * MIN_STEP_WIDTH_PX }}
-            >
+            <div className="flex flex-1 flex-col">
                 <div className="flex min-h-[150px] flex-1">
                     <BarChart<FunnelStepsBarSeriesMeta>
                         series={series}

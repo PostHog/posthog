@@ -486,15 +486,13 @@ export interface BarShadow {
 }
 
 /** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
- *  pre-filter `bars` without shifting the hatch boundary.
- *  `shadow` paints a drop shadow under each bar so it reads as an opaque element layered
- *  over the background (e.g. a hatched track) instead of merging into it. */
+ *  pre-filter `bars` without shifting the hatch boundary. Any shadow / clip / globalAlpha
+ *  is the caller's responsibility — set it once around a batch of `drawBars` calls. */
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,
     bars: BarRect[],
-    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS,
-    shadow?: BarShadow
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
 ): void {
     const { ctx } = drawCtx
     if (bars.length === 0) {
@@ -506,13 +504,6 @@ export function drawBars(
     const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
     const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
 
-    if (shadow) {
-        ctx.save()
-        ctx.shadowColor = shadow.color
-        ctx.shadowBlur = shadow.blur
-        ctx.shadowOffsetX = shadow.offsetX ?? 0
-        ctx.shadowOffsetY = shadow.offsetY ?? 0
-    }
     for (const bar of bars) {
         if (bar.width <= 0 || bar.height <= 0) {
             continue
@@ -524,9 +515,6 @@ export function drawBars(
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()
-    }
-    if (shadow) {
-        ctx.restore()
     }
 }
 

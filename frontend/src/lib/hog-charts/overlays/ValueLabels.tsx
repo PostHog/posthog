@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 
-import { useChartHover, useChartLayout } from '../core/chart-context'
+import { useChart } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -326,7 +326,6 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
     transition: 'transform 150ms ease-out',
-    willChange: 'transform',
 }
 
 function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
@@ -359,8 +358,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
-    const { hoverIndex } = useChartHover()
+    const { series, scales, labels, theme, resolvePositionValue, axis, hoverIndex } = useChart()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -393,22 +391,28 @@ export function ValueLabels({
 
     return (
         <>
-            {visible.map((c) => (
-                <div
-                    key={c.key}
-                    data-attr="hog-chart-value-label"
-                    style={{
-                        ...LABEL_STYLE_BASE,
-                        backgroundColor: c.color,
-                        borderColor,
-                        left: Math.round(c.x),
-                        top: Math.round(c.y),
-                        transform: transformFor(c, isHorizontal, c.dataIndex === hoverIndex),
-                    }}
-                >
-                    {c.text}
-                </div>
-            ))}
+            {visible.map((c) => {
+                const isHovered = c.dataIndex === hoverIndex
+                return (
+                    <div
+                        key={c.key}
+                        data-attr="hog-chart-value-label"
+                        style={{
+                            ...LABEL_STYLE_BASE,
+                            backgroundColor: c.color,
+                            borderColor,
+                            left: Math.round(c.x),
+                            top: Math.round(c.y),
+                            transform: transformFor(c, isHorizontal, isHovered),
+                            // Promote to a compositor layer only while the lift animation is
+                            // about to play, not permanently on every label.
+                            willChange: isHovered ? 'transform' : undefined,
+                        }}
+                    >
+                        {c.text}
+                    </div>
+                )
+            })}
         </>
     )
 }
