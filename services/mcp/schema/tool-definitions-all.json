@@ -6014,6 +6014,87 @@
             "readOnlyHint": false
         }
     },
+    "vision-scanners-get": {
+        "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get replay vision scanner",
+        "title": "Get replay vision scanner",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-list": {
+        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of five LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for downstream embedding). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List replay vision scanners",
+        "title": "List replay vision scanners",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-get": {
+        "description": "Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result` including any event citations linking the LLM output back to specific events in the originating session. Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying recording.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get scanner observation",
+        "title": "Get scanner observation",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-list": {
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List scanner observations",
+        "title": "List scanner observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-scan-session": {
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Run scanner against a session now",
+        "title": "Run scanner against a session now",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
         "category": "Visual review",

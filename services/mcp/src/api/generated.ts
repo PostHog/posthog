@@ -18166,6 +18166,7 @@ export namespace Schemas {
       key: string;
       label?: string;
       choices?: InputsSchemaItemChoicesItem[];
+      searchable?: boolean;
       required?: boolean;
       default?: unknown;
       secret?: boolean;
@@ -20428,6 +20429,27 @@ export namespace Schemas {
     export const LimitContext = {
       PosthogAi: 'posthog_ai',
     } as const;
+
+    /**
+     * Typed output for view set `list`.
+     */
+    export interface ListOutput {
+      /** ID of the file download batch export run. */
+      id: string;
+      /** Current status of the file download batch export run.
+
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `FailedBilling` - Failed Billing
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
+      status: BatchExportRunStatusEnum;
+    }
 
     export interface LiveDebuggerBreakpoint {
       readonly id: string;
@@ -23026,6 +23048,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedListOutputList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ListOutput[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -35076,6 +35107,21 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
+    export interface QuotaResourceLimit {
+      /** True when the team is currently over its quota for this resource and limits are in effect. */
+      limited: boolean;
+    }
+
+    /**
+     * Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added.
+     */
+    export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
+
+    export interface QuotaLimitsResponse {
+      /** Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added. */
+      limited: QuotaLimitsResponseLimited;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -38798,6 +38844,10 @@ export namespace Schemas {
     event?: string;
     format?: EnvironmentsEventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -38833,6 +38883,10 @@ export namespace Schemas {
 
     export type EnvironmentsEventsRetrieveParams = {
     format?: EnvironmentsEventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EnvironmentsEventsRetrieveFormat = typeof EnvironmentsEventsRetrieveFormat[keyof typeof EnvironmentsEventsRetrieveFormat];
@@ -38933,6 +38987,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsFileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
@@ -43876,6 +43941,10 @@ export namespace Schemas {
     event?: string;
     format?: EventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -43911,6 +43980,10 @@ export namespace Schemas {
 
     export type EventsRetrieveParams = {
     format?: EventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EventsRetrieveFormat = typeof EventsRetrieveFormat[keyof typeof EventsRetrieveFormat];
@@ -44227,6 +44300,17 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type FileDownloadBatchExportsLogsRetrieveParams = {
