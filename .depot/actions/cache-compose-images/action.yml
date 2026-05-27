@@ -24,6 +24,10 @@ inputs:
     cache-key-suffix:
         description: Suffix that scopes the cache to a workflow group (e.g. turbo-tests, django). Avoids churn across workflows that resolve slightly different image sets.
         required: true
+    clickhouse-server-image:
+        description: ClickHouse image override matching CLICKHOUSE_SERVER_IMAGE at launch time. Empty resolves the compose default. Required so the cached image set and key match the image the launch actually pulls.
+        required: false
+        default: ''
 
 runs:
     using: composite
@@ -35,6 +39,7 @@ runs:
               COMPOSE_FILE: ${{ inputs.compose-files }}
               COMPOSE_PROFILES: ${{ inputs.compose-profiles }}
               SERVICES: ${{ inputs.services }}
+              CLICKHOUSE_SERVER_IMAGE: ${{ inputs.clickhouse-server-image }}
               CACHE_KEY_SUFFIX: ${{ inputs.cache-key-suffix }}
               RUNNER_OS: ${{ runner.os }}
               RUNNER_ARCH: ${{ runner.arch }}
@@ -48,7 +53,7 @@ runs:
                       fi
                   done | sha256sum | awk '{print $1}'
               )
-              payload=$(printf '%s|%s|%s' "$files_hash" "$COMPOSE_PROFILES" "$SERVICES")
+              payload=$(printf '%s|%s|%s|%s' "$files_hash" "$COMPOSE_PROFILES" "$SERVICES" "$CLICKHOUSE_SERVER_IMAGE")
               payload_hash=$(printf '%s' "$payload" | sha256sum | awk '{print $1}')
               echo "key=compose-images-v1-${CACHE_KEY_SUFFIX}-${RUNNER_OS}-${RUNNER_ARCH}-${payload_hash}" >> "$GITHUB_OUTPUT"
               echo "dir=${RUNNER_TEMP}/compose-images" >> "$GITHUB_OUTPUT"
@@ -68,6 +73,7 @@ runs:
               COMPOSE_FILE: ${{ inputs.compose-files }}
               COMPOSE_PROFILES: ${{ inputs.compose-profiles }}
               SERVICES: ${{ inputs.services }}
+              CLICKHOUSE_SERVER_IMAGE: ${{ inputs.clickhouse-server-image }}
               CACHE_DIR: ${{ steps.key.outputs.dir }}
           run: |
               set -euo pipefail

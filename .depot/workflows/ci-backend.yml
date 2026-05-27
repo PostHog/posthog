@@ -163,6 +163,7 @@ jobs:
                   compose-profiles: temporal,azure
                   services: db redis7 clickhouse zookeeper kafka objectstorage feature-flags temporal elasticsearch objectstorage-azure
                   cache-key-suffix: turbo-tests
+                  clickhouse-server-image: clickhouse/clickhouse-server:26.3.9.8
             - name: Start services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -588,6 +589,7 @@ jobs:
                   compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
                   compose-profiles: temporal,azure
                   cache-key-suffix: django
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
             - name: Stop/Start stack with Docker Compose
               shell: bash
               env:
@@ -747,7 +749,7 @@ jobs:
               run: | # async_migrations covered in ci-async-migrations.yml
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
-                  pytest -v --tb=short ${{
+                  pytest -v --tb=short --reuse-db ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
@@ -817,7 +819,7 @@ jobs:
                   # (verified via boto3 LIST/CREATE/HEAD), so root cause is env-specific and not yet
                   # isolated (tracked for follow-up). All three tests below run that materialize path; the
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
-                  pytest -v --tb=short --timeout=1200 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --reuse-db --timeout=1200 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                       --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                       --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
@@ -991,6 +993,7 @@ jobs:
                   compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
                   compose-profiles: temporal,azure
                   cache-key-suffix: async-migrations
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
             - name: Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
