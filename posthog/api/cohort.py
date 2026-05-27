@@ -44,7 +44,7 @@ from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, FeatureFlag, Person, User
+from posthog.models import Cohort, Person, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -63,11 +63,6 @@ from posthog.models.cohort.util import (
     get_friendly_error_message,
 )
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
-from posthog.models.feature_flag.flag_matching import (
-    FeatureFlagMatcher,
-    FlagsMatcherCache,
-    get_feature_flag_hash_key_overrides,
-)
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
@@ -81,6 +76,13 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
+
+from products.feature_flags.backend.flag_matching import (
+    FeatureFlagMatcher,
+    FlagsMatcherCache,
+    get_feature_flag_hash_key_overrides,
+)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -1158,7 +1160,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
                 # Avoid circular import: feature_flag imports cohort models
-                from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+                from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}

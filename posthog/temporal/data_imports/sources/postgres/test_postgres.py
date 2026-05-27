@@ -37,6 +37,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
+    PostgresImplementation,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
@@ -91,6 +92,18 @@ class TestSafeDateLoader:
         assert loader.load(input_data) == expected
 
 
+class TestPostgresImplementationWiring:
+    def test_source_exposes_postgres_implementation_singleton(self):
+        source = PostgresSource()
+        assert isinstance(source.get_implementation, PostgresImplementation)
+        # Same instance across two PostgresSource constructions — module-level singleton.
+        assert source.get_implementation is PostgresSource().get_implementation
+
+    def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
+        impl = PostgresSource().get_implementation
+        assert impl.get_incremental_filter() is filter_postgres_incremental_fields
+
+
 class TestPostgresSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -118,6 +131,7 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -205,7 +219,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -234,7 +248,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -266,7 +280,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -298,7 +312,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -320,7 +334,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),

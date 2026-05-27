@@ -14,11 +14,28 @@ export type {
 export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
+export { Sparkline } from './charts/Sparkline/Sparkline'
+export type { SparklineProps } from './charts/Sparkline/Sparkline'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
+export { RadialChart, RADIAL_MARGINS } from './core/RadialChart'
+export type { RadialChartProps, RadialLayoutBuilder } from './core/RadialChart'
 export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
+
+// Pie / donut
+export { PieChart } from './charts/PieChart/PieChart'
+export type { PieChartConfig, PieChartProps } from './charts/PieChart/PieChart'
+export { computePieLayout, cursorOffsetToAngle, sliceAt, defaultSliceValue } from './charts/PieChart/computePieLayout'
+export type { PieLayout, PieSlice } from './charts/PieChart/computePieLayout'
+export { SliceLabels } from './charts/PieChart/SliceLabels'
+export type { SliceLabelsProps } from './charts/PieChart/SliceLabels'
+export { PieTooltip } from './charts/PieChart/PieTooltip'
+export type { PieTooltipProps } from './charts/PieChart/PieTooltip'
+export { useRadialLayout } from './core/radial-context'
+export type { RadialLayoutContextValue } from './core/radial-context'
+export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
@@ -61,6 +78,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelsProps } from './overlays/ValueLabels'
+export { AxisTitles } from './overlays/AxisTitles'
+export type { AxisTitlesProps } from './overlays/AxisTitles'
 
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'

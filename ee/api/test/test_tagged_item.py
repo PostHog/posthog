@@ -6,10 +6,11 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Insight, Tag
+from posthog.models import Insight, Tag
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # This serializer only tests the business logic of getting and setting of ee descriptions. It uses the dashboard model
 # as an example, since model specific functionality is already tested in their models' respective serializer tests.

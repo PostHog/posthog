@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { ConversationDisplay as ConversationDisplayComponent, ConversationDisplayProps } from './ConversationDisplay'
 
 const meta: Meta<ConversationDisplayProps> = {
-    title: 'Scenes-App/LLM Analytics/Conversation Display',
+    title: 'Scenes-App/AI observability/Conversation Display',
     component: ConversationDisplayComponent,
     render: ({ eventProperties, eventId }) => {
         return <ConversationDisplayComponent eventProperties={eventProperties} eventId={eventId || 'story-event-1'} />

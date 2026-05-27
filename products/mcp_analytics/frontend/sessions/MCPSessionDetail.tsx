@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
@@ -18,7 +19,9 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 }
 
 export function MCPSessionDetail(): JSX.Element {
-    const { selectedSession, toolCalls, toolCallsLoading } = useValues(mcpSessionsLogic)
+    const { selectedSession, toolCalls, toolCallsLoading, selectedSessionIntent, isSelectedSessionGenerating } =
+        useValues(mcpSessionsLogic)
+    const { generateIntent } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
         return (
@@ -73,24 +76,29 @@ export function MCPSessionDetail(): JSX.Element {
                     ) : null}
                     <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
                     <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
-                    <span
-                        className="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
-                        title={selectedSession.session_id}
+                    <Tooltip
+                        title={
+                            <div className="max-w-xs break-all">
+                                Session ID: <span className="font-mono">{selectedSession.session_id}</span>
+                            </div>
+                        }
                     >
-                        <CopyToClipboardInline
-                            explicitValue={selectedSession.session_id}
-                            description="session id"
-                            iconSize="xsmall"
-                            className="font-mono"
-                        >
-                            {shortenSessionId(selectedSession.session_id)}
-                        </CopyToClipboardInline>
-                    </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono">
+                            <CopyToClipboardInline
+                                explicitValue={selectedSession.session_id}
+                                description="session id"
+                                iconSize="xsmall"
+                                className="font-mono"
+                            >
+                                {shortenSessionId(selectedSession.session_id)}
+                            </CopyToClipboardInline>
+                        </span>
+                    </Tooltip>
                 </div>
             </header>
 
             <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
-                {toolCallsLoading && toolCalls.length === 0 ? (
+                {toolCallsLoading ? (
                     <div className="flex flex-col gap-2">
                         {[0, 1, 2].map((i) => (
                             <LemonSkeleton key={i} className="h-16 w-full" />
@@ -155,21 +163,29 @@ export function MCPSessionDetail(): JSX.Element {
             <hr className="shrink-0 border-t border-primary my-0" />
 
             <footer className="shrink-0 bg-gradient-to-br from-accent/15 via-accent/5 to-surface-primary px-3 py-3">
-                <div className="flex items-center gap-2 mb-1.5">
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
-                        <IconSparkles className="text-xs" />
-                    </div>
-                    <span className="text-[10px] uppercase tracking-wider font-semibold text-accent">
-                        Session intent
-                    </span>
-                </div>
-                <p className="text-xs leading-relaxed text-default">
-                    {selectedSession.intent || (
-                        <span className="text-secondary italic">
-                            Summary will appear once the intent workflow runs.
-                        </span>
-                    )}
-                </p>
+                {selectedSessionIntent ? (
+                    <>
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
+                                <IconSparkles className="text-xs" />
+                            </div>
+                            <span className="text-[10px] uppercase tracking-wider font-semibold text-accent">
+                                Session intent
+                            </span>
+                        </div>
+                        <p className="text-xs leading-relaxed text-default">{selectedSessionIntent}</p>
+                    </>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        icon={<IconSparkles />}
+                        loading={isSelectedSessionGenerating}
+                        onClick={() => generateIntent(selectedSession.session_id)}
+                    >
+                        {isSelectedSessionGenerating ? 'Thinking…' : "What's the session intent?"}
+                    </LemonButton>
+                )}
             </footer>
         </div>
     )

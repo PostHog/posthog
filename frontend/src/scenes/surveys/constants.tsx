@@ -201,6 +201,7 @@ export interface NewSurvey extends Pick<
     | 'headline_response_count'
     | 'form_content'
     | 'translations'
+    | 'base_language'
 > {
     id: 'new'
     linked_flag_id: number | null
@@ -237,6 +238,7 @@ export const NEW_SURVEY: NewSurvey = {
     enable_partial_responses: true,
     user_access_level: AccessControlLevel.Editor,
     form_content: null,
+    base_language: 'en',
 }
 
 export enum SurveyTemplateType {

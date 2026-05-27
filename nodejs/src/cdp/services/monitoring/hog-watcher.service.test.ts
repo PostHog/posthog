@@ -224,13 +224,13 @@ describe('HogWatcher', () => {
 
             await watcher.observeResults(lotsOfResults)
 
-            // V3 lua deducts past the bucket on overshoot, so the persisted pool sentinel is -1.
-            // The state machine is driven by the rate-limiter return (-1 on denial), so
-            // `state: 3` (disabled) is correct.
+            // V3 lua floor-drains on overdraft, so the persisted pool lands at 0.
+            // The state machine is driven by the rate-limiter return (tokens=-1 on the
+            // denied per-input results inside observeResults), so `state: 3` (disabled).
             expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                 {
                   "state": 3,
-                  "tokens": -1,
+                  "tokens": 0,
                 }
             `)
 
@@ -300,12 +300,13 @@ describe('HogWatcher', () => {
 
                 await watcher.clearLock(hogFunctionId) // For testing the logic
                 await watcher.observeResults(Array(100).fill(createResult({ duration: 1000, kind: 'hog' })))
-                // Final batch denies (cost > available); V3 lua deducts past the bucket, so pool
-                // lands at -1 and the state transition fires from the rate limiter return.
+                // Final batch overdraws; V3 lua floor-drains the available tokens, so the
+                // stored pool lands at 0. State transition fires from the rate limiter
+                // return (tokens=-1 on the denied per-input tail).
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": -1,
+                      "tokens": 0,
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(2) // New state change
@@ -321,12 +322,12 @@ describe('HogWatcher', () => {
                 watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
                 onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
-                // Cold-start denial: V3 lua deducts past the bucket, leaving the pool at -1.
-                // The state transition fires from the rate-limiter return.
+                // Cold-start denial: V3 lua floor-drains to 0. State transition fires
+                // from the rate-limiter return (tokens=-1 on denied per-input results).
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 2,
-                      "tokens": -1,
+                      "tokens": 0,
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
@@ -342,20 +343,20 @@ describe('HogWatcher', () => {
 
             it('should not automatically transition out of disabled', async () => {
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
-                // V3 lua deducts past the bucket on denied overshoot, leaving the pool at -1.
-                // State persists at 3 (disabled) because state writes are independent of pool writes.
+                // V3 lua floor-drains on overdraft → pool=0. State persists at 3
+                // (disabled) because state writes are independent of pool writes.
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": -1,
+                      "tokens": 0,
                     }
                 `)
                 advanceTime(1000)
-                // Refill from -1 at refillRate=10 over 1s.
+                // Refill from 0 at refillRate=10 over 1s.
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": 9,
+                      "tokens": 10,
                     }
                 `)
 
@@ -364,7 +365,7 @@ describe('HogWatcher', () => {
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": 19,
+                      "tokens": 20,
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)

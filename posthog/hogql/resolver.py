@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -12,7 +13,10 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    S3Table,
+)
 from posthog.hogql.database.schema.duckdb_table_functions import build_opaque_function_call_table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -67,6 +71,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+# Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
+assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
+    "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
+)
+
 # Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
@@ -120,13 +129,24 @@ def resolve_types_from_table(
     return resolve_types(expr, context, dialect, [select_node_with_types.type])
 
 
+ResolverFactory = Callable[
+    [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
+    "Resolver",
+]
+
+
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST:
-    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+    if resolver_factory is None:
+        resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    else:
+        resolver = resolver_factory(context, dialect, scopes)
+    return resolver.visit(node)
 
 
 class AliasCollector(TraversingVisitor):
@@ -1074,6 +1094,9 @@ class Resolver(CloningVisitor):
             else:
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
+
+            if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
+                self._record_warehouse_sync_warnings(database_table.table_id)
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
@@ -2051,6 +2074,15 @@ class Resolver(CloningVisitor):
             return isinstance(table.table, S3Table)
 
         return False
+
+    def _record_warehouse_sync_warnings(self, table_id: str) -> None:
+        if self.database is None:
+            return
+        warnings = getattr(self.database, "_data_warehouse_sync_warnings", {}).get(table_id)
+        if not warnings:
+            return
+        for warning in warnings:
+            self.context.add_data_warehouse_sync_warning(table_id, warning)
 
     def _build_opaque_table_function(
         self, table_name_chain: list[str], node: ast.JoinExpr

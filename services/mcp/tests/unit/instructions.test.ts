@@ -83,9 +83,9 @@ describe('buildToolDomainsBlock', () => {
 
     it('should collapse plural/singular duplicates', () => {
         const tools = [
-            { name: 'evaluation-create', category: 'LLM analytics' },
-            { name: 'evaluations-get', category: 'LLM analytics' },
-            { name: 'evaluation-delete', category: 'LLM analytics' },
+            { name: 'evaluation-create', category: 'AI observability' },
+            { name: 'evaluations-get', category: 'AI observability' },
+            { name: 'evaluation-delete', category: 'AI observability' },
         ]
         const result = buildToolDomainsBlock(tools)
         expect(result).toContain('- evaluation')

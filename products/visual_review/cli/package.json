@@ -9,7 +9,8 @@
     "scripts": {
         "build": "tsc",
         "dev": "tsx src/index.ts",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "typecheck:tsgo": "tsgo --noEmit"
     },
     "dependencies": {
         "@napi-rs/blake-hash": "^1.3.6",

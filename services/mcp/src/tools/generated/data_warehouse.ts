@@ -813,9 +813,6 @@ const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
     name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
         'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
     ),
-    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
-        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-    ),
 })
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -1065,9 +1062,6 @@ const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project
     .extend({
         name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
             'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-        ),
-        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
-            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
         ),
         edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
             'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'

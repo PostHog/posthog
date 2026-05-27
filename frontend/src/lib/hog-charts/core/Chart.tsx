@@ -1,8 +1,10 @@
 import React, { useCallback, useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
+import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { normalizeAxisLabel } from '../utils/axis-labels'
 import { composeDrawHoverWithCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
@@ -52,6 +54,7 @@ const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
     left: 0,
     pointerEvents: 'none',
 }
+const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
@@ -72,13 +75,18 @@ export interface ChartProps<Meta = unknown> {
     className?: string
     dataAttr?: string
     children?: React.ReactNode
-    /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
-     *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
+    /** Resolves the y-value to *display* for a series at a given index. Defaults to
+     *  series.data[index]. Identity is read live for tooltip values, but the pinned-tooltip
      *  rebuild only refires when `series`, `labels`, or `scales` change. Callers that
      *  derive values from data not reflected in those (e.g. an external "%" toggle)
      *  should ensure that toggle also updates `series` or the chart's scales — otherwise
      *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
+    /** Value used to *anchor* the tooltip and value-label overlays per series. Defaults to
+     *  `resolveValue`. Stacked charts pass the stacked-top resolver here so overlays land at the
+     *  visual top of each segment, while each tooltip row still shows that series's own value
+     *  via `resolveValue`. */
+    resolvePositionValue?: ResolveValueFn
     /** Required for horizontal orientation — maps labels to the coordinate on the categorical
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
@@ -99,6 +107,7 @@ export function Chart<Meta = unknown>({
     dataAttr,
     children,
     resolveValue,
+    resolvePositionValue,
     labelToCoord,
 }: ChartProps<Meta>): React.ReactElement {
     const {
@@ -106,10 +115,13 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
+        xAxisLabel,
+        yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
         axisOrientation = 'vertical',
         isPercent = false,
+        margins: marginsOverride,
     } = config ?? {}
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -123,9 +135,12 @@ export function Chart<Meta = unknown>({
         labels,
         hideXAxis,
         hideYAxis,
+        xAxisLabel,
+        yAxisLabel,
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
+        override: marginsOverride,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -159,6 +174,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
+        resolvePositionValue,
         interactionAxis,
         labelToCoord,
     })
@@ -194,20 +210,32 @@ export function Chart<Meta = unknown>({
 
     const ariaLabel = useMemo(() => {
         const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
-        return `Chart with ${visible} data series`
-    }, [coloredSeries])
+        const parts = [`Chart with ${visible} data series`]
+        const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
+        const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
+        if (!hideXAxis && cleanXAxisLabel) {
+            parts.push(`X-axis: ${cleanXAxisLabel}`)
+        }
+        if (!hideYAxis && cleanYAxisLabel) {
+            parts.push(`Y-axis: ${cleanYAxisLabel}`)
+        }
+        return parts.join('. ')
+    }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
 
     const canvasBounds = useCallback(
         (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
         [canvasRef]
     )
 
-    const stableResolveValue = useStableResolveValue(resolveValue)
+    // Overlays (value labels) anchor at the stacked top, so expose the position resolver —
+    // falling back to the value resolver when the chart doesn't stack.
+    const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
 
     const axisValue = useMemo(
         () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
         [axisOrientation, xTickFormatter, isPercent]
     )
+    const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -219,11 +247,11 @@ export function Chart<Meta = unknown>({
             labels,
             series: coloredSeries,
             theme,
-            resolveValue: stableResolveValue,
+            resolvePositionValue: stablePositionValue,
             canvasBounds,
             axis: axisValue,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds, axisValue])
+    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
@@ -250,9 +278,16 @@ export function Chart<Meta = unknown>({
                                 yRightTickFormatter={resolvedYRightFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
-                                axisColor={theme.axisColor}
+                                axisColor={axisColor}
                                 orientation={axisOrientation}
                                 labelToCoord={labelToCoord}
+                            />
+                            <AxisTitles
+                                xAxisLabel={xAxisLabel}
+                                yAxisLabel={yAxisLabel}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={axisColor}
                             />
 
                             {children}

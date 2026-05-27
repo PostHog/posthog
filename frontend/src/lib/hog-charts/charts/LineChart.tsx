@@ -5,7 +5,8 @@ import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
-    buildStackedResolveValue,
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
@@ -69,17 +70,23 @@ function LineChartInner<Meta = unknown>({
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
-    const hasAreaFill = useMemo(() => series.some((s) => s.fill !== undefined && !s.fill.lowerData), [series])
+    const hasMultipleFilledSeries = useMemo(() => {
+        const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
+        return filledSeries.length >= 2
+    }, [series])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
             return computePercentStackData(series, labels)
         }
-        if (hasAreaFill) {
+        // Only stack when there are 2+ fillable series — a single area series has nothing to stack
+        // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
+        // renderer, which disables the gradient fill path.
+        if (hasMultipleFilledSeries) {
             return computeStackData(series, labels)
         }
         return undefined
-    }, [percentStackView, hasAreaFill, series, labels])
+    }, [percentStackView, hasMultipleFilledSeries, series, labels])
 
     const chartConfig = useMemo(() => {
         const base = { ...config, isPercent: percentStackView }
@@ -228,7 +235,10 @@ function LineChartInner<Meta = unknown>({
         [stackedData]
     )
 
-    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
+    // Stacked/percent-stacked areas: display each series's own segment value (resolveValue)
+    // but anchor the tooltip/value labels at the stacked top (resolvePositionValue).
+    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
+    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -244,6 +254,7 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            resolvePositionValue={resolvePositionValue}
         >
             {children}
         </Chart>

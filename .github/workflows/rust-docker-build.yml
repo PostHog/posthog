@@ -65,6 +65,9 @@ jobs:
                     - release: property-defs-rs
                       digest_key: property-defs-rs
                       values_key: image
+                    - release: property-vals-rs
+                      digest_key: property-vals-rs
+                      values_key: image
                     - release: feature-flags
                       digest_key: feature-flags
                       values_key: image
