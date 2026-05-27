@@ -776,15 +776,21 @@ class TestExternalDataSource(APIBaseTest):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
                 return_value=(True, None),
             ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
@@ -2635,10 +2641,16 @@ class TestExternalDataSource(APIBaseTest):
         postgres_connection.close()
 
     def test_database_schema_stripe_credentials(self):
-        with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
-        ) as validate_credentials_mock:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            ) as validate_credentials_mock,
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+            ) as check_perms_mock,
+        ):
             validate_credentials_mock.return_value = True
+            check_perms_mock.return_value = {}
 
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -2650,6 +2662,10 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 200
+            # Each schema in the response should expose the new permission_error field —
+            # mock returns {} so every entry defaults to None (available).
+            for entry in response.json():
+                assert entry["permission_error"] is None
 
     def test_database_schema_stripe_credentials_sad_path(self):
         with patch(
@@ -2687,6 +2703,35 @@ class TestExternalDataSource(APIBaseTest):
 
             assert response.status_code == 400
             assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
+
+    def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
+        """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
+        result into each schema row so the UI can disable tables the credentials can't reach."""
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            ) as validate_credentials_mock,
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+            ) as check_perms_mock,
+        ):
+            validate_credentials_mock.return_value = True
+            # Mark Charge as denied; everything else implicitly returns None via .get()
+            check_perms_mock.return_value = {"Charge": "Missing rak_charge_read"}
+
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
+                    "stripe_account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+            by_table = {entry["table"]: entry for entry in response.json()}
+            assert by_table["Charge"]["permission_error"] == "Missing rak_charge_read"
+            assert by_table["Customer"]["permission_error"] is None
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
@@ -2755,6 +2800,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_source.get_schemas.return_value = [
             SourceSchema(name="table_1", supports_incremental=False, supports_append=False, row_count=42)
         ]
+        mock_source.get_endpoint_permissions.return_value = {}
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -2846,6 +2892,7 @@ class TestExternalDataSource(APIBaseTest):
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
                     "detected_primary_keys": ["id"],
+                    "permission_error": None,
                 }
             ]
 
@@ -2913,6 +2960,7 @@ class TestExternalDataSource(APIBaseTest):
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
                     "detected_primary_keys": ["id"],
+                    "permission_error": None,
                 }
             ]
 
@@ -4476,11 +4524,17 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=(True, None),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             # Create a BigQuery source
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",

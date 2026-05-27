@@ -19,6 +19,7 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
@@ -51,6 +52,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
     StripeValidationError,
+    check_endpoint_permissions as check_stripe_endpoint_permissions,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -292,9 +294,11 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
+        # No schema_name → basic auth probe. With schema_name → probe that endpoint.
+        endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, schema_name, auth_method=config.auth_method.selection):
+            if validate_stripe_credentials(api_key, endpoints, auth_method=config.auth_method.selection):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
@@ -333,6 +337,26 @@ If automatic creation failed due to a permissions error and you're using a restr
             return False, message
         except Exception as e:
             return False, str(e)
+
+    def get_endpoint_permissions(
+        self, config: StripeSourceConfig, team_id: int, endpoints: list[str]
+    ) -> dict[str, str | None]:
+        # 401 → mark every endpoint with the auth error so caller can surface it once.
+        try:
+            api_key = self._get_api_key(config, team_id)
+        except ValueError as e:
+            # Known credential-config issues from _get_api_key — message is curated and safe to surface.
+            return dict.fromkeys(endpoints, str(e))
+        except Exception as e:
+            # Unknown failure (OAuth refresh, integration lookup, etc.). Capture for triage but
+            # render a generic reason so we never leak an unintended message to the UI.
+            capture_exception(e)
+            return dict.fromkeys(endpoints, "Stripe credentials are not available")
+
+        try:
+            return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
+        except StripeAuthenticationError as e:
+            return dict.fromkeys(endpoints, e.stripe_message)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)

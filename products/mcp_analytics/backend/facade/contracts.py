@@ -5,6 +5,14 @@ from uuid import UUID
 from .enums import SubmissionKind
 
 
+class IntentGenerationUnavailable(RuntimeError):
+    """Raised when session-intent generation can't complete (LLM unconfigured or request failed).
+
+    Part of the facade contract: callers (e.g. the presentation layer) catch this to surface a
+    clean error instead of a 500.
+    """
+
+
 @dataclass(frozen=True)
 class Submission:
     id: UUID

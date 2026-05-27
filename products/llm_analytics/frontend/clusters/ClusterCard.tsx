@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -7,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
-import { NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
+import { NOISE_CLUSTER_ID } from './constants'
 import { Cluster, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
 interface ClusterCardProps {
@@ -40,7 +42,7 @@ export function ClusterCard({
     const itemLabel =
         clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
 
-    const clusterColor = isOutlierCluster ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
+    const clusterColor = isOutlierCluster ? undefined : getSeriesColor(cluster.cluster_id)
 
     // Check if we have any metrics to show. Eval-specific metrics (passRate /
     // naRate / dominantEvaluationName / dominantRuntime) count even when the
@@ -62,16 +64,10 @@ export function ClusterCard({
 
     return (
         <div
-            className={`rounded-lg overflow-hidden transition-all border-y border-r ${
-                isOutlierCluster ? 'bg-surface-primary border-dashed' : 'bg-surface-primary'
-            }`}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                borderColor: isOutlierCluster ? 'var(--warning-dark)' : 'var(--border)',
-                borderLeftWidth: 3,
-                borderLeftColor: clusterColor,
-                borderLeftStyle: isOutlierCluster ? 'dashed' : 'solid',
-            }}
+            className={clsx(
+                'rounded-lg overflow-hidden transition-all bg-surface-primary border border-primary',
+                isOutlierCluster && 'border-dashed'
+            )}
         >
             {/* Card Header */}
             <div
@@ -81,7 +77,16 @@ export function ClusterCard({
             >
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2">
+                            <div
+                                className={clsx(
+                                    'w-2.5 h-2.5 rounded-full shrink-0',
+                                    isOutlierCluster && 'border border-dashed border-secondary'
+                                )}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={isOutlierCluster ? undefined : { backgroundColor: clusterColor }}
+                                aria-hidden
+                            />
                             <Link
                                 to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
                                 className="font-semibold text-base truncate hover:underline"

@@ -6,12 +6,12 @@ from django.db.models import Q
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 

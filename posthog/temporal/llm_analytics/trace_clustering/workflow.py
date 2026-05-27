@@ -42,6 +42,7 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusterAggregateMetrics,
     ClusteringActivityInputs,
     ClusteringComputeResult,
+    ClusteringMetrics,
     ClusteringParams,
     ClusteringResult,
     ClusteringWorkflowInputs,
@@ -197,6 +198,23 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
 
         record_items_analyzed(len(compute_result.items), analysis_level)
         record_noise_points(compute_result.num_noise_points, analysis_level)
+
+        if not compute_result.items:
+            workflow.logger.info(
+                "Skipping label/aggregates/emit: compute returned no items",
+                team_id=inputs.team_id,
+                analysis_level=analysis_level,
+            )
+            record_clusters_generated(0, analysis_level)
+            return ClusteringResult(
+                clustering_run_id=compute_result.clustering_run_id,
+                team_id=inputs.team_id,
+                timestamp=now.isoformat(),
+                window_start=window_start,
+                window_end=window_end,
+                metrics=ClusteringMetrics(total_items_analyzed=0, num_clusters=0, duration_seconds=0.0),
+                clusters=[],
+            )
 
         # Compute per-item metadata for labeling (O(n) instead of O(n × k))
         item_metadata = _compute_item_labeling_metadata(compute_result)

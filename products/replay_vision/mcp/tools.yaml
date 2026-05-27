@@ -1,0 +1,119 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Replay vision
+feature: replay_vision
+url_prefix: /replay-vision
+ui_apps: {}
+tools:
+    vision-observations-list:
+        operation: vision_observations_list
+        enabled: false
+    vision-observations-retrieve:
+        operation: vision_observations_retrieve
+        enabled: false
+    vision-scanners-create:
+        operation: vision_scanners_create
+        enabled: false
+    vision-scanners-destroy:
+        operation: vision_scanners_destroy
+        enabled: false
+    vision-scanners-estimate-create:
+        operation: vision_scanners_estimate_create
+        enabled: false
+    vision-scanners-get:
+        operation: vision_scanners_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get replay vision scanner
+        description: >
+            Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the
+            type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and
+            operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`,
+            and `last_swept_at`.
+        feature_flag: replay-vision
+    vision-scanners-list:
+        operation: vision_scanners_list
+        enabled: true
+        scopes:
+            - replay_scanner:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List replay vision scanners
+        description: >
+            List all replay vision scanners in the current project. A scanner watches a slice of session recordings
+            (defined by its `query` and `sampling_rate`) and runs one of five LLM analyses against each matching
+            session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric
+            rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for downstream embedding).
+            Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
+        feature_flag: replay-vision
+    vision-scanners-observations-get:
+        operation: vision_scanners_observations_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get scanner observation
+        description: >
+            Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as
+            it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result`
+            including any event citations linking the LLM output back to specific events in the originating session.
+            Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying
+            recording.
+        feature_flag: replay-vision
+    vision-scanners-observations-list:
+        operation: vision_scanners_observations_list
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scanner observations
+        description: >
+            List the observations recorded by a single scanner. Each observation is one scan of one session and includes
+            its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`,
+            the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type),
+            and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.
+        feature_flag: replay-vision
+    vision-scanners-partial-update:
+        operation: vision_scanners_partial_update
+        enabled: false
+    vision-scanners-scan-session:
+        operation: vision_scanners_observe_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run scanner against a session now
+        description: >
+            Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled
+            sweep. Returns 202 with a `workflow_id`; the resulting observation appears under
+            `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes —
+            rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an
+            investigation: pick a scanner that matches the question you want answered, and point it at the session
+            you're examining.
+        requires_ai_consent: true
+        feature_flag: replay-vision

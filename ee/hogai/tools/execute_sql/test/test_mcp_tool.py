@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 from asgiref.sync import sync_to_async
 
-from posthog.models import Insight
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.mcp_tool import ExecuteSQLMCPTool, ExecuteSQLMCPToolArgs
