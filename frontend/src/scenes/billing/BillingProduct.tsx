@@ -536,12 +536,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
                             {/* Add-ons title */}
-                            <h4 className="my-4">Add-ons</h4>
+                            <h4 className="my-4">
+                                {product.type === 'platform_and_support' ? 'Packages' : 'Add-ons'}
+                            </h4>
                             {billing?.subscription_level == 'free' && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            Add-ons are only available on paid plans. Upgrade to access these features.
+                                            {product.type === 'platform_and_support'
+                                                ? 'Packages are only available on paid plans. Upgrade to access these features.'
+                                                : 'Add-ons are only available on paid plans. Upgrade to access these features.'}
                                         </div>
                                         <BillingUpgradeCTA
                                             type="primary"
