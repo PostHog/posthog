@@ -453,13 +453,15 @@ describe('hog-charts canvas-renderer', () => {
             expect(fromY).toBe(toY)
         })
 
-        it('draws a vertical y-axis line at plotLeft as the final stroke', () => {
+        it('frames the plot area with left and right vertical axis lines', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']))
-            const lastMove = ctx.moveTo.mock.calls.at(-1)
-            const lastLine = ctx.lineTo.mock.calls.at(-1)
-            expect(lastMove).toEqual([dimensions.plotLeft + 0.5, dimensions.plotTop])
-            expect(lastLine).toEqual([dimensions.plotLeft + 0.5, dimensions.plotTop + dimensions.plotHeight])
+            const leftX = dimensions.plotLeft + 0.5
+            const rightX = dimensions.plotLeft + dimensions.plotWidth - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([leftX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([leftX, dimensions.plotTop + dimensions.plotHeight])
+            expect(ctx.moveTo.mock.calls).toContainEqual([rightX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([rightX, dimensions.plotTop + dimensions.plotHeight])
         })
 
         it('uses the provided gridColor', () => {
@@ -478,13 +480,15 @@ describe('hog-charts canvas-renderer', () => {
             expect(toY).toBe(dimensions.plotTop + dimensions.plotHeight)
         })
 
-        it('draws a horizontal top baseline as the final stroke (horizontal orientation)', () => {
+        it('frames the plot area with top and bottom baselines (horizontal orientation)', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
-            const lastMove = ctx.moveTo.mock.calls.at(-1)
-            const lastLine = ctx.lineTo.mock.calls.at(-1)
-            expect(lastMove).toEqual([dimensions.plotLeft, dimensions.plotTop + 0.5])
-            expect(lastLine).toEqual([dimensions.plotLeft + dimensions.plotWidth, dimensions.plotTop + 0.5])
+            const topY = dimensions.plotTop + 0.5
+            const bottomY = dimensions.plotTop + dimensions.plotHeight - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, topY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, topY])
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, bottomY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, bottomY])
         })
 
         describe('categoryTicks', () => {

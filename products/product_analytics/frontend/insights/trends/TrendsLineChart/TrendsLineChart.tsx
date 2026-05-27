@@ -109,7 +109,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             // In percent layout the chart computes each segment's share of its band and passes
             // a 0..1 fraction here, so we render it directly as a percentage.
             if (isPercentStackView) {
-                return percentage(value)
+                return percentage(value, 1)
             }
             return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
         },
@@ -128,6 +128,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                xAxisLabel: trendsFilter?.xAxisLabel,
+                yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,
@@ -150,6 +152,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             interval,
             timezone,
             currentPeriodResult?.days,
+            trendsFilter?.xAxisLabel,
+            trendsFilter?.yAxisLabel,
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,

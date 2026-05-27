@@ -16,7 +16,7 @@ from posthog.event_usage import groups
 
 from products.error_tracking.backend.models import ErrorTrackingGroupingRule, ErrorTrackingIssueFingerprintV2
 
-from .utils import RuleReorderingMixin, generate_byte_code
+from .utils import RuleReorderingMixin, generate_byte_code, has_filter_values
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +32,8 @@ class ErrorTrackingGroupingRuleFiltersField(serializers.JSONField):
         except PydanticValidationError as err:
             logger.warning("Invalid grouping rule filters payload", exc_info=err)
             raise serializers.ValidationError("Invalid filters payload.") from err
+        if not has_filter_values(value):
+            raise serializers.ValidationError("Filters must contain at least one filter value.")
         return value
 
 

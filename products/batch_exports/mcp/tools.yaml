@@ -176,9 +176,35 @@ tools:
     batch-exports-update:
         operation: batch_exports_update
         enabled: false
+    file-download-batch-exports-cancel-create:
+        operation: file_download_batch_exports_cancel_create
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Cancel a running file download export
+        description: >
+            Cancel a running or starting on-demand file download export. When the status is not Starting or Running
+            calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.
     file-download-batch-exports-create:
         operation: file_download_batch_exports_create
-        enabled: false
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start file download export
+        description: >
+            Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide
+            data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For
+            events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned
+            id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the
+            files through the existing REST download endpoint.
     file-download-batch-exports-download-retrieve:
         operation: file_download_batch_exports_download_retrieve
         enabled: false
@@ -187,4 +213,17 @@ tools:
         enabled: false
     file-download-batch-exports-retrieve:
         operation: file_download_batch_exports_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - batch_export:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get file download export status
+        description: >
+            Get the status of an on-demand file download export. Returns Starting or Running while the export is in
+            progress, Completed with file IDs when files are ready, or a failed status with an error message. When
+            status is Completed, use the downloading-batch-export-files skill to download each file through the existing
+            REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a
+            redirect to the file body.

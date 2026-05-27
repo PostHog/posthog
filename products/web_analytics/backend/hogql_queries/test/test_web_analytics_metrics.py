@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import WebStatsBreakdown
 
+from posthog.clickhouse.query_tagging import create_base_tags, get_query_tag_value, query_tags, tag_queries
+
 from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_COUNTER,
     WEB_ANALYTICS_QUERY_DURATION,
@@ -384,6 +386,38 @@ class TestWebAnalyticsMetrics(TestCase):
     def test_lazy_precompute_success_counter_label_space(self, family):
         WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=family).inc()
         assert _get_counter_value(WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS, {"family": family}) == 1.0
+
+    @parameterized.expand(
+        [
+            ("no_prior_tag", None),
+            (
+                "overwrites_wrapper_payload",
+                {"kind": "InsightVizNode", "source": {"kind": "WebOverviewQuery"}},
+            ),
+            (
+                "overwrites_prior_runner_payload",
+                {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-30d"}},
+            ),
+        ]
+    )
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
+    def test_calculate_tags_inner_query_payload(self, _name, prior_tag, _mock_tag):
+        query_tags.set(create_base_tags())
+        if prior_tag is not None:
+            tag_queries(query=prior_tag)
+
+        runner = _make_runner(query_kind="WebOverviewQuery", breakdown=None)
+        expected_payload = {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d", "date_to": None}}
+        cast(MagicMock, runner.query.model_dump).return_value = expected_payload
+
+        fake_response = MagicMock()
+        fake_response.usedPreAggregatedTables = False
+        with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
+            WebAnalyticsQueryRunner.calculate(runner)
+
+        self.assertEqual(get_query_tag_value("query"), expected_payload)
 
     @patch(
         "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
