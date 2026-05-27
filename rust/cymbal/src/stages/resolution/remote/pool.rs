@@ -415,18 +415,19 @@ impl EndpointPool {
     /// elapses. Returns `Ok(())` when the pool is ready, `Err(Empty)` if the
     /// timeout fires first.
     pub async fn wait_ready(&self, timeout: Duration) -> Result<(), EndpointPoolError> {
-        let now = || async {
-            self.inner
-                .lock()
-                .await
-                .endpoints
-                .values()
-                .any(|s| !s.draining)
-        };
-        if now().await {
+        let notified = self.ready.notified();
+        tokio::pin!(notified);
+        if self
+            .inner
+            .lock()
+            .await
+            .endpoints
+            .values()
+            .any(|s| !s.draining)
+        {
             return Ok(());
         }
-        match tokio::time::timeout(timeout, self.ready.notified()).await {
+        match tokio::time::timeout(timeout, notified).await {
             Ok(()) => Ok(()),
             Err(_) => Err(EndpointPoolError::Empty),
         }

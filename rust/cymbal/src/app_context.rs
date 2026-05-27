@@ -5,7 +5,10 @@ use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::{
+    sync::{Mutex, Semaphore},
+    task::JoinHandle,
+};
 use tracing::info;
 use uuid::Uuid;
 
@@ -49,6 +52,7 @@ pub struct AppContext {
     /// resolver. Built once at startup; the endpoint pool refreshes itself in
     /// the background.
     pub remote_resolution: Option<RemoteResolutionContext>,
+    remote_resolution_refresh_task: Option<JoinHandle<()>>,
     pub config: Config,
 
     pub team_manager: TeamManager,
@@ -59,6 +63,14 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+}
+
+impl Drop for AppContext {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.remote_resolution_refresh_task {
+            handle.abort();
+        }
+    }
 }
 
 /// Build just the symbol-resolution stack from env config: connects to
@@ -258,7 +270,8 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
-        let remote_resolution = build_remote_resolution(config).await?;
+        let (remote_resolution, remote_resolution_refresh_task) =
+            build_remote_resolution(config).await?;
 
         Ok(Self {
             health_registry,
@@ -275,15 +288,16 @@ impl AppContext {
             symbol_resolver,
             issue_cache,
             remote_resolution,
+            remote_resolution_refresh_task,
         })
     }
 }
 
 async fn build_remote_resolution(
     config: &Config,
-) -> Result<Option<RemoteResolutionContext>, UnhandledError> {
+) -> Result<(Option<RemoteResolutionContext>, Option<JoinHandle<()>>), UnhandledError> {
     if !config.remote_resolution_enabled {
-        return Ok(None);
+        return Ok((None, None));
     }
 
     let remote_config = RemoteResolutionConfig::from_config(config)?;
@@ -303,10 +317,13 @@ async fn build_remote_resolution(
         .map_err(|e| {
             UnhandledError::Other(format!("failed to build remote resolution pool: {e}"))
         })?;
-    crate::stages::resolution::remote::pool::spawn_refresh_task(pool.clone());
+    let refresh_task = crate::stages::resolution::remote::pool::spawn_refresh_task(pool.clone());
 
-    Ok(Some(RemoteResolutionContext {
-        pool,
-        config: remote_config,
-    }))
+    Ok((
+        Some(RemoteResolutionContext {
+            pool,
+            config: remote_config,
+        }),
+        Some(refresh_task),
+    ))
 }

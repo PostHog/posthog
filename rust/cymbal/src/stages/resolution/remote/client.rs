@@ -91,8 +91,13 @@ pub async fn resolve(
 
     let mut stream = response.into_inner();
     let mut outcomes: Vec<Outcome> = Vec::new();
+    let drain_deadline = tokio::time::Instant::now() + deadline;
     loop {
-        match tokio::time::timeout(deadline, stream.next()).await {
+        let remaining = drain_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(RemoteCallError::Deadline(deadline));
+        }
+        match tokio::time::timeout(remaining, stream.next()).await {
             Ok(Some(Ok(outcome))) => outcomes.push(outcome),
             Ok(Some(Err(status))) => return Err(classify_status(status)),
             Ok(None) => break,
