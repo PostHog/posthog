@@ -468,6 +468,19 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
+export interface DataWarehouseSyncWarning {
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -482,6 +495,11 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     explain?: string[]
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
+    /**
+     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
+     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     */
+    warnings?: DataWarehouseSyncWarning[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -3522,6 +3540,17 @@ export interface ExperimentApiEventSource {
     event?: string
     /** Action ID. Required for ActionsNode. */
     id?: integer
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with
+     *  math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order.
+     *  Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathType
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently
+     *  falls back to a plain count/sum. */
+    math_hogql?: string
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilter[]
 }
@@ -3547,6 +3576,26 @@ export interface ExperimentApiMetric {
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSource
+    /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01
+     *  for the 1st percentile). Per-user values below this percentile are clamped to it before
+     *  aggregation.
+     *  @minimum 0
+     *  @maximum 1 */
+    lower_bound_percentile?: number
+    /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99
+     *  for the 99th percentile). Per-user values above this percentile are clamped to it before
+     *  aggregation.
+     *  @minimum 0
+     *  @maximum 1 */
+    upper_bound_percentile?: number
+    /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+    ignore_zeros?: boolean
+    /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
+     *  denominator and each with its own percentile thresholds. */
+    numerator_outlier_handling?: ExperimentMetricOutlierHandling
+    /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
+     *  binomial-style denominator, which is never clamped. */
+    denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSource
     /** For retention metrics: completion event. */
@@ -3613,7 +3662,13 @@ export interface ExperimentMetricBaseProperties extends Node {
 }
 
 export type ExperimentMetricOutlierHandling = {
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).
+     *  @minimum 0
+     *  @maximum 1 */
     lower_bound_percentile?: number
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).
+     *  @minimum 0
+     *  @maximum 1 */
     upper_bound_percentile?: number
     ignore_zeros?: boolean
 }
@@ -3666,6 +3721,11 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RATIO
     numerator: ExperimentMetricSource
     denominator: ExperimentMetricSource
+    // Winsorization is applied to the numerator and denominator independently,
+    // each with its own percentile bounds and computed thresholds. There is no
+    // per-user ratio to cap, so capping operates on the two component aggregates.
+    numerator_outlier_handling?: ExperimentMetricOutlierHandling
+    denominator_outlier_handling?: ExperimentMetricOutlierHandling
 }
 
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>

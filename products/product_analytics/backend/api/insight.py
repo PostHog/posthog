@@ -46,9 +46,6 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_metadata import generate_insight_metadata
-from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
-from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
@@ -90,7 +87,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import Cohort, Filter, Insight, User
+from posthog.models import Cohort, Filter, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -101,9 +98,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.filters.utils import get_filter
-from posthog.models.insight import InsightViewed
-from posthog.models.insight_caching_state import InsightCachingState
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -133,6 +127,12 @@ from posthog.utils import (
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.api.insight_metadata import generate_insight_metadata
+from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
+from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.utils import HogVMException
 

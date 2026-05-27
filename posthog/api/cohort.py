@@ -64,7 +64,6 @@ from posthog.models.cohort.util import (
 )
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
@@ -83,6 +82,7 @@ from products.feature_flags.backend.flag_matching import (
     get_feature_flag_hash_key_overrides,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.

@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
+import type { ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -478,8 +478,15 @@ export interface BarRect {
 
 export const DEFAULT_BAR_CORNER_RADIUS = 4
 
-/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
- *  pre-filter `bars` without shifting the hatch boundary. */
+export interface BarShadow {
+    color: string
+    blur: number
+    offsetX?: number
+    offsetY?: number
+}
+
+/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`. Any ctx
+ *  state (shadow / clip / globalAlpha) is the caller's responsibility. */
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,
@@ -587,7 +594,7 @@ export function drawHighlightPoint(
     ctx.fill()
 }
 
-type DrawHoverFn = (args: ChartDrawArgs) => void
+type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult
 
 interface ComposeDrawHoverOptions {
     crosshairColor: string | undefined
@@ -610,6 +617,6 @@ export function composeDrawHoverWithCrosshair(
                 drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation)
             }
         }
-        getDrawHover()(args)
+        return getDrawHover()(args)
     }
 }

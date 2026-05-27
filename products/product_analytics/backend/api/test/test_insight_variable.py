@@ -7,9 +7,10 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 
-from posthog.api.insight_variable import InsightVariableViewSet, map_stale_to_latest
 from posthog.auth import SharingAccessTokenAuthentication
-from posthog.models.insight_variable import InsightVariable
+
+from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet, map_stale_to_latest
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class TestInsightVariable(APIBaseTest):

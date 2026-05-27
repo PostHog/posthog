@@ -29,7 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort, Insight, Team
+from posthog.models import Cohort, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.event.event import Selector
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -41,6 +41,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.models.insight import Insight
 
 _PropertyFilterUnion = PolymorphicProxySerializer(
     component_name="ActionStepPropertyFilter",
