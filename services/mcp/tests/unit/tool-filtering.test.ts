@@ -671,6 +671,19 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(withFlags).toEqual(withoutFlags)
     })
 
+    it('notebooks-collaboration flag flips the active notebook edit tool', () => {
+        // When the flag is OFF, the legacy non-streaming PATCH tool is exposed.
+        // When the flag is ON, it's hidden and the streaming collab edit tool
+        // takes its place. The model never sees both at once.
+        const off = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': false } })
+        expect(off).toContain('notebooks-partial-update')
+        expect(off).not.toContain('notebook-edit')
+
+        const on = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': true } })
+        expect(on).toContain('notebook-edit')
+        expect(on).not.toContain('notebooks-partial-update')
+    })
+
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         // Includes the gating flag for agent-feedback alongside the other gated tools.
@@ -683,10 +696,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
+                'notebooks-collaboration',
                 'replay-vision',
             ])
         )
-        expect(flags).toHaveLength(8)
+        expect(flags).toHaveLength(9)
     })
 
     // Test the filtering logic with a direct unit test approach using

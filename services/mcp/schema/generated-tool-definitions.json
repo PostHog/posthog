@@ -3953,7 +3953,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
         "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
