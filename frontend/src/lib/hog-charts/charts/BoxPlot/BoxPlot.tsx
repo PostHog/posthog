@@ -129,7 +129,7 @@ function BoxPlotInner<Meta = unknown>({
                 color: s.color,
                 data: Array.from({ length: labels.length }, (_, i) => {
                     const datum = s.data[i]
-                    return datum && isFinite(datum.median) ? datum.median : Number.NaN
+                    return datum && Number.isFinite(datum.median) ? datum.median : Number.NaN
                 }),
                 meta: { datums: s.data, user: s.meta },
                 visibility: s.visibility,
@@ -153,10 +153,10 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                if (isFinite(datum.min)) {
+                if (Number.isFinite(datum.min)) {
                     mins.push(datum.min)
                 }
-                if (isFinite(datum.max)) {
+                if (Number.isFinite(datum.max)) {
                     maxs.push(datum.max)
                 }
             }

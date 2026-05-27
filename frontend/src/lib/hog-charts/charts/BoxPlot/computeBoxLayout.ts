@@ -84,10 +84,15 @@ export function computeBoxRect({
     scales,
     grouped,
 }: ComputeBoxRectOptions): BoxRect | null {
-    if (!isFinite(datum.min) || !isFinite(datum.max) || !isFinite(datum.p25) || !isFinite(datum.p75)) {
+    if (
+        !Number.isFinite(datum.min) ||
+        !Number.isFinite(datum.max) ||
+        !Number.isFinite(datum.p25) ||
+        !Number.isFinite(datum.p75)
+    ) {
         return null
     }
-    if (!isFinite(datum.median) || !isFinite(datum.mean)) {
+    if (!Number.isFinite(datum.median) || !Number.isFinite(datum.mean)) {
         return null
     }
     const slot = computeBoxBand(seriesKey, label, scales, grouped)
@@ -101,10 +106,15 @@ export function computeBoxRect({
     const meanY = scales.value(datum.mean)
     const maxY = scales.value(datum.max)
     const minY = scales.value(datum.min)
-    if (!isFinite(p25Y) || !isFinite(p75Y) || !isFinite(medianY) || !isFinite(meanY)) {
+    if (
+        !Number.isFinite(p25Y) ||
+        !Number.isFinite(p75Y) ||
+        !Number.isFinite(medianY) ||
+        !Number.isFinite(meanY)
+    ) {
         return null
     }
-    if (!isFinite(maxY) || !isFinite(minY)) {
+    if (!Number.isFinite(maxY) || !Number.isFinite(minY)) {
         return null
     }
 
