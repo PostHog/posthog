@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart } from 'lib/hog-charts'
+import { BarChart, DEFAULT_MARGINS } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -17,21 +17,21 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
-// Both axes are hidden: steps are identified by the legend row below, and the per-step
-// conversion rate is shown there too. This lets the bars span the full width so the
-// legend columns line up with them without measuring the chart's plot area.
-const CHART_CONFIG: BarChartConfig = {
+// Per-step width — caps bars and legend column width together so few-step funnels don't
+// stretch across the whole chart with huge gaps. Gridlines still span the full width.
+const STEP_WIDTH_PX = 320
+
+const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
-    barCornerRadius: 6,
+    barCornerRadius: 10,
     barTrack: true,
+    barShadow: true,
+    animateHover: true,
     hideXAxis: true,
-    hideYAxis: true,
+    yTickFormatter: (value) => `${Math.round(value)}%`,
     tooltip: { placement: 'top' },
 }
-
-// Floor per-step width — below this the legend text overlaps; scroll horizontally instead.
-const MIN_STEP_WIDTH_PX = 210
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -70,6 +70,8 @@ export function FunnelStepsBarChart({
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
+    const barsWidth = steps.length * STEP_WIDTH_PX
+    const chartConfig = useMemo<BarChartConfig>(() => ({ ...baseChartConfig, maxBandRange: barsWidth }), [barsWidth])
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -103,34 +105,35 @@ export function FunnelStepsBarChart({
 
     return (
         <div className="flex w-full flex-1 flex-col overflow-x-auto" data-attr="funnel-steps-bar-chart">
-            <div
-                className="flex flex-1 flex-col"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ minWidth: steps.length * MIN_STEP_WIDTH_PX }}
-            >
+            <div className="flex flex-1 flex-col">
                 <div className="flex min-h-[150px] flex-1">
                     <BarChart<FunnelStepsBarSeriesMeta>
                         series={series}
                         labels={labels}
                         theme={theme}
-                        config={CHART_CONFIG}
+                        config={chartConfig}
                         tooltip={renderTooltip}
                         onPointClick={showPersonsModal ? onPointClick : undefined}
                         onError={handleChartError}
                     />
                 </div>
-                <div className="flex">
-                    {steps.map((step, stepIndex) => (
-                        <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
-                            <StepLegend
-                                step={step}
-                                stepIndex={stepIndex}
-                                showTime={showTime}
-                                showPersonsModal={showPersonsModal}
-                                inCardView={inCardView}
-                            />
-                        </div>
-                    ))}
+                {/* Legend padding matches the chart's left margin and bars-width so
+                    legend columns align with the bars above. */}
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div className="flex" style={{ paddingLeft: DEFAULT_MARGINS.left }}>
+                    <div className="flex" style={{ width: barsWidth }}>
+                        {steps.map((step, stepIndex) => (
+                            <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
+                                <StepLegend
+                                    step={step}
+                                    stepIndex={stepIndex}
+                                    showTime={showTime}
+                                    showPersonsModal={showPersonsModal}
+                                    inCardView={inCardView}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>

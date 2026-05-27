@@ -46,11 +46,11 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
