@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { IntegrationType } from '~/types'
+import type { IntegrationType } from '~/types'
 
 import type { postgreSQLSetupModalLogicType } from './postgreSQLSetupModalLogicType'
 
@@ -37,7 +37,7 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
                 user: user?.trim() ? undefined : 'User is required',
                 password: password?.trim() ? undefined : 'Password is required',
                 ssl_root_cert:
-                    ssl_mode !== 'no' && ssl_root_cert?.trim()
+                    ssl_mode === 'no' || ssl_root_cert?.trim()
                         ? undefined
                         : 'Root certificate is required when verifying server certificates',
             }),
