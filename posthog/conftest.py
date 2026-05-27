@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 from typing import Any
 from urllib.parse import quote_plus
@@ -13,6 +14,45 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+
+# --- TEMPORARY CI instrumentation (remove after sizing) -------------------------
+# Sizes the per-shard test-DB setup cost — ClickHouse schema build, ClickHouse reset
+# between packages, and persons sqlx migrate — to decide whether baking the CH schema
+# into a prebuilt test image is worth it. Timing only: never changes behavior, never
+# raises. Emits one greppable summary line per shard process at session finish
+# (`grep CI_DB_SETUP_TIMING` in the job log).
+_DB_SETUP_TIMING = {
+    "ch_build_total": 0.0,  # cumulative create_clickhouse_tables() across all packages
+    "ch_build_max": 0.0,  # slowest single build (the first, from-scratch one)
+    "ch_reset_total": 0.0,  # cumulative reset_clickhouse_tables() at package teardown
+    "persons_sqlx_total": 0.0,  # cumulative run_persons_sqlx_migrations()
+    "package_setups": 0,  # number of package-scoped DB setups in this shard
+}
+
+
+def _timed_db_setup(label, fn, *args, **kwargs):
+    start = time.perf_counter()
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        elapsed = time.perf_counter() - start
+        _DB_SETUP_TIMING[f"{label}_total"] += elapsed
+        if label == "ch_build":
+            _DB_SETUP_TIMING["ch_build_max"] = max(_DB_SETUP_TIMING["ch_build_max"], elapsed)
+            _DB_SETUP_TIMING["package_setups"] += 1
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    # Runs after pytest restores fd-level capture, so this line reliably reaches the job log.
+    t = _DB_SETUP_TIMING
+    terminalreporter.write_line(
+        f"CI_DB_SETUP_TIMING package_setups={t['package_setups']} "
+        f"ch_build_total={t['ch_build_total']:.1f}s ch_build_max={t['ch_build_max']:.1f}s "
+        f"ch_reset_total={t['ch_reset_total']:.1f}s persons_sqlx_total={t['persons_sqlx_total']:.1f}s"
+    )
+
+
+# --- end instrumentation --------------------------------------------------------
 
 
 def create_clickhouse_tables():
@@ -291,7 +331,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
-    run_persons_sqlx_migrations(keepdb=django_db_keepdb)
+    _timed_db_setup("persons_sqlx", run_persons_sqlx_migrations, keepdb=django_db_keepdb)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
@@ -313,7 +353,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     database.create_database()  # Create database if it doesn't exist
 
-    create_clickhouse_tables()
+    _timed_db_setup("ch_build", create_clickhouse_tables)
 
     yield
 
@@ -322,7 +362,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         # Also allow skipping reset via environment variable for faster development iteration
         skip_ch_reset = os.environ.get("SKIP_CLICKHOUSE_RESET", "0").lower() in {"1", "true", "yes"}
         if not settings.IN_EVAL_TESTING and not skip_ch_reset:
-            reset_clickhouse_tables()
+            _timed_db_setup("ch_reset", reset_clickhouse_tables)
     else:
         database.drop_database()
 
