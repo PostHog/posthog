@@ -1055,6 +1055,7 @@ export interface DataTableNode
                     | ExperimentTrendsQuery
                     | TracesQuery
                     | EndpointsUsageTableQuery
+                    | AccountsQuery
                 )['response']
             >
         >,
@@ -1093,6 +1094,7 @@ export interface DataTableNode
         | TracesQuery
         | TraceQuery
         | EndpointsUsageTableQuery
+        | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
