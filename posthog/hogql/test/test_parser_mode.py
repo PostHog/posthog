@@ -131,10 +131,11 @@ class TestParserMode(BaseTest):
                 with self.assertRaises(HogQLSyntaxError):
                     parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
 
-    def test_shadow_rejected_records_and_logs_sql_in_prod(self):
+    def test_shadow_rejected_records_and_captures_sql_in_prod(self):
         # Prod analogue: a shadow that rejects primary-accepted input is a
-        # divergence, so it counts under result="shadow_rejected", logs the SQL
-        # at warning, and never raises (the primary result is returned).
+        # divergence, so it counts under result="shadow_rejected" and ships the
+        # SQL to error tracking via capture_exception (not the structured logs),
+        # never raising (the primary result is returned).
         from posthog.hogql import parser as parser_module
         from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 
@@ -149,22 +150,19 @@ class TestParserMode(BaseTest):
             mock_settings.TEST = False
             with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
                 with patch("posthog.hogql.parser._invoke_parser", side_effect=shadow_throws_parser_class):
-                    with patch("posthog.hogql.parser.capture_exception"):
-                        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
-                            with patch("posthog.hogql.parser.logger") as mock_logger:
-                                node = parse_select(
-                                    "select shadow_rejected_probe from events",
-                                    parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
-                                )
+                    with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+                        with patch("posthog.hogql.parser.capture_exception") as captured:
+                            node = parse_select(
+                                "select shadow_rejected_probe from events",
+                                parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                            )
         self.assertIsInstance(node, ast.SelectQuery)
         results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
         self.assertIn("shadow_rejected", results)
-        warns = [
-            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "hogql_parser_shadow_divergence"
-        ]
-        self.assertTrue(warns)
-        self.assertEqual(warns[-1].kwargs["result"], "shadow_rejected")
-        self.assertIn("shadow_rejected_probe", warns[-1].kwargs["sql"])
+        captured.assert_called_once()
+        props = captured.call_args.kwargs["additional_properties"]
+        self.assertIn("shadow_rejected_probe", props["hogql_parser_statement"])
+        self.assertEqual(props["hogql_parser_shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
 
     def test_shadow_swallows_packaging_class_throw_in_test_mode(self):
         # A non-BaseHogQLError exception (ImportError, RuntimeError from a
@@ -188,20 +186,24 @@ class TestParserMode(BaseTest):
 
     def test_shadow_counts_agreement(self):
         # Every shadowed parse increments the comparison counter; a match lands
-        # under result="agree" and logs no divergence.
-        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
-            with patch("posthog.hogql.parser.logger") as mock_logger:
-                parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
-        results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
-        self.assertEqual(results, ["agree"])
-        divergences = [
-            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "hogql_parser_shadow_divergence"
-        ]
-        self.assertEqual(divergences, [])
+        # under result="agree", tagged with both parser wheel versions, and
+        # reports nothing to error tracking.
+        from posthog.hogql import parser as parser_module
 
-    def test_shadow_divergence_counts_disagree_and_logs_sql(self):
-        # On a divergence: counter result="disagree", plus a warning log carrying
-        # the raw query so it can be reproduced. Prod mode, so it never raises.
+        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+            with patch("posthog.hogql.parser.capture_exception") as captured:
+                parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
+        agree_call = counter.labels.call_args_list[0]
+        self.assertEqual(agree_call.kwargs["primary_version"], parser_module._BACKEND_VERSION["cpp-json"])
+        self.assertEqual(agree_call.kwargs["shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
+        captured.assert_not_called()
+
+    def test_shadow_divergence_counts_disagree_and_captures_sql(self):
+        # On a divergence: counter result="disagree", and the raw query goes to
+        # error tracking via capture_exception (carrying the mismatch, rule, and
+        # parser versions) so it can be reproduced. Prod mode, so it never
+        # raises; the SQL is not written to the structured logs.
         from posthog.hogql import parser as parser_module
 
         decoy = ast.SelectQuery(select=[ast.Constant(value=999)])
@@ -216,18 +218,32 @@ class TestParserMode(BaseTest):
             mock_settings.TEST = False
             with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
                 with patch("posthog.hogql.parser._invoke_parser", side_effect=only_shadow_diverges):
-                    with patch("posthog.hogql.parser.capture_exception"):
-                        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
-                            with patch("posthog.hogql.parser.logger") as mock_logger:
-                                parse_select(
-                                    "select sql_attach_probe from events",
-                                    parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
-                                )
+                    with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+                        with patch("posthog.hogql.parser.capture_exception") as captured:
+                            parse_select(
+                                "select sql_attach_probe from events",
+                                parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                            )
         results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
         self.assertIn("disagree", results)
-        warns = [
-            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "hogql_parser_shadow_divergence"
-        ]
-        self.assertTrue(warns)
-        self.assertEqual(warns[-1].kwargs["result"], "disagree")
-        self.assertIn("sql_attach_probe", warns[-1].kwargs["sql"])
+        captured.assert_called_once()
+        self.assertIsInstance(captured.call_args.args[0], HogQLParserShadowMismatch)
+        props = captured.call_args.kwargs["additional_properties"]
+        self.assertEqual(props["hogql_parser_rule"], "select")
+        self.assertIn("sql_attach_probe", props["hogql_parser_statement"])
+        self.assertEqual(props["hogql_parser_primary_version"], parser_module._BACKEND_VERSION["cpp-json"])
+        self.assertEqual(props["hogql_parser_shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
+
+    def test_parser_version_falls_back_to_unknown_for_missing_dist(self):
+        # A backend whose wheel has no distribution metadata reports "unknown"
+        # rather than raising, so telemetry labels are always populated.
+        from posthog.hogql import parser as parser_module
+
+        self.assertEqual(parser_module._parser_version("definitely-not-a-real-distribution"), "unknown")
+
+    def test_backend_version_map_covers_every_backend(self):
+        # Every parser backend resolves to a version label, so the histogram and
+        # shadow counter never emit an unlabelled series.
+        from posthog.hogql import parser as parser_module
+
+        self.assertEqual(set(parser_module._BACKEND_VERSION), set(parser_module.RULE_TO_PARSE_FUNCTION))
