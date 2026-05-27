@@ -2228,7 +2228,7 @@ jobs:
             - name: Run async migrations tests
               run: |
                   # Temporary timing instrumentation: expose slow async migration test bodies in PR logs.
-                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
+                  pytest posthog/async_migrations/test -m "async_migrations" --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
