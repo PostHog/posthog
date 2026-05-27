@@ -26,6 +26,15 @@ function makeContext(elicit: ElicitFn | undefined): Context {
     return ctx
 }
 
+/** Safely pull the text payload off a tool-error result. Narrows past noUncheckedIndexedAccess. */
+function firstText(result: { content: ReadonlyArray<{ type: 'text'; text: string }> }): string {
+    const first = result.content[0]
+    if (!first) {
+        throw new Error('tool result had no content entries')
+    }
+    return first.text
+}
+
 describe('requestConfirmation — no elicit available', () => {
     it.each([
         { policy: 'deny' as const, expectedKind: 'denied-no-elicit' as const },
@@ -60,14 +69,15 @@ describe('requestConfirmation — no elicit available', () => {
             throw new Error(`expected denied-no-elicit, got ${outcome.kind}`)
         }
         expect(outcome.result.isError).toBe(true)
-        expect(outcome.result.content[0].text).toContain('Enforce 2FA')
-        expect(outcome.result.content[0].text).toContain('does not support')
+        const text = firstText(outcome.result)
+        expect(text).toContain('Enforce 2FA')
+        expect(text).toContain('does not support')
     })
 })
 
 describe('requestConfirmation — elicit available', () => {
     it('emits an empty requestedSchema (no form fields, just action buttons)', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
             makeContext(elicit),
             {},
@@ -76,14 +86,15 @@ describe('requestConfirmation — elicit available', () => {
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit.mock.calls[0]![0].requestedSchema).toEqual({
-            type: 'object',
-            properties: {},
-        })
+        expect(elicit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                requestedSchema: { type: 'object', properties: {} },
+            })
+        )
     })
 
     it('returns accepted when the user accepts', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
         const outcome = await requestConfirmation(
             makeContext(elicit),
             { id: 42 },
@@ -94,7 +105,7 @@ describe('requestConfirmation — elicit available', () => {
         )
         expect(outcome.kind).toBe('accepted')
         expect(elicit).toHaveBeenCalledTimes(1)
-        expect(elicit.mock.calls[0]![0].message).toBe('Delete 42?')
+        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete 42?' }))
     })
 
     it.each([
@@ -103,7 +114,7 @@ describe('requestConfirmation — elicit available', () => {
     ])(
         'returns cancelled with a $expectedWord reason when the user $action',
         async ({ action, label, expectedWord }) => {
-            const elicit = vi.fn(async () => ({ action }))
+            const elicit = vi.fn<ElicitFn>(async () => ({ action }))
             const outcome = await requestConfirmation(
                 makeContext(elicit),
                 {},
@@ -116,8 +127,9 @@ describe('requestConfirmation — elicit available', () => {
             if (outcome.kind !== 'cancelled') {
                 throw new Error(`expected cancelled, got ${outcome.kind}`)
             }
-            expect(outcome.result.content[0].text).toContain(expectedWord)
-            expect(outcome.result.content[0].text).toContain('Org delete')
+            const text = firstText(outcome.result)
+            expect(text).toContain(expectedWord)
+            expect(text).toContain('Org delete')
         }
     )
 
@@ -127,9 +139,9 @@ describe('requestConfirmation — elicit available', () => {
     ])(
         'treats runtime ElicitationNotSupportedError as the no-elicit branch ($policy)',
         async ({ policy, expectedKind }) => {
-            const elicit = vi.fn(async () => {
+            const elicit = vi.fn<ElicitFn>(async () => {
                 throw new ElicitationNotSupportedError(-32601, 'Method not found')
-            }) as unknown as ElicitFn
+            })
             const outcome = await requestConfirmation(
                 makeContext(elicit),
                 {},
@@ -143,9 +155,9 @@ describe('requestConfirmation — elicit available', () => {
     )
 
     it('propagates non-NotSupported errors (e.g. bus unhealthy) — does not swallow', async () => {
-        const elicit = vi.fn(async () => {
+        const elicit = vi.fn<ElicitFn>(async () => {
             throw new Error('bus unhealthy')
-        }) as unknown as ElicitFn
+        })
         await expect(
             requestConfirmation(
                 makeContext(elicit),
@@ -161,7 +173,7 @@ describe('requestConfirmation — elicit available', () => {
 
 describe('requestConfirmation — message templating', () => {
     it('interpolates {paramName} placeholders from params', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
             makeContext(elicit),
             { orgId: 'acme', count: 3 },
@@ -170,11 +182,11 @@ describe('requestConfirmation — message templating', () => {
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit.mock.calls[0]![0].message).toBe('Delete 3 items from acme?')
+        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete 3 items from acme?' }))
     })
 
     it('leaves unknown placeholders literal so authors notice missing keys', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
             makeContext(elicit),
             {},
@@ -183,11 +195,11 @@ describe('requestConfirmation — message templating', () => {
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit.mock.calls[0]![0].message).toBe('Delete {missing}?')
+        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete {missing}?' }))
     })
 
     it('leaves null/undefined param values as literal placeholders, not the string "null"', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
             makeContext(elicit),
             { id: null },
@@ -196,12 +208,12 @@ describe('requestConfirmation — message templating', () => {
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit.mock.calls[0]![0].message).toBe('Action on {id}')
+        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Action on {id}' }))
     })
 
     it('calls the builder when provided and uses its return value', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
-        const builder = vi.fn(async (_params, _ctx) => 'Built prompt')
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const builder = vi.fn(async () => 'Built prompt')
         await requestConfirmation(
             makeContext(elicit),
             { id: 1 },
@@ -211,11 +223,11 @@ describe('requestConfirmation — message templating', () => {
             }
         )
         expect(builder).toHaveBeenCalledTimes(1)
-        expect(elicit.mock.calls[0]![0].message).toBe('Built prompt')
+        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Built prompt' }))
     })
 
     it('awaits sync builders too', async () => {
-        const elicit = vi.fn(async () => ({ action: 'accept' as const }))
+        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
             makeContext(elicit),
             {},
@@ -224,6 +236,6 @@ describe('requestConfirmation — message templating', () => {
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit.mock.calls[0]![0].message).toBe('Sync prompt')
+        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Sync prompt' }))
     })
 })
