@@ -71,7 +71,9 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     if (!tabId) {
         throw new Error('<EndpointScene /> must receive a tabId prop')
     }
-    const { endpoint, endpointLoading, activeTab, viewingVersion } = useValues(endpointSceneLogic({ tabId }))
+    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(
+        endpointSceneLogic({ tabId })
+    )
     const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic({ tabId }))
     const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic({ tabId }))
     const { versions } = useValues(endpointLogic({ tabId }))
@@ -212,10 +214,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                                     From insight
                                 </SceneMenuBarItem>
                             </SceneMenuBarSubMenu>
-                            <OpenEndpointSubMenu
-                                allEndpoints={allEndpoints}
-                                currentEndpointName={endpoint.name}
-                            />
+                            <OpenEndpointSubMenu allEndpoints={allEndpoints} currentEndpointName={endpoint.name} />
                             <OpenVersionSubMenu
                                 versions={versions}
                                 endpointName={endpoint.name}
@@ -268,11 +267,15 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                                 data-attr="endpoint-menubar-materialize-toggle"
                             >
                                 <IconDatabase />
-                                {endpoint.is_materialized ? 'Disable materialization' : 'Materialize endpoint'}
+                                {/* Reflect any unsaved local toggle so the label can't silently flip back. */}
+                                {(isMaterialized ?? viewingVersion?.is_materialized ?? endpoint.is_materialized)
+                                    ? 'Disable materialization'
+                                    : 'Materialize endpoint'}
                             </SceneMenuBarItem>
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
                                 variant="destructive"
+                                opensFloatingUi
                                 onClick={handleDelete}
                                 data-attr="endpoint-menubar-delete"
                             >
@@ -357,7 +360,8 @@ function OpenEndpointSubMenu({
                     return (
                         <SceneMenuBarItem
                             key={e.name}
-                            onClick={() => router.actions.push(urls.endpoint(e.name))}
+                            disabled={isCurrent}
+                            onClick={isCurrent ? undefined : () => router.actions.push(urls.endpoint(e.name))}
                             data-attr={`endpoint-menubar-open-${e.name}`}
                         >
                             {isCurrent ? <IconCheck /> : <IconEndpoints />}
@@ -410,8 +414,7 @@ function OpenVersionSubMenu({
                             onClick={() => setViewingVersion(isCurrent ? null : v)}
                             data-attr={`endpoint-menubar-open-version-${v.version}`}
                         >
-                            {isSelected ? <IconCheck /> : <IconRewind />}
-                            v{v.version}
+                            {isSelected ? <IconCheck /> : <IconRewind />}v{v.version}
                             {isCurrent ? ' (latest)' : ''}
                         </SceneMenuBarItem>
                     )
@@ -420,9 +423,7 @@ function OpenVersionSubMenu({
             <SceneMenuBarSeparator />
             <SceneMenuBarItem
                 onClick={() =>
-                    router.actions.push(
-                        combineUrl(urls.endpoint(endpointName), { tab: EndpointTab.VERSIONS }).url
-                    )
+                    router.actions.push(combineUrl(urls.endpoint(endpointName), { tab: EndpointTab.VERSIONS }).url)
                 }
                 data-attr="endpoint-menubar-view-all-versions"
             >
