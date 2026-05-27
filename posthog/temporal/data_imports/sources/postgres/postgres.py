@@ -414,7 +414,16 @@ def _get_discovered_tables(
     if names is None:
         return all_tables, qualify_with_schema
 
-    return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
+    # Match qualified (`schema.table`) and bare `table` names — keys may differ after multi-schema migration.
+    filtered: dict[str, tuple[str | None, str, str]] = {}
+    for name in names:
+        if name in all_tables:
+            filtered[name] = all_tables[name]
+        elif "." in name:
+            _, _, unqualified = name.partition(".")
+            if unqualified in all_tables:
+                filtered[name] = all_tables[unqualified]
+    return filtered, qualify_with_schema
 
 
 def _row_counts_from_conn(

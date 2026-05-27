@@ -168,6 +168,9 @@ jobs:
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
+        permissions:
+            contents: read
+            pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
@@ -176,6 +179,10 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   clean: false
+                  # PR-controlled code runs in this job (pnpm installs, Playwright tests). Don't leave
+                  # GITHUB_TOKEN in .git/config where that code could read it — the comment step
+                  # below receives the token explicitly via its `github-token:` input instead.
+                  persist-credentials: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -381,7 +388,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
               # Cache key is the merge-base SHA — produced by ci-backend on master push.

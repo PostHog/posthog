@@ -48,7 +48,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure). The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
@@ -4208,6 +4208,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Edit part of a notebook's content.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
         "category": "Notebooks",
@@ -4266,7 +4282,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
         "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
@@ -6014,6 +6032,39 @@
             "readOnlyHint": false
         }
     },
+    "vision-scanners-create": {
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for embeddings) — and fill `scanner_config` to match: monitor/classifier/scorer/summarizer need a `prompt`; classifiers also need `tags`; scorers also need `scale`; indexers reject `prompt`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Create replay vision scanner",
+        "title": "Create replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-delete": {
+        "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Delete replay vision scanner",
+        "title": "Delete replay vision scanner",
+        "required_scopes": ["replay_scanner:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-scanners-get": {
         "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
         "category": "Replay vision",
@@ -6089,6 +6140,23 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-update": {
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Update replay vision scanner",
+        "title": "Update replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
