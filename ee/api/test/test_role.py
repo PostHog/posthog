@@ -99,7 +99,9 @@ class TestRoleAPI(APILicensedTest):
         )
         self.assertEqual(admin_create_res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Role.objects.all().count(), 1)
-        self.assertEqual(Role.objects.first().name, "Product")  # type: ignore
+        role = Role.objects.first()
+        self.assertIsNotNone(role)
+        self.assertEqual(role.name, "Product")
         self.assertEqual(member_create_res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_only_organization_admins_and_higher_can_update(self):
@@ -125,7 +127,9 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(admin_update_res.status_code, status.HTTP_200_OK)
         self.assertEqual(member_update_res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(Role.objects.all().count(), 1)
-        self.assertEqual(Role.objects.first().name, "on call support")  # type: ignore
+        role = Role.objects.first()
+        self.assertIsNotNone(role)
+        self.assertEqual(role.name, "on call support")
 
     def test_cannot_duplicate_role_name(self):
         Role.objects.create(name="Marketing", organization=self.organization)
