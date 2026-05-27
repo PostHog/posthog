@@ -329,26 +329,52 @@ function sleepUntilAborted(ms: number, req: import('node:http').IncomingMessage)
 }
 
 function lastUserText(req: MockAnthropicRequest): string | undefined {
+    // Walk tail-first; for each user message, extract the first text
+    // block whose content survives `stripSdkBoilerplate`. The Claude
+    // Agent SDK injects `<system-reminder>` MCP boilerplate (and other
+    // tagged sections) as user-role messages alongside the actual
+    // prompt; without stripping them, mock-echo ends up echoing
+    // server-config blurbs instead of what the user typed.
     for (let i = req.messages.length - 1; i >= 0; i--) {
         const m = req.messages[i]
         if (m.role !== 'user') {
             continue
         }
         if (typeof m.content === 'string') {
-            return m.content
+            const cleaned = stripSdkBoilerplate(m.content)
+            if (cleaned) {
+                return cleaned
+            }
+            continue
         }
         if (Array.isArray(m.content)) {
             for (const block of m.content) {
                 if (block && typeof block === 'object') {
                     const b = block as Record<string, unknown>
                     if (b.type === 'text' && typeof b.text === 'string') {
-                        return b.text
+                        const cleaned = stripSdkBoilerplate(b.text)
+                        if (cleaned) {
+                            return cleaned
+                        }
                     }
                 }
             }
         }
     }
     return undefined
+}
+
+/**
+ * Remove `<system-reminder>…</system-reminder>` and similar
+ * SDK-injected wrapper blocks from a user message; trim whitespace.
+ * Returns the empty string when nothing real is left — caller treats
+ * that as "skip this message and try the next."
+ */
+function stripSdkBoilerplate(text: string): string {
+    return text
+        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+        .replace(/<system>[\s\S]*?<\/system>/g, '')
+        .trim()
 }
 
 /* ===== streaming wire format ===== */

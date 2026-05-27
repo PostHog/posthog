@@ -12,7 +12,7 @@
 import { resolve } from 'node:path'
 
 import { bundleAndUpload } from '../../harness/bundle'
-import { post, waitForStatus } from '../../harness/clients'
+import { post, waitForAwaitingInput } from '../../harness/clients'
 import { type AgentCluster, getMockAnthropic, openSharedCluster } from '../../harness/cluster'
 import { createApp, setTeamSecret } from '../../harness/fixtures'
 
@@ -43,7 +43,7 @@ describe('app: mock-anthropic SDK roundtrip (single-turn echo)', () => {
         await cluster?.cleanup.runAll()
     }, 30_000)
 
-    it('runs through the real SDK against the mock, completes, returns the echoed text', async () => {
+    it('runs through the real SDK against the mock, parks at awaiting_input, echoes the user message', async () => {
         const mock = await getMockAnthropic()
         mock.reset()
 
@@ -60,31 +60,48 @@ describe('app: mock-anthropic SDK roundtrip (single-turn echo)', () => {
         expect(res.status).toBe(202)
         const sessionId = res.body.sessionId as string
 
-        // The SDK runs the whole agent loop in one call today; with no
-        // tools and an end-of-turn assistant message from the mock the
-        // session completes in one go. The SDK refactor (turn-by-turn)
-        // will change this to `awaiting_input` after the first turn —
-        // that's the next commit.
-        await waitForStatus(cluster, sessionId, ['completed'], { timeoutMs: 30_000 })
+        // Turn-by-turn: the SDK completes ONE assistant message and
+        // the executor returns `awaiting_input`. The queue row parks
+        // at status=available with state.turnCount=1, waiting for the
+        // next `/send` (or end_session) to advance.
+        const row = await waitForAwaitingInput(cluster, sessionId, { afterTurn: 1, timeoutMs: 30_000 })
+        expect(row.state?.turnCount).toBe(1)
 
         // The mock saw exactly one /v1/messages request from the SDK,
-        // with model: 'mock-echo' and the user prompt the agent was
-        // invoked with.
+        // with model: 'mock-echo' and the POSTed body content as the
+        // latest user message.
         const requests = mock.requests()
         expect(requests.length).toBeGreaterThanOrEqual(1)
-        expect(requests[0].model).toBe('mock-echo')
+        const last = requests[requests.length - 1]
+        expect(last.model).toBe('mock-echo')
+        const userMessages = last.messages.filter((m) => m.role === 'user')
+        const userText = userMessages.flatMap((m) => extractText(m.content)).join(' ')
+        expect(userText).toContain('hello mock')
 
-        // The agent's reply lands in log_entries as a `[chat] assistant:`
-        // line. The mock echoes whatever the SDK forwards as the last
-        // user message — that's "Begin the run." today (the static prompt
-        // session-runner passes). When we switch to turn-by-turn the
-        // user message will be the POSTed body content; until then we
-        // just assert the assistant line exists and the session ran.
-        const rows = await cluster.clickhouse.waitForLogs(
+        // The assistant's reply (the echo) made it back through bridge
+        // → session_logger → ClickHouse.
+        await cluster.clickhouse.waitForLogs(
             sessionId,
-            (r) => r.some((row) => row.message.startsWith('[chat] assistant:')),
+            (r) => r.some((row) => row.message.startsWith('[chat] assistant:') && row.message.includes('hello mock')),
             { timeoutMs: 15_000 }
         )
-        expect(rows.some((row) => row.message.includes('session_completed'))).toBe(true)
     }, 60_000)
 })
+
+function extractText(content: unknown): string[] {
+    if (typeof content === 'string') {
+        return [content]
+    }
+    if (Array.isArray(content)) {
+        return content.flatMap((b) => {
+            if (b && typeof b === 'object') {
+                const block = b as Record<string, unknown>
+                if (block.type === 'text' && typeof block.text === 'string') {
+                    return [block.text]
+                }
+            }
+            return []
+        })
+    }
+    return []
+}
