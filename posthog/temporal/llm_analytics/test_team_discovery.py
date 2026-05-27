@@ -7,7 +7,6 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.temporal.llm_analytics.team_discovery import (
-    DEFAULT_DISCOVERY_LOOKBACK_DAYS,
     DEFAULT_GUARANTEED_TEAM_IDS,
     DEFAULT_SAMPLE_PERCENTAGE,
     TeamDiscoveryInput,
@@ -42,7 +41,6 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == DEFAULT_GUARANTEED_TEAM_IDS
         assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
-        assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @patch(FF_PAYLOAD_PATH)
     def test_valid_payload(self, mock_ff):
@@ -50,7 +48,6 @@ class TestGetLlmaWorkflowConfig:
             "guaranteed_team_ids": [100, 200],
             "skip_team_ids": [300, 400],
             "sample_percentage": 0.5,
-            "discovery_lookback_days": 7,
         }
 
         config = _get_llma_workflow_config()
@@ -58,7 +55,6 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == [100, 200]
         assert config.skip_team_ids == [300, 400]
         assert config.sample_percentage == 0.5
-        assert config.discovery_lookback_days == 7
 
     @patch(FF_PAYLOAD_PATH)
     def test_partial_payload_fills_missing_with_defaults(self, mock_ff):
@@ -69,7 +65,6 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == [42]
         assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
-        assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @parameterized.expand(
         [
@@ -82,9 +77,6 @@ class TestGetLlmaWorkflowConfig:
             ("pct_above_one", {"sample_percentage": 1.5}, "sample_percentage"),
             ("nan_pct", {"sample_percentage": float("nan")}, "sample_percentage"),
             ("inf_pct", {"sample_percentage": float("inf")}, "sample_percentage"),
-            ("float_lookback", {"discovery_lookback_days": 7.5}, "discovery_lookback_days"),
-            ("zero_lookback", {"discovery_lookback_days": 0}, "discovery_lookback_days"),
-            ("negative_lookback", {"discovery_lookback_days": -5}, "discovery_lookback_days"),
         ]
     )
     @patch(FF_PAYLOAD_PATH)
@@ -99,8 +91,6 @@ class TestGetLlmaWorkflowConfig:
             assert config.skip_team_ids == []
         if bad_field == "sample_percentage":
             assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
-        if bad_field == "discovery_lookback_days":
-            assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @patch(FF_PAYLOAD_PATH)
     def test_exception_returns_defaults(self, mock_ff):
@@ -111,7 +101,6 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == DEFAULT_GUARANTEED_TEAM_IDS
         assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
-        assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @patch(FF_PAYLOAD_PATH)
     def test_int_sample_percentage_cast_to_float(self, mock_ff):
@@ -213,7 +202,6 @@ class TestGetTeamIdsForLlmAnalytics:
         mock_ff.return_value = {
             "guaranteed_team_ids": [42],
             "sample_percentage": 0.0,
-            "discovery_lookback_days": 7,
         }
         mock_get_teams.return_value = [9999, 8888]
         inputs = TeamDiscoveryInput()
@@ -264,3 +252,48 @@ class TestGetTeamIdsForLlmAnalytics:
         result = await get_team_ids_for_llm_analytics(inputs)
 
         assert result == [1, 3]
+
+    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    async def test_uses_discovery_trigger_events_not_report_list(self, mock_get_teams, _mock_ff):
+        """Discovery must pass the narrow trigger list — excluding server-emitted
+        $ai_*_clusters / $ai_*_summary events — to avoid the self-perpetuating
+        eligibility loop. The broader LLM_ANALYTICS_REPORT_TRIGGER_EVENTS list is
+        reserved for the usage-report caller.
+        """
+        from posthog.tasks.llm_analytics_usage_report import (
+            LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+            LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
+        )
+
+        mock_get_teams.return_value = []
+        inputs = TeamDiscoveryInput()
+
+        await get_team_ids_for_llm_analytics(inputs)
+
+        assert mock_get_teams.called
+        passed_trigger_events = mock_get_teams.call_args.args[2]
+        assert passed_trigger_events == LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS
+        assert "$ai_trace_clusters" not in passed_trigger_events
+        assert "$ai_generation_clusters" not in passed_trigger_events
+        assert "$ai_trace_summary" not in passed_trigger_events
+        assert "$ai_generation_summary" not in passed_trigger_events
+        assert "$ai_tag" not in passed_trigger_events
+        assert "$llm_prompt_fetched" not in passed_trigger_events
+        assert "$ai_generation" in passed_trigger_events
+        assert set(passed_trigger_events) < set(LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
+
+    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    async def test_lookback_uses_inputs_value(self, mock_get_teams, _mock_ff):
+        """The discovery activity scopes its eligibility query to the caller's
+        TeamDiscoveryInput.lookback_days (passed by the coordinator from the
+        downstream workflow's own lookback) so discovery matches what the
+        workflow will actually analyze.
+        """
+        mock_get_teams.return_value = []
+        inputs = TeamDiscoveryInput(lookback_days=3)
+
+        await get_team_ids_for_llm_analytics(inputs)
+
+        begin, end = mock_get_teams.call_args.args[0], mock_get_teams.call_args.args[1]
+        delta_days = (end - begin).total_seconds() / 86400
+        assert 2.99 < delta_days < 3.01
