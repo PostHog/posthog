@@ -28,6 +28,7 @@ from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.metrics.backend.api as metrics
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
@@ -1372,6 +1373,11 @@ register_grandfathered_environment_nested_viewset(
     r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
 )
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
+
+# Metrics endpoints
+register_grandfathered_environment_nested_viewset(
+    r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",

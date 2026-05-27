@@ -5369,6 +5369,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'metrics'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
