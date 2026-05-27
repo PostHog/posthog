@@ -1,9 +1,12 @@
+import { useValues } from 'kea'
 import { Suspense, lazy } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -30,6 +33,7 @@ export function SkillVersionDiff({
     onFromVersionChange,
     onToVersionChange,
 }: SkillVersionDiffProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
     const isLoading = isFromLoading || isToLoading
     const hasBodies = fromBody !== null && toBody !== null
 
@@ -79,6 +83,7 @@ export function SkillVersionDiff({
                             value={toBody}
                             modified={toBody}
                             language="markdown"
+                            theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                             options={{
                                 readOnly: true,
                                 renderSideBySide: true,
