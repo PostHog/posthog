@@ -21,6 +21,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -196,18 +197,22 @@ def _priority_rank(priority: Priority) -> int:
     }[priority]
 
 
-def _build_autostart_task_description(result: ReportResearchOutput, repository: str) -> str:
+def _build_autostart_task_description(result: ReportResearchOutput, repository: str, report_id: str) -> str:
     priority_line = (
         f"Priority: {result.priority.priority.value}\nReason: {result.priority.explanation}\n\n"
         if result.priority
         else ""
     )
+    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
     return (
         f"{result.summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
         "Act on this signal report. Investigate the root cause, implement the fix, "
-        "and open a PR if appropriate."
+        "and open a PR if appropriate.\n\n"
+        f"When opening the PR, include this report deep link in the description footer "
+        f"(next to the 'Created with PostHog Code' line) so the human reviewer can jump "
+        f"straight to the originating report: {report_deep_link}"
     )
 
 
@@ -299,7 +304,7 @@ async def _maybe_autostart_task_for_report(
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
         title=result.title,
-        description=_build_autostart_task_description(result, repository),
+        description=_build_autostart_task_description(result, repository, report_id),
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,
