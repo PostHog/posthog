@@ -36,6 +36,12 @@ export default async function globalSetup(): Promise<void> {
             ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
             ANTHROPIC_MODEL: process.env.AGENT_E2E_MODEL ?? 'claude-haiku-4-5',
             AGENT_RUNNER_TOOL_SANDBOX: process.env.AGENT_RUNNER_TOOL_SANDBOX ?? 'docker',
+            // agent-core's logger defaults to `silent` when NODE_ENV=test
+            // (which jest sets). The runner subprocess is a separate
+            // process and we DO want its logs — timing markers, errors,
+            // boot info. Force info-level unless overridden.
+            LOG_LEVEL: process.env.AGENT_TESTS_RUNNER_LOG_LEVEL ?? 'info',
+            NODE_ENV: 'development',
         },
         logFiles: { ingress: ingressLog, runner: runnerLog },
     })

@@ -11,6 +11,7 @@ import {
     createSessionLogger,
     extractBundleToTempDir,
     logger,
+    withTiming,
 } from '@posthog/agent-core'
 
 import { BusBridgingRegistry } from './ass-server-bridge'
@@ -77,9 +78,9 @@ export class AssServerExecutor implements SessionExecutor {
 
         let bundleBytes: Buffer
         try {
-            bundleBytes = await this.options.bundleStore.downloadBundle(
-                revision.bundleS3Key,
-                revision.bundleSha256 || undefined
+            bundleBytes = await withTiming(
+                { op: 'bundle.download', sessionId: job.sessionId, key: revision.bundleS3Key },
+                () => this.options.bundleStore.downloadBundle(revision.bundleS3Key, revision.bundleSha256 || undefined)
             )
         } catch (err) {
             logger.error('runner bundle download failed', {
@@ -90,7 +91,9 @@ export class AssServerExecutor implements SessionExecutor {
             return { kind: 'failed', error: `bundle download failed: ${String(err)}` }
         }
 
-        const extracted = await extractBundleToTempDir(bundleBytes)
+        const extracted = await withTiming({ op: 'bundle.extract', sessionId: job.sessionId }, () =>
+            extractBundleToTempDir(bundleBytes)
+        )
         try {
             return await this.runWithBundle(input, revision, extracted.dir)
         } finally {
@@ -111,6 +114,9 @@ export class AssServerExecutor implements SessionExecutor {
         // Deployed bundles are single-agent (one `.ass.yaml` per tarball, produced
         // by `ass build`). `loadCompiledAgent` reads that flat shape — different
         // from `loadProject`, which is for the dev `ass run` TS-source tree.
+        // Cheap (JSON + small tar untar) — not wrapped in withTiming so
+        // we don't have to drag the LoadedCompiledAgent type through a
+        // generic boundary that the workspace re-exports don't carry.
         const { project, agent } = await loadCompiledAgent(bundleDir)
 
         const triggerPayload = input.state.initialInput ?? null
@@ -199,7 +205,11 @@ export class AssServerExecutor implements SessionExecutor {
             }
         })
         try {
-            await handle.done
+            // The `await handle.done` IS the whole agent loop — every
+            // model call, every tool dispatch, every ask_for_input
+            // suspension lives inside it. Timing this single boundary
+            // tells us how much of a session is LLM-bound vs. infra.
+            await withTiming({ op: 'runtime.session', sessionId, agent: agent.slug }, () => handle.done)
         } finally {
             await unsubscribe().catch((err) => {
                 logger.error('cancel-subscription cleanup failed', { sessionId, error: String(err) })

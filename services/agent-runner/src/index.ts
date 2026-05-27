@@ -119,11 +119,17 @@ async function main(): Promise<void> {
                     },
                 }),
         },
-        // Subscribes to the bus and sleeps up to 10s, observing `cancel`.
-        // Powers the /cancel and /listen runtime e2e tests.
+        // Subscribes to the bus and sleeps up to 2s, observing `cancel`.
+        // Powers the /cancel and /listen runtime e2e tests. 2s is the
+        // ceiling — long enough for /listen to attach SSE (~100ms in
+        // practice) and for /cancel to send through the bus, short
+        // enough that an unobserved completion doesn't dominate the
+        // suite's wall time. Override via `__TEST_SLEEP_MS` in the
+        // app's encrypted env when a test legitimately needs longer.
         'slow-cancellable': {
             runTurn: async (input) => {
                 const sessionId = input.job.sessionId
+                const sleepCap = Number(input.job.secrets.__TEST_SLEEP_MS ?? 2_000)
                 let cancelled = false
                 const unsubscribe = await bus.subscribeInput(sessionId, (msg) => {
                     if (msg.type === 'cancel') {
@@ -132,7 +138,7 @@ async function main(): Promise<void> {
                 })
                 try {
                     const start = Date.now()
-                    while (!cancelled && Date.now() - start < 10_000) {
+                    while (!cancelled && Date.now() - start < sleepCap) {
                         await new Promise((r) => setTimeout(r, 50))
                     }
                 } finally {
