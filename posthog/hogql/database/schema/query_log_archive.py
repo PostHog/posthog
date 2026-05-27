@@ -35,6 +35,7 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
     "api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
     "api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
+    "endpoint_version": IntegerDatabaseField(name="lc_endpoint_version", nullable=False),
     "cpu_microseconds": IntegerDatabaseField(name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False),
     "RealTimeMicroseconds": IntegerDatabaseField(name="ProfileEvents_RealTimeMicroseconds", nullable=False),
     "S3ListObjects": IntegerDatabaseField(name="ProfileEvents_S3ListObjects", nullable=False),
@@ -137,6 +138,7 @@ class RawQueryLogArchiveTable(Table):
         "lc_api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
         "lc_api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),
+        "lc_endpoint_version": IntegerDatabaseField(name="lc_endpoint_version", nullable=False),
         "ProfileEvents_OSCPUVirtualTimeMicroseconds": IntegerDatabaseField(
             name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False
         ),

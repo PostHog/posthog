@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_person_on_events_mode LowCardinality(String),
     lc_service_name String,
     lc_workload LowCardinality(String),
+    lc_endpoint_version Int64,
 
     lc_query__kind LowCardinality(String),
     lc_query__query String,
@@ -346,6 +347,7 @@ SELECT
     JSONExtractString(log_comment, 'person_on_events_mode') as lc_person_on_events_mode,
     JSONExtractString(log_comment, 'service_name') as lc_service_name,
     JSONExtractString(log_comment, 'workload') as lc_workload,
+    JSONExtractInt(log_comment, 'endpoint_version') as lc_endpoint_version,
 
     -- for entries with 'query' tag, some queries have source, we should use this
     if(JSONHas(log_comment, 'query', 'source'),
@@ -482,6 +484,14 @@ def QUERY_LOG_ARCHIVE_ADD_MODIFIERS_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABL
     return f"""
     ALTER TABLE {table}
         ADD COLUMN IF NOT EXISTS lc_modifiers String AFTER lc_dagster__owner
+    """
+
+
+# V11 - adding lc_endpoint_version to track per-version Endpoints usage
+def QUERY_LOG_ARCHIVE_ADD_ENDPOINT_VERSION_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS lc_endpoint_version Int64 AFTER lc_workload
     """
 
 
