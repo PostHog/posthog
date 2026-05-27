@@ -203,7 +203,7 @@ def _build_autostart_task_description(result: ReportResearchOutput, repository: 
         if result.priority
         else ""
     )
-    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}?ref=pr"
+    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
     return (
         f"{result.summary}\n\n"
         f"{priority_line}"
