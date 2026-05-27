@@ -14,7 +14,6 @@ set -euo pipefail
 # such as COMPOSE_FILE, COMPOSE_PROFILES, and any image/tag overrides.
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
-SCRIPT_PATH="$SCRIPT_DIR/$(basename -- "$0")"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
@@ -185,42 +184,6 @@ run_launch_once() {
     compose_up "$@"
 }
 
-launch_runner() {
-    local down_mode="$1"
-    shift
-    local launch_services=("$@")
-    local inner_attempt=1
-    local inner_sleep_time
-
-    while [ "$inner_attempt" -le "$LAUNCH_RETRIES" ]; do
-        if run_launch_once "$down_mode" "${launch_services[@]}"; then
-            echo "Docker Compose launch succeeded"
-            return 0
-        fi
-
-        if [ "$inner_attempt" -ge "$LAUNCH_RETRIES" ]; then
-            echo "Docker Compose launch failed after ${LAUNCH_RETRIES} attempt(s)" >&2
-            return 1
-        fi
-
-        inner_sleep_time=$(( LAUNCH_RETRY_DELAY * 2 ** (inner_attempt - 1) ))
-        echo "Docker Compose launch failed (attempt ${inner_attempt}/${LAUNCH_RETRIES}), retrying in ${inner_sleep_time}s..."
-        sleep "$inner_sleep_time"
-        inner_attempt=$(( inner_attempt + 1 ))
-    done
-}
-
-run_background_launch() {
-    local pid_file="$1"
-    shift
-    local down_mode="$1"
-    shift
-
-    printf '%s\n' "$$" > "$pid_file"
-    trap 'rm -f "$pid_file"' EXIT
-    launch_runner "$down_mode" "$@"
-}
-
 run_launch() {
     local down_mode="none"
     local background=0
@@ -258,32 +221,44 @@ run_launch() {
 
     launch_services=("$@")
 
+    launch_runner() {
+        local inner_attempt=1
+        local inner_sleep_time
+
+        while [ "$inner_attempt" -le "$LAUNCH_RETRIES" ]; do
+            if run_launch_once "$down_mode" "${launch_services[@]}"; then
+                echo "Docker Compose launch succeeded"
+                return 0
+            fi
+
+            if [ "$inner_attempt" -ge "$LAUNCH_RETRIES" ]; then
+                echo "Docker Compose launch failed after ${LAUNCH_RETRIES} attempt(s)" >&2
+                return 1
+            fi
+
+            inner_sleep_time=$(( LAUNCH_RETRY_DELAY * 2 ** (inner_attempt - 1) ))
+            echo "Docker Compose launch failed (attempt ${inner_attempt}/${LAUNCH_RETRIES}), retrying in ${inner_sleep_time}s..."
+            sleep "$inner_sleep_time"
+            inner_attempt=$(( inner_attempt + 1 ))
+        done
+    }
+
     if [ "$background" -eq 1 ]; then
         local pid_file
-        local log_file
 
         pid_file="$(background_launch_pid_file)"
-        log_file="${pid_file%.pid}.log"
         clear_background_launch_pid
-
-        # Detach the launch from the calling shell so it survives the step
-        # boundary. CI runners (Depot, GitHub Actions) tear down each step's
-        # shell as soon as it returns; a plain `( ... ) &` subshell is still
-        # in that shell's process group and gets SIGHUP'd before docker
-        # compose finishes pulling and starting services. nohup + closed
-        # stdio + disown lets the launch run to completion in the background
-        # so a later `wait` step can observe the started containers.
-        nohup "$SCRIPT_PATH" __background-launch \
-            "$pid_file" "$down_mode" "${launch_services[@]}" \
-            </dev/null >"$log_file" 2>&1 &
-        local launch_pid=$!
-        disown 2>/dev/null || true
-        echo "Docker Compose launch started in background (pid ${launch_pid}); log: ${log_file}"
+        (
+            printf '%s\n' "$BASHPID" > "$pid_file"
+            trap 'rm -f "$pid_file"' EXIT
+            launch_runner
+        ) &
+        echo "Docker Compose launch started in background (pid $!)."
         return 0
     fi
 
     clear_background_launch_pid
-    launch_runner "$down_mode" "${launch_services[@]}"
+    launch_runner
 }
 
 run_wait() {
@@ -369,7 +344,7 @@ run_wait() {
 
 command="${1:-wait}"
 case "$command" in
-    launch|wait|__background-launch)
+    launch|wait)
         shift
         ;;
     --help|-h)
@@ -387,10 +362,5 @@ case "$command" in
         ;;
     wait)
         run_wait "$@"
-        ;;
-    __background-launch)
-        # Internal: invoked by `launch --background` via nohup so the
-        # launch runs in a detached process that survives the calling step.
-        run_background_launch "$@"
         ;;
 esac

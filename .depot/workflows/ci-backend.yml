@@ -170,9 +170,12 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker launch --background --down \
+                  # nohup detaches the launch so it survives Depot's step-shell teardown
+                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
+                  nohup bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
-                    temporal elasticsearch objectstorage-azure
+                    temporal elasticsearch objectstorage-azure \
+                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
             - name: Setup Node.js
@@ -229,7 +232,9 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
                   WAIT_FOR_DOCKER_TIMEOUT: 900
-              run: bin/ci-wait-for-docker wait objectstorage
+              run: |
+                  bin/ci-wait-for-docker wait objectstorage \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Register Temporal search attributes
               env:
                   WAIT_FOR_DOCKER_TIMEOUT: 900
@@ -311,7 +316,10 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
               run: |
-                  bin/ci-wait-for-docker launch --background --down
+                  # nohup detaches the launch so it survives Depot's step-shell teardown
+                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
+                  nohup bin/ci-wait-for-docker launch --background --down \
+                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -342,28 +350,12 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
-            - name: Preserve CI Docker helper during rollout
-              run: |
-                  # Temporary during rollout: this job checks out `master`,
-                  # which does not include the latest Docker wait helpers yet.
-                  cp bin/ci-wait-for-docker /tmp/ci-wait-for-docker
-                  chmod +x /tmp/ci-wait-for-docker
-                  cp bin/wait-for-docker /tmp/wait-for-docker
-                  chmod +x /tmp/wait-for-docker
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@v6
               with:
                   ref: master
                   clean: false
-            - name: Restore CI Docker helper during rollout
-              run: |
-                  # Temporary during rollout: restore the helpers after the
-                  # checkout to `master` removes them from the workspace.
-                  cp /tmp/ci-wait-for-docker bin/ci-wait-for-docker
-                  chmod +x bin/ci-wait-for-docker
-                  cp /tmp/wait-for-docker bin/wait-for-docker
-                  chmod +x bin/wait-for-docker
             - name: Install python dependencies for master
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
@@ -371,7 +363,9 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-              run: bin/ci-wait-for-docker wait objectstorage
+              run: |
+                  bin/ci-wait-for-docker wait objectstorage \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Run migrations up to master
               run: |
                   # Run Django migrations first (excluding managed=False models)
@@ -604,7 +598,10 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker launch --background --down-all-profiles
+                  # nohup detaches the launch so it survives Depot's step-shell teardown
+                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
+                  nohup bin/ci-wait-for-docker launch --background --down-all-profiles \
+                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Add service hostnames to /etc/hosts
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
@@ -708,7 +705,9 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   WAIT_FOR_DOCKER_TIMEOUT: 900
-              run: bin/ci-wait-for-docker wait objectstorage
+              run: |
+                  bin/ci-wait-for-docker wait objectstorage \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Wait for Temporal
               # Some Core tests reach Temporal indirectly (batch_exports, etc). On
               # slower Depot runners Temporal is not ready when tests start, so
@@ -998,7 +997,10 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: |
-                  bin/ci-wait-for-docker launch --background --down
+                  # nohup detaches the launch so it survives Depot's step-shell teardown
+                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
+                  nohup bin/ci-wait-for-docker launch --background --down \
+                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -1047,7 +1049,9 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-              run: bin/ci-wait-for-docker wait objectstorage
+              run: |
+                  bin/ci-wait-for-docker wait objectstorage \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Run async migrations tests
               run: |
                   pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
