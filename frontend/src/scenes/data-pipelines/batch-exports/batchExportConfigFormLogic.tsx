@@ -775,7 +775,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     const destinationObj = {
                         type: destination,
                         config: config,
-                        integration: integration_id,
+                        integration_id: integration_id,
                     }
                     const data = {
                         paused,
@@ -1041,7 +1041,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
 
             const destinationObj = {
                 type: destination,
-                integration: integration_id,
+                integration_id: integration_id,
                 config: config,
             }
             const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
