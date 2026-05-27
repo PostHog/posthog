@@ -18,16 +18,22 @@ const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 // our customers' sites, and tracking there would log their visitors to app.posthog.com.
 // The `interview` scene is the exception: it's our own hosted public page, opened by an invitee
 // on a link we sent. We want pageviews + replay to measure the invite-to-call funnel.
-const isInterview = exportedData?.type === ExportType.Interview
+// Require the interview payload to be present — the public `force_type=interview` query param
+// can flip `type` on any shared resource, so checking `type` alone would let anyone enable
+// tracking on a customer dashboard share by appending the parameter.
+const isInterview = exportedData?.type === ExportType.Interview && !!exportedData?.interview
 if (!isInterview) {
     window.JS_POSTHOG_API_KEY = undefined
 }
 
 // The interview URL embeds the SharingConfiguration access token (/interview/<token>/) and the
 // public start_call API path (/api/user_interviews/share/<token>/start_call/) embeds it too.
-// Redact the token from event URL properties AND from network requests captured in session
-// replay so a viewer of either surface can't reuse the token to start a fresh call as the
-// invitee.
+// Two hooks redact it everywhere a viewer of analytics or replay could otherwise read it:
+//   - `before_send` strips URL-shaped event properties ($current_url, $pathname, $referrer, ...)
+//   - `maskCapturedNetworkRequestFn` is also the hook posthog-js uses for ALL replay URL
+//     surfaces — captured network requests, the rrweb `EventType.Meta` header, `$url_changed`
+//     custom events on SPA route transitions, and masked $current_url in captured console events.
+// Together they cover every surface where the token could land for a viewer to reuse.
 const INTERVIEW_TOKEN_RE = /\/interview\/[^/?#]+|\/api\/user_interviews\/share\/[^/?#]+/g
 const URL_PROPERTIES = ['$current_url', '$pathname', '$referrer', '$initial_current_url', '$initial_pathname']
 const redactInterviewToken = (value: string): string =>
