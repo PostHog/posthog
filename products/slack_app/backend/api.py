@@ -1350,8 +1350,20 @@ def route_posthog_code_event_to_relevant_region(
         if not result.candidates or not in_region:
             return _proxy_or_no_integration(request, slack_team_id)
 
-        candidates = result.candidates
-        target = result.integration
+        # Gate the entire @PostHog surface on the rollout flag at the candidate
+        # level so command workflows, pick-a-project hints, and mention workflows
+        # are all covered. Per-candidate filter so a workspace with several
+        # PostHog projects can have some on-rollout and some off-rollout cleanly.
+        enabled = [c for c in result.candidates if _posthog_code_enabled_for_integration(c)]
+        if not enabled:
+            logger.info(
+                "posthog_code_event_flag_off",
+                slack_team_id=slack_team_id,
+                candidate_count=len(result.candidates),
+            )
+            return ROUTE_HANDLED_LOCALLY
+        candidates = enabled
+        target = result.integration if result.integration in enabled else None
 
         if _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id)
@@ -1359,17 +1371,6 @@ def route_posthog_code_event_to_relevant_region(
         mention_target = target or (candidates[0] if len(candidates) == 1 else None)
         if mention_target is None:
             _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
-            return ROUTE_HANDLED_LOCALLY
-
-        # Flag + scope checks only when we have a single integration to start the
-        # mention workflow against. Multi-integration paths (command workflow,
-        # pick-a-project hint) don't kick off the agent.
-        if not _posthog_code_enabled_for_integration(mention_target):
-            logger.info(
-                "posthog_code_event_flag_off",
-                slack_team_id=slack_team_id,
-                organization_id=str(mention_target.team.organization_id),
-            )
             return ROUTE_HANDLED_LOCALLY
 
         slack = SlackIntegration(mention_target)
