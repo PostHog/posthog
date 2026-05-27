@@ -87,7 +87,7 @@ impl Producer for AggregatedProducer {
         let send_fut = send_keyed_iter_to_kafka(
             &self.inner,
             &self.output_topic,
-            |m| Some(m.team_id.to_string()),
+            |m| Some(format!("{}:{}", m.team_id, m.property_key)),
             messages,
         );
 

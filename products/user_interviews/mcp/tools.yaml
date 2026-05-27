@@ -274,6 +274,9 @@ tools:
             - reply_to
             - send_async
         feature_flag: user-interviews
+    user-interview-topics-test-link-retrieve:
+        operation: user_interview_topics_test_link_retrieve
+        enabled: false
     user-interview-topics-update:
         operation: user_interview_topics_update
         enabled: false

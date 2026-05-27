@@ -71,9 +71,12 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            persons-SQL: ${{ steps.filter.outputs['persons-SQL'] || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -191,10 +194,16 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      persons-SQL:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      product_yamls:
+                        # Validates owner team slugs against PostHog/posthog collaborator teams.
+                        # Costs one GitHub API call; gated here so we only pay it when ownership
+                        # actually changes. Drives the validate-product-yamls job below.
+                        - 'products/*/product.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -393,9 +402,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -531,9 +540,9 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -559,13 +568,73 @@ jobs:
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
 
-    # Migration validation and OpenAPI type generation.
+    # Validates product.yaml owners against PostHog/posthog collaborator teams.
+    # Gated on the product_yamls paths filter so we only spend a GitHub API call
+    # when ownership actually changes. The scoped form (positional product names)
+    # means a PR can't trip on pre-existing stale ownership in unrelated yamls.
+    # Skipped for fork PRs — app-token secrets aren't available there, and forks
+    # can't introduce new product.yaml entries that ship to master without a
+    # same-repo PR going through this check anyway.
+    validate-product-yamls:
+        needs: [changes]
+        if: >
+            needs.changes.outputs.product_yamls == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        name: Validate product.yaml owners (ubuntu-latest)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Default GITHUB_TOKEN can't list /repos/{repo}/teams (needs org-level
+            # `members: read`). Reuse the assign-reviewers app — same secret, same
+            # use case. `owner: PostHog` scopes the issued token at the org so
+            # org-level permissions actually flow through; otherwise the token is
+            # repo-scoped and the org scope gets dropped.
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.11.14'
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Validate changed product.yaml owners
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              run: |
+                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # Each entry is products/<name>/product.yaml — strip to <name>.
+                  names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
+                  if [ -z "$names" ]; then
+                    echo "No product.yaml files in diff after filtering"
+                    exit 0
+                  fi
+                  ./bin/hogli product:lint:owners $names
+
+    # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
-    # migrations, then checks out the PR branch. All steps after the PR checkout
-    # require Django + DB. Lightweight checks belong in repo-checks above.
+    # migrations, then checks out the PR branch. OpenAPI type generation belongs
+    # in check-openapi-types below.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs['persons-SQL'] == 'true'
         timeout-minutes: 20
         # checks: write is needed so the "Publish Migration risk check" step
         # can POST to /repos/.../check-runs. Workflow-level perms only grant
@@ -575,7 +644,7 @@ jobs:
             pull-requests: write
             checks: write
 
-        name: Validate migrations and OpenAPI types
+        name: Validate migrations
         runs-on: depot-ubuntu-latest
 
         steps:
@@ -591,9 +660,8 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
               run: |
-                  bin/ci-wait-for-docker launch --background --down
+                  bin/ci-wait-for-docker launch --background --down db redis7 clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -602,9 +670,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -630,30 +698,12 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            - name: Preserve CI Docker helper during rollout
-              run: |
-                  # Temporary during rollout: this job checks out `master`,
-                  # which does not include the latest Docker wait helpers yet.
-                  cp bin/ci-wait-for-docker /tmp/ci-wait-for-docker
-                  chmod +x /tmp/ci-wait-for-docker
-                  cp bin/wait-for-docker /tmp/wait-for-docker
-                  chmod +x /tmp/wait-for-docker
-
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   clean: false
-
-            - name: Restore CI Docker helper during rollout
-              run: |
-                  # Temporary during rollout: restore the helpers after the
-                  # checkout to `master` removes them from the workspace.
-                  cp /tmp/ci-wait-for-docker bin/ci-wait-for-docker
-                  chmod +x bin/ci-wait-for-docker
-                  cp /tmp/wait-for-docker bin/wait-for-docker
-                  chmod +x bin/wait-for-docker
 
             - name: Install python dependencies for master
               run: |
@@ -662,8 +712,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
-              run: bin/ci-wait-for-docker wait
+              run: bin/ci-wait-for-docker wait --only db redis7 clickhouse
 
             - name: Run migrations up to master
               run: |
@@ -675,29 +724,15 @@ jobs:
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx migrate run --source rust/persons_migrations/
 
-            # Get app token early so it can be passed to checkout below.
-            # This sets the git extraheader to the app token instead of GITHUB_TOKEN,
-            # which is required for the OpenAPI type commit push to trigger CI.
-            - name: Get app token for OpenAPI type commits
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
-              id: openapi-app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             # Now we can consider this PR's migrations
             - name: Checkout this PR
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # For same-repo PRs, checkout the actual branch (not the merge commit)
-                  # so OpenAPI type generation can be committed directly. Fork PRs fall
-                  # back to the default merge commit (auto-commit bails out for forks).
+                  # so origin/master..HEAD reflects PR files. Fork PRs fall back
+                  # to the default merge commit.
                   ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
-                  # Use app token so the git extraheader is set correctly for the OpenAPI
-                  # type commit push later — GITHUB_TOKEN pushes don't trigger CI.
-                  token: ${{ steps.openapi-app-token.outputs.token || github.token }}
 
             - name: Install python dependencies for this PR
               run: |
@@ -1039,19 +1074,21 @@ jobs:
               # environment and reuse the output both for the Actions log groups and the PR comment
               # (environment -> node type(s) -> SQL). Environments that render identically are
               # grouped together; if all environments match, the environment level is collapsed.
+              id: render_ch_sql
               if: github.event_name == 'pull_request'
               run: |
                   CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  if [ -z "$CHANGED" ]; then
+                      echo "No ClickHouse migrations changed."
+                      echo "has_changes=false" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  echo "has_changes=true" >> "$GITHUB_OUTPUT"
                   {
                       echo '<!-- ch-migration-sql -->'
                       echo '## ClickHouse migration SQL per cloud environment'
                       echo ''
                   } > ch_migration_sql_comment.md
-                  if [ -z "$CHANGED" ]; then
-                      echo "No ClickHouse migrations changed."
-                      echo '_No ClickHouse migrations changed in this PR._' >> ch_migration_sql_comment.md
-                      exit 0
-                  fi
                   mkdir -p ch_sql_env
                   DEPLOYMENTS=('' US EU DEV)
                   LABELS=(unset US EU DEV)
@@ -1101,23 +1138,38 @@ jobs:
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- ch-migration-sql -->';
-                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
-                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
-                      if (body.length > LIMIT) {
-                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
-                      }
+                      const hasChanges = process.env.HAS_CHANGES === 'true';
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
                           issue_number: context.issue.number,
                       });
                       const existing = comments.find((c) => c.body.includes(marker));
+                      if (!hasChanges) {
+                          // No migrations changed — clean up a stale sticky comment if one exists
+                          // (e.g. migrations were added then removed in a later push), otherwise no-op.
+                          if (existing) {
+                              await github.rest.issues.deleteComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: existing.id,
+                              });
+                          }
+                          return;
+                      }
+                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
+                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
+                      if (body.length > LIMIT) {
+                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
+                      }
                       if (existing) {
                           await github.rest.issues.updateComment({
                               owner: context.repo.owner,
@@ -1133,6 +1185,61 @@ jobs:
                               body,
                           });
                       }
+
+    check-openapi-types:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
+        timeout-minutes: 20
+        permissions:
+            contents: read
+
+        name: Validate OpenAPI types
+        runs-on: depot-ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # For same-repo PRs, checkout the actual branch (not the merge commit)
+                  # so generated OpenAPI types can be committed directly. Fork PRs fall
+                  # back to the default merge commit (auto-commit bails out for forks).
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
+                  clean: false
+
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: |
+                  bin/ci-wait-for-docker launch --background --down db clickhouse
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install python dependencies
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -1156,6 +1263,11 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait --only db clickhouse
+
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
 
@@ -1166,8 +1278,6 @@ jobs:
                   HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   if ! ./bin/hogli build:openapi; then
                       echo ""
@@ -1233,10 +1343,22 @@ jobs:
                       exit 1
                   fi
 
-                  # Disable auto-merge before pushing to prevent unreviewed code from merging
-                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
-
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
+
+            - name: Get app token for OpenAPI type commits
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              id: openapi-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Disable auto-merge before OpenAPI type commit
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
             - name: Commit OpenAPI types via GitHub API (signed)
               if: steps.openapi-check.outputs.needs-commit == 'true'
@@ -1407,9 +1529,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1587,7 +1709,7 @@ jobs:
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
                       matrix.person-on-events
-                      && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                      && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog'
                       )
                   }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
@@ -1877,7 +1999,17 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, check-migrations, async-migrations, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
+        needs:
+            [
+                django,
+                check-migrations,
+                check-openapi-types,
+                async-migrations,
+                turbo-discover,
+                turbo-tests,
+                handle-snapshots,
+                repo-checks,
+            ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1895,6 +2027,12 @@ jobs:
                   # Check migration validation - must pass for Django Tests to be green
                   if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
                     echo "Migration checks failed."
+                    exit 1
+                  fi
+
+                  # Check OpenAPI type validation - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-openapi-types.result }}" != "success" && "${{ needs.check-openapi-types.result }}" != "skipped" ]]; then
+                    echo "OpenAPI type checks failed."
                     exit 1
                   fi
 
@@ -1945,9 +2083,9 @@ jobs:
                   filter: blob:none
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
 
             - name: Download JUnit artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -2035,9 +2173,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -2173,10 +2311,10 @@ jobs:
                     echo "available=false" >> "$GITHUB_OUTPUT"
                     echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
                   fi
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0

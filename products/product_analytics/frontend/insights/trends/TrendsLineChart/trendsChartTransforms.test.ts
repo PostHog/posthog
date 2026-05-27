@@ -335,7 +335,12 @@ describe('trendsChartTransforms', () => {
                 tooltip: TOOLTIP,
             })
 
-            expect(config.xAxis).toEqual({ timezone: 'UTC', interval: 'day', allDays: ['2024-01-01', '2024-01-02'] })
+            expect(config.xAxis).toEqual({
+                label: undefined,
+                timezone: 'UTC',
+                interval: 'day',
+                allDays: ['2024-01-01', '2024-01-02'],
+            })
             expect(config.yAxis).not.toBeUndefined()
             expect(config.valueLabels).toBe(false)
             expect(config.goalLines).toHaveLength(1)
@@ -400,6 +405,16 @@ describe('trendsChartTransforms', () => {
             expect(config.xAxis?.interval).toBe('day')
         })
 
+        it('passes custom axis labels into the chart config', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+            })
+            expect(config.xAxis?.label).toBe('Signup date')
+            expect(config.yAxis?.label).toBe('Unique users')
+        })
+
         it('derives yAxis from buildTrendsYAxisConfig when isPercentStackView is true and passes through tooltip / showCrosshair', () => {
             const config = buildTrendsLineTimeSeriesConfig({
                 ...baseOpts,
@@ -407,7 +422,7 @@ describe('trendsChartTransforms', () => {
                 tooltip: TOOLTIP,
                 showCrosshair: false,
             })
-            expect(config.yAxis).toMatchObject({ format: 'percentage', scale: 'linear', showGrid: true })
+            expect(config.yAxis).toMatchObject({ format: 'percentage_scaled', scale: 'linear', showGrid: true })
             expect(config.percentStackView).toBe(true)
             expect(config.tooltip).toBe(TOOLTIP)
             expect(config.showCrosshair).toBe(false)

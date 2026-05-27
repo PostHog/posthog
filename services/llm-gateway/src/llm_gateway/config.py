@@ -160,6 +160,10 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+    # Billing recomputes quota state on at most an hourly cadence, so we are
+    # comfortable letting a team go slightly over their limit in exchange for
+    # avoiding a Django roundtrip on every billable request.
+    quota_cache_ttl: int = 300  # 5 minutes
     billing_period_days: int = 30
 
     # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic

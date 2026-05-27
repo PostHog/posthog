@@ -12,6 +12,8 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
 import type { RequestProperties } from '@/lib/request-properties'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 function fakeRedis(): RedisLike {
     const store = new Map<string, string>()
     return {
@@ -30,6 +32,7 @@ function fakeRedis(): RedisLike {
             return n
         },
         scan: async () => ['0', [...store.keys()]],
+        ...makeRedisRateLimitStubs(),
     }
 }
 
@@ -55,11 +58,7 @@ describe('RequestContext', () => {
             mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
 
-            const [a, b, c] = await Promise.all([
-                ctx.getDistinctId(),
-                ctx.getDistinctId(),
-                ctx.getDistinctId(),
-            ])
+            const [a, b, c] = await Promise.all([ctx.getDistinctId(), ctx.getDistinctId(), ctx.getDistinctId()])
 
             expect(a).toBe('user-123')
             expect(b).toBe('user-123')
@@ -69,7 +68,7 @@ describe('RequestContext', () => {
 
         it('returns cached distinctId without calling API', async () => {
             const redis = fakeRedis()
-            await redis.set('mcp:user:test-user:distinctId', JSON.stringify('cached-id'))
+            await redis.set('mcp:token:test-user:distinctId', JSON.stringify('cached-id'))
             mockMe.mockClear()
 
             const ctx = new RequestContext(redis, env, makeProps())
@@ -85,7 +84,7 @@ describe('RequestContext', () => {
             const ctx = new RequestContext(redis, env, makeProps())
 
             await ctx.getDistinctId()
-            const cached = await redis.get('mcp:user:test-user:distinctId')
+            const cached = await redis.get('mcp:token:test-user:distinctId')
             expect(JSON.parse(cached!)).toBe('fresh-id')
         })
 
@@ -123,34 +122,57 @@ describe('RequestContext', () => {
 
     describe('buildClientProperties', () => {
         it('includes all request properties', () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps({
-                mcpClientName: 'claude-code',
-                mcpClientVersion: '2.0',
-                mcpProtocolVersion: '2025-03-26',
-                mcpConsumer: 'posthog-code',
-                transport: 'streamable-http',
-            }))
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({
+                    mcpClientName: 'claude-code',
+                    mcpClientVersion: '2.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'posthog-code',
+                    transport: 'streamable-http',
+                })
+            )
 
-            expect(ctx.buildClientProperties()).toEqual({
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_mcp_analytics',
+                $mcp_server_name: 'PostHog',
+                $mcp_server_version: '1.0.0',
+                $mcp_client_name: 'claude-code',
+                $mcp_client_version: '2.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'posthog-code',
+                $mcp_transport: 'streamable-http',
                 mcp_runtime: 'hono',
-                mcp_client_name: 'claude-code',
-                mcp_client_version: '2.0',
-                mcp_protocol_version: '2025-03-26',
-                mcp_consumer: 'posthog-code',
-                mcp_transport: 'streamable-http',
             })
         })
 
         it('omits undefined properties', () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps({
-                mcpClientName: undefined,
-                mcpClientVersion: undefined,
-                mcpProtocolVersion: undefined,
-                mcpConsumer: undefined,
-                transport: undefined,
-            }))
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({
+                    mcpClientName: undefined,
+                    mcpClientVersion: undefined,
+                    mcpProtocolVersion: undefined,
+                    mcpConsumer: undefined,
+                    transport: undefined,
+                })
+            )
 
-            expect(ctx.buildClientProperties()).toEqual({ mcp_runtime: 'hono' })
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_mcp_analytics',
+                $mcp_server_name: 'PostHog',
+                $mcp_server_version: '1.0.0',
+                mcp_runtime: 'hono',
+            })
+            expect(result.$mcp_client_name).toBeUndefined()
+            expect(result.$mcp_consumer).toBeUndefined()
+            expect(result.$mcp_transport).toBeUndefined()
         })
     })
 

@@ -327,9 +327,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -440,9 +440,10 @@ jobs:
 
             - name: Collect static files
               run: |
-                  # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-                  # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
-                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+                  # KLUDGE: posthog-js now bundles rrweb and ships image-bitmap-data-url-worker-*.js.map
+                  # KLUDGE: under its own dist; the worker references the map alongside, so copy it into
+                  # KLUDGE: dist/ or django's collectstatic fails on the missing source map
+                  cp frontend/node_modules/posthog-js/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |
@@ -518,6 +519,13 @@ jobs:
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+
+                  # Cyclotron node DB — the plugins container runs the CDP rerun worker
+                  # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
+                  # at a real, migrated database or it throws on startup and the server exits.
+                  CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
+                  sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                  sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev

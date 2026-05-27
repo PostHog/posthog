@@ -220,6 +220,11 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CalendarHeatmapFilterApi {
+    /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
+    bucketBySessionStart?: boolean | null
+}
+
 export interface CompareFilterApi {
     /** Whether to compare the current date range to a previous date range. */
     compare?: boolean | null
@@ -1542,6 +1547,10 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: string | null
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: string | null
     yAxisScaleType?: YAxisScaleTypeApi | null
 }
 
@@ -1550,6 +1559,8 @@ export interface TrendsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
+    calendarHeatmapFilter?: CalendarHeatmapFilterApi | null
     /** Compare to date range */
     compareFilter?: CompareFilterApi | null
     /** Whether we should be comparing against a specific conversion goal */
@@ -2042,9 +2053,9 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
 
-export const AggregationPropertyType1Api = {
+export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
     DataWarehouse: 'data_warehouse',
@@ -2168,7 +2179,7 @@ export interface RetentionFilterApi {
     /** The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string | null
     /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyType1Api | null
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
@@ -2746,6 +2757,7 @@ export interface WebStatsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -2790,6 +2802,8 @@ export interface WebStatsTableQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -3028,6 +3042,19 @@ export interface HogQLMetadataResponseApi {
     warnings: HogQLNoticeApi[]
 }
 
+export interface DataWarehouseSyncWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+}
+
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
@@ -3057,6 +3084,8 @@ export interface Response3Api {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response4Api {
@@ -3100,6 +3129,7 @@ export interface Response5Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -3123,6 +3153,32 @@ export interface Response6Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+}
+
+export interface Response7Api {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    samplingRate?: SamplingRateApi | null
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean | null
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean | null
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
@@ -3154,6 +3210,7 @@ export interface Response8Api {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
 }
 
 export interface Response9Api {
@@ -4369,12 +4426,14 @@ export interface ExperimentMeanMetricApi {
     ignore_zeros?: boolean | null
     isSharedMetric?: boolean | null
     kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
     lower_bound_percentile?: number | null
     metric_type?: 'mean'
     name?: string | null
     response?: ExperimentMeanMetricApiResponse
     sharedMetricId?: number | null
     source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
     /** version of the node, used for schema migrations */
@@ -4402,6 +4461,14 @@ export interface ExperimentFunnelMetricApi {
     version?: number | null
 }
 
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+}
+
 export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentRatioMetricApi {
@@ -4409,6 +4476,7 @@ export interface ExperimentRatioMetricApi {
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     fingerprint?: string | null
     goal?: ExperimentMetricGoalApi | null
     isSharedMetric?: boolean | null
@@ -4416,6 +4484,7 @@ export interface ExperimentRatioMetricApi {
     metric_type?: 'ratio'
     name?: string | null
     numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     response?: ExperimentRatioMetricApiResponse
     sharedMetricId?: number | null
     uuid?: string | null
@@ -4689,6 +4758,8 @@ export interface HogQLQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface HogQLVariableApi {
@@ -4879,6 +4950,10 @@ export interface WebGoalsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean | null
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean | null
 }
 
 export interface WebGoalsQueryApi {
@@ -4911,6 +4986,8 @@ export interface WebGoalsQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -4992,6 +5069,7 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
 }
 
 export interface WebVitalsPathBreakdownQueryApi {
@@ -5030,6 +5108,8 @@ export interface WebVitalsPathBreakdownQueryApi {
      */
     thresholds: number[]
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6339,6 +6419,7 @@ export type DataTableNodeApiResponse =
     | Response4Api
     | Response5Api
     | Response6Api
+    | Response7Api
     | Response8Api
     | Response9Api
     | Response10Api
