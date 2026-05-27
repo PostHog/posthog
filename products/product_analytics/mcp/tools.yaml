@@ -176,6 +176,12 @@ tools:
                 - query_status
                 - hogql
                 - types
+    insight-variables-create:
+        operation: insight_variables_create
+        enabled: false
+    insight-variables-list:
+        operation: insight_variables_list
+        enabled: false
     insights-activity-retrieve:
         operation: insights_activity_retrieve
         enabled: true

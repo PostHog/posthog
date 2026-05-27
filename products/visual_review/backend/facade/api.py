@@ -115,6 +115,7 @@ def _to_snapshot(
     cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
+        run_id=snapshot.run_id,
         identifier=snapshot.identifier,
         result=snapshot.result,
         classification_reason=snapshot.classification_reason or "",

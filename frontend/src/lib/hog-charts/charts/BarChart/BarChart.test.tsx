@@ -153,6 +153,23 @@ describe('BarChart', () => {
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
         })
 
+        it('renders custom axis titles in horizontal orientation', () => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        axisOrientation: 'horizontal',
+                        xAxisLabel: 'Total events',
+                        yAxisLabel: 'Series',
+                    }}
+                />
+            )
+            expect(chart.xAxisLabel()).toBe('Total events')
+            expect(chart.yAxisLabel()).toBe('Series')
+        })
+
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
             const { chart } = renderHogChart(

@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "skill_identifier": {
+        "skill_name": {
             "pattern": "^[^/]+$",
             "type": "string"
         },
@@ -11,6 +11,6 @@
             "type": "number"
         }
     },
-    "required": ["skill_identifier"],
+    "required": ["skill_name"],
     "type": "object"
 }

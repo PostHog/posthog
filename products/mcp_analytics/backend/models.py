@@ -85,10 +85,10 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
     session_end = models.DateTimeField(null=True, blank=True)
     duration_seconds = models.IntegerField(null=True, blank=True)
 
-    tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True)
-    tool_call_count = models.IntegerField(default=0)
-    distinct_id = models.CharField(max_length=400, blank=True, default="")
-    mcp_client_name = models.CharField(max_length=200, blank=True, default="")
+    tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True, null=True)
+    tool_call_count = models.IntegerField(default=0, null=True, blank=True)
+    distinct_id = models.CharField(max_length=400, blank=True, default="", null=True)
+    mcp_client_name = models.CharField(max_length=200, blank=True, default="", null=True)
     intent = models.TextField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

@@ -51,6 +51,20 @@
         "query": {
             "description": "HogQL or insight query this endpoint executes. Changing this auto-creates a new version."
         },
+        "tags": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "List of tag names to associate with this endpoint. Replaces any existing tags."
+        },
         "version": {
             "anyOf": [
                 {

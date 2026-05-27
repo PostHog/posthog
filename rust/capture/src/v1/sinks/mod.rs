@@ -42,6 +42,14 @@ impl SinkName {
         }
     }
 
+    pub fn lifecycle_tag(&self) -> &'static str {
+        match self {
+            Self::Msk => "v1-sink-msk",
+            Self::MskAlt => "v1-sink-msk_alt",
+            Self::Ws => "v1-sink-ws",
+        }
+    }
+
     pub fn env_prefix(&self) -> &'static str {
         match self {
             Self::Msk => "CAPTURE_V1_SINK_MSK_",
@@ -134,8 +142,10 @@ pub fn load_sinks(sinks_csv: &str) -> anyhow::Result<Sinks> {
     load_sinks_from(sinks_csv, &env)
 }
 
-/// Testable core: loads sink configs from a provided env snapshot.
-pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow::Result<Sinks> {
+/// Parse the comma-separated sink names without loading per-sink configs.
+/// Used by `register_components` to register lifecycle handles before the
+/// full config is available.
+pub fn parse_sink_names(sinks_csv: &str) -> anyhow::Result<Vec<SinkName>> {
     let names: Vec<SinkName> = sinks_csv
         .split(',')
         .filter(|s| !s.trim().is_empty())
@@ -144,6 +154,12 @@ pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow
         .map_err(|e| anyhow::anyhow!("bad CAPTURE_V1_SINKS: {e}"))?;
 
     anyhow::ensure!(!names.is_empty(), "CAPTURE_V1_SINKS is empty");
+    Ok(names)
+}
+
+/// Testable core: loads sink configs from a provided env snapshot.
+pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow::Result<Sinks> {
+    let names = parse_sink_names(sinks_csv)?;
     let default = names[0];
 
     let mut configs = HashMap::new();

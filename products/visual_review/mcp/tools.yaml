@@ -7,7 +7,11 @@
 category: Visual review
 feature: visual_review
 url_prefix: /visual_review
-ui_apps: {}
+ui_apps:
+    visual-review-snapshots:
+        type: custom
+        app_name: PostHog Visual Review Snapshots
+        description: Visual review run snapshots — diff viewer with approve/tolerate actions
 tools:
     visual-review-repos-baselines-retrieve:
         operation: visual_review_repos_baselines_retrieve
@@ -74,7 +78,21 @@ tools:
         enabled: false
     visual-review-runs-approve-create:
         operation: visual_review_runs_approve_create
-        enabled: false
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Approve visual review snapshots
+        description: >
+            Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new
+            snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}`
+            — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML
+            in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user
+            before approving — this is the action that ships the visual change.
+        feature_flag: visual-review
     visual-review-runs-complete-create:
         operation: visual_review_runs_complete_create
         enabled: false
@@ -163,11 +181,29 @@ tools:
             List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g.
             Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional
             `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and
-            `review_state` (`pending`, `approved`). Paginated.
+            `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff
+            images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many
+            snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and
+            prioritises actionable results regardless.
+        ui_app: visual-review-snapshots
         feature_flag: visual-review
     visual-review-runs-tolerate-create:
         operation: visual_review_runs_tolerate_create
-        enabled: false
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Tolerate visual review snapshot
+        description: >
+            Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded
+            alongside the existing baseline so future runs producing the same alternate are not flagged as changes —
+            useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the
+            UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline
+            image.
+        feature_flag: visual-review
     visual-review-runs-tolerated-hashes-list:
         operation: visual_review_runs_tolerated_hashes_list
         enabled: true
