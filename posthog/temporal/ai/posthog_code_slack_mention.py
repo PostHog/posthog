@@ -1328,20 +1328,40 @@ def forward_posthog_code_followup_activity(
     )
     slack = SlackIntegration(integration)
 
+    followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
+        from products.slack_app.backend.api import resolve_slack_user
+
+        # The follow-up is from a different Slack user than the one who started the
+        # thread. Try to resolve them to a PostHog user with access to the same team
+        # — if so, let them participate; the message is still relayed in the original
+        # author's name (their sandbox token, their identity to the agent), with the
+        # actual sender's name prefixed onto the text so the agent sees who spoke.
+        resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts, post_feedback=False)
+        if not resolved:
+            logger.info(
+                "posthog_code_followup_unauthorized_actor",
+                channel=channel,
+                thread_ts=thread_ts,
+                expected=mapping.mentioning_slack_user_id,
+                actual=slack_user_id,
+            )
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Only the person who started this task can send follow-up messages to the agent.",
+            )
+            return True
+        actor_name = resolved.user.first_name or resolved.slack_email.split("@", 1)[0]
+        followup_user_text_prefix = f"{actor_name}: "
         logger.info(
-            "posthog_code_followup_unauthorized_actor",
+            "posthog_code_followup_cross_user_authorized",
             channel=channel,
             thread_ts=thread_ts,
-            expected=mapping.mentioning_slack_user_id,
-            actual=slack_user_id,
+            initiator=mapping.mentioning_slack_user_id,
+            actor=slack_user_id,
+            actor_user_id=resolved.user.id,
         )
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Only the person who started this task can send follow-up messages to the agent.",
-        )
-        return True
 
     if _block_if_team_over_quota(
         integration=integration,
@@ -1364,6 +1384,7 @@ def forward_posthog_code_followup_activity(
             slack_user_id,
             event_text,
             user_message_ts,
+            user_text_prefix=followup_user_text_prefix,
         )
 
     sandbox_url = (task_run.state or {}).get("sandbox_url")
@@ -1379,6 +1400,8 @@ def forward_posthog_code_followup_activity(
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
     if not user_text:
         return True
+    if followup_user_text_prefix:
+        user_text = followup_user_text_prefix + user_text
 
     if user_message_ts:
         _safe_react(slack.client, channel, user_message_ts, "eyes")
@@ -1446,12 +1469,15 @@ def _resume_task_with_new_run(
     slack_user_id: str,
     event_text: str,
     user_message_ts: str | None,
+    user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
     if not user_text:
         return True
+    if user_text_prefix:
+        user_text = user_text_prefix + user_text
 
     created_by = mapping.task.created_by
     if not created_by:

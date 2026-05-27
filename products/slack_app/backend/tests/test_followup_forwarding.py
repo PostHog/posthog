@@ -17,6 +17,7 @@ from posthog.temporal.ai.posthog_code_slack_mention import (
     forward_posthog_code_followup_activity,
 )
 
+from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
 
@@ -664,6 +665,104 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_called_once()
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "Only the person who started" in call_kwargs["text"]
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_cross_user_followup_authorized_prefixes_actor_name(
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token
+    ):
+        # A second user in the same PostHog org and team should be allowed to chip in
+        # on the thread; their message is forwarded under the original author's identity
+        # but their name is prepended so the agent knows who actually spoke.
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+        mock_send.return_value = _command_result(success=True, status_code=200)
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> please retry the build", "1234.5679"
+        )
+
+        assert result is True
+        mock_send.assert_called_once_with(
+            self.task_run, "Bob: please retry the build", auth_token="jwt-token", timeout=90
+        )
+        # No "Only the person who started" denial; the message went through.
+        post_calls = [
+            call
+            for call in mock_slack_instance.client.chat_postMessage.call_args_list
+            if "Only the person who started" in call.kwargs.get("text", "")
+        ]
+        assert not post_calls
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_cross_user_followup_falls_back_to_email_local_part_when_no_first_name(
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token
+    ):
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com")  # no first_name
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+        mock_send.return_value = _command_result(success=True, status_code=200)
+
+        inputs = _make_inputs(self.integration.id)
+        forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
+
+        mock_send.assert_called_once_with(self.task_run, "bob: ping", auth_token="jwt-token", timeout=90)
+
+    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_cross_user_followup_unmapped_user_is_denied(self, mock_slack_cls, mock_resolve):
+        # A second Slack user who can't be resolved to a PostHog member of this team
+        # still gets the existing denial — we don't open the gate to arbitrary thread
+        # participants.
+        self._create_mapping(mentioning_user="U_ALICE")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> sneak in", "1234.5679"
+        )
+
+        assert result is True
+        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
+        assert "Only the person who started" in call_kwargs["text"]
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_cross_user_terminal_run_resume_prefixes_actor_name(
+        self, mock_slack_cls, mock_resolve, mock_execute_workflow
+    ):
+        # The terminal-resume path goes through `_resume_task_with_new_run`, which has
+        # its own user_text derivation. Make sure the prefix lands there too so the
+        # new run's initial prompt also carries the actor's name.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        assert new_run.state.get("pending_user_message") == "Bob: fix the tests"
+        assert new_run.state.get("initial_prompt_override") == "Bob: fix the tests"
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
