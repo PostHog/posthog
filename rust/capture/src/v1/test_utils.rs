@@ -346,7 +346,7 @@ pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let custom = realistic_pageview("user-dest-4")
         .with_destination(Destination::Custom("custom_topic".to_string()));
     let dropped = realistic_pageview("user-dest-5")
-        .with_result(EventResult::Drop, Some("invalid_distinct_id"))
+        .with_result(EventResult::Drop, Some("missing_event_name"))
         .with_destination(Destination::Drop);
     vec![main, historical, overflow, dlq, custom, dropped]
 }

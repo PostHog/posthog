@@ -5,10 +5,10 @@ use uuid::Uuid;
 
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
-    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
-    ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_ILLEGAL_DISTINCT_ID,
+    CAPTURE_V1_MAX_EVENT_NAME_LENGTH, CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS,
+    CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
+    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
@@ -171,6 +171,7 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
 fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
+    let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
         let uuid_str = event.uuid();
@@ -189,14 +190,22 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                 let adjusted = normalize_timestamp(context, &event, raw_ts);
+                let illegal = is_distinct_id_illegal(&event.distinct_id);
+                if illegal {
+                    illegal_distinct_id_count += 1;
+                }
                 events.push(WrappedEvent {
                     event,
                     uuid,
                     adjusted_timestamp: Some(adjusted),
                     result: EventResult::Ok,
-                    details: None,
+                    details: if illegal {
+                        Some(DETAIL_PERSON_PROCESSING_DISABLED)
+                    } else {
+                        None
+                    },
                     destination,
-                    force_disable_person_processing: false,
+                    force_disable_person_processing: illegal,
                 });
             }
             Err(err) => {
@@ -213,6 +222,16 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
         }
     }
 
+    if illegal_distinct_id_count > 0 {
+        metrics::counter!(CAPTURE_V1_ILLEGAL_DISTINCT_ID).increment(illegal_distinct_id_count);
+        crate::ctx_log!(
+            Level::INFO,
+            context,
+            count = illegal_distinct_id_count,
+            "events with illegal distinct_id -- person processing disabled"
+        );
+    }
+
     if events.iter().any(|e| e.result != EventResult::Ok) {
         observe_malformed_events(context, &events);
     }
@@ -222,13 +241,11 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
 
 fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
-    let mut illegal_distinct_ids: HashSet<&str> = HashSet::new();
 
     for event in events.iter() {
-        if let Some(tag) = event.details {
-            *malformed.entry(tag).or_insert(0) += 1;
-            if tag == "invalid_distinct_id" {
-                illegal_distinct_ids.insert(&event.event.distinct_id);
+        if event.result != EventResult::Ok {
+            if let Some(tag) = event.details {
+                *malformed.entry(tag).or_insert(0) += 1;
             }
         }
     }
@@ -244,15 +261,7 @@ fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
         .collect::<Vec<_>>()
         .join(", ");
 
-    let illegal_ids_csv: String = illegal_distinct_ids
-        .into_iter()
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    crate::ctx_log!(Level::WARN, context,
-        illegal_distinct_ids = %illegal_ids_csv,
-        "malformed events: {summary}"
-    );
+    crate::ctx_log!(Level::WARN, context, "malformed events: {summary}");
 }
 
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
@@ -277,9 +286,6 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
     }
     if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
-    }
-    if is_distinct_id_illegal(&event.distinct_id) {
-        return Err(Error::InvalidDistinctId(event.distinct_id.clone()));
     }
 
     let ts = DateTime::parse_from_rfc3339(&event.timestamp)
@@ -442,7 +448,7 @@ async fn apply_token_distinct_id_limits(
     let mut allowed_count: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok {
+        if event.result != EventResult::Ok || event.force_disable_person_processing {
             continue;
         }
         let cache_key =
@@ -618,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn event_illegal_distinct_ids_rejected() {
+    fn event_illegal_distinct_ids_pass_validation() {
         let illegal_ids = [
             "anonymous",
             "ANONYMOUS",
@@ -641,8 +647,8 @@ mod tests {
             let mut event = valid_event();
             event.distinct_id = id.to_string();
             assert!(
-                matches!(validate_event(&event), Err(Error::InvalidDistinctId(_))),
-                "expected InvalidDistinctId for distinct_id={id:?}"
+                validate_event(&event).is_ok(),
+                "expected Ok for illegal distinct_id={id:?} (flagging happens in validate_events)"
             );
         }
     }
@@ -749,6 +755,39 @@ mod tests {
             assert_eq!(ev.result, EventResult::Drop);
             assert_eq!(ev.details, Some("dropped_performance_event"));
         }
+    }
+
+    #[test]
+    fn validate_events_illegal_distinct_id_flags_person_processing_disabled() {
+        let ctx = test_utils::test_context();
+        let mut illegal_event = valid_event();
+        illegal_event.distinct_id = "null".to_string();
+        let legal_event = valid_event();
+        let batch = valid_batch(vec![illegal_event, legal_event]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 2);
+
+        let flagged = &events[0];
+        assert_eq!(flagged.result, EventResult::Ok);
+        assert!(flagged.force_disable_person_processing);
+        assert_eq!(flagged.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+        assert_ne!(flagged.destination, Destination::Drop);
+
+        let normal = &events[1];
+        assert_eq!(normal.result, EventResult::Ok);
+        assert!(!normal.force_disable_person_processing);
+        assert!(normal.details.is_none());
+    }
+
+    #[test]
+    fn validate_events_illegal_distinct_id_still_publishable() {
+        let ctx = test_utils::test_context();
+        let mut illegal_event = valid_event();
+        illegal_event.distinct_id = "anonymous".to_string();
+        let batch = valid_batch(vec![illegal_event]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].should_publish());
     }
 
     // --- validate_events ---
@@ -1452,6 +1491,32 @@ mod tests {
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
+    #[tokio::test]
+    async fn td_limits_skips_events_already_flagged_force_disable_pp() {
+        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+        ];
+        // Simulate illegal distinct_id flagging from validate_events
+        events[0].force_disable_person_processing = true;
+        events[0].details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
+
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        // Already-flagged event not re-evaluated: result stays Ok, details unchanged
+        let flagged = find_by_did(&events, "user-1");
+        assert_eq!(flagged.result, EventResult::Ok);
+        assert!(flagged.force_disable_person_processing);
+        assert_eq!(flagged.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+        // Unflagged event passes (not in limiter's limited keys)
+        let normal = find_by_did(&events, "user-2");
+        assert_eq!(normal.result, EventResult::Ok);
+        assert!(!normal.force_disable_person_processing);
+        assert!(normal.details.is_none());
+    }
+
     // --- apply_historical_rerouting ---
 
     #[test]
@@ -2076,7 +2141,7 @@ mod tests {
     fn merge_pre_drop_not_mutated_even_if_result_present() {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].result = EventResult::Drop;
-        events[0].details = Some("invalid_distinct_id");
+        events[0].details = Some("missing_event_name");
 
         // Should be unreachable in practice (dropped events aren't published
         // so they won't have a SinkResult), but even if a result exists for
@@ -2087,7 +2152,7 @@ mod tests {
         merge_sink_results(&mut events, &results);
 
         assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].details, Some("invalid_distinct_id"));
+        assert_eq!(events[0].details, Some("missing_event_name"));
     }
 
     #[tokio::test]
