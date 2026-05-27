@@ -48,6 +48,8 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
         appendActivity: (text: string) => ({ text, at: Date.now() }),
         tick: (now: number) => ({ now }),
         taskStarted: (taskId: string, at: number) => ({ taskId, at }),
+        dismiss: true,
+        setPanelMounted: (mounted: boolean) => ({ mounted }),
     }),
     reducers({
         activityLog: [
@@ -71,6 +73,18 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             {} as Record<string, number>,
             {
                 taskStarted: (state, { taskId, at }) => ({ ...state, [taskId]: at }),
+            },
+        ],
+        dismissed: [
+            false,
+            {
+                dismiss: () => true,
+            },
+        ],
+        panelMounted: [
+            false,
+            {
+                setPanelMounted: (_, { mounted }) => mounted,
             },
         ],
     }),

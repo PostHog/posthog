@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -15,6 +16,12 @@ import { type ActivityEntry, type DisplayState, wizardProgressTrackerLogic } fro
  */
 export function WizardProgressTracker({ onManualSetup }: { onManualSetup?: () => void } = {}): JSX.Element | null {
     const { displayState } = useValues(wizardProgressTrackerLogic)
+    const { setPanelMounted } = useActions(wizardProgressTrackerLogic)
+
+    useEffect(() => {
+        setPanelMounted(true)
+        return () => setPanelMounted(false)
+    }, [setPanelMounted])
 
     if (displayState === 'preTakeover') {
         return null
