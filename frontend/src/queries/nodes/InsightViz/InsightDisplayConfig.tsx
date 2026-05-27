@@ -105,12 +105,12 @@ export function InsightDisplayConfig(): JSX.Element {
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
-    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
     const isLineGraph =
         display === ChartDisplayType.ActionsLineGraph ||
         display === ChartDisplayType.ActionsAreaGraph ||
         (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
         trendsDataLogic(insightProps)
