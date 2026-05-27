@@ -49,7 +49,7 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
     if not settings.FLAGS_REDIS_URL:
         return
 
-    old_api_token = instance.__dict__.get(_LOADED_API_TOKEN_ATTR)
+    old_api_token: str | None = instance.__dict__.get(_LOADED_API_TOKEN_ATTR)
     rotated = bool(old_api_token and old_api_token != instance.api_token)
     # Re-snapshot so a kept-alive instance saved again (A->B->C) compares against
     # the just-saved token instead of clearing the original twice.
@@ -58,7 +58,7 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
     def enqueue_task() -> None:
         try:
             update_team_llm_gateway_policy_cache_task.delay(instance.id)
-            if rotated:
+            if rotated and old_api_token is not None:
                 # Same on-commit flow as the refresh so the old cache entry
                 # disappears the moment the rotated token becomes live.
                 kinds = ["redis"] if settings.TEST else None
