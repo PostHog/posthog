@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -29,9 +29,45 @@ export type AutoresearchPipelineTab =
     | 'training'
     | 'models'
     | 'predictions'
-    | 'validation'
+    | 'online_performance'
     | 'runs'
     | 'settings'
+
+/** Metrics stored in AutoresearchRun.metrics for validation runs. */
+export interface ValidationRunMetrics {
+    prediction_date: string
+    realized_labels_count?: number
+    warning?: string
+    per_model?: Record<
+        string,
+        {
+            model_role: string
+            n_scored: number
+            n_positive?: number
+            n_negative?: number
+            base_rate?: number
+            realized_auc?: number
+            brier_score?: number
+            calibration_error?: number
+            lift_at_10?: number
+            lift_at_20?: number
+            warning?: string
+        }
+    >
+}
+
+/** Flattened row for the online performance table. */
+export interface OnlinePerformanceRow {
+    run_id: string
+    prediction_date: string
+    model_role: string
+    n_scored: number
+    realized_auc: number | null
+    brier_score: number | null
+    calibration_error: number | null
+    lift_at_10: number | null
+    lift_at_20: number | null
+}
 
 export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     path(['products', 'autoresearch', 'autoresearchPipelineLogic']),
@@ -123,6 +159,48 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             },
         ],
     })),
+    selectors({
+        validationRuns: [
+            (s) => [s.runs],
+            (runs): AutoresearchRunApi[] => runs.filter((r) => r.run_type === 'validation' && r.status === 'completed'),
+        ],
+        onlinePerformanceRows: [
+            (s) => [s.validationRuns],
+            (validationRuns): OnlinePerformanceRow[] => {
+                const rows: OnlinePerformanceRow[] = []
+                for (const run of validationRuns) {
+                    const m = run.metrics as ValidationRunMetrics | null
+                    if (!m?.prediction_date) {
+                        continue
+                    }
+                    if (!m.per_model || Object.keys(m.per_model).length === 0) {
+                        continue
+                    }
+                    for (const [, model] of Object.entries(m.per_model)) {
+                        rows.push({
+                            run_id: run.id,
+                            prediction_date: m.prediction_date,
+                            model_role: model.model_role,
+                            n_scored: model.n_scored,
+                            realized_auc: model.realized_auc ?? null,
+                            brier_score: model.brier_score ?? null,
+                            calibration_error: model.calibration_error ?? null,
+                            lift_at_10: model.lift_at_10 ?? null,
+                            lift_at_20: model.lift_at_20 ?? null,
+                        })
+                    }
+                }
+                // Sort by date descending, champion before challenger within same date
+                rows.sort((a, b) => {
+                    if (b.prediction_date !== a.prediction_date) {
+                        return b.prediction_date.localeCompare(a.prediction_date)
+                    }
+                    return a.model_role === 'champion' ? -1 : 1
+                })
+                return rows
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         startTrainingSuccess: () => {
             actions.loadTrainingRuns()

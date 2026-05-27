@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     AutoresearchPipelineLogicProps,
     AutoresearchPipelineTab,
+    OnlinePerformanceRow,
     autoresearchPipelineLogic,
 } from './autoresearchPipelineLogic'
 import {
@@ -206,6 +207,97 @@ function ModelsTab(): JSX.Element {
     )
 }
 
+function fmt(value: number | null, decimals = 3): string {
+    return value != null ? value.toFixed(decimals) : '—'
+}
+
+function OnlinePerformanceTab(): JSX.Element {
+    const { onlinePerformanceRows, runsLoading } = useValues(autoresearchPipelineLogic)
+
+    if (runsLoading) {
+        return <Spinner />
+    }
+
+    if (onlinePerformanceRows.length === 0) {
+        return (
+            <div className="space-y-2">
+                <div className="text-muted text-sm">
+                    Realized performance metrics appear here after prediction horizons elapse. For each prediction date,
+                    PostHog joins your <code>autoresearch_prediction</code> events to actual target outcomes and
+                    computes AUC, Brier score, and lift.
+                </div>
+                <div className="text-muted text-sm">
+                    To trigger evaluation manually, use the <code>autoresearch-validate-online</code> MCP tool or run
+                    the <code>autoresearch_validate_online</code> management command.
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted">
+                Realized performance measured after each prediction horizon elapses. AUC and lift here reflect actual
+                user outcomes, not just holdout estimates.
+            </p>
+            <table className="w-full text-sm border-collapse">
+                <thead>
+                    <tr className="border-b text-left">
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Prediction date
+                        </th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">Model</th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Users scored
+                        </th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Realized AUC
+                        </th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Brier score
+                        </th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Lift at 10%
+                        </th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Lift at 20%
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {onlinePerformanceRows.map((row: OnlinePerformanceRow) => (
+                        <tr key={`${row.run_id}-${row.model_role}`} className="border-b last:border-0">
+                            <td className="py-2 pr-4 font-mono">{row.prediction_date}</td>
+                            <td className="py-2 pr-4">
+                                <LemonTag
+                                    type={
+                                        row.model_role === 'champion'
+                                            ? 'success'
+                                            : row.model_role === 'challenger'
+                                              ? 'purple'
+                                              : 'default'
+                                    }
+                                >
+                                    {row.model_role}
+                                </LemonTag>
+                            </td>
+                            <td className="py-2 pr-4">{row.n_scored.toLocaleString()}</td>
+                            <td className="py-2 pr-4 font-semibold">{fmt(row.realized_auc)}</td>
+                            <td className="py-2 pr-4">{fmt(row.brier_score)}</td>
+                            <td className="py-2 pr-4">{fmt(row.lift_at_10, 2)}×</td>
+                            <td className="py-2 pr-4">{fmt(row.lift_at_20, 2)}×</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            <p className="text-xs text-muted">
+                Realized AUC: higher is better. Brier score: lower is better. Lift at k%: ratio of positives in the top
+                k% vs a random sample — 2× means twice as many conversions as random.
+            </p>
+        </div>
+    )
+}
+
 function RunsTab(): JSX.Element {
     const { runs, runsLoading } = useValues(autoresearchPipelineLogic)
     if (runsLoading) {
@@ -307,16 +399,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
                 </div>
             ),
         },
-        {
-            key: 'validation',
-            label: 'Validation',
-            content: (
-                <div className="text-muted text-sm">
-                    Realized AUC, Brier score, and lift metrics appear here after prediction horizons have elapsed. Use
-                    the <code>autoresearch-validate-online</code> MCP tool to trigger evaluation.
-                </div>
-            ),
-        },
+        { key: 'online_performance', label: 'Online performance', content: <OnlinePerformanceTab /> },
         { key: 'runs', label: 'Runs', content: <RunsTab /> },
         {
             key: 'settings',
