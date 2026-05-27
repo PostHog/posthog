@@ -39,25 +39,6 @@ export class CapturedEventsService {
     }
 
     /**
-     * Resolve the team for a single event (to obtain the API token) and queue it.
-     * Used by code paths outside the invocation-result lifecycle, e.g. SES webhooks.
-     */
-    async queueEvent(event: { team_id: number } & Omit<InternalCaptureEvent, 'team_token'>): Promise<void> {
-        const team = await this.teamManager.getTeam(event.team_id)
-        if (!team) {
-            return
-        }
-        this.queuedEvents.push({
-            team_token: team.api_token,
-            event: event.event,
-            distinct_id: event.distinct_id,
-            timestamp: event.timestamp,
-            properties: event.properties,
-        })
-        capturedEventsPending.set(this.queuedEvents.length)
-    }
-
-    /**
      * Extract `capturedPostHogEvents` from each result, resolve the team
      * (to obtain the API token used by capture), and queue.
      */
