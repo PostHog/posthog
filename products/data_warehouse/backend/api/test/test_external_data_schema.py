@@ -1205,12 +1205,13 @@ class TestUpdateExternalDataSchema:
             should_sync=False,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
             sync_type_config={
+                "primary_key_columns": ["id"],
                 "schema_metadata": {
                     "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
                     "foreign_keys": [],
                     "source_schema": "analytics",
                     "source_table_name": "events",
-                }
+                },
             },
         )
 
