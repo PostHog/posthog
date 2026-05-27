@@ -1,0 +1,35 @@
+{
+    "name": "@posthog/agent-runner-v2",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Greenfield session executor for the agent platform. Loads AgentRevision, calls pi.dev, dispatches native+custom tools.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "main": "dist/lib.js",
+    "exports": {
+        ".": "./dist/lib.js",
+        "./bin": "./dist/index.js"
+    },
+    "scripts": {
+        "build": "pnpm clean && tsc -b",
+        "clean": "rm -rf dist",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "jest --runInBand --forceExit",
+        "start": "node dist/index.js"
+    },
+    "dependencies": {
+        "@posthog/agent-shared-v2": "workspace:*",
+        "@posthog/agent-tools": "workspace:*",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/jest": "catalog:",
+        "@types/node": "catalog:",
+        "jest": "catalog:",
+        "ts-jest": "^29.1.0",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

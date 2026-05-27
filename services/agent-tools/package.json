@@ -1,0 +1,30 @@
+{
+    "name": "@posthog/agent-tools",
+    "version": "0.1.0",
+    "private": true,
+    "description": "PostHog-shipped native tools for the agent platform. Each tool is one TS file + tests; the runner imports by id.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "pnpm clean && tsc -b",
+        "clean": "rm -rf dist",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "jest --runInBand --forceExit"
+    },
+    "dependencies": {
+        "@posthog/agent-shared-v2": "workspace:*",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/jest": "catalog:",
+        "@types/node": "catalog:",
+        "jest": "catalog:",
+        "ts-jest": "^29.1.0",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

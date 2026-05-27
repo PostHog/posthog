@@ -1,0 +1,70 @@
+/**
+ * Postgres schema for the v2 agent platform. Idempotent — tests / dev call
+ * `applySchema()` against a fresh database. Production uses Django migrations
+ * derived from `products/agent_stack/backend/models_v2.py`.
+ *
+ * Caller passes a `Pool` from `pg`. We don't take a dep on `pg` directly — the
+ * impls do, and tests / harnesses thread the pool through.
+ */
+
+export const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS agent_application_v2 (
+    id              UUID PRIMARY KEY,
+    team_id         INT NOT NULL,
+    slug            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    encrypted_env   TEXT,
+    live_revision_id UUID,
+    archived        BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_application_v2_unique_active_slug
+    ON agent_application_v2 (team_id, slug) WHERE archived = FALSE;
+
+CREATE TABLE IF NOT EXISTS agent_revision_v2 (
+    id              UUID PRIMARY KEY,
+    application_id  UUID NOT NULL REFERENCES agent_application_v2(id) ON DELETE CASCADE,
+    parent_revision_id UUID,
+    created_by      TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    state           TEXT NOT NULL DEFAULT 'draft',
+    bundle_uri      TEXT NOT NULL,
+    bundle_sha256   TEXT,
+    spec            JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS agent_revision_v2_application_state_idx
+    ON agent_revision_v2 (application_id, state);
+
+CREATE TABLE IF NOT EXISTS agent_session_v2 (
+    id              UUID PRIMARY KEY,
+    application_id  UUID NOT NULL,
+    revision_id     UUID NOT NULL,
+    team_id         INT NOT NULL,
+    external_key    TEXT,
+    state           TEXT NOT NULL DEFAULT 'queued',
+    conversation    JSONB NOT NULL DEFAULT '[]'::jsonb,
+    claimed_at      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS agent_session_v2_state_created_idx
+    ON agent_session_v2 (state, created_at);
+
+CREATE INDEX IF NOT EXISTS agent_session_v2_state_updated_idx
+    ON agent_session_v2 (state, updated_at);
+
+CREATE INDEX IF NOT EXISTS agent_session_v2_external_key_idx
+    ON agent_session_v2 (application_id, external_key)
+    WHERE external_key IS NOT NULL;
+`
+
+export const DROP_SQL = `
+DROP TABLE IF EXISTS agent_session_v2 CASCADE;
+DROP TABLE IF EXISTS agent_revision_v2 CASCADE;
+DROP TABLE IF EXISTS agent_application_v2 CASCADE;
+`

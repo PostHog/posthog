@@ -21,6 +21,13 @@ packages:
     - services/agent-janitor
     - services/agent-runner
     - services/agent-tests
+    - services/agent-shared-v2
+    - services/agent-tools
+    - services/agent-mgmt-mcp
+    - services/agent-ingress-v2
+    - services/agent-janitor-v2
+    - services/agent-runner-v2
+    - services/agent-tests-v2
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app

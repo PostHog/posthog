@@ -1,0 +1,37 @@
+{
+    "name": "@posthog/agent-janitor-v2",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Tiny operational service: periodic queue sweep + internal HTTP for Django to query/cancel sessions.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "main": "dist/lib.js",
+    "exports": {
+        ".": "./dist/lib.js",
+        "./bin": "./dist/index.js"
+    },
+    "scripts": {
+        "build": "pnpm clean && tsc -b",
+        "clean": "rm -rf dist",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "jest --runInBand --forceExit",
+        "start": "node dist/index.js"
+    },
+    "dependencies": {
+        "@posthog/agent-shared-v2": "workspace:*",
+        "express": "^4.21.1"
+    },
+    "devDependencies": {
+        "@types/express": "^4.17.21",
+        "@types/jest": "catalog:",
+        "@types/node": "catalog:",
+        "@types/supertest": "^6.0.2",
+        "jest": "catalog:",
+        "supertest": "^7.0.0",
+        "ts-jest": "^29.1.0",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

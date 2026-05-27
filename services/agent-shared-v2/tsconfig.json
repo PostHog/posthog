@@ -1,0 +1,27 @@
+{
+    "compilerOptions": {
+        "module": "CommonJS",
+        "target": "ES2022",
+        "lib": ["ES2022"],
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "outDir": "dist/",
+        "rootDir": "src/",
+        "moduleResolution": "node",
+        "ignoreDeprecations": "6.0",
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "allowUnreachableCode": false,
+        "allowUnusedLabels": false,
+        "useUnknownInCatchVariables": false,
+        "skipLibCheck": true,
+        "types": ["node", "jest"]
+    },
+    "include": ["src"],
+    "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}
