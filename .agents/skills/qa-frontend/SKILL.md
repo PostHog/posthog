@@ -490,7 +490,11 @@ end-session action. This prevents stale Chromium sessions from blocking later QA
 runs. Do not close the user's visible browser windows. If a stale headless
 Chromium process from a previous agent blocks the run and no MCP close action is
 available, ask the user before killing it, and target only agent-started browser
-processes.
+processes. Agent-started browser processes commonly include command-line markers
+such as `ms-playwright`, `mcp-chrome-`, `remote-debugging-pipe`, or
+`playwright-mcp`; visible user browsers usually use the normal browser profile
+instead. If you inspect processes, use these markers to explain exactly what you
+plan to terminate before asking for approval.
 
 If `STACK_STARTED_BY_AGENT=1`, stop only the stack the agent started during
 cleanup unless the user explicitly asked to keep it running. Use the matching

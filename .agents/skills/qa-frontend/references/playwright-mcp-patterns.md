@@ -44,6 +44,12 @@ process from a previous agent blocks the run and no MCP close action is
 available, ask before killing it, and target only agent-started browser
 processes.
 
+Useful command-line markers for agent-started browser sessions include
+`ms-playwright`, `mcp-chrome-`, `remote-debugging-pipe`, and `playwright-mcp`.
+Visible user browsers usually use the normal browser profile instead. If you
+inspect processes, use these markers to explain exactly what you plan to
+terminate before asking for approval.
+
 ## Snapshot Use
 
 Start with the default snapshot. Deepen or scroll only when:
