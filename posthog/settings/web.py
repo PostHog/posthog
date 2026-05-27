@@ -126,6 +126,7 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.personhog_client.middleware.PersonHogGateMiddleware",
+    "posthog.personhog_client.middleware.PersonHogCallerTagMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
