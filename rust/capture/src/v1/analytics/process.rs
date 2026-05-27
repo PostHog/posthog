@@ -214,22 +214,18 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     }
 
     if events.iter().any(|e| e.result != EventResult::Ok) {
-        observe_malformed_events(context, &events);
+        observe_malformed_events(&events);
     }
 
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
+fn observe_malformed_events(events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
-    let mut illegal_distinct_ids: HashSet<&str> = HashSet::new();
 
     for event in events.iter() {
         if let Some(tag) = event.details {
             *malformed.entry(tag).or_insert(0) += 1;
-            if tag == "invalid_distinct_id" {
-                illegal_distinct_ids.insert(&event.event.distinct_id);
-            }
         }
     }
 
@@ -237,22 +233,6 @@ fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
         metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "malformed", "error" => *error_tag)
             .increment(*count);
     }
-
-    let summary: String = malformed
-        .iter()
-        .map(|(tag, count)| format!("{tag}={count}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let illegal_ids_csv: String = illegal_distinct_ids
-        .into_iter()
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    crate::ctx_log!(Level::WARN, context,
-        illegal_distinct_ids = %illegal_ids_csv,
-        "malformed events: {summary}"
-    );
 }
 
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
@@ -484,7 +464,7 @@ async fn apply_token_distinct_id_limits(
         )
         .increment(limited_count as u64);
 
-        crate::ctx_log!(Level::WARN, context,
+        crate::ctx_log!(Level::DEBUG, context,
             limited_count = limited_count,
             distinct_ids = %preview,
             "events rate limited by distinct_id -- person processing disabled"
