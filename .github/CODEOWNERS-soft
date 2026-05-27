@@ -75,15 +75,10 @@ posthog/tasks/exports/** @PostHog/team-analytics-platform
 # Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-web-analytics
 products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-web-analytics
 
-# Feature Flags (the `/flags` endpoint, flag matching, CRUD, and tests) - owned by @PostHog/team-feature-flags
+# Feature Flags (Rust evaluator + remaining monolith tests) - owned by @PostHog/team-feature-flags
+# Note: the Django models and API moved to products/feature_flags/ (covered by products/feature_flags/product.yaml).
 rust/feature-flags/ @PostHog/team-feature-flags
-posthog/models/feature_flag/ @PostHog/team-feature-flags
-posthog/api/feature_flag.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags
 posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
-posthog/test/test_feature_flag.py @PostHog/team-feature-flags
 
 # Cohorts - owned by @PostHog/team-feature-flags
 posthog/api/cohort.py @PostHog/team-feature-flags
