@@ -13,7 +13,7 @@
         },
         "prediction_mode": {
             "default": "adoption",
-            "description": "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n* `adoption` - adoption\n* `continuation` - continuation",
+            "description": "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n* `adoption` - Adoption\n* `continuation` - Continuation",
             "enum": ["adoption", "continuation"],
             "type": "string"
         },

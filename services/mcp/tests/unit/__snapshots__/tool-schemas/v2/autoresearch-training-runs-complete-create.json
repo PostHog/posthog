@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "best_iteration_id": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used."
+        },
+        "id": {
+            "description": "A UUID string identifying this autoresearch training run.",
+            "type": "string"
+        },
+        "model_explanation": {
+            "additionalProperties": {},
+            "description": "Global feature importance / directionality bundle for the champion model card.",
+            "properties": {},
+            "type": "object"
+        },
+        "pipeline_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "pipeline_id"],
+    "type": "object"
+}

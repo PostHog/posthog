@@ -1,0 +1,76 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_confidence": {
+            "anyOf": [
+                {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Agent's self-assessed confidence (0–1) that this iteration helps."
+        },
+        "agent_description": {
+            "default": "",
+            "description": "Agent's plain-English rationale for this iteration.",
+            "type": "string"
+        },
+        "holdout_score": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Held-out AUC for this iteration. Used to pick the champion at completion."
+        },
+        "id": {
+            "description": "A UUID string identifying this autoresearch training run.",
+            "type": "string"
+        },
+        "iteration_number": {
+            "description": "Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).",
+            "minimum": 0,
+            "type": "number"
+        },
+        "model_spec": {
+            "additionalProperties": {},
+            "description": "model_class (must be allowlisted) and model_params tried this iteration.",
+            "properties": {},
+            "type": "object"
+        },
+        "pipeline_id": {
+            "type": "string"
+        },
+        "recipe_snapshot": {
+            "additionalProperties": {},
+            "description": "Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.",
+            "properties": {},
+            "type": "object"
+        },
+        "status": {
+            "description": "'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.\n\n* `kept` - kept\n* `discarded` - discarded\n* `crashed` - crashed",
+            "enum": ["kept", "discarded", "crashed"],
+            "type": "string"
+        },
+        "train_score": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Training-set AUC for this iteration."
+        }
+    },
+    "required": ["id", "pipeline_id", "iteration_number", "recipe_snapshot", "model_spec", "status"],
+    "type": "object"
+}
