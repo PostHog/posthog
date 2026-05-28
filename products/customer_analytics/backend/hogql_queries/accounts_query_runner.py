@@ -110,7 +110,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         if value == "unassigned":
             return self._role_id_isnull(json_key)
         try:
-            user_id = int(value)  # type: ignore[arg-type]
+            user_id = int(value)  # type: ignore[call-overload]
         except (TypeError, ValueError):
             return None
         return parse_expr(
