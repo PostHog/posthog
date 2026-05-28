@@ -25,6 +25,8 @@ from posthog.models import (
     PropertyDefinition,
     Team,
 )
+from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -225,4 +227,10 @@ def _run_environments_rollback(organization_id: int, environment_mappings: dict[
 
             EventDefinition.objects.filter(team_id=team.id).update(project_id=team.project_id)
             PropertyDefinition.objects.filter(team_id=team.id).update(project_id=team.project_id)
-            GroupTypeMapping.objects.filter(team_id=team.id).update(project_id=team.project_id)
+            # GroupTypeMapping lives in the persons DB on cloud deployments; route the write
+            # explicitly so the update lands on the right database (otherwise it silently
+            # no-ops where persons_db_writer is configured).
+            GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
+                team_id=team.id
+            ).update(project_id=team.project_id)
+            invalidate_group_types_cache(team.project_id)
