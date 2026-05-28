@@ -84,19 +84,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
         return `${this.prefixes.counter}/${teamId}/${window}`
     }
 
-    /**
-     * Pluggable drop-in for the keyed-rate-limiter step. Mirrors the base
-     * service's `rateLimitGrouped` shape so both services can be slotted into
-     * the same spec list. `req.teamId` (populated by the step from `getTeamId`)
-     * scopes the per-team counter and fallback flag — there's no id parsing,
-     * the id itself stays opaque to this service apart from being passed to
-     * Lua as the bucket-key suffix.
-     *
-     * Tripped/fallback statuses pass through as `isRateLimited: false`; the
-     * team-global limiter downstream still gets to enforce. The full 4-state
-     * status is exposed via the service's Prom counter so operators can
-     * attribute trip events to specific teams.
-     */
+    /** Tripped/fallback pass through as `isRateLimited: false`; the 4-state status only surfaces via the Prom counter. */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
             return []

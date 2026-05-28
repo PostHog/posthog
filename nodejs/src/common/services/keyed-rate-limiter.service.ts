@@ -31,12 +31,7 @@ export interface KeyedRateLimiterConfig {
 export interface KeyedRateLimitRequest {
     id: string
     cost: number
-    /**
-     * Optional team context attached to the request. Ignored by the base service —
-     * present so guard-style limiters (e.g. `PerIssueGuardedRateLimiterService`)
-     * can scope per-team state (counters, fallback flags) without re-deriving it
-     * from the id string.
-     */
+    /** Used by guard-style limiters to scope per-team state. Ignored by the base service. */
     teamId?: number
     bucketSize?: number
     refillRate?: number
@@ -53,11 +48,7 @@ export type KeyedRateLimit = {
     isRateLimited: boolean
 }
 
-/**
- * Common contract any keyed rate limiter must satisfy to be pluggable into
- * the keyed-rate-limiter step. Both the base `KeyedRateLimiterService` and the
- * error-tracking-specific `PerIssueGuardedRateLimiterService` implement this.
- */
+/** Contract the keyed-rate-limiter step talks to. */
 export interface KeyedRateLimiter {
     rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]>
 }

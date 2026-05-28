@@ -292,14 +292,7 @@ export class ErrorTrackingConsumer {
         logger.info('✅', `${this.name} - pipeline initialized`)
     }
 
-    /**
-     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
-     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
-     *
-     * The per-issue spec points at the guarded service (different Lua: caps the
-     * number of new bucket keys a team can mint per window to defend against
-     * attacker-fuzzed sigs). The team-global spec uses the base v3 service.
-     */
+    /** Per-issue spec uses the guarded service; team-global spec uses the base service. */
     private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
         if (!this.rateLimiter || !this.perIssueGuardedRateLimiter) {
             return []

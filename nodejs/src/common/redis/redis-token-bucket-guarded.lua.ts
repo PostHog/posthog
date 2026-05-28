@@ -1,37 +1,12 @@
 import { Redis } from 'ioredis'
 
-// Guarded token-bucket script. Used by error-tracking's per-issue rate limiter,
-// but lives next to v2/v3 since the script itself is generic.
+// v3 token-bucket + per-team new-key counter + per-team fallback flag.
+// Caps how many unique bucket keys a team can mint per window.
 //
-// Combines the v3 token-bucket body with two guard primitives that defend
-// against callers minting unbounded unique bucket keys by varying the
-// attacker-controlled scope-key portion of the limiter id:
-//
-//   1. A per-team, per-window counter of new bucket-key creations.
-//      When it crosses `threshold`, we SET a per-team fallback flag.
-//   2. A per-team fallback flag. While set, every event for the team
-//      short-circuits this script (no INCR, no bucket creation).
-//
-// KEYS:
-//   [1] fallback_flag_key   per-team: marks "team is in fallback right now"
-//   [2] counter_key         per-team-per-window: new bucket keys created
-//   [3] bucket_key          the token bucket (v3-compatible layout)
-//
-// ARGV:
-//   [1] now (seconds)       caller-supplied timestamp, for lag-aware limiting
-//   [2] cost
-//   [3] poolMax
-//   [4] fillRate
-//   [5] bucketExpiry        token-bucket TTL (matches v3 semantics: stored at expiry*2)
-//   [6] threshold           max new bucket keys per window before tripping
-//   [7] windowTtlSeconds    counter key TTL (window length)
-//   [8] fallbackTtlSeconds  fallback flag TTL (cooldown)
-//
-// Returns: { tokensBefore, tokensAfter, statusCode }
-//   statusCode: 0=allowed, 1=limited, 2=tripped, 3=fallback
-//
-// For statusCode 2/3 the token-bucket body is skipped — the bucket key is
-// not written, so this is the hard cap on attacker-controlled key creation.
+// KEYS: [1] fallback_flag, [2] counter (per-window), [3] bucket
+// ARGV: now, cost, poolMax, fillRate, bucketExpiry, threshold, windowTtl, fallbackTtl
+// Returns: { tokensBefore, tokensAfter, statusCode } where statusCode is 0=allowed | 1=limited | 2=tripped | 3=fallback.
+// On tripped/fallback the bucket is not written.
 const LUA_TOKEN_BUCKET_GUARDED = `
 local fallback_key = KEYS[1]
 local counter_key = KEYS[2]
