@@ -52,8 +52,6 @@ queries users actually ran. The eager job covers the fixed UI matrix;
 the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
-import time
-
 import dagster
 import structlog
 import posthoganalytics
@@ -81,17 +79,6 @@ EAGER_FLAG_KEY = "web-analytics-precompute-toggle"
 # stores per-day buckets, so a 28-day warm naturally serves any user
 # request for a sub-window (today, last 7d, etc.) via the lazy CH cache.
 BASELINE_WINDOW_DAYS = 28
-
-# Hard cap on enrolled teams per cycle. A typo in the flag config can
-# explode the audience; this cap fails-loudly rather than silently
-# overloading ClickHouse.
-_MAX_ENROLLED_TEAMS = 200
-
-# Wall-clock budget per cycle. Past this, the loop stops processing more
-# teams; in-flight queries finish but the next team is skipped. The
-# `check_for_concurrent_runs` guard on the schedule absorbs the next
-# tick if we're still here when it fires.
-_CYCLE_BUDGET_SECONDS = 45 * 60
 
 
 # The set of `WebStatsBreakdown` values rendered as tiles in the Web
@@ -140,47 +127,25 @@ EAGER_PRECOMPUTE_BASELINE_FAILED = Counter(
 def _extract_organization_ids_from_flag(flag: dict) -> list[str]:
     """Pull `id equals <uuid>` values out of a flag definition's filter groups.
 
-    Accepts the SDK's flag-definition shape from
-    `posthoganalytics.feature_flag_definitions()`, which mirrors the
-    server's `/api/feature_flag/local_evaluation/` payload — same JSON
-    shape the Django `FeatureFlag` model stores in its `filters` column.
-
     Expects org-aggregated flags shaped as one group per enrolled org
     with a `{type: "group", key: "id", operator: "exact", value: <uuid>}`
     property — the shape the product UI produces for "Match organizations
-    against id equals <uuid>" conditions.
-
-    Defends against malformed JSON: any group/property/value not shaped
-    as expected is silently skipped instead of crashing the parser. The
-    flag is user-editable from the product UI.
+    against id equals <uuid>" conditions. Trusts the shape since the flag
+    is internal config.
     """
     org_ids: list[str] = []
-    try:
-        groups = ((flag or {}).get("filters") or {}).get("groups", []) or []
-        if not isinstance(groups, list):
-            return []
-        for group in groups:
-            if not isinstance(group, dict):
+    for group in flag.get("filters", {}).get("groups", []):
+        for prop in group.get("properties", []):
+            if prop.get("type") != "group" or prop.get("key") != "id":
                 continue
-            properties = group.get("properties", []) or []
-            if not isinstance(properties, list):
+            # `exact` is the default operator when not specified.
+            if prop.get("operator", "exact") != "exact":
                 continue
-            for prop in properties:
-                if not isinstance(prop, dict):
-                    continue
-                if prop.get("type") != "group" or prop.get("key") != "id":
-                    continue
-                # `exact` is the default operator when not specified.
-                operator = prop.get("operator") or "exact"
-                if operator != "exact":
-                    continue
-                value = prop.get("value")
-                if isinstance(value, str) and value:
-                    org_ids.append(value)
-                elif isinstance(value, list):
-                    org_ids.extend(v for v in value if isinstance(v, str) and v)
-    except (TypeError, AttributeError):
-        return []
+            value = prop.get("value")
+            if isinstance(value, list):
+                org_ids.extend(v for v in value if v)
+            elif value:
+                org_ids.append(value)
     return org_ids
 
 
@@ -193,15 +158,10 @@ def _find_flag_definition(key: str) -> dict | None:
     and stays self-contained within `products.web_analytics`'s allowed
     tach dependencies.
     """
-    definitions = posthoganalytics.feature_flag_definitions() or []
-    for flag in definitions:
-        if not isinstance(flag, dict):
-            continue
+    for flag in posthoganalytics.feature_flag_definitions() or []:
         if flag.get("key") != key:
             continue
-        if flag.get("deleted"):
-            continue
-        if flag.get("active") is False:
+        if flag.get("deleted") or flag.get("active") is False:
             continue
         return flag
     return None
@@ -230,23 +190,22 @@ def get_eager_team_ids() -> list[int]:
     return list(Team.objects.filter(organization_id__in=org_ids).values_list("pk", flat=True).distinct().order_by("pk"))
 
 
-def _baseline_queries() -> list[dict]:
-    """Return the eager warming queries — one per family/breakdown.
+def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
+    """Run the full tile matrix for one team. Returns (warmed, failed).
 
-    Each payload is handed to `get_query_runner(...).run(...)`, which
-    dispatches into the family's lazy precompute path. That path is
-    idempotent: it checks the family's preagg job table and short-
-    circuits on jobs that are already READY for the requested time
-    range. The runner — not this DAG — is the source of truth for
-    freshness; this function only enumerates the surface (which query
-    kinds + breakdowns the dashboard renders).
+    The matrix mirrors the Web analytics dashboard's main tiles — overview,
+    goals, vitals path breakdown, and one `WebStatsTableQuery` per
+    breakdown in `BASELINE_BREAKDOWNS`. Each payload is handed to
+    `get_query_runner(...).run(...)`, which dispatches into the family's
+    lazy precompute path; the runner — not this DAG — decides what's
+    stale and inserts only what's missing.
 
     `useWebAnalyticsPrecompute=True` is required — without it the lazy
     path rejects the query via `PerQueryOptInNotSet` and the warmer
     silently falls back to legacy compute.
 
-    `filterTestAccounts=True` and `limit=10` match the dashboard's
-    defaults so the warmed Django response cache hits on default loads.
+    Failures per query are caught so one broken breakdown doesn't poison
+    the rest of the team's matrix or the rest of the run.
     """
     common = {
         "dateRange": {"date_from": f"-{BASELINE_WINDOW_DAYS}d"},
@@ -264,12 +223,7 @@ def _baseline_queries() -> list[dict]:
         {"kind": "WebVitalsPathBreakdownQuery", "doPathCleaning": True, **common},
     ]
     for breakdown in BASELINE_BREAKDOWNS:
-        query: dict = {
-            "kind": "WebStatsTableQuery",
-            "breakdownBy": breakdown.value,
-            "limit": 10,
-            **common,
-        }
+        query: dict = {"kind": "WebStatsTableQuery", "breakdownBy": breakdown.value, "limit": 10, **common}
         # PAGE and INITIAL_PAGE route through `web_stats_paths_lazy_precompute`,
         # which gates on `includeBounceRate=True` (the dashboard's Paths and
         # Entry-paths tiles enable it). Without this flag the warmer falls
@@ -277,18 +231,10 @@ def _baseline_queries() -> list[dict]:
         if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
             query["includeBounceRate"] = True
         queries.append(query)
-    return queries
 
-
-def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
-    """Run the full tile matrix for one team. Returns (warmed, failed).
-
-    Failures per query are caught so one broken breakdown doesn't poison
-    the rest of the team's matrix or the rest of the run.
-    """
     warmed = 0
     failed = 0
-    for query in _baseline_queries():
+    for query in queries:
         kind = str(query.get("kind"))
         breakdown = query.get("breakdownBy")
         label = f"{kind}:{breakdown}" if breakdown else kind
@@ -317,13 +263,6 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
     """Run the baseline tile matrix against every flag-enrolled team."""
     team_ids = get_eager_team_ids()
-
-    if len(team_ids) > _MAX_ENROLLED_TEAMS:
-        context.log.error(f"eager_baseline_warming_audience_capped enrolled={len(team_ids)} cap={_MAX_ENROLLED_TEAMS}")
-        result = {"teams": len(team_ids), "warmed": 0, "failed": 0, "skipped": len(team_ids)}
-        context.add_output_metadata(result)
-        return result
-
     context.log.info(f"eager_baseline_warming_start teams={len(team_ids)}")
 
     # Bulk-load teams once instead of N+1 per-team get().
@@ -332,17 +271,7 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
     warmed = 0
     failed = 0
     skipped = 0
-    deadline = time.monotonic() + _CYCLE_BUDGET_SECONDS
-    for i, team_id in enumerate(team_ids):
-        if time.monotonic() > deadline:
-            remaining = len(team_ids) - i
-            skipped += remaining
-            context.log.warning(
-                f"eager_baseline_warming_budget_exhausted "
-                f"first_skipped_team_id={team_id} remaining_skipped={remaining} "
-                f"budget_seconds={_CYCLE_BUDGET_SECONDS}"
-            )
-            break
+    for team_id in team_ids:
         team = teams_by_id.get(team_id)
         if team is None:
             context.log.warning(f"eager_baseline_warming_team_missing team_id={team_id}")
@@ -354,8 +283,9 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
         failed += team_failed
 
     context.log.info(f"eager_baseline_warming_complete warmed={warmed} failed={failed} skipped={skipped}")
-    context.add_output_metadata({"teams": len(team_ids), "warmed": warmed, "failed": failed, "skipped": skipped})
-    return {"teams": len(team_ids), "warmed": warmed, "failed": failed, "skipped": skipped}
+    result = {"teams": len(team_ids), "warmed": warmed, "failed": failed, "skipped": skipped}
+    context.add_output_metadata(result)
+    return result
 
 
 @dagster.job(
@@ -366,7 +296,12 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
         f"through the family's lazy precompute path — the runner decides what's stale and inserts only "
         f"what's missing."
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        # Dagster terminates the run if it exceeds this; the next scheduled
+        # tick (5 min later) starts fresh.
+        "dagster/max_runtime": str(45 * 60),
+    },
 )
 def web_analytics_eager_baseline_warming_job():
     warm_eager_baseline_op()
