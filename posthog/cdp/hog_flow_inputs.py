@@ -107,8 +107,16 @@ def resolve_secret_inputs(
                 result[key] = incoming
             continue
 
-        if _looks_like_ciphertext(incoming_value):
-            # Round-tripped ciphertext — keep verbatim.
+        if _looks_like_ciphertext(incoming_value) and incoming_value == existing_value:
+            # True round-trip: the incoming ciphertext matches what's already stored. Keep
+            # verbatim (covers draft → active re-validation and server-initiated resubmits).
+            #
+            # If the ciphertexts don't match we deliberately fall through to the encrypt
+            # branch: any other valid ciphertext came from outside this row (a leaked
+            # backup, a different workflow, a copy-paste) and silently accepting it would
+            # let a workflow editor swap in someone else's secret. Re-encrypting as fresh
+            # plaintext makes the user's intent explicit — they typed a literal string,
+            # we store a literal string.
             result[key] = incoming
             continue
 

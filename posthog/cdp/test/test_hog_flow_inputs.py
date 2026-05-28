@@ -82,13 +82,42 @@ class TestHogFlowInputs(BaseTest):
         result = resolve_secret_inputs({}, SCHEMA, existing_inputs={})
         assert result == {}
 
-    def test_already_encrypted_ciphertext_kept_verbatim(self):
-        # Draft → active re-validation: the stored ciphertext string is sent back unchanged.
+    def test_already_encrypted_ciphertext_kept_verbatim_when_it_matches_existing(self):
+        # Draft → active re-validation: the server reads the stored row (which contains
+        # ciphertext) and resubmits it for re-validation. `existing_inputs` carries the same
+        # ciphertext, so incoming matches existing → kept verbatim.
         first_pass = resolve_secret_inputs({"access_token": {"value": "abc"}}, SCHEMA)
 
-        result = resolve_secret_inputs(first_pass, SCHEMA)
+        result = resolve_secret_inputs(first_pass, SCHEMA, existing_inputs=first_pass)
 
         assert result["access_token"]["value"] == first_pass["access_token"]["value"]
+
+    def test_unmatched_incoming_ciphertext_is_re_encrypted_not_silently_stored(self):
+        # Corruption defense: a user can PATCH `{"value": "<ciphertext they found elsewhere>"}`.
+        # If we accept any ciphertext that decrypts under our keys we'd silently store someone
+        # else's secret. Require an exact match with `existing_value` to treat it as a true
+        # round-trip; otherwise treat as fresh plaintext and re-encrypt.
+        existing = resolve_secret_inputs({"access_token": {"value": "the-real-secret"}}, SCHEMA)
+        stolen_ciphertext = resolve_secret_inputs({"access_token": {"value": "different-token"}}, SCHEMA)[
+            "access_token"
+        ]["value"]
+
+        result = resolve_secret_inputs({"access_token": {"value": stolen_ciphertext}}, SCHEMA, existing_inputs=existing)
+
+        # The stolen ciphertext was NOT silently stored as the new value.
+        assert result["access_token"]["value"] != stolen_ciphertext
+        # It got re-encrypted as a literal string.
+        assert self._decrypt(result["access_token"]["value"]) == f'"{stolen_ciphertext}"'
+
+    def test_incoming_ciphertext_with_no_existing_is_re_encrypted(self):
+        # Same shape with no existing value (e.g. user pasting ciphertext into a fresh
+        # workflow): re-encrypt rather than silently accept.
+        ciphertext = resolve_secret_inputs({"access_token": {"value": "some-token"}}, SCHEMA)["access_token"]["value"]
+
+        result = resolve_secret_inputs({"access_token": {"value": ciphertext}}, SCHEMA, existing_inputs={})
+
+        assert result["access_token"]["value"] != ciphertext
+        assert self._decrypt(result["access_token"]["value"]) == f'"{ciphertext}"'
 
     def test_no_secret_keys_returns_empty_dict(self):
         # Schema has no secret fields → nothing to resolve. Non-secret inputs are not the
