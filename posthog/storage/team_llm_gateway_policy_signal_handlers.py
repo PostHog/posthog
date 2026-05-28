@@ -14,8 +14,8 @@ bulk_update() bypass Django signals and would leak the old cache entry.
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
-from django.db.models.signals import post_init, post_save, pre_delete
+from django.db import OperationalError, transaction
+from django.db.models.signals import post_init, post_save, pre_delete, pre_save
 
 import structlog
 
@@ -43,6 +43,30 @@ def _snapshot_api_token(sender: type[Team], instance: Team, **kwargs: Any) -> No
     if "api_token" in instance.get_deferred_fields():
         return
     instance.__dict__[_LOADED_API_TOKEN_ATTR] = instance.api_token
+
+
+def _capture_old_api_token_if_deferred(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+    """
+    Fallback for instances loaded with api_token deferred (.only() / .defer()):
+    post_init skipped the snapshot to avoid a lazy load, so capture the old value
+    from the DB before the UPDATE runs. No-op (zero query) for the common
+    full-load path, where post_init already snapshotted. Without this fallback, a
+    deferred-load rotation would leave the previous token's cache entry live for
+    the full 7-day TTL.
+    """
+    if not instance.pk or instance._state.adding:
+        return
+    if _LOADED_API_TOKEN_ATTR in instance.__dict__:
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "api_token" not in update_fields:
+        return
+    try:
+        old = Team.objects.filter(pk=instance.pk).values_list("api_token", flat=True).first()
+    except OperationalError:
+        return
+    if old is not None:
+        instance.__dict__[_LOADED_API_TOKEN_ATTR] = old
 
 
 def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
@@ -86,5 +110,6 @@ def _clear_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) ->
 
 def connect_signal_handlers() -> None:
     post_init.connect(_snapshot_api_token, sender=Team)
+    pre_save.connect(_capture_old_api_token_if_deferred, sender=Team)
     post_save.connect(_update_cache_on_save, sender=Team)
     pre_delete.connect(_clear_cache_on_delete, sender=Team)

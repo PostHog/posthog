@@ -204,3 +204,28 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
         cleared = [call.args[0] for call in mock_clear.call_args_list]
         self.assertEqual(cleared, [token_a, "phc_rotated_b"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_deferred_api_token_load_still_clears_old_token_on_rotation(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        A Team fetched with api_token deferred (.only() / .defer()) and then
+        rotated must still clear the old token's cache entry. post_init skips the
+        snapshot to avoid a lazy load; the pre_save fallback captures the old
+        value from the DB before the UPDATE runs.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        old_token = self.team.api_token
+        partial = Team.objects.only("id", "name").get(pk=self.team.pk)
+        partial.api_token = "phc_rotated_deferred"
+        partial.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(old_token, kinds=["redis"])
