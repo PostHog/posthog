@@ -935,7 +935,7 @@ export const getTasksSlackThreadContextRetrieveUrl = (
 }
 
 /**
- * PostHog-internal debug tool. Given a Slack permalink, returns the linked task, every TaskRun, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs. Gated on `team_id == 2` (PostHog US prod team) because it bypasses the per-user task visibility filter so any team member can debug any thread.
+ * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs.
  * @summary Resolve a Slack thread to its task, runs, and Temporal workflows
  */
 export const tasksSlackThreadContextRetrieve = async (
