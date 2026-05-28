@@ -7,45 +7,8 @@
 category: Metrics
 feature: metrics
 url_prefix: /metrics
+ui_apps: {}
 tools:
-    # --- Metrics product tools ---
-    query-metrics:
-        operation: metrics_query_create
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Query metric time-series
-        description_file: ./prompts/query-metrics.md
-        system_prompt_hint: Metric time-series with aggregation and date range
-        feature_flag: metrics
-        response:
-            include:
-                - results
-    metric-names-list:
-        operation: metrics_values_retrieve
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List metric names
-        description: >
-            List distinct metric names ingested by the team in the last 7 days, with their OTel metric type
-            (gauge, sum, histogram, summary, exponential_histogram). Use this to discover what metrics exist
-            before calling `query-metrics`. Supports substring search via the `value` query parameter.
-        feature_flag: metrics
-        response:
-            include:
-                - results
-
-    # --- Unrelated endpoints from other products that happen to match the "metrics" URL substring ---
-    # Left disabled — they don't belong to this product.
     event-definitions-metrics-retrieve:
         operation: event_definitions_metrics_retrieve
         enabled: false
@@ -85,9 +48,40 @@ tools:
     hog-functions-metrics-totals-retrieve:
         operation: hog_functions_metrics_totals_retrieve
         enabled: false
-
-    # --- Internal-only ---
-    # `has_metrics` is for the empty-state UI gate; agents don't need it.
+    metric-names-list:
+        operation: metrics_values_retrieve
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List metric names
+        description: >
+            List distinct metric names ingested by the team in the last 7 days, with their OTel metric type (gauge, sum,
+            histogram, summary, exponential_histogram). Use this to discover what metrics exist before calling
+            `query-metrics`. Supports substring search via the `value` query parameter.
+        feature_flag: metrics
+        response:
+            include:
+                - results
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
         enabled: false
+    query-metrics:
+        operation: metrics_query_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query metric time-series
+        description_file: ./prompts/query-metrics.md
+        system_prompt_hint: Metric time-series with aggregation and date range
+        feature_flag: metrics
+        response:
+            include:
+                - results
