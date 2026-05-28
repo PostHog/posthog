@@ -66,22 +66,34 @@ class TestBotDefinitionsDataStructure:
             (r"mobile\.hog\.dev", "PostHog Code Mobile", "ai_assistant", "AI Agent"),
             (r"agent\.hog\.dev", "PostHog Code Agent", "ai_assistant", "AI Agent"),
             (r"cloud\.hog\.dev", "PostHog Code Cloud", "ai_assistant", "AI Agent"),
+            ("amazon-kendra", "Amazon Kendra", "ai_crawler", "AI Agent"),
             # Search Crawlers
             ("Googlebot", "Googlebot", "search_crawler", "Bot"),
             ("bingbot", "Bingbot", "search_crawler", "Bot"),
             ("YisouSpider", "Yisou", "search_crawler", "Bot"),
+            ("Qwantbot", "Qwant", "search_crawler", "Bot"),
+            ("YouBot", "You.com", "search_crawler", "Bot"),
+            ("DataForSeoBot", "DataForSeo", "search_crawler", "Bot"),
+            ("Google-Adwords", "Google Adwords", "search_crawler", "Bot"),
             # SEO Tools
             ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
             ("MeltwaterNews", "Meltwater", "seo_crawler", "Bot"),
+            ("PTST", "WebPageTest", "seo_crawler", "Bot"),
+            ("adidxbot", "Microsoft Ads", "seo_crawler", "Bot"),
+            ("SiteAuditBot", "Semrush Site Audit", "seo_crawler", "Bot"),
             # Social Crawlers
             ("FacebookBot", "Facebook Bot", "social_crawler", "Bot"),
             ("facebookexternalhit", "Facebook", "social_crawler", "Bot"),
+            ("SkypeUriPreview", "Skype Preview", "social_crawler", "Bot"),
             # Monitoring
             ("Datadog", "Datadog", "monitoring", "Bot"),
             ("GrafanaSyntheticMonitoring", "Grafana Synthetic", "monitoring", "Bot"),
+            ("HubSpot", "HubSpot Crawler", "monitoring", "Bot"),
             # HTTP Clients
             ("curl/", "curl", "http_client", "Automation"),
             ("AmazonProductDiscovery", "Amazon Product Discovery", "http_client", "Bot"),
+            ("httpx", "httpx", "http_client", "Automation"),
+            ("Google-Apps-Script", "Google Apps Script", "http_client", "Automation"),
             # Headless Browsers
             ("HeadlessChrome", "Headless Chrome", "headless_browser", "Automation"),
         ],

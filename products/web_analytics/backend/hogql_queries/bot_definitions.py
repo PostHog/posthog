@@ -105,6 +105,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Brightbot": BotDefinition(
         "Brightbot", "ai_crawler", "AI Agent", "Bright Data", documentation_url="https://bots.fyi/d/brightbot"
     ),
+    "amazon-kendra": BotDefinition(
+        "Amazon Kendra",
+        "ai_crawler",
+        "AI Agent",
+        "Amazon",
+        documentation_url="https://docs.aws.amazon.com/kendra/",
+    ),
     # AI Search (search result generation)
     "OAI-SearchBot": BotDefinition(
         "OpenAI Search", "ai_search", "AI Agent", "OpenAI", documentation_url="https://bots.fyi/d/oai-searchbot"
@@ -210,6 +217,25 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Sogou web spider": BotDefinition("Sogou", "search_crawler", "Bot", "Sogou"),
     "pageburst": BotDefinition("Pageburst", "search_crawler", "Bot", "Pageburst"),
     "360Spider": BotDefinition("360 Spider", "search_crawler", "Bot", "Qihoo 360"),
+    "Qwantbot": BotDefinition(
+        "Qwant", "search_crawler", "Bot", "Qwant", documentation_url="https://bots.fyi/d/qwantbot"
+    ),
+    "YouBot": BotDefinition(
+        "You.com", "search_crawler", "Bot", "You.com", documentation_url="https://bots.fyi/d/youbot"
+    ),
+    "DataForSeoBot": BotDefinition(
+        "DataForSeo", "search_crawler", "Bot", "DataForSeo", documentation_url="https://dataforseo.com/dataforseo-bot"
+    ),
+    "AwarioBot": BotDefinition(
+        "Awario", "search_crawler", "Bot", "Awario", documentation_url="https://awario.com/bots.html"
+    ),
+    "ArchiveTeam ArchiveBot": BotDefinition(
+        "ArchiveTeam ArchiveBot",
+        "search_crawler",
+        "Bot",
+        "ArchiveTeam",
+        documentation_url="https://www.archiveteam.org/",
+    ),
     # Search Crawlers (Google variants)
     "AdsBot-Google": BotDefinition(
         "Google Ads", "search_crawler", "Bot", "Google", documentation_url="https://bots.fyi/d/google-adsbot"
@@ -222,6 +248,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://bots.fyi/d/google-inspectiontool",
     ),
     "Google-Food": BotDefinition("Google Food", "search_crawler", "Bot", "Google"),
+    "Google-Adwords": BotDefinition("Google Adwords", "search_crawler", "Bot", "Google"),
     # SEO Tools
     "AhrefsSiteAudit": BotDefinition(
         "Ahrefs Site Audit", "seo_crawler", "Bot", "Ahrefs", documentation_url="https://bots.fyi/d/ahrefssiteaudit"
@@ -250,6 +277,22 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Lighthouse", "seo_crawler", "Bot", "Google", documentation_url="https://bots.fyi/d/chrome-lighthouse"
     ),
     "MeltwaterNews": BotDefinition("Meltwater", "seo_crawler", "Bot", "Meltwater"),
+    "SiteAuditBot": BotDefinition(
+        "Semrush Site Audit",
+        "seo_crawler",
+        "Bot",
+        "Semrush",
+        documentation_url="https://bots.fyi/d/semrush-siteaudit",
+    ),
+    "Screaming Frog SEO Spider": BotDefinition(
+        "Screaming Frog", "seo_crawler", "Bot", "Screaming Frog", documentation_url="https://www.screamingfrog.co.uk/"
+    ),
+    "adidxbot": BotDefinition(
+        "Microsoft Ads", "seo_crawler", "Bot", "Microsoft", documentation_url="https://bots.fyi/d/adidxbot"
+    ),
+    "PTST": BotDefinition(
+        "WebPageTest", "seo_crawler", "Bot", "Catchpoint", documentation_url="https://www.webpagetest.org/"
+    ),
     # Social Crawlers
     "FacebookBot": BotDefinition(
         "Facebook Bot",
@@ -304,6 +347,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Iframely": BotDefinition(
         "Iframely", "social_crawler", "Bot", "Iframely", documentation_url="https://bots.fyi/d/iframely"
     ),
+    "SkypeUriPreview": BotDefinition(
+        "Skype Preview", "social_crawler", "Bot", "Microsoft", documentation_url="https://bots.fyi/d/skypeuripreview"
+    ),
     # Monitoring
     "Pingdom": BotDefinition(
         "Pingdom", "monitoring", "Bot", "SolarWinds", documentation_url="https://bots.fyi/d/pingdom-bot"
@@ -329,6 +375,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "GrafanaSyntheticMonitoring": BotDefinition("Grafana Synthetic", "monitoring", "Bot", "Grafana Labs"),
     "DMBrowser": BotDefinition("Doctom Monitor", "monitoring", "Bot", "Doctom"),
     "DigitalOcean Uptime Probe": BotDefinition("DigitalOcean Uptime", "monitoring", "Bot", "DigitalOcean"),
+    "HubSpot": BotDefinition(
+        "HubSpot Crawler", "monitoring", "Bot", "HubSpot", documentation_url="https://www.hubspot.com/"
+    ),
     # HTTP Clients
     "curl/": BotDefinition("curl", "http_client", "Automation", "curl", documentation_url="https://curl.se/"),
     "Wget": BotDefinition(
@@ -366,6 +415,16 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "LWP", "http_client", "Automation", "Perl", documentation_url="https://metacpan.org/pod/LWP"
     ),
     "Scrapy": BotDefinition("Scrapy", "http_client", "Automation", "Scrapy", documentation_url="https://scrapy.org/"),
+    "httpx": BotDefinition(
+        "httpx", "http_client", "Automation", "Python", documentation_url="https://www.python-httpx.org/"
+    ),
+    "Google-Apps-Script": BotDefinition(
+        "Google Apps Script",
+        "http_client",
+        "Automation",
+        "Google",
+        documentation_url="https://developers.google.com/apps-script",
+    ),
     # First-party vendor crawlers and verifiers
     "PlayStore-Google": BotDefinition("Google Play Store", "http_client", "Bot", "Google"),
     "Amazon CloudFront": BotDefinition("Amazon CloudFront", "http_client", "Bot", "Amazon"),
