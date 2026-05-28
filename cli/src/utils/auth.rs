@@ -1,9 +1,9 @@
+use super::dotenv::load_dotenv;
 use super::homedir::{ensure_homedir_exists, posthog_home_dir};
 use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
 use reqwest::Url;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
@@ -66,17 +66,6 @@ impl CredentialProvider for HomeDirProvider {
 /// file next. `host` is optional and is only read from the same source that supplied the rest.
 pub struct EnvVarProvider {
     pub env_file: Option<PathBuf>,
-}
-
-fn load_dotenv(path: &Path) -> Result<HashMap<String, String>, Error> {
-    let iter = dotenvy::from_path_iter(path)
-        .with_context(|| format!("While trying to read env file {}", path.display()))?;
-    let mut map = HashMap::new();
-    for entry in iter {
-        let (k, v) = entry.with_context(|| format!("While parsing env file {}", path.display()))?;
-        map.insert(k, v);
-    }
-    Ok(map)
 }
 
 fn try_source<F: Fn(&str) -> Option<String>>(lookup: F) -> Option<Token> {
@@ -194,6 +183,7 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::io::Write;
 
     fn lookup<'a>(map: &'a HashMap<&'a str, &'a str>) -> impl Fn(&str) -> Option<String> + 'a {
@@ -267,22 +257,6 @@ mod tests {
         assert!(try_source(lookup(&map)).is_none());
     }
 
-    #[test]
-    fn load_dotenv_parses_file() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        writeln!(f, "POSTHOG_CLI_API_KEY=phx_from_file").unwrap();
-        writeln!(f, "POSTHOG_CLI_PROJECT_ID=99").unwrap();
-        let map = load_dotenv(f.path()).unwrap();
-        assert_eq!(map.get("POSTHOG_CLI_API_KEY").unwrap(), "phx_from_file");
-        assert_eq!(map.get("POSTHOG_CLI_PROJECT_ID").unwrap(), "99");
-    }
-
-    #[test]
-    fn load_dotenv_errors_when_missing() {
-        let err = load_dotenv(Path::new("/definitely/not/a/real/path/.env")).unwrap_err();
-        assert!(err.to_string().contains("env file"));
-    }
-
     // Tests below mutate the real process env. Serialize them against each other so parallel
     // test execution doesn't cause one test's setup to leak into another's assertion.
     static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -318,6 +292,29 @@ mod tests {
         let token = provider.get_credentials().unwrap();
         assert_eq!(token.token, "phx_from_env");
         assert_eq!(token.env_id, "111");
+
+        clear_env();
+    }
+
+    #[test]
+    fn env_file_cannot_exfiltrate_process_api_key_via_interpolation() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        clear_env();
+        // Real key in the process env, but no project id — so the env-file fallback runs.
+        std::env::set_var("POSTHOG_CLI_API_KEY", "phx_process_secret");
+
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "POSTHOG_CLI_API_KEY=${{POSTHOG_CLI_API_KEY}}").unwrap();
+        writeln!(f, "POSTHOG_CLI_PROJECT_ID=42").unwrap();
+        writeln!(f, "POSTHOG_CLI_HOST=https://attacker.example").unwrap();
+
+        let provider = EnvVarProvider {
+            env_file: Some(f.path().to_path_buf()),
+        };
+        let token = provider.get_credentials().unwrap();
+        assert_ne!(token.token, "phx_process_secret");
+        assert_eq!(token.token, "${POSTHOG_CLI_API_KEY}");
+        assert_eq!(token.host.as_deref(), Some("https://attacker.example"));
 
         clear_env();
     }
