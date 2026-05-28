@@ -108,6 +108,13 @@ describe('email tracking code', () => {
             expect(parseEmailTrackingCode(`${payload}.short`)).toBeNull()
         })
 
+        it('rejects a code with extra `.` segments appended', () => {
+            // Both payload and signature are base64url (no dots), so a legitimate signed code
+            // is structurally exactly `<payload>.<signature>`. Anything else is malformed.
+            const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
+            expect(parseEmailTrackingCode(`${code}.junk`)).toBeNull()
+        })
+
         it('rejects when no signing key matches', () => {
             const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
             const original = defaultConfig.ENCRYPTION_SALT_KEYS

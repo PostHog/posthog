@@ -46,7 +46,7 @@ function verifySignature(payload: string, signature: string): boolean {
     }
     for (const key of getSigningKeys()) {
         const candidate = crypto.createHmac('sha256', key).update(payload).digest().subarray(0, SIGNATURE_BYTES)
-        if (candidate.length === expected.length && crypto.timingSafeEqual(expected, candidate)) {
+        if (crypto.timingSafeEqual(expected, candidate)) {
             return true
         }
     }
@@ -77,12 +77,14 @@ export const parseEmailTrackingCode = (
     let payloadB64 = encodedTrackingCode
     let format: TrackingCodeFormat = 'unsigned'
 
-    const [payload, signature] = encodedTrackingCode.split('.')
-    if (signature !== undefined) {
-        if (!verifySignature(payload, signature)) {
+    const parts = encodedTrackingCode.split('.')
+    if (parts.length > 1) {
+        // A legitimate signed code is exactly `<payload>.<signature>`; both halves are base64url
+        // (no dots), so any code with more than one `.` is malformed and rejected outright.
+        if (parts.length !== 2 || !verifySignature(parts[0], parts[1])) {
             return null
         }
-        payloadB64 = payload
+        payloadB64 = parts[0]
         format = 'signed'
     }
 
