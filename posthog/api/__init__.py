@@ -1057,6 +1057,11 @@ projects_router.register(
     ["project_id"],
 )
 
+# Env side is team-scoped (team_id) while project side below is genuinely
+# project-scoped (project_id); register_legacy_dual_route_team_nested_viewset
+# assumes both sides share the same parent lookup, so these stay as manual
+# dual-registrations.
+# nosemgrep: no-environments-router-register
 environments_router.register(
     r"error_tracking/releases",
     ErrorTrackingReleaseViewSet,
@@ -1071,6 +1076,8 @@ projects_router.register(
     ["project_id"],
 )
 
+# Same shape as error_tracking/releases above (env team_id vs project project_id).
+# nosemgrep: no-environments-router-register
 environments_router.register(
     r"error_tracking/symbol_sets",
     ErrorTrackingSymbolSetViewSet,
