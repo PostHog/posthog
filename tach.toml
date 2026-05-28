@@ -509,6 +509,7 @@ layer = "modules"
 [[modules]]
 path = "products.marketing_analytics"
 depends_on = [
+    "ee",
     "posthog",
     "products.access_control",
     "products.actions",

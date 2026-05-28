@@ -209,7 +209,7 @@
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING notIn((aggregation_target_with_props.prop).1, [])
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -2977,7 +2977,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING notIn((aggregation_target_with_props.prop).1, [])
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -3412,7 +3412,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING notIn((aggregation_target_with_props.prop).1, [])
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -4101,7 +4101,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING notIn((aggregation_target_with_props.prop).1, [])
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -4536,7 +4536,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING notIn((aggregation_target_with_props.prop).1, [])
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,

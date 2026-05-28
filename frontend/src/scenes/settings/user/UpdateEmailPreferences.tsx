@@ -210,7 +210,7 @@ function PipelineNotificationSelector(): JSX.Element {
     const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
     const { pipelines, pipelinesLoading, pipelinesByTeam, allPipelineIds, isPipelineDisabled } =
         useValues(pipelineNotificationsLogic)
-    const [expanded, setExpanded] = useState(true)
+    const [expanded, setExpanded] = useState(false)
 
     return (
         <div>

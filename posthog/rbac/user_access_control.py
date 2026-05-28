@@ -89,6 +89,11 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "dashboard_template": "dashboard",
+    # Marketing analytics doesn't have its own RBAC resource yet — inherit from
+    # web_analytics so the existing per-team controls actually gate it (matches
+    # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
+    # AccessControlResourceType.WebAnalytics).
+    "marketing_analytics": "web_analytics",
 }
 
 tracer = trace.get_tracer(__name__)
