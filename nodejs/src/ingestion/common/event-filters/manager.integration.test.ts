@@ -66,68 +66,84 @@ describe('EventFilterManager integration', () => {
         await postgres.end()
     })
 
-    async function createManagerAndWaitForLoad(): Promise<EventFilterManager> {
+    async function createManagerAndWaitForLoad(): Promise<{
+        manager: EventFilterManager
+        stop: () => Promise<void>
+    }> {
         const scope = new EventFilterManagerScope(postgres)
-        return (await scope.start()).value
+        const started = await scope.start()
+        return { manager: started.value, stop: started.stop }
     }
 
     it('loads a live filter from postgres and evaluates it', async () => {
         await insertFilter(postgres, teamId, 'live', cond('event_name', 'exact', '$internal'))
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
         const filter = manager.getFilter(teamId)
 
         expect(filter).not.toBeNull()
         expect(filter!.mode).toBe('live')
         expect(evaluateFilterTree(filter!.filter_tree, { event_name: '$internal' })).toBe(true)
         expect(evaluateFilterTree(filter!.filter_tree, { event_name: '$pageview' })).toBe(false)
+
+        await stop()
     })
 
     it('loads a dry_run filter from postgres', async () => {
         await insertFilter(postgres, teamId, 'dry_run', cond('event_name', 'exact', '$test'))
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
         const filter = manager.getFilter(teamId)
 
         expect(filter).not.toBeNull()
         expect(filter!.mode).toBe('dry_run')
+
+        await stop()
     })
 
     it('does not load disabled filters', async () => {
         await insertFilter(postgres, teamId, 'disabled', cond('event_name', 'exact', 'pageview'))
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
 
         expect(manager.getFilter(teamId)).toBeNull()
+
+        await stop()
     })
 
     it('does not load filters with null filter_tree', async () => {
         await insertFilter(postgres, teamId, 'live', null)
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
 
         expect(manager.getFilter(teamId)).toBeNull()
+
+        await stop()
     })
 
     it('returns null for filter with empty tree (no conditions)', async () => {
         await insertFilter(postgres, teamId, 'live', { type: 'or', children: [] })
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
 
         expect(manager.getFilter(teamId)).toBeNull()
+
+        await stop()
     })
 
     it('returns null for unknown team', async () => {
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
 
         expect(manager.getFilter(999999)).toBeNull()
+
+        await stop()
     })
 
     it('loads filters for multiple teams', async () => {
         await insertFilter(postgres, teamId, 'live', cond('event_name', 'exact', 'a'))
         await insertFilter(postgres, teamId2, 'dry_run', cond('distinct_id', 'contains', 'bot'))
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
 
         const f1 = manager.getFilter(teamId)
         const f2 = manager.getFilter(teamId2)
@@ -136,6 +152,8 @@ describe('EventFilterManager integration', () => {
         expect(f2).not.toBeNull()
         expect(f1!.mode).toBe('live')
         expect(f2!.mode).toBe('dry_run')
+
+        await stop()
     })
 
     it('skips rows with invalid filter_tree structure', async () => {
@@ -146,10 +164,12 @@ describe('EventFilterManager integration', () => {
         })
         await insertFilter(postgres, teamId2, 'live', cond('event_name', 'exact', 'good'))
 
-        const manager = await createManagerAndWaitForLoad()
+        const { manager, stop } = await createManagerAndWaitForLoad()
 
         expect(manager.getFilter(teamId)).toBeNull()
         expect(manager.getFilter(teamId2)).not.toBeNull()
+
+        await stop()
     })
 
     // These tests verify that corrupt or unexpected data in Postgres
@@ -164,10 +184,12 @@ describe('EventFilterManager integration', () => {
             })
             await insertFilter(postgres, teamId2, 'live', cond('event_name', 'exact', 'good'))
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
             expect(manager.getFilter(teamId2)).not.toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree that is a JSON array instead of object', async () => {
@@ -179,9 +201,11 @@ describe('EventFilterManager integration', () => {
                 ]),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree that is a JSON number', async () => {
@@ -191,9 +215,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: '42',
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with unknown node type', async () => {
@@ -203,9 +229,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'xor', children: [] }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with invalid field in condition', async () => {
@@ -215,9 +243,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'condition', field: 'session_id', operator: 'exact', value: 'x' }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with invalid operator in condition', async () => {
@@ -227,9 +257,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'condition', field: 'event_name', operator: 'regex', value: 'x' }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with empty value in condition', async () => {
@@ -239,9 +271,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'condition', field: 'event_name', operator: 'exact', value: '' }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with numeric value in condition', async () => {
@@ -251,9 +285,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'condition', field: 'event_name', operator: 'exact', value: 123 }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with missing children in AND node', async () => {
@@ -263,9 +299,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'and' }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips filter_tree with missing child in NOT node', async () => {
@@ -275,9 +313,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify({ type: 'not' }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips row with unknown mode value', async () => {
@@ -287,9 +327,11 @@ describe('EventFilterManager integration', () => {
                 filter_tree: JSON.stringify(cond('event_name', 'exact', 'pageview')),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('skips deeply nested but structurally invalid tree', async () => {
@@ -306,9 +348,11 @@ describe('EventFilterManager integration', () => {
                 }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
+
+            await stop()
         })
 
         it('one bad row does not prevent loading other teams', async () => {
@@ -321,12 +365,14 @@ describe('EventFilterManager integration', () => {
             // Team 2: valid
             await insertFilter(postgres, teamId2, 'live', cond('event_name', 'exact', 'drop_me'))
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
 
             expect(manager.getFilter(teamId)).toBeNull()
             const f2 = manager.getFilter(teamId2)
             expect(f2).not.toBeNull()
             expect(evaluateFilterTree(f2!.filter_tree, { event_name: 'drop_me' })).toBe(true)
+
+            await stop()
         })
 
         it('extra unknown fields in filter_tree are tolerated', async () => {
@@ -344,11 +390,13 @@ describe('EventFilterManager integration', () => {
                 }),
             })
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)
 
             expect(filter).not.toBeNull()
             expect(evaluateFilterTree(filter!.filter_tree, { event_name: 'test' })).toBe(true)
+
+            await stop()
         })
     })
 
@@ -357,20 +405,23 @@ describe('EventFilterManager integration', () => {
     describe('filters without real conditions return null', () => {
         it('empty AND group', async () => {
             await insertFilter(postgres, teamId, 'live', { type: 'and', children: [] })
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).toBeNull()
+            await stop()
         })
 
         it('empty OR group', async () => {
             await insertFilter(postgres, teamId, 'live', { type: 'or', children: [] })
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).toBeNull()
+            await stop()
         })
 
         it('NOT wrapping empty group', async () => {
             await insertFilter(postgres, teamId, 'live', not({ type: 'or', children: [] }))
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).toBeNull()
+            await stop()
         })
 
         it('nested empty groups', async () => {
@@ -378,26 +429,30 @@ describe('EventFilterManager integration', () => {
                 type: 'or',
                 children: [{ type: 'and', children: [{ type: 'or', children: [] }] }],
             })
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).toBeNull()
+            await stop()
         })
 
         it('single condition is not empty', async () => {
             await insertFilter(postgres, teamId, 'live', cond('event_name', 'exact', 'pageview'))
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).not.toBeNull()
+            await stop()
         })
 
         it('nested condition is not empty', async () => {
             await insertFilter(postgres, teamId, 'live', and(cond('event_name', 'exact', 'pageview')))
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).not.toBeNull()
+            await stop()
         })
 
         it('NOT wrapping condition is not empty', async () => {
             await insertFilter(postgres, teamId, 'live', not(cond('event_name', 'exact', 'pageview')))
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             expect(manager.getFilter(teamId)).not.toBeNull()
+            await stop()
         })
     })
 
@@ -406,46 +461,54 @@ describe('EventFilterManager integration', () => {
             const tree = and(cond('event_name', 'exact', 'pageview'), cond('distinct_id', 'exact', 'bot-1'))
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'pageview', distinct_id: 'bot-1' })).toBe(true)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'pageview', distinct_id: 'user' })).toBe(false)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'click', distinct_id: 'bot-1' })).toBe(false)
+
+            await stop()
         })
 
         it('OR with two conditions', async () => {
             const tree = or(cond('event_name', 'exact', 'pageview'), cond('event_name', 'exact', 'click'))
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'pageview' })).toBe(true)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'click' })).toBe(true)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'submit' })).toBe(false)
+
+            await stop()
         })
 
         it('NOT inverts condition', async () => {
             const tree = not(cond('event_name', 'exact', 'keep'))
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'keep' })).toBe(false)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'other' })).toBe(true)
+
+            await stop()
         })
 
         it('contains operator', async () => {
             const tree = cond('distinct_id', 'contains', 'bot-')
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             expect(evaluateFilterTree(filter.filter_tree, { distinct_id: 'bot-crawler' })).toBe(true)
             expect(evaluateFilterTree(filter.filter_tree, { distinct_id: 'real-user' })).toBe(false)
+
+            await stop()
         })
 
         // Mirrors Python test_complex_tree_with_many_test_cases:
@@ -458,7 +521,7 @@ describe('EventFilterManager integration', () => {
             )
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             // $autocapture from regular user -> drop
@@ -493,6 +556,8 @@ describe('EventFilterManager integration', () => {
             expect(evaluateFilterTree(filter.filter_tree, { distinct_id: 'user-1' })).toBe(false)
             // distinct_id missing -> NOT(false)=true, OR still needs to match
             expect(evaluateFilterTree(filter.filter_tree, { event_name: '$autocapture' })).toBe(true)
+
+            await stop()
         })
 
         // Mirrors Python test_test_case_with_distinct_id
@@ -500,7 +565,7 @@ describe('EventFilterManager integration', () => {
             const tree = and(cond('event_name', 'exact', 'pageview'), cond('distinct_id', 'contains', 'bot'))
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'pageview', distinct_id: 'bot-123' })).toBe(
@@ -509,18 +574,22 @@ describe('EventFilterManager integration', () => {
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'pageview', distinct_id: 'user-1' })).toBe(
                 false
             )
+
+            await stop()
         })
 
         it('NOT wrapping OR (allowlist pattern)', async () => {
             const tree = not(or(cond('event_name', 'exact', 'allowed_1'), cond('event_name', 'exact', 'allowed_2')))
             await insertFilter(postgres, teamId, 'live', tree)
 
-            const manager = await createManagerAndWaitForLoad()
+            const { manager, stop } = await createManagerAndWaitForLoad()
             const filter = manager.getFilter(teamId)!
 
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'allowed_1' })).toBe(false)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'allowed_2' })).toBe(false)
             expect(evaluateFilterTree(filter.filter_tree, { event_name: 'other' })).toBe(true)
+
+            await stop()
         })
     })
 })

@@ -34,6 +34,8 @@ describe('Lifecycle', () => {
         expect(log).toEqual(['start:a', 'start:b'])
         expect(started.name).toBe('phase')
         expect(started.container).toEqual({ a, b })
+
+        await started.stop()
     })
 
     it('types each service without per-service start or stop', async () => {
@@ -41,7 +43,7 @@ describe('Lifecycle', () => {
         const a = makeService('a', log)
 
         const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
-        const { container } = await lifecycle.start()
+        const { container, stop } = await lifecycle.start()
 
         // Compile-time check: neither `start` nor `stop` should exist on the
         // typed view. (The runtime object still has both — this is a typed
@@ -53,6 +55,8 @@ describe('Lifecycle', () => {
         const _stop: unknown = container.a.stop
         expect(_start).toBe(a.start)
         expect(_stop).toBe(a.stop)
+
+        await stop()
     })
 
     it('supports manual composition of two lifecycles', async () => {
@@ -140,6 +144,9 @@ describe('Lifecycle', () => {
 
         expect(a.startCalls).toBe(1)
         expect(h1.container).toBe(h2.container)
+
+        await h1.stop()
+        await h2.stop()
     })
 
     it('keeps services running until the last caller releases', async () => {
