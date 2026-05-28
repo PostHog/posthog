@@ -1464,7 +1464,7 @@ export interface AssistantRecordingsQuery {
 
 export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
-    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
+    /** Product analytics query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery. */
     source: Record<string, any>
 }
 
@@ -1572,8 +1572,8 @@ export interface AssistantDataVisualizationTableSettings {
  */
 export interface AssistantDataVisualizationNode {
     kind: NodeKind.DataVisualizationNode
-    /** HogQL query object that produces the rows to visualize. */
-    source: Record<string, any>
+    /** HogQL query that produces the rows to visualize, e.g. `{ kind: "HogQLQuery", query: "SELECT ..." }`. */
+    source: AssistantHogQLQuery
     /**
      * Visualization type. Defaults to `ActionsTable` when omitted.
      *

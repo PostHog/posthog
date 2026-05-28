@@ -446,8 +446,8 @@ class AssistantInsightVizNode(BaseModel):
     source: dict[str, Any] = Field(
         ...,
         description=(
-            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
-            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
+            "Product analytics query objects like TrendsQuery, FunnelsQuery,"
+            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery."
         ),
     )
 
@@ -9992,7 +9992,12 @@ class AssistantDataVisualizationNode(BaseModel):
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
-    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
+    source: AssistantHogQLQuery = Field(
+        ...,
+        description=(
+            'HogQL query that produces the rows to visualize, e.g. `{ kind: "HogQLQuery", query: "SELECT ..." }`.'
+        ),
+    )
     tableSettings: AssistantDataVisualizationTableSettings | None = Field(
         default=None,
         description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),

@@ -1262,8 +1262,8 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "HogQL query object that produces the rows to visualize.",
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantHogQLQuery",
+                    "description": "HogQL query that produces the rows to visualize, e.g. `{ kind: \"HogQLQuery\", query: \"SELECT ...\" }`."
                 },
                 "tableSettings": {
                     "$ref": "#/definitions/AssistantDataVisualizationTableSettings",
@@ -2322,7 +2322,7 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
+                    "description": "Product analytics query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery.",
                     "type": "object"
                 }
             },

@@ -19,12 +19,21 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AssistantHogQLQuery = z.object({
+    kind: z.literal('HogQLQuery').default('HogQLQuery'),
+    query: z
+        .string()
+        .describe(
+            'SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions.'
+        ),
+})
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
         .record(z.string(), z.unknown())
         .describe(
-            'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
+            'Product analytics query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery.'
         ),
 })
 
@@ -121,7 +130,9 @@ const AssistantDataVisualizationNode = z.object({
         'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
-    source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
+    source: AssistantHogQLQuery.describe(
+        'HogQL query that produces the rows to visualize, e.g. `{ kind: "HogQLQuery", query: "SELECT ..." }`.'
+    ),
     tableSettings: AssistantDataVisualizationTableSettings.describe(
         'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
     ).optional(),
