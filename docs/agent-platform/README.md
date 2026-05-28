@@ -24,6 +24,11 @@ layer lands._
 
 ## plans/ (what we'd need to build)
 
+Start with [`_ROADMAP.md`](plans/_ROADMAP.md) for the sequenced view across
+all plans and the shared cross-cuts between them. [`_TODO.md`](plans/_TODO.md)
+is the queue of features waiting for a plan (currently empty — every bullet
+has a design doc).
+
 - [`outstanding-work.md`](plans/outstanding-work.md) — the running TODO across the
   v2 packages. Authoritative index of in-flight / deferred items.
 - [`agent-authoring-flow.md`](plans/agent-authoring-flow.md) — speculative
@@ -36,8 +41,28 @@ layer lands._
   foundation: extends the session state machine with a new `suspended` state,
   adds per-agent resumability config + context-compaction strategies (window /
   summarize / none), and locks down the trigger-side contract for reopening
-  old sessions. Keystone — the next several `_TODO.md` plans (rate limiting,
-  approval gating, access elevation) all build on this lifecycle.
+  old sessions. Keystone — every plan below builds on this lifecycle.
+- [`per-session-access-elevation.md`](plans/per-session-access-elevation.md) —
+  session ACL model + elevation surfaces (Slack blocks, chat-UI panel,
+  webhook URL); closes a real security gap where Slack thread replies bypass
+  strict-principal enforcement; introduces activity-log integration that the
+  next two plans reuse.
+- [`approval-gated-tools.md`](plans/approval-gated-tools.md) — per-tool
+  `requires_approval` flag on `AgentSpec`, runner intercept, `PendingApproval`
+  table, UI + MCP approval surfaces. Builds on long-running-sessions.
+- [`rate-limiting-sessions.md`](plans/rate-limiting-sessions.md) — per-agent
+  caps in spec, per-team platform safety net, two-stage admission (ingress
+  depth check + claim concurrent check), open-ask budget composing with
+  approvals + elevation.
+- [`sandboxed-agent-inference.md`](plans/sandboxed-agent-inference.md) — trust
+  profiles (none → frozen → repo-readonly → repo-write → repo-pr) mapping to
+  the existing `SandboxImpl` interface; promotes the Modal sandbox stub to
+  first-class; whitelisted exec shell; pinned ref per session; artifact
+  channel for non-inline output.
+- [`self-healing-agents.md`](plans/self-healing-agents.md) — an agent that
+  introspects its own historical sessions via LLM analytics, stratified-samples
+  real traffic, drafts a revision, replays it through a judge skill, and lands
+  the draft for human review.
 - [`skill-templates.md`](plans/skill-templates.md) — `SkillTemplate` +
   `CustomToolTemplate` library design (TODO C5).
 - [`runtime-mcps.md`](plans/runtime-mcps.md) — `spec.mcps[]` runtime support
