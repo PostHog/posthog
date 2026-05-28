@@ -229,17 +229,26 @@ def _baseline_queries() -> list[dict]:
     queries: list[dict] = [
         {"kind": "WebOverviewQuery", **common},
         {"kind": "WebGoalsQuery", "limit": 10, **common},
-        {"kind": "WebVitalsPathBreakdownQuery", **common},
+        # Vitals path-breakdown lazy precompute keys its cache on `doPathCleaning`
+        # (see `web_vitals_paths_lazy_precompute._build_placeholders`). The
+        # dashboard defaults this to True (the team's `isPathCleaningEnabled`
+        # selector). Warming with True matches the dashboard's request.
+        {"kind": "WebVitalsPathBreakdownQuery", "doPathCleaning": True, **common},
     ]
     for breakdown in BASELINE_BREAKDOWNS:
-        queries.append(
-            {
-                "kind": "WebStatsTableQuery",
-                "breakdownBy": breakdown.value,
-                "limit": 10,
-                **common,
-            }
-        )
+        query: dict = {
+            "kind": "WebStatsTableQuery",
+            "breakdownBy": breakdown.value,
+            "limit": 10,
+            **common,
+        }
+        # PAGE and INITIAL_PAGE route through `web_stats_paths_lazy_precompute`,
+        # which gates on `includeBounceRate=True` (the dashboard's Paths and
+        # Entry-paths tiles enable it). Without this flag the warmer falls
+        # through to the raw stats query and the paths preagg table stays cold.
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
+            query["includeBounceRate"] = True
+        queries.append(query)
     return queries
 
 
@@ -283,7 +292,9 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 
     if len(team_ids) > _MAX_ENROLLED_TEAMS:
         context.log.error(f"eager_baseline_warming_audience_capped enrolled={len(team_ids)} cap={_MAX_ENROLLED_TEAMS}")
-        return {"teams": len(team_ids), "warmed": 0, "failed": 0, "skipped": len(team_ids)}
+        result = {"teams": len(team_ids), "warmed": 0, "failed": 0, "skipped": len(team_ids)}
+        context.add_output_metadata(result)
+        return result
 
     context.log.info(f"eager_baseline_warming_start teams={len(team_ids)}")
 
@@ -294,13 +305,16 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
     failed = 0
     skipped = 0
     deadline = time.monotonic() + _CYCLE_BUDGET_SECONDS
-    for team_id in team_ids:
+    for i, team_id in enumerate(team_ids):
         if time.monotonic() > deadline:
+            remaining = len(team_ids) - i
+            skipped += remaining
             context.log.warning(
-                f"eager_baseline_warming_budget_exhausted team_id={team_id} budget_seconds={_CYCLE_BUDGET_SECONDS}"
+                f"eager_baseline_warming_budget_exhausted "
+                f"first_skipped_team_id={team_id} remaining_skipped={remaining} "
+                f"budget_seconds={_CYCLE_BUDGET_SECONDS}"
             )
-            skipped += 1
-            continue
+            break
         team = teams_by_id.get(team_id)
         if team is None:
             context.log.warning(f"eager_baseline_warming_team_missing team_id={team_id}")

@@ -254,6 +254,39 @@ class TestBaselineQueries:
         breakdowns = {q.get("breakdownBy") for q in _baseline_queries()}
         assert WebStatsBreakdown.FRUSTRATION_METRICS.value in breakdowns
 
+    def test_vitals_query_sets_path_cleaning_for_default_dashboard_hit(self):
+        # Without `doPathCleaning=True`, the vitals lazy precompute hashes a
+        # different cache key than the dashboard's default request and the
+        # warmer's job goes unused.
+        vitals = next(q for q in _baseline_queries() if q["kind"] == "WebVitalsPathBreakdownQuery")
+        assert vitals["doPathCleaning"] is True
+
+    @pytest.mark.parametrize(
+        "breakdown",
+        [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE],
+        ids=lambda b: b.value,
+    )
+    def test_path_breakdowns_include_bounce_rate(self, breakdown):
+        # `web_stats_paths_lazy_precompute` rejects PAGE/INITIAL_PAGE queries
+        # unless `includeBounceRate=True` — without it the warmer falls
+        # through to raw stats compute and the preagg table stays cold.
+        query = next(
+            q for q in _baseline_queries() if q["kind"] == "WebStatsTableQuery" and q["breakdownBy"] == breakdown.value
+        )
+        assert query["includeBounceRate"] is True
+
+    def test_other_breakdowns_do_not_set_include_bounce_rate(self):
+        # The bounce-rate flag is only needed for PAGE/INITIAL_PAGE which
+        # route through `web_stats_paths_lazy_precompute`. Other breakdowns
+        # would route through a different (non-paths) lazy module that
+        # doesn't gate on it.
+        for q in _baseline_queries():
+            if q["kind"] != "WebStatsTableQuery":
+                continue
+            if q["breakdownBy"] in (WebStatsBreakdown.PAGE.value, WebStatsBreakdown.INITIAL_PAGE.value):
+                continue
+            assert "includeBounceRate" not in q
+
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
 class TestWarmEagerBaselineOp(APIBaseTest):
