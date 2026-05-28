@@ -2290,7 +2290,7 @@ class TestPubsubAndStaleDetection(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        result = executor._try_mark_stale_job_as_failed(pending_job, table="preaggregation_results")
+        result = executor._try_mark_stale_job_as_failed(pending_job)
 
         assert result is True
         pending_job.refresh_from_db()
@@ -2309,10 +2309,10 @@ class TestPubsubAndStaleDetection(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        result1 = executor._try_mark_stale_job_as_failed(pending_job, table="preaggregation_results")
+        result1 = executor._try_mark_stale_job_as_failed(pending_job)
         assert result1 is True
 
-        result2 = executor._try_mark_stale_job_as_failed(pending_job, table="preaggregation_results")
+        result2 = executor._try_mark_stale_job_as_failed(pending_job)
         assert result2 is False
 
     # --- Publish on terminal transitions ---
@@ -2374,7 +2374,7 @@ class TestPubsubAndStaleDetection(BaseTest):
                 status=PreaggregationJob.Status.PENDING,
                 expires_at=django_timezone.now() + timedelta(days=7),
             )
-            executor._try_mark_stale_job_as_failed(stale_job, table="preaggregation_results")
+            executor._try_mark_stale_job_as_failed(stale_job)
             assert mock_publish.call_count == 1
             assert mock_publish.call_args[0][1] == "failed"
 
@@ -2573,31 +2573,46 @@ class TestJobLifecycleCounters(BaseTest):
             == 0.0
         )
 
-    def test_stale_mark_increments_finished_stale_once(self):
-        """The atomic update means only the winning waiter increments the
-        counter — losers see updated=0 and don't fire."""
+    def test_stale_mark_increments_finished_stale(self):
+        """When execute() finds a PENDING job whose owner has crashed, the
+        winning waiter both flips the row to FAILED and bumps
+        `finished{stale}`. Losing waiters take the same branch and see
+        `marked=False`, so no double-count is possible."""
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
         )
 
-        stale_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="stale", table=str(self.TABLE))._value.get()
-
-        executor = LazyComputationExecutor()
+        # Seed a PENDING job older than the executor's CH-start grace period,
+        # with no Redis heartbeat: _is_job_stale returns True on the first pass.
+        query_info = self._query_info()
+        query_hash = compute_query_hash(query_info)
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
-            query_hash="stale_counter_hash",
+            query_hash=query_hash,
             time_range_start=datetime(2024, 7, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 7, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.PENDING,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
+        PreaggregationJob.objects.filter(id=pending_job.id).update(
+            created_at=django_timezone.now() - timedelta(seconds=10),
+        )
 
-        marked = executor._try_mark_stale_job_as_failed(pending_job, table=str(self.TABLE))
-        assert marked is True
-        # Second call sees the row already FAILED and updates 0 rows — no
-        # counter bump, no duplicate publish.
-        marked_again = executor._try_mark_stale_job_as_failed(pending_job, table=str(self.TABLE))
-        assert marked_again is False
+        stale_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="stale", table=str(self.TABLE))._value.get()
+
+        executor = LazyComputationExecutor(
+            wait_timeout_seconds=0.5,
+            poll_interval_seconds=0.05,
+            ch_start_grace_period_seconds=1,
+            max_retries=0,
+        )
+        executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 7, 1, tzinfo=UTC),
+            end=datetime(2024, 7, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
 
         assert (
             self._delta(

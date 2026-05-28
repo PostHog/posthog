@@ -884,8 +884,11 @@ class LazyComputationExecutor:
 
                     for job in pending_jobs:
                         if self._is_job_stale(job):
-                            marked = self._try_mark_stale_job_as_failed(job, table=str(query_info.table))
+                            marked = self._try_mark_stale_job_as_failed(job)
                             if marked:
+                                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                    outcome="stale", table=str(query_info.table)
+                                ).inc()
                                 logger.warning(
                                     "lazy_computation.job_marked_stale",
                                     job_id=str(job.id),
@@ -919,17 +922,12 @@ class LazyComputationExecutor:
         _log_execution("success", result)
         return result
 
-    def _try_mark_stale_job_as_failed(self, job: PreaggregationJob, *, table: str) -> bool:
+    def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
         Try to mark a stale PENDING job as FAILED.
 
         Uses atomic update with status check to prevent races.
         Returns True if this call marked it, False if another waiter did or status changed.
-
-        `table` is the lazy table the waiter is targeting; only used for the
-        `jobs_finished_total{outcome="stale"}` Prometheus label so the count
-        is attributed to the same series the waiter would have produced on a
-        successful read.
         """
         updated = PreaggregationJob.objects.filter(
             id=job.id,
@@ -940,7 +938,6 @@ class LazyComputationExecutor:
         )
         if updated > 0:
             publish_job_completion(job.id, "failed")
-            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="stale", table=table).inc()
         return updated > 0
 
     def _is_job_stale(self, job: PreaggregationJob) -> bool:
