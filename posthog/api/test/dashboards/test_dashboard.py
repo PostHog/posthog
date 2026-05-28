@@ -2453,6 +2453,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "layouts": {},
                 "order": 0,
                 "show_description": None,
+                "widget": None,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -2573,6 +2574,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "show_description": None,
                 "text": None,
                 "transparent_background": None,
+                "widget": None,
             },
         ]
 
