@@ -67,8 +67,13 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
-    // Fall back to `available_columns` for older API clients without `supports_column_selection`.
-    const showColumnsSection = source?.supports_column_selection ?? (schema?.available_columns?.length ?? 0) > 0
+    // Show the section if either: the source advertises column selection (new contract via
+    // `supports_column_selection`), or `available_columns` is already populated (legacy fallback
+    // for clients ahead of the API). Parenthesizing the legacy term so the gating is robust to
+    // future expression edits and obvious at a glance.
+    const sourceSupportsColumnSelection = source?.supports_column_selection === true
+    const hasDiscoveredColumns = (schema?.available_columns?.length ?? 0) > 0
+    const showColumnsSection = sourceSupportsColumnSelection || hasDiscoveredColumns
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
 
     useEffect(() => {
