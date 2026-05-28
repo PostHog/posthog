@@ -37,7 +37,6 @@ import {
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
 import { preCymbalGroupKey } from './pre-cymbal-group-key'
-import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -189,26 +188,23 @@ export class ErrorTrackingConsumer {
         // When the master switch is off, no pool/service exists at all (the pipeline step is a no-op).
         if (config.rateLimiterEnabled) {
             const dedicatedHost = config.rateLimiterRedisHost
-            this.rateLimiterRedis = createRedisV2PoolFromConfig(
-                {
-                    connection: dedicatedHost
-                        ? {
-                              url: dedicatedHost,
-                              options: {
-                                  port: config.rateLimiterRedisPort,
-                                  tls: config.rateLimiterRedisTls ? {} : undefined,
-                              },
-                              name: 'error-tracking-rate-limiter-redis',
-                          }
-                        : {
-                              url: config.fallbackRedisUrl ?? '',
-                              name: 'error-tracking-rate-limiter-redis-fallback',
+            this.rateLimiterRedis = createRedisV2PoolFromConfig({
+                connection: dedicatedHost
+                    ? {
+                          url: dedicatedHost,
+                          options: {
+                              port: config.rateLimiterRedisPort,
+                              tls: config.rateLimiterRedisTls ? {} : undefined,
                           },
-                    poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
-                    poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
-                },
-                [defineLuaTokenBucketGuarded]
-            )
+                          name: 'error-tracking-rate-limiter-redis',
+                      }
+                    : {
+                          url: config.fallbackRedisUrl ?? '',
+                          name: 'error-tracking-rate-limiter-redis-fallback',
+                      },
+                poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
+                poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
+            })
             this.rateLimiter = new KeyedRateLimiterService(
                 {
                     name: 'error-tracking-rate-limiter',
@@ -321,8 +317,8 @@ export class ErrorTrackingConsumer {
                     if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
                         return null
                     }
-                    const sig = preCymbalGroupKey(input.event)
-                    return sig ? `${input.team.id}:exceptions:issue:${sig}` : null
+                    const scopeKey = preCymbalGroupKey(input.event)
+                    return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
                 },
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,

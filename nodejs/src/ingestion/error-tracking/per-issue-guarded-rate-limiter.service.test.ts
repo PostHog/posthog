@@ -5,7 +5,6 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { deleteKeysWithPrefix } from '../../cdp/_tests/redis'
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
-import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
@@ -26,19 +25,16 @@ describe('PerIssueGuardedRateLimiterService', () => {
         now = 1720000000000
         mockNow.mockReturnValue(now)
 
-        redis = createRedisV2PoolFromConfig(
-            {
-                connection: hub.CDP_REDIS_HOST
-                    ? {
-                          url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                      }
-                    : { url: hub.REDIS_URL },
-                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-            },
-            [defineLuaTokenBucketGuarded]
-        )
+        redis = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
     })
 
     afterEach(async () => {
@@ -84,11 +80,12 @@ describe('PerIssueGuardedRateLimiterService', () => {
 
     const req = (
         teamId: number,
-        sig: string,
+        scopeKey: string,
         cost = 1,
         overrides: Partial<{ bucketSize: number; refillRate: number }> = {}
     ): KeyedRateLimitRequest => ({
-        id: `${teamId}:exceptions:issue:${sig}`,
+        id: `${teamId}:exceptions:issue:${scopeKey}`,
+        teamId,
         cost,
         bucketSize: overrides.bucketSize ?? 100,
         refillRate: overrides.refillRate ?? 10,
@@ -197,13 +194,13 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(r[0][1].isRateLimited).toBe(true)
     })
 
-    it('throws when the id does not match the expected format', async () => {
-        const limiter = build('bad-id')
+    it('throws when a request is missing teamId', async () => {
+        const limiter = build('missing-team')
         await cleanLimiter(limiter)
 
         await expect(
-            limiter.rateLimitGrouped([{ id: 'not-a-valid-id', cost: 1, bucketSize: 100, refillRate: 1 }])
-        ).rejects.toThrow(/does not match the expected/)
+            limiter.rateLimitGrouped([{ id: 'whatever', cost: 1, bucketSize: 100, refillRate: 1 }])
+        ).rejects.toThrow(/missing teamId/)
     })
 
     it('fails open when the Redis pipeline fails', async () => {

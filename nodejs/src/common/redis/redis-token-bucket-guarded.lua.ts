@@ -1,10 +1,11 @@
 import { Redis } from 'ioredis'
 
-// Per-issue guarded token-bucket script. Error-tracking-exclusive.
+// Guarded token-bucket script. Used by error-tracking's per-issue rate limiter,
+// but lives next to v2/v3 since the script itself is generic.
 //
 // Combines the v3 token-bucket body with two guard primitives that defend
-// against attackers fuzzing exception payloads to mint unbounded unique
-// per-issue Redis keys:
+// against callers minting unbounded unique bucket keys by varying the
+// attacker-controlled scope-key portion of the limiter id:
 //
 //   1. A per-team, per-window counter of new bucket-key creations.
 //      When it crosses `threshold`, we SET a per-team fallback flag.
@@ -14,7 +15,7 @@ import { Redis } from 'ioredis'
 // KEYS:
 //   [1] fallback_flag_key   per-team: marks "team is in fallback right now"
 //   [2] counter_key         per-team-per-window: new bucket keys created
-//   [3] bucket_key          per-sig: the token bucket (v3-compatible layout)
+//   [3] bucket_key          the token bucket (v3-compatible layout)
 //
 // ARGV:
 //   [1] now (seconds)       caller-supplied timestamp, for lag-aware limiting

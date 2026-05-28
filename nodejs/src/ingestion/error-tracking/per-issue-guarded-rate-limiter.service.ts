@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
-import { KeyedRateLimit, KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
+import { KeyedRateLimit, KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
 
 const guardOutcomeCounter = new Counter({
     name: 'error_tracking_per_issue_guard_outcome_total',
@@ -12,13 +12,6 @@ const guardOutcomeCounter = new Counter({
 export type GuardedStatus = 'allowed' | 'limited' | 'tripped' | 'fallback'
 
 const STATUS_BY_CODE: GuardedStatus[] = ['allowed', 'limited', 'tripped', 'fallback']
-
-// Per-issue limiter ids are produced by error-tracking-consumer.ts as
-// `{teamId}:exceptions:issue:{sig}`. The format is load-bearing here — the
-// guarded Lua needs the teamId to construct the per-team counter and fallback
-// flag keys. A runtime assert in `rateLimitGrouped` makes a future rename
-// fail loudly instead of silently mis-attributing counters.
-const ID_RE = /^(\d+):exceptions:issue:([^/]+)$/
 
 export interface PerIssueGuardedRateLimiterConfig {
     /** Logical name; produces `@posthog/<name>/tokens|sigcount|sigfb/...` keys (`@posthog-test/...` under NODE_ENV=test). */
@@ -60,7 +53,7 @@ const buildPrefixes = (name: string): { bucket: string; counter: string; fallbac
     }
 }
 
-export class PerIssueGuardedRateLimiterService {
+export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
     private readonly prefixes: { bucket: string; counter: string; fallback: string }
 
     constructor(
@@ -92,11 +85,17 @@ export class PerIssueGuardedRateLimiterService {
     }
 
     /**
-     * Same shape as `KeyedRateLimiterService.rateLimitGrouped` — drop-in for the
-     * existing keyed-rate-limiter step. Tripped/fallback statuses pass through
-     * as `isRateLimited: false`; the team-global limiter downstream still gets
-     * to enforce. The full 4-state status is exposed only via the service's
-     * Prom counter so operators can attribute trip events to specific teams.
+     * Pluggable drop-in for the keyed-rate-limiter step. Mirrors the base
+     * service's `rateLimitGrouped` shape so both services can be slotted into
+     * the same spec list. `req.teamId` (populated by the step from `getTeamId`)
+     * scopes the per-team counter and fallback flag — there's no id parsing,
+     * the id itself stays opaque to this service apart from being passed to
+     * Lua as the bucket-key suffix.
+     *
+     * Tripped/fallback statuses pass through as `isRateLimited: false`; the
+     * team-global limiter downstream still gets to enforce. The full 4-state
+     * status is exposed via the service's Prom counter so operators can
+     * attribute trip events to specific teams.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
@@ -116,13 +115,12 @@ export class PerIssueGuardedRateLimiterService {
         const items = [...grouped.values()]
 
         const teamIds: number[] = items.map((req) => {
-            const m = ID_RE.exec(req.id)
-            if (!m) {
+            if (req.teamId == null) {
                 throw new Error(
-                    `PerIssueGuardedRateLimiterService(${this.config.name}): id "${req.id}" does not match the expected "{teamId}:exceptions:issue:{sig}" format`
+                    `PerIssueGuardedRateLimiterService(${this.config.name}): request for id "${req.id}" is missing teamId — the step must populate it`
                 )
             }
-            return Number(m[1])
+            return req.teamId
         })
 
         const bucketSizes = items.map((req) => {
