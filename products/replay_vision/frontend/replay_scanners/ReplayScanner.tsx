@@ -4,6 +4,7 @@ import { Field, Form } from 'kea-forms'
 import {
     LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonInput,
     LemonSelect,
     LemonSwitch,
@@ -63,11 +64,6 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
         },
         {
-            key: 'triggers',
-            label: 'Triggers',
-            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
-        },
-        {
             key: 'configuration',
             label: 'Configuration',
             content: (
@@ -125,6 +121,14 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                             </div>
                         )}
                     </Field>
+
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Triggers</h3>
+                        <p className="text-sm text-muted m-0">Which completed recordings this scanner runs against.</p>
+                    </div>
+                    <ScannerTriggers scannerId={scannerId} tabId={tabId} />
                 </div>
             ),
         },
