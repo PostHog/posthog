@@ -1,6 +1,6 @@
 # Design — revision routing (subdomain for prod, suffix for local-dev)
 
-**Status:** draft. **Owner:** ben.
+**Status:** v0 shipped; v1 partially shipped (resolver in place, deploy + UI pending); v2 not yet built. **Owner:** ben.
 
 There is one way to address a non-live revision: with a hex prefix
 attached to the slug. Two transport shapes — subdomain for prod,
@@ -241,22 +241,30 @@ true` + the resolution method (`uuid_query` / `suffix` /
 
 ## 9. Rollout
 
-**v0 — local-dev suffix.**
+**v0 — local-dev suffix.** ✅ shipped.
 
-- `extractSlugFromPath` → `extractSlugAndRevisionFromPath`, returns
-  `{ slug, revisionPrefix? }`.
-- `RevisionStore.listRevisionsByIdPrefix()` lands on the interface
-  - memory + PG impls.
-- Ambiguity error path with helpful body.
-- e2e case: `tier-2/suffix-route.test.ts` against the local cluster.
+- `extractSlugFromPath` collapses two-label `<slug>-<hex>` URLs into
+  a canonical slug + prefix in `services/agent-ingress/src/routing/resolver.ts`.
+- `RevisionStore.listRevisionsByIdPrefix()` landed on the interface
+  with memory + PG impls.
+- Ambiguity error path lands at the global ingress `errorHandler`
+  via `AmbiguousRevisionError → 400 { error: "ambiguous_revision" }`.
+- e2e case in `services/agent-tests/src/cases/`.
+- Consolidation: `?revision_id=` query + `x-agent-revision` header
+  retired; suffix is the only non-live override form. The plan's
+  v0 originally kept the UUID-query side-by-side; that's the only
+  intentional divergence from the doc as written.
 
-**v1 — production subdomain.**
+**v1 — production subdomain.** Partially shipped.
 
-- Domain-mode `extractSlugAndRevisionFromHost`.
-- Deploy: two-level wildcard cert added.
-- Authoring UI shows the subdomain preview URL on the revision row.
+- Domain-mode `extractSlugFromHost` ships in the resolver (handles
+  `<hex>.<slug>.<suffix>` two-label form). ✅ shipped.
+- Deploy: two-level wildcard cert add — out of scope for the code
+  repo; tracked separately.
+- Authoring UI: revision row showing the preview URL — not yet
+  built.
 
-**v2 — activity log + observability.**
+**v2 — activity log + observability.** Not yet built.
 
 - Activity log carries the resolution shape.
 - Metric: per-team count of suffix vs subdomain vs UUID-query

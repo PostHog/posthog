@@ -163,17 +163,6 @@ file (and out of this list) once the design lands.
         running sweep, but you don't want every rolling deploy to
         bounce sessions off that net.
 
-- [ ] **Slug-with-revision-suffix triggers for non-live revisions.**
-      Today draft / ready revisions are reachable via
-      `?revision_id=<full-uuid>` (or `x-agent-revision` header). Add an
-      ergonomic slug-form alternative — e.g. `/agents/my-app-ABC123/...`
-      where `ABC123` is the leading hex of a revision id under the
-      `my-app` application. Resolver tries the suffix split first; on
-      ambiguous prefixes it 400s rather than picking. Pairs naturally
-      with the existing `?revision_id` override (uuid wins, suffix is
-      shorthand). Useful for Slack mentions / webhook URLs where you
-      want to share a draft link without exposing the full UUID.
-
 - [ ] **Auto-chaining via a gateway agent (Slack-first).** Today Slack
       mentions are routed 1:1 — `@my-helpdesk-agent` triggers
       `my-helpdesk-agent` and nothing else. Spec out a "gateway agent"

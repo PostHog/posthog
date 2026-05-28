@@ -1,6 +1,6 @@
 # Design — per-turn cost capture on the session row
 
-**Status:** draft. **Owner:** ben.
+**Status:** v0 + v1 shipped; v2 aggregates pending. **Owner:** ben.
 
 We added `usage_total` to the sessions list/retrieve **derived from the
 conversation**. That works for one session at a time. This plan
@@ -233,25 +233,28 @@ with a default; the backfill is async via the janitor endpoint.
 
 ## 8. Rollout
 
-**v0 — column + accumulator.**
+**v0 — column + accumulator.** ✅ shipped.
 
 - Migration adds `usage_total` column (JSONB default).
 - `SessionQueue.update()` accepts the new field.
-- Runner `onTurnPersist` accumulates and writes.
-- TS shape (`AgentSession.usage_total`) added.
+- Runner `onTurnPersist` accumulates and writes via the shared
+  `accumulateUsage()` helper, honouring `useGatewayCost`.
+- TS shape (`AgentSession.usage_total` + `SessionUsageTotal`) added.
 - Tests: `run-turn.test.ts` asserts post-turn `session.usage_total`
-  matches the assistant message's `usage`.
+  matches the assistant message's `usage`; gateway-cost branch zeroes
+  cost while preserving token counts.
 
-**v1 — surface it.**
+**v1 — surface it.** ✅ shipped.
 
 - `summarize-conversation.ts` deprecated for live-row reads
   (still useful for backfill + ad-hoc tests). The summary helper
   in [services/agent-shared/src/spec/summarize-conversation.ts]
   stays as a derivation, but
   `agent-applications-sessions-list` returns the persisted column.
-- Backfill endpoint shipped; one-shot run on the legacy sessions.
+- Backfill endpoint shipped at `POST /sessions/backfill_usage` on
+  the janitor; defaults to `dry_run: true`.
 
-**v2 — aggregates.**
+**v2 — aggregates.** Not yet built.
 
 - `agent-applications-usage-stats` tool with date-range / state
   filters.

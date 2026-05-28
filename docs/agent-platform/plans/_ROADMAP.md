@@ -2,9 +2,10 @@
 
 Consolidated, sequenced view of every plan in this folder. The plans
 themselves stay independent design docs; this file orders them and
-surfaces the cross-cuts. When a plan lands as code, move it out of
-`plans/` per the [README](../README.md), and update this roadmap to
-strike it through.
+surfaces the cross-cuts. When a plan lands as code, annotate the entry
+inline with the rollout phases that shipped (`v0 ✅` etc.) — full
+strike-through is reserved for plans that landed in full and were
+moved out of `plans/`.
 
 For the raw queue of features still _waiting_ for a plan, see
 [`_TODO.md`](_TODO.md). Every bullet there now has a corresponding
@@ -75,6 +76,11 @@ spec shape it introduces.
   per-agent resumability config + context-compaction strategies
   (window / summarize / none), locks down the trigger-side contract
   for reopening old sessions. Status: design complete.
+- [`typed-config-loader.md`](typed-config-loader.md) — one zod schema
+  per service, lint-blocked `process.env.*` outside `config.ts`,
+  generated runbook from the schemas. **v0 (janitor pilot) ✅ shipped;
+  v1 (sweep to ingress + runner via `PlatformConfigSchema`) ✅
+  shipped; v2 (generated runbook) + v3 (Django side) pending.**
 
 **What this layer must ship before anything above:**
 
@@ -116,6 +122,24 @@ admission (ingress depth check + claim concurrent check); open-ask
 budget that composes with **B.1** (elevation requests) and **B.2**
 (pending approvals) to prevent notification flooding. Sequences last
 in this layer because it observes/measures both of them.
+
+### B.4 [`per-turn-cost-capture.md`](per-turn-cost-capture.md)
+
+`usage_total` JSONB on `agent_session`; runner accumulates tokens +
+cost per turn via `accumulateUsage()`; janitor backfill endpoint.
+Foundation for the cost-attribution surface and for
+**B.3**-style budget admission. **v0 (column + accumulator) ✅
+shipped; v1 (surface it via sessions-list + backfill endpoint) ✅
+shipped; v2 (aggregates tool) pending.**
+
+### B.5 [`draft-preview-auth.md`](draft-preview-auth.md)
+
+Closes the gap where a draft with `auth.mode: 'public'` could be
+invoked anonymously via the override paths regardless of the live
+revision's auth. Django mints a short-lived HS256 JWT bound to
+(app, rev) and proxies non-live invokes; ingress fail-closes on
+missing / invalid token. **v1 (fail-closed enforcement) ✅ shipped;
+v0 advisory mode skipped; v2 activity-log pending.**
 
 **Shared cross-cut introduced by this layer:**
 
@@ -162,6 +186,23 @@ Wakes `cron`-trigger agents from the janitor. Small platform piece
 sitting under C because it's a capability extension; depends on **A**
 for the `external_key_reuse` policy that lets recurring firings
 coalesce into one long-running session. Required for **D.2** v3.
+
+### C.6 [`revision-routing.md`](revision-routing.md)
+
+Two URL shapes for invoking a specific (non-live) revision:
+`<rev-hex>.<slug>.agents.posthog.com` for prod, `/agents/<slug>-<rev-hex>/...`
+for local dev. Collapses three legacy override forms
+(`?revision_id=`, `x-agent-revision`, suffix) into one. **v0
+(local-dev suffix) ✅ shipped; v1 (prod subdomain) partially shipped —
+resolver in place, wildcard cert + UI affordance pending; v2
+(activity log + observability) pending.**
+
+### C.7 [`streaming-and-reasoning.md`](streaming-and-reasoning.md)
+
+`spec.reasoning` knob + `PiClient.stream()`. **v0a (reasoning
+knob: spec field + InvokeOpts plumb-through) ✅ shipped; v0b
+(stream surface on PiClient) + v1 (runner consumes stream, emits
+delta events) + v2 (delta filtering on /listen) pending.**
 
 **Shared cross-cut introduced by this layer:**
 
@@ -273,14 +314,20 @@ each one three times.
 Assuming no parallelism, a reasonable order:
 
 1. **A** — long-running sessions. Foundation. No prior dependencies.
+   _typed-config-loader v0+v1 ✅ already shipped (the only **A**-layer
+   piece in code so far)._
 2. **B.1** — elevation. Closes the Slack security gap (priority on
    its own merits). Introduces activity-log integration.
 3. **B.2** — approval-gated tools. Builds on B.1's principal model.
 4. **B.3** — rate limiting. Observability mode first; hard
    enforcement after.
+   _B.4 per-turn-cost-capture v0+v1 ✅ shipped early — orthogonal
+   to B.1–B.3, lands the column B.3 budget admission will need.
+   B.5 draft-preview-auth ✅ shipped early — closes the draft-invoke
+   gap independent of the strict-principal extraction._
 5. **D.2 §11 v0** — wire LLM analytics emission from the runner.
    Unlocks observability for agents in production today, independent
-   of the rest of self-healing.
+   of the rest of self-healing. **← next up.**
 6. **C.1** — sandboxed inference. `repo-readonly` first, then
    `repo-write`, then `repo-pr`. Each tier expands trust and depends
    on the prior layers' enforcement.
@@ -288,6 +335,9 @@ Assuming no parallelism, a reasonable order:
    resumable conversations, cron scheduler. Independent; ship in
    parallel based on demand. **C.5** is a small janitor extension and
    is the cheapest of the four.
+   _C.6 revision-routing v0 ✅ shipped (local-dev suffix), v1
+   partially shipped; C.7 streaming-and-reasoning v0a ✅ shipped
+   (reasoning knob), stream surface pending._
 8. **D.1** — agent authoring flow. Test-run + judge infrastructure.
 9. **D.2 §11 v1+** — the rest of self-healing. Manual introspection
    first, then replay-and-grade once D.1's test infrastructure

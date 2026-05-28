@@ -1,6 +1,6 @@
 # Design — draft preview via Django proxy (preview-proxy path)
 
-**Status:** draft. **Owner:** ben.
+**Status:** v1 (fail-closed enforcement) shipped; v0 skipped; v2 activity-log pending. **Owner:** ben.
 
 > Confirmed PoC: an `auth.mode: 'public'` draft is invokable
 > anonymously via the `<slug>-<prefix>` form (path mode) or the
@@ -223,25 +223,37 @@ a URL-construction exercise.
 
 ## 9. Rollout
 
-**v0 — observe.**
+**v0 — observe.** Skipped in practice.
 
-- Ingress gate added but in advisory mode: log a warning when a
-  non-live invoke arrives without the preview-secret header, do
-  not refuse the request.
-- Django proxy endpoint shipped; MCP tool wired.
-- Authoring UI's "preview" button calls through the proxy.
-- Operators watch the warning log to spot any non-compliant
-  callers (legacy bookmarks, undocumented automation).
+Originally planned as advisory mode (log-only) followed by a v1
+flip to fail-closed. Implementation jumped straight to fail-closed
+semantics because the gate is part of the same code path that does
+revision resolution — there's no clean "warn but continue" branch
+without duplicating the verifier. The compatibility risk this v0
+mitigated (legacy bookmarks, undocumented automation) didn't
+materialize: the override paths only ever existed for authoring AIs
+hitting the MCP, all of which now go through Django's
+`preview_proxy`.
 
-**v1 — enforce.**
+**v1 — enforce.** ✅ shipped.
 
-- Flip the verifier to fail-closed. Non-live invokes without the
-  header return 401.
-- `AGENT_PREVIEW_ENFORCED=true` env knob per environment so the
-  cutover is explicit per deployment. Production sets it; the
-  harness defaults off so test code stays simple.
+- Resolver verifies the JWT via `MissingPreviewSecretError` and
+  refuses non-live invokes that fail any of: missing token, bad
+  signature, expired, wrong audience, `app` or `rev` claim mismatch.
+  See `services/agent-ingress/src/routing/resolver.ts`.
+- Config: `AGENT_PREVIEW_SECRET` on ingress, mirrored to Django.
+  When unset, the gate is bypassed (dev / harness behaviour) — this
+  replaced the originally-planned `AGENT_PREVIEW_ENFORCED` knob; the
+  presence/absence of the secret is the enforcement signal.
+- Django `preview_proxy` action mints `{app, rev, aud='posthog:agent_preview',
+exp=now+60s, sub=user-id}` and forwards the request.
+- MCP tool surface: lands on the existing
+  `agent-applications-preview-proxy` action (GET + POST) under
+  `products/agent_stack/backend/api.py` rather than a new
+  `agent-applications-revisions-invoke-create` tool — same effect,
+  one fewer name.
 
-**v2 — activity-log + observability.**
+**v2 — activity-log + observability.** Not yet built.
 
 - Successful preview invokes write to the activity log (cross-cut
   introduced by B.1) with `preview_issuer` (Django user id),

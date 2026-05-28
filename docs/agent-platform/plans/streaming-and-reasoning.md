@@ -1,6 +1,6 @@
 # Design — streaming deltas + unified reasoning knob
 
-**Status:** draft. **Owner:** ben.
+**Status:** v0a (reasoning knob) shipped; v0b (stream surface) + v1 + v2 not yet built. **Owner:** ben.
 
 Two pi-ai surfaces today, treated as one design here because they touch
 the same code paths in the runner and the same `Model` selection layer.
@@ -273,16 +273,25 @@ needing a real provider.
 
 ## 10. Rollout
 
-**v0 — PiClient surface + spec field.**
+**v0a — `spec.reasoning` knob.** ✅ shipped.
 
-- `stream()` on `PiClient`; thin wrapper around pi-ai's stream API.
-- `reasoning` on `AgentSpec` zod schema, plumbed through `InvokeOpts`.
+- `reasoning` on `AgentSpec` zod schema (`ReasoningEffortSchema`),
+  plumbed through `InvokeOpts.reasoning` and forwarded to
+  `completeSimple()` via `PiAiClient.invoke()`.
+- pi-ai silently ignores `reasoning` for non-reasoning models, so
+  `run-turn.ts` forwards unconditionally — omitting the spec field
+  means "provider default".
+- Tests: `run-turn.test.ts` asserts `pi.calls[0].opts?.reasoning ===
+'high'` when `spec.reasoning` is set, and `undefined` when not.
+
+**v0b — `stream()` on PiClient.** Not yet built.
+
+- `stream()` thin wrapper around pi-ai's stream API.
+- `FauxPiClient.stream()` scripted iterable for unit-test coverage.
 - Backward compatible: existing `invoke()` keeps working; the runner
   defaults to `invoke()` until v1.
-- Tests: `FauxPiClient.stream()` scripted iterable; `run-turn.test.ts`
-  covers the spec-field forwarding via `invoke()` opts.
 
-**v1 — runner switches to `stream()`.**
+**v1 — runner switches to `stream()`.** Not yet built.
 
 - `run-turn.ts` consumes the stream, emits delta events.
 - New event kinds wired into `SessionEventBus`, `KafkaLogSink`
@@ -290,7 +299,7 @@ needing a real provider.
 - e2e case: `tier-2/streaming-turn.test.ts` asserts the delta sequence
   for a scripted faux provider.
 
-**v2 — opt-in delta filtering on /listen.**
+**v2 — opt-in delta filtering on /listen.** Not yet built.
 
 - `?kinds=` filter on the ingress SSE endpoint.
 - Backpressure: bounded-buffer / collapse-text-deltas behavior.
