@@ -629,6 +629,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1851,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-cli"
-version = "0.7.13"
+version = "0.7.14"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1859,6 +1865,7 @@ dependencies = [
  "colored",
  "crossterm 0.28.1",
  "dirs",
+ "dotenvy",
  "globset",
  "inquire",
  "magic_string",

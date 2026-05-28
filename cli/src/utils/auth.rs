@@ -2,6 +2,8 @@ use super::homedir::{ensure_homedir_exists, posthog_home_dir};
 use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
 use reqwest::Url;
+use std::collections::HashMap;
+use std::path::Path;
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
@@ -59,20 +61,54 @@ impl CredentialProvider for HomeDirProvider {
     }
 }
 
-/// Tries to read the token from the env var `POSTHOG_CLI_API_KEY`
+/// Reads credentials from the process env, then `./.env`, then `./.env.local`.
 pub struct EnvVarProvider;
+
+fn load_dotenv(path: &Path) -> HashMap<String, String> {
+    dotenvy::from_path_iter(path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect()
+}
+
+fn resolve_var(
+    names: &[&str],
+    dotenv: &HashMap<String, String>,
+    local: &HashMap<String, String>,
+) -> Option<String> {
+    for source in [None, Some(dotenv), Some(local)] {
+        for name in names {
+            let val = match source {
+                None => std::env::var(name).ok(),
+                Some(map) => map.get(*name).cloned(),
+            };
+            if let Some(v) = val {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
 
 impl CredentialProvider for EnvVarProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
-        let host = std::env::var("POSTHOG_CLI_HOST").ok();
-        // Try POSTHOG_CLI_API_KEY first, fall back to POSTHOG_CLI_TOKEN for backward compatibility
-        let token = std::env::var("POSTHOG_CLI_API_KEY")
-            .or_else(|_| std::env::var("POSTHOG_CLI_TOKEN"))
-            .context("While trying to read env var POSTHOG_CLI_API_KEY")?;
-        // Try POSTHOG_CLI_PROJECT_ID first, fall back to POSTHOG_CLI_ENV_ID for backward compatibility
-        let env_id = std::env::var("POSTHOG_CLI_PROJECT_ID")
-            .or_else(|_| std::env::var("POSTHOG_CLI_ENV_ID"))
-            .context("While trying to read env var POSTHOG_CLI_PROJECT_ID")?;
+        let dotenv = load_dotenv(Path::new(".env"));
+        let local = load_dotenv(Path::new(".env.local"));
+
+        let host = resolve_var(&["POSTHOG_CLI_HOST"], &dotenv, &local);
+        let token = resolve_var(
+            &["POSTHOG_CLI_API_KEY", "POSTHOG_CLI_TOKEN"],
+            &dotenv,
+            &local,
+        )
+        .context("While trying to read POSTHOG_CLI_API_KEY (from env, .env, or .env.local)")?;
+        let env_id = resolve_var(
+            &["POSTHOG_CLI_PROJECT_ID", "POSTHOG_CLI_ENV_ID"],
+            &dotenv,
+            &local,
+        )
+        .context("While trying to read POSTHOG_CLI_PROJECT_ID (from env, .env, or .env.local)")?;
         Ok(Token {
             host,
             token,

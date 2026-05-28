@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.7.14
+
+- feat: read `POSTHOG_CLI_HOST`, `POSTHOG_CLI_API_KEY`, and `POSTHOG_CLI_PROJECT_ID` (and their legacy aliases) from `./.env` and `./.env.local` when not set in the process environment. Precedence: process env → `.env` → `.env.local`.
+
 # 0.7.13
 
 - chore: bump `cargo-dist` to 0.32.0; the new npm installer drops the bundled transitive deps that were carrying open CVEs (`axios`, `follow-redirects`, `minimatch`, `brace-expansion`)
