@@ -59,6 +59,9 @@ ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 TEAM_ID_FILTER_PATTERNS = {
     "ingestion_warnings": "ingestion_warnings.team_id",  # ClickHouse-native table, no system__ prefix
     "teams": "system__teams.id",  # team_id is aliased to id column
+    # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
+    "_account_resource_notebooks": "system__accounts.team_id",
+    "_account_tagged_items": "system__accounts.team_id",
 }
 
 
@@ -87,6 +90,10 @@ class TestSystemTablesTeamScoping(BaseTest):
             # ingestion_warnings is a ClickHouse-native table (not backed by PostgreSQL),
             # so it can't be tested with Django model factories.
             "ingestion_warnings",
+            # Hidden junction tables that exist only to back the system.accounts lazy joins;
+            # isolation is covered by TestSystemAccountsLazyJoins.
+            "_account_resource_notebooks",
+            "_account_tagged_items",
         }
 
         untested = all_tables - tested_tables - excluded_tables
@@ -510,6 +517,10 @@ def _create_sandbox_environment(team: Team, label: str):
     return SandboxEnvironment.objects.create(team=team, name=f"env_{label}", private=False)
 
 
+def _create_tag(team: Team, label: str) -> Tag:
+    return Tag.objects.create(team=team, name=f"tag_{label}")
+
+
 def _create_team(team: Team, label: str) -> Team:
     return team
 
@@ -573,6 +584,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("tags", _create_tag),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
     ("teams", _create_team),
