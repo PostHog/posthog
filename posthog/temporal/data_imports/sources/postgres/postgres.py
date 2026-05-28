@@ -22,6 +22,8 @@ from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
 
+from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
+
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import (
@@ -778,6 +780,9 @@ def get_connection_metadata(
                 available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
             except Exception as error:
                 capture_exception(error)
+
+            available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
+            available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
 
             return {
                 "database": current_database,
