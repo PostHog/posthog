@@ -20,7 +20,6 @@ describe('Workflows', { concurrent: false }, () => {
     const getTool = GENERATED_TOOLS['workflows-get']!()
     const createTool = GENERATED_TOOLS['workflows-create']!()
     const updateTool = GENERATED_TOOLS['workflows-update']!()
-    const runTool = GENERATED_TOOLS['workflows-run']!()
     const logsTool = GENERATED_TOOLS['hog-flows-logs-retrieve']!()
     const metricsTool = GENERATED_TOOLS['hog-flows-metrics-retrieve']!()
 
@@ -276,38 +275,21 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    describe('workflows-run tool', () => {
-        it('should test-invoke a workflow with mocked async functions', async () => {
-            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
-            createdWorkflowIds.push(created.id)
-
-            const result = await runTool.handler(context, {
-                id: created.id,
-                globals: { event: { event: '$pageview', distinct_id: 'test-distinct-id' } },
-                mock_async_functions: true,
-            })
-            const data = parseToolResponse(result)
-
-            // The exact shape depends on the executor; assert we got *something* back.
-            expect(data).not.toBeUndefined()
-        })
-    })
+    // workflows-run hits the invocations endpoint, which forwards to the CDP plugin
+    // server (CDP_API_URL). That container isn't started in MCP CI (only the `temporal`
+    // compose profile is enabled), so the happy-path returns 500 from a DNS failure.
+    // Coverage for the endpoint lives in posthog/api/test/test_hog_flow.py
+    // (test_can_call_a_test_invocation) with CDP mocked, and at the MCP unit layer
+    // (tests/unit/workflows-run-handler.test.ts) for the handler wiring.
 
     describe('full lifecycle', () => {
-        it('should create → update → run → archive', async () => {
+        it('should create → update → archive', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
             const id = created.id
             createdWorkflowIds.push(id)
 
             const updated = parseToolResponse(await updateTool.handler(context, { id, name: 'mcp-lifecycle-test' }))
             expect(updated.name).toBe('mcp-lifecycle-test')
-
-            const runResult = await runTool.handler(context, {
-                id,
-                globals: { event: { event: '$pageview', distinct_id: 'lifecycle-test' } },
-                mock_async_functions: true,
-            })
-            expect(parseToolResponse(runResult)).not.toBeUndefined()
 
             const archived = parseToolResponse(await updateTool.handler(context, { id, status: 'archived' }))
             expect(archived.status).toBe('archived')

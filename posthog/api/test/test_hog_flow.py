@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -606,6 +606,35 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["name"] == "Renamed via UI"
+
+    def test_can_call_a_test_invocation(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        with patch("posthog.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}},
+                    "mock_async_functions": True,
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json() == {"status": "success"}
+
+            assert mock_invoke.call_count == 1
+            assert mock_invoke.call_args.kwargs["team_id"] == self.team.id
+            assert mock_invoke.call_args.kwargs["hog_flow_id"] == flow_id
+            payload = mock_invoke.call_args.kwargs["payload"]
+            assert payload["globals"] == {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}}
+            assert payload["mock_async_functions"] is True
 
     def test_hog_flow_conditional_event_filter_rejected(self):
         conditional_action = {
