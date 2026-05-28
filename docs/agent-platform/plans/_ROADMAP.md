@@ -22,14 +22,16 @@ We group the plans into four layers, roughly:
 │  C. Capability extensions                                   │
 │     sandboxed-agent-inference.md · runtime-mcps.md ·        │
 │     skill-templates.md · resumable-conversations.md ·       │
-│     cron-trigger-scheduler.md                               │
+│     cron-trigger-scheduler.md · streaming-and-reasoning.md ·│
+│     revision-routing.md                                     │
 ├─────────────────────────────────────────────────────────────┤
 │  B. Trust & control                                         │
 │     per-session-access-elevation.md ·                       │
-│     approval-gated-tools.md · rate-limiting-sessions.md     │
+│     approval-gated-tools.md · rate-limiting-sessions.md ·   │
+│     per-turn-cost-capture.md                                │
 ├─────────────────────────────────────────────────────────────┤
 │  A. Lifecycle foundation                                    │
-│     long-running-sessions.md                                │
+│     long-running-sessions.md · typed-config-loader.md       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
