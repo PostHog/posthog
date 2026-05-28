@@ -276,7 +276,7 @@ sentiment = [
 ]
 
 [tool.uv]
-required-version = "~=0.10.2"
+required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false, django = false }
