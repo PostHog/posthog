@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
 import { useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
+
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTextArea } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
-import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetDateRangeOptions'
-import { isWidgetConfigValidationError } from '../../widget_types/widgetConfigValidation'
 import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
+import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
+import { isWidgetConfigValidationError } from '../../widget_types/widgetConfigValidation'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetDateRangeOptions'
 import { DASHBOARD_WIDGET_MODAL_WIDTH } from '../constants'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
@@ -45,7 +46,7 @@ export function EditSessionReplayWidgetModal({
     const [dateFrom, setDateFrom] = useState<string>(initialDateRange)
     const [tileName, setTileName] = useState<string>(name)
     const [tileDescription, setTileDescription] = useState<string>(description)
-    const [filterTestAccounts, setFilterTestAccounts] = useState<boolean>(
+    const [filterTestAccounts, setFilterTestAccounts] = useState<boolean>(() =>
         resolveWidgetFilterTestAccounts(config.filterTestAccounts as boolean | undefined, filterTestAccountsDefault)
     )
     const [fieldErrors, setFieldErrors] = useState<SessionReplayWidgetFieldErrors>({})
@@ -175,20 +176,10 @@ export function EditSessionReplayWidgetModal({
         >
             <WidgetSettingsModalSections>
                 <WidgetSettingsModalSection title="Tile details">
-                    <LemonField.Pure
-                        className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS}
-                        label="Name"
-                    >
-                        <LemonInput
-                            value={tileName}
-                            onChange={setTileName}
-                            placeholder={defaultTitle}
-                        />
+                    <LemonField.Pure className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS} label="Name">
+                        <LemonInput value={tileName} onChange={setTileName} placeholder={defaultTitle} />
                     </LemonField.Pure>
-                    <LemonField.Pure
-                        className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS}
-                        label="Description"
-                    >
+                    <LemonField.Pure className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS} label="Description">
                         <LemonTextArea
                             value={tileDescription}
                             onChange={setTileDescription}

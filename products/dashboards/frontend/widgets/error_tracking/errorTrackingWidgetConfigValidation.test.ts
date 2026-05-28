@@ -22,7 +22,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
         }
     })
 
-    it('accepts valid config', () => {
+    it('accepts valid config without filterTestAccounts', () => {
         const result = validateErrorTrackingWidgetConfigInput({
             limit: 10,
             orderBy: 'occurrences',

@@ -1,26 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
 import { useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
+
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTextArea } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
-import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetDateRangeOptions'
-import {
-    validateErrorTrackingWidgetConfigInput,
-    type ErrorTrackingWidgetFieldErrors,
-} from './errorTrackingWidgetConfigValidation'
-import { isWidgetConfigValidationError } from '../../widget_types/widgetConfigValidation'
 import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
+import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
+import { isWidgetConfigValidationError } from '../../widget_types/widgetConfigValidation'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetDateRangeOptions'
 import { DASHBOARD_WIDGET_MODAL_WIDTH } from '../constants'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
@@ -30,9 +27,10 @@ import {
     WidgetSettingsModalSections,
 } from '../WidgetSettingsModalSections'
 import {
-    canConfigureErrorTrackingWidgetIssues,
-    ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS,
-} from './utils'
+    validateErrorTrackingWidgetConfigInput,
+    type ErrorTrackingWidgetFieldErrors,
+} from './errorTrackingWidgetConfigValidation'
+import { canConfigureErrorTrackingWidgetIssues, ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS } from './utils'
 
 export function EditErrorTrackingWidgetModal({
     isOpen,
@@ -57,7 +55,7 @@ export function EditErrorTrackingWidgetModal({
     const [dateFrom, setDateFrom] = useState<string>(initialDateRange)
     const [tileName, setTileName] = useState<string>(name)
     const [tileDescription, setTileDescription] = useState<string>(description)
-    const [filterTestAccounts, setFilterTestAccounts] = useState<boolean>(
+    const [filterTestAccounts, setFilterTestAccounts] = useState<boolean>(() =>
         resolveWidgetFilterTestAccounts(config.filterTestAccounts as boolean | undefined, filterTestAccountsDefault)
     )
     const [fieldErrors, setFieldErrors] = useState<ErrorTrackingWidgetFieldErrors>({})
@@ -175,11 +173,7 @@ export function EditErrorTrackingWidgetModal({
                         type="primary"
                         loading={saving}
                         disabledReason={
-                            saving
-                                ? 'Saving…'
-                                : !validation.success
-                                  ? 'Fix validation errors to save'
-                                  : undefined
+                            saving ? 'Saving…' : !validation.success ? 'Fix validation errors to save' : undefined
                         }
                         onClick={() => void handleSave()}
                     >
@@ -235,9 +229,7 @@ export function EditErrorTrackingWidgetModal({
                             </div>
                         </WidgetSettingsModalSection>
                         <WidgetSettingsModalDivider />
-                        <WidgetSettingsModalSection
-                            title={DASHBOARD_WIDGET_CATALOG.error_tracking_list.groupLabel}
-                        >
+                        <WidgetSettingsModalSection title={DASHBOARD_WIDGET_CATALOG.error_tracking_list.groupLabel}>
                             <LemonField.Pure
                                 label="Date range"
                                 help="Only include issues seen in this period."

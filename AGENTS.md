@@ -159,6 +159,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 
 **Invoke when in the area:**
 
+- `/dashboard-widgets` — adding or updating dashboard widget types (catalog, edit modal, layout mins, config, run_widgets), WIDGET_REGISTRY, WidgetCard, or dashboard tile widget glue
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
