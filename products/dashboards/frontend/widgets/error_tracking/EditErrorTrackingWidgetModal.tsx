@@ -66,6 +66,9 @@ export function EditErrorTrackingWidgetModal({
             setFieldErrors({})
             setTileName(name)
             setTileDescription(description)
+            setLimit((config.limit as number) ?? 10)
+            setOrderBy((config.orderBy as string) ?? 'occurrences')
+            setDateFrom((config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d')
             setFilterTestAccounts(
                 resolveWidgetFilterTestAccounts(
                     config.filterTestAccounts as boolean | undefined,
@@ -73,7 +76,16 @@ export function EditErrorTrackingWidgetModal({
                 )
             )
         }
-    }, [isOpen, name, description, config.filterTestAccounts, filterTestAccountsDefault])
+    }, [
+        isOpen,
+        name,
+        description,
+        config.limit,
+        config.orderBy,
+        config.dateRange,
+        config.filterTestAccounts,
+        filterTestAccountsDefault,
+    ])
 
     const validation = useMemo(
         () =>
