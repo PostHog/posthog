@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
     DatabaseSchemaManagedViewTableKind,
@@ -169,8 +171,17 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
                 limit_context=self.limit_context,
             )
 
+        results: list[tuple[Any, ...]] = []
+        seen_rows: set[tuple[Any, ...]] = set()
+        for row in response.results:
+            row_key = tuple(row)
+            if row_key in seen_rows:
+                continue
+            seen_rows.add(row_key)
+            results.append(row)
+
         return RevenueAnalyticsTopCustomersQueryResponse(
-            results=response.results,
+            results=results,
             columns=response.columns,
             modifiers=self.modifiers,
             resolved_date_range=ResolvedDateRangeResponse(
