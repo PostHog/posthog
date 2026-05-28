@@ -202,6 +202,7 @@ export class RequestContext {
             $mcp_mode: p.mode,
             $mcp_region: p.region,
             mcp_runtime: 'hono',
+            mcp_vendor_client: p.mcpVendorClient,
         }
     }
 

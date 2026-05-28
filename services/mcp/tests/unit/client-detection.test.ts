@@ -166,6 +166,32 @@ describe('MCPClientProfile', () => {
         it('returns false when clientName is undefined', () => {
             expect(new MCPClientProfile({}).isCodingAgent()).toBe(false)
         })
+
+        describe('vendorClient precedence', () => {
+            it('prefers vendorClient over clientName for detection', () => {
+                // Claude pools MCP transports: the initialize body says
+                // `Anthropic/ClaudeAI` (the pool owner) but the live inner
+                // client is `ClaudeCode` (a coding agent). The header wins.
+                expect(
+                    new MCPClientProfile({
+                        clientName: 'Anthropic/ClaudeAI',
+                        vendorClient: 'ClaudeCode',
+                    }).isCodingAgent()
+                ).toBe(true)
+            })
+
+            it('falls back to clientName when vendorClient is missing', () => {
+                expect(new MCPClientProfile({ clientName: 'claude-code' }).isCodingAgent()).toBe(true)
+            })
+
+            it('treats coding-agent clientName as non-coding when vendorClient says otherwise', () => {
+                // Inverse case: if a pool of coding-agent clients somehow
+                // carries a non-coding request, the live header rules.
+                expect(
+                    new MCPClientProfile({ clientName: 'claude-code', vendorClient: 'ClaudeAI' }).isCodingAgent()
+                ).toBe(false)
+            })
+        })
     })
 
     describe('isPostHogCodeConsumer()', () => {
@@ -251,11 +277,13 @@ describe('MCPClientProfile', () => {
             clientVersion: '1.2.3',
             consumer: POSTHOG_CODE_CONSUMER,
             oauthClientName: 'Lovable',
+            vendorClient: 'ClaudeCode',
         })
         expect(profile.clientName).toBe('claude-code')
         expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
         expect(profile.oauthClientName).toBe('Lovable')
+        expect(profile.vendorClient).toBe('ClaudeCode')
     })
 })
 

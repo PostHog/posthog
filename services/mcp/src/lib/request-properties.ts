@@ -20,6 +20,7 @@ export type RequestProperties = {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
     transport?: Transport | undefined
@@ -76,6 +77,7 @@ export function parseRequestProperties(
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient: sanitizeHeaderValue(header(request, 'x-anthropic-client')),
         mode: parseMcpMode(params.get('mode')) || parseMcpMode(header(request, 'x-posthog-mcp-mode')),
         transport,
         requestStartTime: Date.now(),

@@ -41,6 +41,7 @@ function buildBaseProperties(
               }
             : {}),
         mcp_runtime: 'hono',
+        mcp_vendor_client: props.mcpVendorClient,
     }
     return { properties, groups }
 }

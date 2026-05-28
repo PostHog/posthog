@@ -123,6 +123,7 @@ export class RequestStateResolver {
             clientVersion: mcpClientVersion,
             consumer: props.mcpConsumer,
             oauthClientName,
+            vendorClient: props.mcpVendorClient,
         })
 
         const {

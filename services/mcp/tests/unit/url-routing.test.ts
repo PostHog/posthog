@@ -241,6 +241,25 @@ describe('URL Routing', () => {
         })
     })
 
+    describe('mcpVendorClient parsing', () => {
+        it('captures x-anthropic-client into mcpVendorClient', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, {}).mcpVendorClient).toBe('ClaudeCode')
+        })
+
+        it('returns undefined when x-anthropic-client is missing', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: { Authorization: 'Bearer phx_test' },
+            })
+            expect(parseRequestProperties(request, {}).mcpVendorClient).toBeUndefined()
+        })
+    })
+
     describe('MCP consumer parsing', () => {
         const consumerTests = [
             {

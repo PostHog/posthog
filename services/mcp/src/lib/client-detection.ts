@@ -105,6 +105,10 @@ type MCPClientProfileInput = {
     clientVersion?: string | undefined
     consumer?: string | undefined
     oauthClientName?: string | undefined
+    // Per-request `x-anthropic-client` value (e.g. `ClaudeCode`, `ClaudeAI`).
+    // Anthropic pools MCP transports across products, so the live inner client
+    // can disagree with the session-pinned `clientName` from `initialize`.
+    vendorClient?: string | undefined
 }
 
 export class MCPClientProfile {
@@ -112,6 +116,7 @@ export class MCPClientProfile {
     readonly clientVersion: string | undefined
     readonly consumer: string | undefined
     readonly oauthClientName: string | undefined
+    readonly vendorClient: string | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -120,10 +125,11 @@ export class MCPClientProfile {
         this.clientVersion = input.clientVersion
         this.consumer = input.consumer
         this.oauthClientName = input.oauthClientName
+        this.vendorClient = input.vendorClient
     }
 
     isCodingAgent(): boolean {
-        return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+        return matchesAnyFragment(this.vendorClient ?? this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
     }
 
     isPostHogCodeConsumer(): boolean {

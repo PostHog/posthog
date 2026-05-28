@@ -75,6 +75,10 @@ export type RequestProperties = {
     mcpClientName?: string
     mcpClientVersion?: string
     mcpProtocolVersion?: string
+    // Per-request `x-anthropic-client` value. Identifies the live inner client
+    // on pooled MCP transports — distinct from `mcpClientName` (session-pinned
+    // from the initialize body's `clientInfo.name`).
+    mcpVendorClient?: string
     readOnly?: boolean
     mode?: McpMode
     transport?: 'streamable-http' | 'sse'
@@ -393,6 +397,9 @@ export class MCP extends McpAgent<Env> {
                     ...(this.mcpClientName ? { mcp_client_name: this.mcpClientName } : {}),
                     ...(this.mcpClientVersion ? { mcp_client_version: this.mcpClientVersion } : {}),
                     ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.mcpVendorClient
+                        ? { mcp_vendor_client: this.requestProperties.mcpVendorClient }
+                        : {}),
                     ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...(this.requestProperties.mcpSessionId
@@ -621,6 +628,7 @@ export class MCP extends McpAgent<Env> {
             clientVersion: this.mcpClientVersion,
             consumer: this.requestProperties.mcpConsumer,
             oauthClientName,
+            vendorClient: this.requestProperties.mcpVendorClient,
         })
 
         const { useSingleExec, version } = this.resolveModeAndVersion({
@@ -785,6 +793,7 @@ export class MCP extends McpAgent<Env> {
             getMcpClientName: async () => this.mcpClientName,
             getMcpClientVersion: async () => this.mcpClientVersion,
             getMcpProtocolVersion: async () => this.mcpProtocolVersion,
+            getMcpVendorClient: async () => this.requestProperties.mcpVendorClient,
             // Prefer the cached region (set on init after detection) so we don't miss it
             // when the inbound request didn't include the `region` hint.
             getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,

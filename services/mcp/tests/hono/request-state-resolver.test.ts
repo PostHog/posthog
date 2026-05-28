@@ -142,4 +142,25 @@ describe('RequestStateResolver MCP mode pinning', () => {
         expect(props.mode).toBe('cli')
         expect(mockSessionStore.get('mcpMode')).toBeUndefined()
     })
+
+    it('keeps the cached mode even when the vendor client would resolve to a different mode', async () => {
+        // First request inits a non-coding-agent pool (Claude Desktop) and pins mode='tools'.
+        await makeResolver().resolve(
+            makeProps({
+                mcpClientName: 'Anthropic/ClaudeAI',
+                mcpVendorClient: undefined,
+            })
+        )
+        expect(mockSessionStore.get('mcpMode')).toBe('tools')
+
+        // Same pooled session id, now carrying a Claude Code inner request.
+        // Cache must win — mode stays 'tools'.
+        const pooled = makeProps({
+            mcpClientName: 'Anthropic/ClaudeAI',
+            mcpVendorClient: 'ClaudeCode',
+        })
+        const result = await makeResolver().resolve(pooled)
+        expect(result.useSingleExec).toBe(false)
+        expect(pooled.mode).toBe('tools')
+    })
 })
