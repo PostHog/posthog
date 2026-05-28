@@ -41,6 +41,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import {
     ActivityScope,
     FilterLogicalOperator,
+    LogPropertyFilter,
     PersonType,
     PersonsTabType,
     PropertyDefinitionType,
@@ -226,7 +227,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                     type: PropertyFilterType.LogAttribute,
                     operator: PropertyOperator.Exact,
                     value: personDistinctIds ?? [],
-                } as any,
+                } as LogPropertyFilter,
             ],
         }),
         [logsDistinctIdAttributeKey, personDistinctIds]
