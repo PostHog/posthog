@@ -1267,6 +1267,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             # Postgres has its own location resolver (dotted-name fallback, `public` default).
             # Other SQL sources take the driver-discovered values verbatim from `SourceSchema`.
+            resolved_source_catalog: str | None
+            resolved_source_schema: str | None
+            resolved_source_table_name: str | None
             if source_type_model == ExternalDataSourceType.POSTGRES:
                 resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
                     get_postgres_source_table_location(
