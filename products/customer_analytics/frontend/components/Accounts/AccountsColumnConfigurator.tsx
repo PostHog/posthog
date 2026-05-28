@@ -92,29 +92,31 @@ function AccountsColumnConfiguratorModal({
                         <h4 className="secondary uppercase text-secondary">
                             Visible columns ({selectColumns.length}) - Drag to reorder
                         </h4>
-                        <DndContext
-                            onDragEnd={({ active, over }) => {
-                                if (over && active.id !== over.id) {
-                                    moveColumn(
-                                        selectColumns.indexOf(active.id.toString()),
-                                        selectColumns.indexOf(over.id.toString())
-                                    )
-                                }
-                            }}
-                            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-                        >
-                            <SortableContext items={selectColumns} strategy={verticalListSortingStrategy}>
-                                {selectColumns.map((column, index) => (
-                                    <SelectedAccountColumn
-                                        key={column}
-                                        column={column}
-                                        dataIndex={index}
-                                        onEdit={onEditColumn}
-                                        onRemove={unselectColumn}
-                                    />
-                                ))}
-                            </SortableContext>
-                        </DndContext>
+                        <div className="SelectedColumnsList">
+                            <DndContext
+                                onDragEnd={({ active, over }) => {
+                                    if (over && active.id !== over.id) {
+                                        moveColumn(
+                                            selectColumns.indexOf(active.id.toString()),
+                                            selectColumns.indexOf(over.id.toString())
+                                        )
+                                    }
+                                }}
+                                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                            >
+                                <SortableContext items={selectColumns} strategy={verticalListSortingStrategy}>
+                                    {selectColumns.map((column, index) => (
+                                        <SelectedAccountColumn
+                                            key={column}
+                                            column={column}
+                                            dataIndex={index}
+                                            onEdit={onEditColumn}
+                                            onRemove={unselectColumn}
+                                        />
+                                    ))}
+                                </SortableContext>
+                            </DndContext>
+                        </div>
                     </div>
                     <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>

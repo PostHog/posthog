@@ -553,6 +553,11 @@ export const accountsLogic = kea<accountsLogicType>([
                     kind: NodeKind.DataTableNode,
                     source,
                     full: true,
+                    // Suppress DataTable's built-in sort indicator on column
+                    // headers — our `SortableColumnHeader` renders its own (and
+                    // correctly reflects sorts where the orderBy expression
+                    // differs from the column name, e.g. `tupleElement(csm, 2)`).
+                    allowSorting: true,
                 }
             },
         ],
