@@ -86,112 +86,112 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     def calculate(self) -> WAR:
-        # `filters_hash` is bound here so every structured log emitted inside
-        # this request — `web_analytics_query_started`, `web_analytics_query`,
+        # `filters_hash` is bound on structlog contextvars here so every
+        # structured log emitted inside this request — `web_analytics_query`,
         # each lazy-precompute path's `*_rejected` / `*_eligible`, and the
         # framework's `lazy_computation.executed` — automatically carries it
-        # via `structlog.contextvars.merge_contextvars`. Joining log streams
-        # by cache key needs no further plumbing.
+        # via the `merge_contextvars` processor. Joining log streams by cache
+        # key needs no further plumbing. The body is inlined inside the
+        # contextvar block (rather than delegated to a helper) so existing
+        # tests that call `WebAnalyticsQueryRunner.calculate(<MagicMock>)`
+        # exercise it directly.
         with bound_contextvars(filters_hash=self.filters_hash):
-            return self._calculate_with_logging()
+            # Every web analytics query runner produces user-facing dashboard
+            # queries. Tag here so all downstream `sync_execute` calls (live,
+            # preagg, lazy precompute) inherit `product`/`feature` and don't
+            # trip DEBUG-mode `UntaggedQueryError`.
+            tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
 
-    def _calculate_with_logging(self) -> WAR:
-        # Every web analytics query runner produces user-facing dashboard
-        # queries. Tag here so all downstream `sync_execute` calls (live,
-        # preagg, lazy precompute) inherit `product`/`feature` and don't
-        # trip DEBUG-mode `UntaggedQueryError`.
-        tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
+            # The HTTP path tags the wrapped query payload in
+            # `posthog/api/services/query.py`, but the weekly digest workflow
+            # (and any other non-HTTP caller) reaches the runner directly and
+            # leaves `log_comment.query` empty. Tag the inner query so every
+            # web-analytics row in `system.query_log` carries `dateRange`,
+            # properties, etc., and so each runner in a long-lived activity
+            # records its own payload instead of inheriting the first one.
+            tag_queries(query=self.query.model_dump(mode="json"))
 
-        # The HTTP path tags the wrapped query payload in
-        # `posthog/api/services/query.py`, but the weekly digest workflow
-        # (and any other non-HTTP caller) reaches the runner directly and
-        # leaves `log_comment.query` empty. Tag the inner query so every
-        # web-analytics row in `system.query_log` carries `dateRange`,
-        # properties, etc., and so each runner in a long-lived activity
-        # records its own payload instead of inheriting the first one.
-        tag_queries(query=self.query.model_dump(mode="json"))
+            query_kind = getattr(self.query, "kind", "Unknown")
+            breakdown_value = getattr(self.query, "breakdownBy", None)
+            breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
+            has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
 
-        query_kind = getattr(self.query, "kind", "Unknown")
-        breakdown_value = getattr(self.query, "breakdownBy", None)
-        breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
-        has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
+            logger.info(
+                "web_analytics_query_started",
+                team_id=self.team.pk,
+                query_kind=query_kind,
+            )
 
-        logger.info(
-            "web_analytics_query_started",
-            team_id=self.team.pk,
-            query_kind=query_kind,
-        )
+            if breakdown_value is not None:
+                tag_queries(breakdown_by=[breakdown_value.value])
 
-        if breakdown_value is not None:
-            tag_queries(breakdown_by=[breakdown_value.value])
-
-        start = perf_counter()
-        response: Optional[WAR] = None
-        error_type = ""
-        query_strategy: str | None = None
-        clickhouse_query_type: str | None = None
-
-        try:
-            response = super().calculate()
-            return response
-        except Exception as exc:
-            error_type = type(exc).__name__
-            raise
-        finally:
-            duration_s = perf_counter() - start
+            start = perf_counter()
+            response: Optional[WAR] = None
+            error_type = ""
+            query_strategy: str | None = None
+            clickhouse_query_type: str | None = None
 
             try:
-                query_strategy = self.query_strategy()
-                clickhouse_query_type = self.clickhouse_query_type()
-            except Exception:
-                query_strategy = query_strategy or "strategy_resolution_failed"
-                clickhouse_query_type = clickhouse_query_type or None
+                response = super().calculate()
+                return response
+            except Exception as exc:
+                error_type = type(exc).__name__
+                raise
+            finally:
+                duration_s = perf_counter() - start
 
-            used_preaggregated_label = "unknown"
-            if response is not None:
-                val = getattr(response, "usedPreAggregatedTables", None)
-                if val is not None:
-                    used_preaggregated_label = str(val).lower()
+                try:
+                    query_strategy = self.query_strategy()
+                    clickhouse_query_type = self.clickhouse_query_type()
+                except Exception:
+                    query_strategy = query_strategy or "strategy_resolution_failed"
+                    clickhouse_query_type = clickhouse_query_type or None
 
-            query_strategy_label = query_strategy or "none"
-            metric_labels = {
-                "query_kind": query_kind,
-                "query_strategy": query_strategy_label,
-                "used_preaggregated": used_preaggregated_label,
-                "breakdown": breakdown_label,
-                "has_conversion_goal": has_conversion_goal,
-            }
-            WEB_ANALYTICS_QUERY_DURATION.labels(**metric_labels).observe(duration_s)
-            WEB_ANALYTICS_QUERY_COUNTER.labels(**metric_labels).inc()
+                used_preaggregated_label = "unknown"
+                if response is not None:
+                    val = getattr(response, "usedPreAggregatedTables", None)
+                    if val is not None:
+                        used_preaggregated_label = str(val).lower()
 
-            if error_type:
-                WEB_ANALYTICS_QUERY_ERRORS.labels(
+                query_strategy_label = query_strategy or "none"
+                metric_labels = {
+                    "query_kind": query_kind,
+                    "query_strategy": query_strategy_label,
+                    "used_preaggregated": used_preaggregated_label,
+                    "breakdown": breakdown_label,
+                    "has_conversion_goal": has_conversion_goal,
+                }
+                WEB_ANALYTICS_QUERY_DURATION.labels(**metric_labels).observe(duration_s)
+                WEB_ANALYTICS_QUERY_COUNTER.labels(**metric_labels).inc()
+
+                if error_type:
+                    WEB_ANALYTICS_QUERY_ERRORS.labels(
+                        query_kind=query_kind,
+                        query_strategy=query_strategy_label,
+                        breakdown=breakdown_label,
+                        error_type=error_type,
+                    ).inc()
+
+                sampling = getattr(self.query, "sampling", None)
+                logger.info(
+                    "web_analytics_query",
+                    team_id=self.team.pk,
+                    organization_id=str(self.team.organization_id),
+                    user_id=get_query_tag_value("user_id"),
                     query_kind=query_kind,
-                    query_strategy=query_strategy_label,
+                    query_strategy=query_strategy,
+                    clickhouse_query_type=clickhouse_query_type,
                     breakdown=breakdown_label,
-                    error_type=error_type,
-                ).inc()
-
-            sampling = getattr(self.query, "sampling", None)
-            logger.info(
-                "web_analytics_query",
-                team_id=self.team.pk,
-                organization_id=str(self.team.organization_id),
-                user_id=get_query_tag_value("user_id"),
-                query_kind=query_kind,
-                query_strategy=query_strategy,
-                clickhouse_query_type=clickhouse_query_type,
-                breakdown=breakdown_label,
-                has_conversion_goal=has_conversion_goal,
-                used_preaggregated=used_preaggregated_label,
-                duration_s=round(duration_s, 4),
-                error=bool(error_type),
-                error_type=error_type or None,
-                filter_count=len(self.query.properties),
-                date_from=self.query_date_range.date_from_str,
-                date_to=self.query_date_range.date_to_str,
-                sampling_enabled=sampling.enabled if sampling else False,
-            )
+                    has_conversion_goal=has_conversion_goal,
+                    used_preaggregated=used_preaggregated_label,
+                    duration_s=round(duration_s, 4),
+                    error=bool(error_type),
+                    error_type=error_type or None,
+                    filter_count=len(self.query.properties),
+                    date_from=self.query_date_range.date_from_str,
+                    date_to=self.query_date_range.date_to_str,
+                    sampling_enabled=sampling.enabled if sampling else False,
+                )
 
     @cached_property
     def filters_hash(self) -> Optional[str]:

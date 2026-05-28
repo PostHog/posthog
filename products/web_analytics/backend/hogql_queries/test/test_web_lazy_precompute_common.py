@@ -1,4 +1,7 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
+from unittest import mock
+
+from structlog.contextvars import get_contextvars
 
 from posthog.schema import (
     CompareFilter,
@@ -10,7 +13,10 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_filters_hash
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
 def _overview(
@@ -115,3 +121,73 @@ class TestComputeQueryFiltersHash(BaseTest):
         h = compute_query_filters_hash(_overview(), "UTC")
         assert len(h) == 64
         int(h, 16)
+
+
+class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
+    """Verifies that `WebAnalyticsQueryRunner.calculate()` binds `filters_hash`
+    on `structlog.contextvars` so every log emitted inside the request —
+    including from code called via `super().calculate()` and downstream paths
+    like the lazy framework's `lazy_computation.executed` — picks it up via
+    the project-wide `merge_contextvars` processor.
+
+    The tests inspect `structlog.contextvars.get_contextvars()` directly rather
+    than going through `structlog.testing.capture_logs()` because the latter
+    replaces the configured processor chain and therefore doesn't run
+    `merge_contextvars` — capture_logs would falsely report the field missing
+    even when production code is correct."""
+
+    def _runner(self) -> WebOverviewQueryRunner:
+        return WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="-7d"),
+                properties=[],
+            ),
+        )
+
+    def test_filters_hash_bound_during_super_calculate(self) -> None:
+        """While `super().calculate()` is running, `get_contextvars()` should
+        return `filters_hash` — this is the property the `merge_contextvars`
+        processor relies on to attach the field to every log inside the call
+        tree (`lazy_computation.executed`, eligibility-rejected lines, etc.).
+
+        Patches `AnalyticsQueryRunner.calculate` (the parent reached by
+        `super().calculate()`), NOT a runner-level class — patching at the
+        binding class would replace the very method that wraps the
+        contextvar block."""
+        runner = self._runner()
+        expected = runner.filters_hash
+        assert expected is not None
+
+        captured: dict = {}
+        original = AnalyticsQueryRunner.calculate
+
+        def spy(self_):
+            captured.update(get_contextvars())
+            return original(self_)
+
+        with mock.patch.object(AnalyticsQueryRunner, "calculate", spy):
+            runner.calculate()
+
+        assert captured.get("filters_hash") == expected
+
+    def test_filters_hash_unbound_after_calculate_returns(self) -> None:
+        """The contextvar must not leak past `calculate()` — `get_contextvars()`
+        outside the request should NOT include the prior request's hash."""
+        runner = self._runner()
+        runner.calculate()
+        assert "filters_hash" not in get_contextvars()
+
+    def test_filters_hash_unbound_after_calculate_raises(self) -> None:
+        """Same cleanup invariant when `calculate()` raises — the contextvar
+        must still be unbound (otherwise an exception in one request would
+        leak its filters_hash into the next request on the same worker)."""
+        runner = self._runner()
+
+        with mock.patch.object(AnalyticsQueryRunner, "calculate", side_effect=RuntimeError("boom")):
+            try:
+                runner.calculate()
+            except RuntimeError:
+                pass
+
+        assert "filters_hash" not in get_contextvars()
