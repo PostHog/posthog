@@ -294,8 +294,6 @@ def _confirm_apply_template_update() -> bool:
         return False
     click.echo()
     click.echo("Template update available for this devbox.")
-    click.echo("Apply it now to avoid the VS Code Coder extension upgrade prompt,")
-    click.echo("which lands in a read-only Output channel and cannot be answered.")
     return click.confirm("Apply now?", default=True)
 
 
@@ -320,11 +318,7 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
             update_workspace(name, verbose=verbose)
             click.echo("Updated.")
         else:
-            click.echo(
-                "Skipping template update. Run `hogli devbox:update` when ready. "
-                "If VS Code prompts to upgrade, decline it — its Output channel "
-                "is read-only and the prompt cannot be answered."
-            )
+            click.echo("Skipping template update. Run `hogli devbox:update` when ready.")
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
