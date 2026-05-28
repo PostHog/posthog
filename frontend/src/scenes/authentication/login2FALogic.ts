@@ -6,7 +6,7 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
+import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 
 import type { login2FALogicType } from './login2FALogicType'
 import { handleLoginRedirect } from './loginLogic'
@@ -45,6 +45,7 @@ export const login2FALogic = kea<login2FALogicType>([
         setLoginStep: (step: LoginStep) => ({ step }),
         clearGeneralError: true,
         beginPasskey2FA: true,
+        passkey2FACancelled: true,
         checkPasskeysAvailable: true,
         setTotpAvailable: (available: boolean) => ({ available }),
     }),
@@ -60,6 +61,13 @@ export const login2FALogic = kea<login2FALogicType>([
             true as boolean,
             {
                 setTotpAvailable: (_, { available }) => available,
+            },
+        ],
+        passkey2FAWasCancelled: [
+            false,
+            {
+                beginPasskey2FA: () => false,
+                passkey2FACancelled: () => true,
             },
         ],
     }),
@@ -93,6 +101,12 @@ export const login2FALogic = kea<login2FALogicType>([
 
                         return null
                     } catch (e: unknown) {
+                        if (isWebAuthnCancellation(e)) {
+                            // Expected user cancellation — fully swallow so it
+                            // doesn't surface in the UI or in error tracking.
+                            actions.passkey2FACancelled()
+                            return null
+                        }
                         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         throw e
                     }
@@ -139,18 +153,25 @@ export const login2FALogic = kea<login2FALogicType>([
             },
         },
     })),
-    listeners({
+    listeners(({ values }) => ({
         submitTwofactortokenSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
         beginPasskey2FASuccess: () => {
+            // The loader returns null on user cancellation to avoid surfacing
+            // the DOMException to global error capture. Skip the post-login
+            // redirect/reload path in that case so the user stays on the
+            // 2FA screen and can retry.
+            if (values.passkey2FAWasCancelled) {
+                return
+            }
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-    }),
+    })),
     afterMount(({ actions }) => {
         // Check if user has passkeys when component mounts
         actions.checkPasskeysAvailable()
