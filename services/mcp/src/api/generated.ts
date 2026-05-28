@@ -3797,6 +3797,22 @@ export namespace Schemas {
       total_duration_nano: number;
     }
 
+    /**
+     * * `sum` - sum
+    * `avg` - avg
+    * `count` - count
+    * `p95` - p95
+     */
+    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
+
+
+    export const AggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      P95: 'p95',
+    } as const;
+
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
       lower?: number | null;
@@ -38088,6 +38104,21 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    export interface VisionQuota {
+      /** Total observations the org may complete per calendar month. */
+      readonly monthly_quota: number;
+      /** Observations created this month that are in flight or have succeeded, counted against the quota. */
+      readonly usage_this_month: number;
+      /** `monthly_quota - usage_this_month`, floored at 0. */
+      readonly remaining: number;
+      /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+      readonly exhausted: boolean;
+      /** First moment of the current quota period (UTC). */
+      readonly period_start: string;
+      /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+      readonly period_end: string;
+    }
+
     /**
      * * `pending` - pending
     * `provisioning` - provisioning
@@ -38592,6 +38623,42 @@ export namespace Schemas {
       results: _LogAttributeValue[];
       /** Always false — reserved for future cached-value refresh signalling. */
       refreshing: boolean;
+    }
+
+    export interface _MetricQueryBody {
+      /**
+         * Exact metric name to query (e.g. 'http.server.duration').
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Aggregation applied per time bucket.
+
+      * `sum` - sum
+      * `avg` - avg
+      * `count` - count
+      * `p95` - p95 */
+      aggregation?: AggregationEnum;
+      /** Lower bound (inclusive) for the query range. ISO 8601. */
+      dateFrom: string;
+      /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+      dateTo?: string;
+    }
+
+    export interface _MetricQueryPoint {
+      /** Bucket start as ISO 8601 timestamp. */
+      time: string;
+      /** Aggregated value for the bucket. */
+      value: number;
+    }
+
+    export interface _MetricQueryRequest {
+      /** The metric query to execute. */
+      query: _MetricQueryBody;
+    }
+
+    export interface _MetricQueryResponse {
+      /** Time-bucketed points, ordered by time ascending. */
+      results: _MetricQueryPoint[];
     }
 
     /**

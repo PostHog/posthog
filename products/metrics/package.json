@@ -12,6 +12,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@posthog/products-error-tracking": "workspace:*",
         "@types/react": "*",
         "clsx": "*",
         "react": "*"
