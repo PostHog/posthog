@@ -205,6 +205,67 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, false, true, true])
     })
 
+    it('handles a mixed batch: cooldown team, tripping team, partial pass-through, clean team', async () => {
+        const limiter = build('big-mix', { threshold: 2 })
+        await cleanLimiter(limiter)
+
+        const bucketExists = async (key: string): Promise<number> =>
+            (await redis.useClient({ name: 'check' }, async (client) => client.exists(key))) ?? 0
+
+        // Pre-trip team 100: 3 new scopeKeys against threshold=2 → cooldown flag set.
+        await limiter.rateLimitGrouped([req(100, 'pre1'), req(100, 'pre2'), req(100, 'pre3')])
+        expect(await cooldownIsSet(limiter.cooldownKey(100))).toBe(true)
+
+        // Single big batch covering every status at once:
+        //   team 100: already in cooldown → both events pass through, no buckets minted.
+        //   team 200: 3 distinct scopeKeys → first 2 allowed, third trips.
+        //   team 300: 4 inputs sharing one scopeKey, bucket=2 → first 2 allowed, last 2 limited.
+        //   team 400: 2 distinct scopeKeys → both clean pass, no trip (counter 2 == threshold).
+        const batch = [
+            req(100, 'cooldown-1'),
+            req(100, 'cooldown-2'),
+            req(200, 'tripA'),
+            req(200, 'tripB'),
+            req(200, 'tripC'),
+            req(300, 'noisy', 1, { bucketSize: 2, refillRate: 0 }),
+            req(300, 'noisy', 1, { bucketSize: 2, refillRate: 0 }),
+            req(300, 'noisy', 1, { bucketSize: 2, refillRate: 0 }),
+            req(300, 'noisy', 1, { bucketSize: 2, refillRate: 0 }),
+            req(400, 'cleanA'),
+            req(400, 'cleanB'),
+        ]
+        const res = await limiter.rateLimitGrouped(batch)
+
+        expect(res.map(([, r]) => r.isRateLimited)).toEqual([
+            false, // 100 cooldown
+            false, // 100 cooldown
+            false, // 200 allowed
+            false, // 200 allowed
+            false, // 200 tripped (passes through)
+            false, // 300 allowed (budget 2 → 1)
+            false, // 300 allowed (budget 1 → 0)
+            true, // 300 limited
+            true, // 300 limited
+            false, // 400 allowed
+            false, // 400 allowed
+        ])
+
+        // Team 100 was already in cooldown → new scopeKeys never minted buckets.
+        expect(await bucketExists(`${limiter.getKeyPrefix()}/100:exceptions:issue:cooldown-1`)).toBe(0)
+        expect(await bucketExists(`${limiter.getKeyPrefix()}/100:exceptions:issue:cooldown-2`)).toBe(0)
+
+        // Team 200 tripped this batch — first two buckets minted, third (tripC) NOT.
+        expect(await cooldownIsSet(limiter.cooldownKey(200))).toBe(true)
+        expect(await bucketExists(`${limiter.getKeyPrefix()}/200:exceptions:issue:tripA`)).toBe(1)
+        expect(await bucketExists(`${limiter.getKeyPrefix()}/200:exceptions:issue:tripB`)).toBe(1)
+        expect(await bucketExists(`${limiter.getKeyPrefix()}/200:exceptions:issue:tripC`)).toBe(0)
+
+        // Team 300 never tripped (only 1 distinct scopeKey).
+        expect(await cooldownIsSet(limiter.cooldownKey(300))).toBe(false)
+        // Team 400 stayed under threshold.
+        expect(await cooldownIsSet(limiter.cooldownKey(400))).toBe(false)
+    })
+
     it('throws when a request is missing teamId', async () => {
         const limiter = build('missing-team')
         await cleanLimiter(limiter)
