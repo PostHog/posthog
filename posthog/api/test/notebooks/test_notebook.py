@@ -100,6 +100,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
             "user_access_level": "manager",
+            "parent_resource": None,
         }
 
         self.assert_notebook_activity(
@@ -249,7 +250,9 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": bad_content},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "DefinitelyNotAQuery" in response.json()["content"][0]
+        body = response.json()
+        assert body["attr"] == "content"
+        assert "DefinitelyNotAQuery" in body["detail"]
 
     def test_update_notebook_normalizes_invalid_query_node(self) -> None:
         create = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})

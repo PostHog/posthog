@@ -11,7 +11,13 @@ from django.utils.timezone import now
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
@@ -91,6 +97,21 @@ _NOTEBOOK_FIELD_HELP_TEXTS = {
     "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
 }
 
+_PARENT_RESOURCE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "description": (
+        "Parent resource this notebook is attached to, if any. Used by the notebook scene "
+        "to render context-aware breadcrumbs (e.g. account notebooks link back to the "
+        "Customer analytics accounts list)."
+    ),
+    "properties": {
+        "type": {"type": "string", "enum": ["account"]},
+        "id": {"type": "string", "format": "uuid"},
+    },
+    "required": ["type", "id"],
+}
+
 
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
@@ -116,6 +137,14 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    parent_resource = serializers.SerializerMethodField(
+        help_text=(
+            "Parent resource this notebook is attached to, or `null`. Returns "
+            "`{type: 'account', id: <uuid>}` for account-linked notebooks; used by the "
+            "frontend to route breadcrumbs back to the resource's list."
+        ),
+    )
+
     class Meta:
         model = Notebook
         fields = [
@@ -131,6 +160,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -141,6 +171,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
@@ -158,6 +189,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+    @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
+    def get_parent_resource(self, obj: Notebook) -> dict | None:
+        # Group parents are skipped: ResourceNotebook stores group PK but personhog has no get-by-pk RPC.
+        link = obj.resources.filter(account_id__isnull=False).only("account_id").first()
+        if link is None:
+            return None
+        return {"type": "account", "id": str(link.account_id)}
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
