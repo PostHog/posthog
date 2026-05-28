@@ -1036,23 +1036,6 @@ def extract_workspace_label(workspace_name: str) -> str | None:
     return rest or None
 
 
-def extract_workspace_region(workspace_name: str) -> str:
-    """Extract the region from a full workspace name's trailing suffix.
-
-    Falls back to ``DEFAULT_REGION`` for suffix-free names. Useful when
-    building defaults from a workspace name without round-tripping through
-    the Coder API for the published metadata.
-    """
-    prefix = get_default_workspace_prefix()
-    if not (workspace_name == prefix or workspace_name.startswith(f"{prefix}-")):
-        return DEFAULT_REGION
-    rest = workspace_name[len(prefix) :].lstrip("-")
-    for region, suffix in REGION_NAME_SUFFIXES.items():
-        if suffix and (rest == suffix or rest.endswith(f"-{suffix}")):
-            return region
-    return DEFAULT_REGION
-
-
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
     prefix = get_default_workspace_prefix()
@@ -1488,18 +1471,21 @@ def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
 # ---------------------------------------------------------------------------
 
 
-def resolve_shared_workspace_name(user: str, label: str | None = None, *, region: str = DEFAULT_REGION) -> str:
+def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
     """Build a workspace name for another user's workspace.
 
-    Mirrors :func:`get_workspace_name`: ``devbox-{user}`` for the default
-    workspace, ``devbox-{user}-{label}`` for a labeled one, with a region
-    suffix appended for non-default regions.
+    Mirrors the default-region form of :func:`get_workspace_name`:
+    ``devbox-{user}`` for the default workspace, ``devbox-{user}-{label}``
+    for a labeled one. The caller's own region preference is intentionally
+    NOT applied -- the remote workspace's region is determined by its owner,
+    not the accessor, so a region suffix here would just guess wrong.
+    Callers needing a shared workspace in a non-default region should pass
+    the full workspace name via ``--name``.
     """
     base = f"{_WORKSPACE_PREFIX}-{user}"
-    suffix = _region_name_suffix(region)
     if label is None:
-        return f"{base}-{suffix}" if suffix else base
-    return f"{base}-{label}-{suffix}" if suffix else f"{base}-{label}"
+        return base
+    return f"{base}-{label}"
 
 
 def parse_workspace_target(target: str, *, region: str = DEFAULT_REGION) -> str:
@@ -1510,9 +1496,9 @@ def parse_workspace_target(target: str, *, region: str = DEFAULT_REGION) -> str:
     - ``@user/label`` -> another user's labeled workspace
     - ``label`` -> current user's labeled workspace
 
-    ``region`` controls the region suffix applied to the resolved name. Pass
-    the saved preference from local config so labels target the same region
-    the caller's other commands use.
+    ``region`` controls the region suffix applied to OWN labels only.
+    Shared targets (``@user[/label]``) ignore it -- see
+    :func:`resolve_shared_workspace_name`.
     """
     if target.startswith("@"):
         rest = target[1:]
@@ -1520,10 +1506,10 @@ def parse_workspace_target(target: str, *, region: str = DEFAULT_REGION) -> str:
             user, label = rest.split("/", 1)
             if not user or not label:
                 raise click.UsageError("Expected @user/label but got an empty user or label.")
-            return resolve_shared_workspace_name(user, label, region=region)
+            return resolve_shared_workspace_name(user, label)
         if not rest:
             raise click.UsageError("Expected @user but got bare '@'.")
-        return resolve_shared_workspace_name(rest, region=region)
+        return resolve_shared_workspace_name(rest)
     return get_workspace_name(target, region=region)
 
 

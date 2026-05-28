@@ -734,35 +734,16 @@ class TestWorkspaceNaming:
         assert coder.extract_workspace_label(workspace_name) == expected_label
 
     @pytest.mark.parametrize(
-        "workspace_name, expected_region",
+        "user, label, expected",
         [
-            ("devbox-test-user", "us-east-1"),
-            ("devbox-test-user-api", "us-east-1"),
-            ("devbox-test-user-eu", "eu-central-1"),
-            ("devbox-test-user-api-eu", "eu-central-1"),
-            ("other-workspace", "us-east-1"),
-        ],
-        ids=["default-us", "labeled-us", "default-eu", "labeled-eu", "unrelated-falls-back"],
-    )
-    def test_extract_region_from_name(
-        self, monkeypatch: pytest.MonkeyPatch, workspace_name: str, expected_region: str
-    ) -> None:
-        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
-        assert coder.extract_workspace_region(workspace_name) == expected_region
-
-    @pytest.mark.parametrize(
-        "user, label, region, expected",
-        [
-            ("alice", None, "us-east-1", "devbox-alice"),
-            ("alice", None, "eu-central-1", "devbox-alice-eu"),
-            ("alice", "api", "us-east-1", "devbox-alice-api"),
-            ("alice", "api", "eu-central-1", "devbox-alice-api-eu"),
+            ("alice", None, "devbox-alice"),
+            ("alice", "api", "devbox-alice-api"),
         ],
     )
-    def test_shared_workspace_name_encodes_region(
-        self, user: str, label: str | None, region: str, expected: str
-    ) -> None:
-        assert coder.resolve_shared_workspace_name(user, label, region=region) == expected
+    def test_shared_workspace_name_ignores_caller_region(self, user: str, label: str | None, expected: str) -> None:
+        # Shared workspace lookups never apply the caller's region pref:
+        # the remote workspace's region belongs to its owner.
+        assert coder.resolve_shared_workspace_name(user, label) == expected
 
 
 class TestWorkspaceRegion:
@@ -1215,9 +1196,54 @@ class TestResolveWorkspaceName:
 
     def test_explicit_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        # Own-label resolution fetches the workspace list to allow cross-region
+        # fallback, so `workspaces` comes back populated even when the target
+        # isn't found.
         name, workspaces = devbox_cli.resolve_workspace_name("api")
         assert name == "devbox-test-user-api"
+        assert workspaces == []
+
+    def test_explicit_shared_label_skips_workspace_fetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Shared targets (`@user[/label]`) skip the own-workspace list call."""
+        calls: list[str] = []
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: calls.append("listed") or [])
+        name, workspaces = devbox_cli.resolve_workspace_name("@alice/api")
+        assert name == "devbox-alice-api"
         assert workspaces is None
+        assert calls == []
+
+    def test_own_label_falls_back_to_cross_region_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If preferred-region name doesn't exist, find a workspace with the same label in another region."""
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user-api"}],  # us-region workspace, no -eu suffix
+        )
+        name, workspaces = devbox_cli.resolve_workspace_name("api")
+        # Preferred-region name would be `devbox-test-user-api-eu`; fallback finds the us workspace.
+        assert name == "devbox-test-user-api"
+        assert workspaces == [{"name": "devbox-test-user-api"}]
+
+    def test_own_label_prefers_preferred_region_when_both_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user-api"}, {"name": "devbox-test-user-api-eu"}],
+        )
+        name, _ = devbox_cli.resolve_workspace_name("api")
+        assert name == "devbox-test-user-api-eu"
+
+    def test_preferred_region_falls_back_when_saved_value_unknown(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        # Simulate a hand-edited config with a region that's no longer in REGIONS.
+        devbox_config_path.write_text(json.dumps({"region": "ap-southeast-2"}))
+        assert devbox_cli._preferred_region() == coder.DEFAULT_REGION
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(

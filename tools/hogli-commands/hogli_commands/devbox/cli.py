@@ -135,15 +135,23 @@ def resolve_workspace_name(
     Returns (name, workspaces) where workspaces is the already-fetched list
     when available, so callers can skip a second ``_list_workspaces`` call.
 
-    ``region`` controls the region suffix applied to the resolved name.
-    Defaults to the user's saved preference so labels target the same region
-    the rest of the command surface defaults to; pass an explicit override
-    only when the caller already knows the region (e.g. ``devbox:start
-    --region``).
+    ``region`` controls the region suffix used when constructing names for
+    workspaces that don't exist yet (e.g. ``devbox:start --region``). When
+    resolving an OWN label against the user's actual workspaces, the region
+    suffix is treated as a preference, not a constraint: if the preferred
+    name doesn't exist but a workspace with the same label exists in another
+    region, that one is returned. This keeps a saved region pref from
+    silently masking existing workspaces created before the pref was set.
     """
     effective_region = region if region is not None else _preferred_region()
     if workspace is not None:
-        return parse_workspace_target(workspace, region=effective_region), None
+        target_name = parse_workspace_target(workspace, region=effective_region)
+        # Shared workspace targets (`@user[/label]`) are looked up against the
+        # remote owner, so cross-region label fallback is the owner's
+        # responsibility -- skip it here.
+        if workspace.startswith("@"):
+            return target_name, None
+        return _resolve_own_label(target_name)
 
     workspaces = list_user_workspaces()
 
@@ -163,6 +171,25 @@ def resolve_workspace_name(
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
+
+
+def _resolve_own_label(target_name: str) -> tuple[str, list[dict[str, Any]] | None]:
+    """Return ``(name, workspaces)`` for an own-label target, falling back across regions.
+
+    If ``target_name`` matches an existing workspace, return it directly.
+    Otherwise look for any of the user's workspaces with the same label and
+    return that. When no candidate exists, return ``target_name`` so the
+    downstream "not found" path runs with a stable name.
+    """
+    workspaces = list_user_workspaces()
+    if any(ws.get("name") == target_name for ws in workspaces):
+        return target_name, workspaces
+    label = extract_workspace_label(target_name)
+    if label is not None:
+        for ws in workspaces:
+            if extract_workspace_label(ws.get("name", "")) == label:
+                return ws["name"], workspaces
+    return target_name, workspaces
 
 
 def _local_port_is_available(port: int) -> bool:
@@ -516,9 +543,12 @@ def _preferred_region() -> str:
 
     Centralized so every command path that needs the user's region
     preference reads the same value -- and so the fallback to the built-in
-    default lives in one place.
+    default lives in one place. A persisted value that's no longer in
+    ``REGIONS`` (e.g. a stale entry from a hand-edited config) falls back
+    to ``DEFAULT_REGION`` instead of poisoning every downstream lookup.
     """
-    return load_config().get("region") or DEFAULT_REGION
+    saved = load_config().get("region")
+    return saved if saved in REGIONS else DEFAULT_REGION
 
 
 def maybe_configure_region(configure_region: bool | None) -> None:
