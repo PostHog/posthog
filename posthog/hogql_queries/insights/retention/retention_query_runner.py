@@ -227,6 +227,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return entity_to_expr(self.return_event, self.team)
 
     @cached_property
+    def start_and_return_entities_are_same(self) -> bool:
+        identity_fields = {"id", "type", "table_name", "timestamp_field", "properties"}
+        return self.start_event.model_dump(mode="json", include=identity_fields) == self.return_event.model_dump(
+            mode="json", include=identity_fields
+        )
+
+    @cached_property
     def aggregation_target_events_column(self) -> str:
         if self.group_type_index is not None:
             group_index = int(self.group_type_index)
@@ -239,10 +246,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
         )
-        # Pre-filter events to only those we care about
-        is_relevant_event = ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
+        # Pre-filter events to only those we care about. Skip the or() wrapper
+        # when start == return — ClickHouse does not fully CSE the WHERE-side
+        # or(X, X) and the un-wrapped predicate is measurably faster.
         if not self.is_first_ever_occurrence:
-            global_event_filters.append(is_relevant_event)
+            if self.start_and_return_entities_are_same:
+                global_event_filters.append(self.start_entity_expr)
+            else:
+                global_event_filters.append(ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr]))
 
         if self.group_type_index is not None:
             global_event_filters.append(

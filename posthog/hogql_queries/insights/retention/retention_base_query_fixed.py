@@ -290,7 +290,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         timestamp_field: ast.Expr,
     ) -> ast.Expr:
         property_aggregation_expr = self.runner.property_aggregation_expr_for_entity(entity)
-        if query_kind == "start" and not self._start_and_return_entities_are_same():
+        if query_kind == "start" and not self.runner.start_and_return_entities_are_same:
             property_aggregation_expr = ast.Constant(value=0.0)
 
         assert property_aggregation_expr
@@ -319,12 +319,6 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return property_to_expr(entity.properties, self.team)
 
         return ast.Constant(value=True)
-
-    def _start_and_return_entities_are_same(self) -> bool:
-        identity_fields = {"id", "type", "table_name", "timestamp_field", "properties"}
-        return self.start_event.model_dump(mode="json", include=identity_fields) == self.return_event.model_dump(
-            mode="json", include=identity_fields
-        )
 
     # Original version of the fixed interval query.
     def build_base_query_legacy(
@@ -642,7 +636,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # cohort count stays consistent with normal retention.
             # When they are the same event, start_data captures the interval-0 value and
             # return_data contributes only later intervals to avoid double-counting.
-            different_event_entities = not self._start_and_return_entities_are_same()
+            different_event_entities = not self.runner.start_and_return_entities_are_same
 
             if different_event_entities:
                 # Include return events in interval 0 (index 0 = same interval as cohort) only when
