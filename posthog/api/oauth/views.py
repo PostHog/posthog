@@ -48,6 +48,7 @@ from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
+from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -252,6 +253,9 @@ class OAuthValidator(OAuth2Validator):
         not for 'localhost'. Native apps like Claude Code register
         http://localhost/callback and request http://localhost:<ephemeral>/callback.
         """
+
+        if has_authority_bypass_chars(redirect_uri):
+            return False
 
         if request.client.redirect_uri_allowed(redirect_uri):
             return True

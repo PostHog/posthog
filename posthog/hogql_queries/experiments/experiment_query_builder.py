@@ -2200,11 +2200,11 @@ class ExperimentQueryBuilder:
             step_filter = step_builder._build_step_filter(step_source)
             step_exprs.append(step_filter)
 
-        # Pack into Array(UInt8): [toUInt8(if(step_0, 1, 0)), toUInt8(if(step_1, 1, 0)), ...]
+        # Pack into Array(UInt8): [_toUInt8(if(step_0, 1, 0)), _toUInt8(if(step_1, 1, 0)), ...]
         steps_array = ast.Array(
             exprs=[
                 ast.Call(
-                    name="toUInt8",
+                    name="_toUInt8",
                     args=[ast.Call(name="if", args=[expr, ast.Constant(value=1), ast.Constant(value=0)])],
                 )
                 for expr in step_exprs
