@@ -1,7 +1,7 @@
 #
 # This workflow runs CI E2E tests with Playwright.
 #
-# It relies on the container image built by 'container-images-ci.yml'.
+# It relies on the posthog-node image built by 'ci-nodejs-container.yml'.
 #
 name: E2E CI Playwright
 on:
@@ -77,11 +77,20 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
             # cost of fetching blobs.
+            #
+            # sparse-checkout works around an actions/checkout@v6.0.2 flake: with
+            # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
+            # and the per-blob credential lookup intermittently fails with "could not
+            # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
+            # until the job was retried). Materializing only the one file this job
+            # reads collapses the lazy fetch to a single blob.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
