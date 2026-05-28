@@ -5,6 +5,7 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
@@ -177,6 +178,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        submitSubscriptionSuccess: ({ subscription }) => {
+            if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
+                const channelId = subscription.target_value.split('|')[0]
+                if (channelId) {
+                    // Mount briefly so the persisted reducer captures the recency even if the picker has already unmounted.
+                    const logic = slackIntegrationLogic({ id: subscription.integration_id })
+                    const unmount = logic.mount()
+                    logic.actions.recordSubscribedChannel(channelId)
+                    unmount()
+                }
+            }
+        },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
             if (error instanceof Error && error.message === 'Validation Failed') {

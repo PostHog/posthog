@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
@@ -38,11 +39,21 @@ describe('subscriptionLogic', () => {
     let existingLogic: ReturnType<typeof subscriptionLogic.build>
     beforeEach(async () => {
         jest.clearAllMocks()
+        window.localStorage.clear()
         useMocks({
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
                 '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/integrations': { count: 0, results: [] },
+                '/api/environments/:team/subscriptions/summary_quota': {
+                    active_count: 0,
+                    limit: null,
+                    at_limit: false,
+                },
+            },
+            post: {
+                '/api/environments/:team/subscriptions': (req, res, ctx) =>
+                    res(ctx.json({ id: 42, ...(req.body as Partial<SubscriptionType>) } as SubscriptionType)),
             },
         })
         initKeaTests()
@@ -56,6 +67,10 @@ describe('subscriptionLogic', () => {
         })
         newLogic.mount()
         existingLogic.mount()
+    })
+
+    afterEach(() => {
+        window.localStorage.clear()
     })
 
     it('loads existing subscription', async () => {
@@ -128,5 +143,37 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscriptionManualErrors).toEqual({
             dashboard_export_insights: 'Select at least one insight',
         })
+    })
+
+    it('records the channel as recently subscribed when a slack subscription is saved', async () => {
+        const slackLogic = slackIntegrationLogic({ id: 7 })
+        slackLogic.mount()
+
+        await expectLogic(newLogic, () => {
+            newLogic.actions.submitSubscriptionSuccess({
+                target_type: 'slack',
+                target_value: 'C123|#general',
+                integration_id: 7,
+            } as SubscriptionType)
+        }).toFinishListeners()
+
+        expect(slackLogic.values.recentlySubscribedChannelIds).toEqual(['C123'])
+        slackLogic.unmount()
+    })
+
+    it('does not record anything for non-slack target types', async () => {
+        const slackLogic = slackIntegrationLogic({ id: 7 })
+        slackLogic.mount()
+
+        await expectLogic(newLogic, () => {
+            newLogic.actions.submitSubscriptionSuccess({
+                target_type: 'email',
+                target_value: 'ben@posthog.com',
+                integration_id: null,
+            } as SubscriptionType)
+        }).toFinishListeners()
+
+        expect(slackLogic.values.recentlySubscribedChannelIds).toEqual([])
+        slackLogic.unmount()
     })
 })
