@@ -112,7 +112,9 @@ def _latest_priority(report: SignalReport) -> str | None:
 
 @dataclass(frozen=True)
 class _RecipientPresentation:
-    header_label: str  # `<@U…>` mention or display name for the header
+    # `<@U…>` mention if we resolved the user's Slack ID — only renders inside mrkdwn
+    # blocks (header blocks are plain_text and would show the raw `<@U…>` string).
+    slack_mention: str | None
     plain_name: str
 
 
@@ -224,8 +226,8 @@ def _recipient_presentation(
 ) -> _RecipientPresentation:
     plain_name = _posthog_user_display_name(user)
     slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
-    header_label = f"<@{slack_user_id}>" if slack_user_id else plain_name
-    return _RecipientPresentation(header_label=header_label, plain_name=plain_name)
+    slack_mention = f"<@{slack_user_id}>" if slack_user_id else None
+    return _RecipientPresentation(slack_mention=slack_mention, plain_name=plain_name)
 
 
 def _format_source_product_labels(source_products: list[str]) -> str:
@@ -257,13 +259,19 @@ def _build_message_blocks(
     implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = f"Inbox for {recipient.header_label}"
+    header_text = f"Inbox for {recipient.plain_name}"
     if priority:
         header_text = f"{header_text} · {priority}"
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    body_parts = [f"*{title_line}*"]
+    # Mention goes in the mrkdwn section, not the header — header blocks are
+    # plain_text only, so `<@U…>` would render as literal text and the user
+    # wouldn't get pinged.
+    body_parts: list[str] = []
+    if recipient.slack_mention:
+        body_parts.append(recipient.slack_mention)
+    body_parts.append(f"*{title_line}*")
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
         body_parts.append(summary_text)
