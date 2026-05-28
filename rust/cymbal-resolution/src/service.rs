@@ -215,13 +215,15 @@ impl CymbalResolution for CymbalResolutionService {
         tokio::spawn(async move {
             run_subscribe(
                 tx,
-                service_instance_id,
-                limiter,
-                max_in_flight,
-                degraded_threshold,
-                tick,
-                subscriber_id,
-                draining,
+                SubscribeRuntime {
+                    service_instance_id,
+                    limiter,
+                    max_in_flight,
+                    degraded_threshold,
+                    tick,
+                    subscriber_id,
+                    draining,
+                },
             )
             .await;
         });
@@ -458,8 +460,7 @@ fn record_resolve_duration(started_at: Instant, outcome: &'static str) {
         .record(started_at.elapsed().as_secs_f64() * 1000.0);
 }
 
-async fn run_subscribe(
-    tx: mpsc::Sender<Result<LoadEvent, Status>>,
+struct SubscribeRuntime {
     service_instance_id: Arc<str>,
     limiter: Arc<Semaphore>,
     max_in_flight: u32,
@@ -467,8 +468,10 @@ async fn run_subscribe(
     tick: Duration,
     subscriber_id: String,
     draining: Arc<AtomicBool>,
-) {
-    let mut ticker = tokio::time::interval(tick);
+}
+
+async fn run_subscribe(tx: mpsc::Sender<Result<LoadEvent, Status>>, runtime: SubscribeRuntime) {
+    let mut ticker = tokio::time::interval(runtime.tick);
     // First tick fires immediately so the caller sees state without waiting
     // a full period; thereafter Delay matches the pool's polling expectation
     // (skip missed ticks instead of bursting catch-up events).
@@ -479,31 +482,32 @@ async fn run_subscribe(
         ticker.tick().await;
         if tx.is_closed() {
             // Caller dropped the stream; exit before doing more work.
-            info!(subscriber = %subscriber_id, "load event bus subscription closed");
+            info!(subscriber = %runtime.subscriber_id, "load event bus subscription closed");
             return;
         }
 
         sequence += 1;
-        let available = limiter.available_permits() as u32;
-        let in_flight = max_in_flight.saturating_sub(available);
-        let degraded = compute_degraded(in_flight, max_in_flight, degraded_threshold);
-        let draining = draining.load(Ordering::Relaxed);
+        let available = runtime.limiter.available_permits() as u32;
+        let in_flight = runtime.max_in_flight.saturating_sub(available);
+        let degraded =
+            compute_degraded(in_flight, runtime.max_in_flight, runtime.degraded_threshold);
+        let draining = runtime.draining.load(Ordering::Relaxed);
         let event = LoadEvent {
-            service_instance_id: service_instance_id.as_ref().to_string(),
+            service_instance_id: runtime.service_instance_id.as_ref().to_string(),
             degraded,
             draining,
             in_flight,
-            max_in_flight,
+            max_in_flight: runtime.max_in_flight,
             sequence,
             message: String::new(),
             // Suggest the item-admission cap as the per-request batch ceiling.
             // A single request larger than this would, if it ran solo, fill
             // the entire item limiter and block parallelism from other RPCs.
             // The server can lower this under pressure in the future.
-            suggested_max_batch_items: max_in_flight,
+            suggested_max_batch_items: runtime.max_in_flight,
         };
         if tx.send(Ok(event)).await.is_err() {
-            info!(subscriber = %subscriber_id, "load event bus subscription closed");
+            info!(subscriber = %runtime.subscriber_id, "load event bus subscription closed");
             return;
         }
     }

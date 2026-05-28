@@ -15,6 +15,7 @@ impl InternalApiSecretInterceptor {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn authenticate(&self, request: Request<()>) -> Result<Request<()>, Status> {
         let expected_secret = self.expected_secret.trim();
         if expected_secret.is_empty() {

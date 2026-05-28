@@ -83,7 +83,7 @@ pub async fn resolve(
     internal_api_secret: &str,
 ) -> Result<Vec<Outcome>, RemoteCallError> {
     let mut tonic_request = with_internal_api_secret(Request::new(request), internal_api_secret)
-        .map_err(classify_status)?;
+        .map_err(|status| classify_status(*status))?;
     tonic_request.set_timeout(deadline);
 
     let mut client = CymbalResolutionClient::new(channel);
@@ -116,15 +116,18 @@ pub async fn resolve(
 pub(crate) fn with_internal_api_secret<T>(
     mut request: Request<T>,
     internal_api_secret: &str,
-) -> Result<Request<T>, Status> {
+) -> Result<Request<T>, Box<Status>> {
     let secret = internal_api_secret.trim();
     if secret.is_empty() {
-        return Err(Status::unauthenticated(
+        return Err(Box::new(Status::unauthenticated(
             "internal API secret is not configured",
-        ));
+        )));
     }
-    let value = MetadataValue::from_str(secret)
-        .map_err(|_| Status::unauthenticated("invalid internal API secret metadata"))?;
+    let value = MetadataValue::from_str(secret).map_err(|_| {
+        Box::new(Status::unauthenticated(
+            "invalid internal API secret metadata",
+        ))
+    })?;
     request
         .metadata_mut()
         .insert(INTERNAL_API_SECRET_HEADER, value);
