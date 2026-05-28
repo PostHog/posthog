@@ -237,14 +237,15 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         raise InvalidGrantError(f"ID-JAG typ header is not {ID_JAG_TOKEN_TYPE}")
 
     try:
-        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
         # Intentional: we need `iss` (and `email`/`sub`) to discover which IdP's
         # JWKS to fetch before we can verify the signature — the standard OIDC
         # bootstrap pattern. The verified `jwt.decode(...)` below is the
         # authoritative pass; nothing from `unverified_claims` is trusted past
         # the IdP-config lookup, and the verified pass re-reads every claim we
         # actually act on.
-        unverified_claims = jwt.decode(assertion, options={"verify_signature": False})
+        unverified_claims = jwt.decode(
+            assertion, options={"verify_signature": False}
+        )  # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG payload could not be parsed: {e}")
 
