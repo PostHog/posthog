@@ -21,7 +21,8 @@ We group the plans into four layers, roughly:
 ├─────────────────────────────────────────────────────────────┤
 │  C. Capability extensions                                   │
 │     sandboxed-agent-inference.md · runtime-mcps.md ·        │
-│     skill-templates.md · resumable-conversations.md         │
+│     skill-templates.md · resumable-conversations.md ·       │
+│     cron-trigger-scheduler.md                               │
 ├─────────────────────────────────────────────────────────────┤
 │  B. Trust & control                                         │
 │     per-session-access-elevation.md ·                       │
@@ -127,6 +128,13 @@ from ClickHouse on resume / display (TODO B8). Depends on **A** for
 the source-of-truth contract (conversation JSONB is canonical for
 live state; ClickHouse is the audit log for display).
 
+### C.5 [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md)
+
+Wakes `cron`-trigger agents from the janitor. Small platform piece
+sitting under C because it's a capability extension; depends on **A**
+for the `external_key_reuse` policy that lets recurring firings
+coalesce into one long-running session. Required for **D.2** v3.
+
 **Shared cross-cut introduced by this layer:**
 
 - _Artifact channel._ Introduced by **C.1** §7. Once a generalized
@@ -193,12 +201,14 @@ Assuming no parallelism, a reasonable order:
 6. **C.1** — sandboxed inference. `repo-readonly` first, then
    `repo-write`, then `repo-pr`. Each tier expands trust and depends
    on the prior layers' enforcement.
-7. **C.2 / C.3 / C.4** — runtime MCPs, skill templates, resumable
-   conversations. Independent; ship in parallel based on demand.
+7. **C.2 / C.3 / C.4 / C.5** — runtime MCPs, skill templates,
+   resumable conversations, cron scheduler. Independent; ship in
+   parallel based on demand. **C.5** is a small janitor extension and
+   is the cheapest of the four.
 8. **D.1** — agent authoring flow. Test-run + judge infrastructure.
 9. **D.2 §11 v1+** — the rest of self-healing. Manual introspection
    first, then replay-and-grade once D.1's test infrastructure
-   exists, then cron-driven runs once the cron-trigger plan lands.
+   exists, then cron-driven runs once **C.5** lands.
 
 In practice we'll parallelize across layers, but the dependency arrows
 remain: nothing in **B** ships without **A**; nothing in **C** /
@@ -209,9 +219,6 @@ remain: nothing in **B** ships without **A**; nothing in **C** /
 The TODO bullets are now all designed. Bullets that haven't been
 raised yet, but we know exist as gaps in the plans above:
 
-- **Cron trigger scheduler.** The `TriggerSchema` has a `cron` variant
-  (`services/agent-shared/src/spec/spec.ts`) but no scheduler.
-  Required for **D.2** v3. Future plan.
 - **GitHub App scoping for `repo-pr` agents.** **C.1** §11 v2 calls
   it out. Future plan.
 - **Multi-agent shared-identity ("@incident-bot" org-wide agents).**

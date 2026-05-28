@@ -41,12 +41,9 @@ For the consolidated, sequenced view of how these plans relate, see
 New bullets land here as freeform reminders; move them into their own plan
 file (and out of this list) once the design lands.
 
-- [ ] **Cron trigger scheduler.** The `TriggerSchema` in
-      `services/agent-shared/src/spec/spec.ts` already has a `cron` variant,
-      but nothing schedules them. Needed for
-      [`self-healing-agents.md`](self-healing-agents.md) v3 (the periodic
-      introspection pass) and for any "weekly digest"-style agent. Think
-      about: where the scheduler runs (janitor? new service?), cron
-      evaluation cadence, drift/catch-up semantics on outage, how the
-      synthetic "wake" pending_input is shaped, dedup so a missed tick
-      doesn't fire twice on recovery.
+- [x] ~~**Cron trigger scheduler**~~ — see
+      [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
+      Janitor runs `cronTick()` alongside its sweep; catch-up modes
+      (`all` / `most_recent` / `skip`) bound the outage-recovery blast
+      radius; `agent_cron_firing` table dedups across replicas; firings
+      coalesce into long-running sessions via `external_key_reuse`.
