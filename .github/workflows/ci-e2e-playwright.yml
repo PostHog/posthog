@@ -169,12 +169,10 @@ jobs:
         name: Playwright E2E tests
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        # 16-core depot. The 8-core variant ran at 18% avg / 30% peak memory (#46853),
-        # so memory was never the bottleneck — CPU scheduling was. The worker counts
-        # below (`--workers 2` for granian, `--workers=4` for Playwright) were tuned
-        # for the 8-core box; revisit them once we've seen flake-rate data on 16-core.
+        # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
+        # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-latest-16
+        runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
         permissions:
             contents: read
@@ -280,14 +278,7 @@ jobs:
                       .github/workflows/ci-e2e-playwright.yml
 
             # Workaround for SIGABRT (exit 134) raised after all tests pass.
-            # Hypothesis: Chromium's GPU/compositor child process aborts on teardown when
-            # libxkbcommon-x11-0 / libxcb-cursor0 are missing — tests run fine, the abort
-            # only surfaces during resource release. `playwright install --with-deps` (run
-            # below at "Install Playwright browsers") nominally covers the same libs;
-            # this step may already be redundant. TODO(playwright-suite-cleanup): drop
-            # this in a follow-up PR and confirm 134 doesn't return — if it does, replace
-            # with a targeted `apt-get install libxkbcommon-x11-0 libxcb-cursor0` so we
-            # know exactly what we're installing and why.
+            # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
