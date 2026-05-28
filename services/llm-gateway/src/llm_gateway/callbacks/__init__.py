@@ -16,9 +16,7 @@ def init_callbacks() -> None:
             PostHogCallback(
                 api_key=settings.posthog_project_token,
                 host=settings.posthog_host,
-                # The plan-resolver URL doubles as the customer-origin region
-                # URL stamped on captured events — same value, same per-region
-                # source of truth, no second env to keep in sync.
+                # Reuses the plan-resolver URL — same per-region value.
                 region_url=settings.posthog_api_base_url,
                 secondary_api_key=settings.posthog_secondary_project_token,
                 secondary_host=settings.posthog_secondary_host,

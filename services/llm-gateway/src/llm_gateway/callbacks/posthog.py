@@ -297,10 +297,9 @@ class PostHogCallback(InstrumentedCallback):
     def _build_groups(self, team_id: int | None) -> dict[str, Any]:
         """Build the `groups` dict for a captured event.
 
-        Always includes `instance` so the destination project's `instance`
-        group resolves to the customer-origin region URL — this is what the
-        usage report's $group_N filter reads to attribute events to the
-        right regional aggregation run. `project` is included when an
+        Billing region attribution comes from the hardcoded `$group_1`
+        property; the `instance` group here keeps LLM Analytics group
+        breakdowns working naturally. `project` is included when an
         authenticated team is known.
         """
         groups: dict[str, Any] = {"instance": self._region_url}

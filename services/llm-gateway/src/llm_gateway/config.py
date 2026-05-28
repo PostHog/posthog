@@ -143,10 +143,9 @@ class Settings(BaseSettings):
     posthog_host: str = "https://us.i.posthog.com"
 
     # Optional secondary capture target. When set, every $ai_generation event
-    # is mirrored to this PostHog instance after the primary capture. Used so
-    # the EU gateway can fan out a copy to the US instance for engineer
-    # visibility on a single dashboard, the way ee/hogai/core/runner.py
-    # already does for the PostHog AI web path.
+    # is mirrored to this PostHog instance after the primary capture, so the
+    # EU deployment can land EU customer events on EU PostHog (team_id=1)
+    # for the regional billing usage_report to attribute them.
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
