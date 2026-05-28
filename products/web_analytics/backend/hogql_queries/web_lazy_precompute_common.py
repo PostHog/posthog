@@ -8,6 +8,8 @@ session-pad / UTC-day helpers. Keeping a single source of truth avoids
 the two paths drifting apart.
 """
 
+import json
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -24,6 +26,24 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
+
+# Fields stripped from the query payload before hashing the cache key.
+# These don't influence which precompute job_id a query would map to —
+# `useWebAnalyticsPrecompute` is just the opt-in toggle, `modifiers` is
+# HogQL execution hints applied after the fact, and the rest are
+# metadata / pagination knobs applied at read time.
+_CACHE_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
+    {
+        "useWebAnalyticsPrecompute",
+        "modifiers",
+        "version",
+        "tags",
+        "response",
+        "limit",
+        "offset",
+        "limitBy",
+    }
+)
 
 # Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
 # fresh; older buckets get longer TTLs so we don't keep recomputing them.
@@ -210,6 +230,30 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
         )
     else:
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
+
+
+def compute_query_cache_key_hash(query: Any, team_timezone: str) -> str:
+    """Stable hash identifying which precompute cache key a web analytics query maps to.
+
+    Emitted on the `web_analytics_query` structured log line so we can attribute
+    Loki / PostHog log entries to a logical cache key and measure
+    queries-per-distinct-cache-key (`q/key`) over multi-day windows — including
+    for queries that didn't go through the lazy precompute path (different
+    eligibility gating, different runner) but would have shared a job_id if
+    they had.
+
+    Same hashing mechanic as `compute_query_hash` in lazy_computation_executor
+    (SHA-256 over canonical JSON). It is **not** numerically identical to the
+    precompute job's `query_hash` — that one hashes the post-build INSERT AST —
+    but it fragments along the same logical dimensions: query kind, property
+    filters (with values), date range, breakdown, conversion goal, sampling,
+    interval, compare filter, test-accounts toggle, and team timezone.
+    """
+    dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
+    for key in _CACHE_KEY_IGNORED_QUERY_FIELDS:
+        dumped.pop(key, None)
+    payload = {"query": dumped, "timezone": team_timezone}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def host_filter_expr(properties: list) -> ast.Expr:

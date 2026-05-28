@@ -52,6 +52,7 @@ from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_ERRORS,
 )
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_cache_key_hash
 
 logger = structlog.get_logger(__name__)
 
@@ -161,6 +162,10 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 ).inc()
 
             sampling = getattr(self.query, "sampling", None)
+            try:
+                cache_key_hash = compute_query_cache_key_hash(self.query, self.team.timezone)
+            except Exception:
+                cache_key_hash = None
             logger.info(
                 "web_analytics_query",
                 team_id=self.team.pk,
@@ -179,6 +184,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 date_from=self.query_date_range.date_from_str,
                 date_to=self.query_date_range.date_to_str,
                 sampling_enabled=sampling.enabled if sampling else False,
+                cache_key_hash=cache_key_hash,
             )
 
     @cached_property
