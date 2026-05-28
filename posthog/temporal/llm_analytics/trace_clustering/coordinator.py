@@ -146,7 +146,10 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             try:
                 team_ids = await temporalio.workflow.execute_activity(
                     get_team_ids_for_llm_analytics,
-                    TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
+                    TeamDiscoveryInput(
+                        sample_percentage=SAMPLE_PERCENTAGE,
+                        lookback_days=inputs.lookback_days,
+                    ),
                     start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
                     retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
                 )

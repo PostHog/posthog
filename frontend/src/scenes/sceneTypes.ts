@@ -144,6 +144,7 @@ export enum Scene {
     SavedInsights = 'SavedInsights',
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
+    HealthAlerts = 'HealthAlerts',
     SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',

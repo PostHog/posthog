@@ -49,7 +49,7 @@ DEFAULT_GUARANTEED_TEAM_IDS: list[int] = [
 # Default sample percentage for gradual rollout.
 # 0.0 = only guaranteed teams, 0.5 = 50% of remaining, 1.0 = all teams with AI events.
 DEFAULT_SAMPLE_PERCENTAGE: float = 0.5
-DEFAULT_DISCOVERY_LOOKBACK_DAYS: int = 30
+DEFAULT_DISCOVERY_LOOKBACK_DAYS: int = 7
 
 # Backward-compatible aliases for coordinator imports.
 # Coordinators use these only in the last-resort fallback path (when the
@@ -64,7 +64,6 @@ class LLMAWorkflowConfig:
     guaranteed_team_ids: list[int]
     skip_team_ids: list[int]
     sample_percentage: float
-    discovery_lookback_days: int
 
 
 def _get_llma_workflow_config() -> LLMAWorkflowConfig:
@@ -80,7 +79,6 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
                 guaranteed_team_ids=DEFAULT_GUARANTEED_TEAM_IDS,
                 skip_team_ids=[],
                 sample_percentage=DEFAULT_SAMPLE_PERCENTAGE,
-                discovery_lookback_days=DEFAULT_DISCOVERY_LOOKBACK_DAYS,
             )
 
         guaranteed = payload.get("guaranteed_team_ids", DEFAULT_GUARANTEED_TEAM_IDS)
@@ -95,23 +93,17 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
         if not isinstance(sample_pct, (int, float)) or not (0.0 <= float(sample_pct) <= 1.0):
             sample_pct = DEFAULT_SAMPLE_PERCENTAGE
 
-        lookback = payload.get("discovery_lookback_days", DEFAULT_DISCOVERY_LOOKBACK_DAYS)
-        if not isinstance(lookback, int) or lookback <= 0:
-            lookback = DEFAULT_DISCOVERY_LOOKBACK_DAYS
-
         logger.info(
             "Loaded LLMA config from feature flag",
             guaranteed_count=len(guaranteed),
             skip_count=len(skip),
             sample_percentage=sample_pct,
-            discovery_lookback_days=lookback,
         )
 
         return LLMAWorkflowConfig(
             guaranteed_team_ids=guaranteed,
             skip_team_ids=skip,
             sample_percentage=float(sample_pct),
-            discovery_lookback_days=lookback,
         )
     except Exception:
         logger.warning("Failed to read LLMA config from feature flag, using defaults", exc_info=True)
@@ -119,7 +111,6 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
             guaranteed_team_ids=DEFAULT_GUARANTEED_TEAM_IDS,
             skip_team_ids=[],
             sample_percentage=DEFAULT_SAMPLE_PERCENTAGE,
-            discovery_lookback_days=DEFAULT_DISCOVERY_LOOKBACK_DAYS,
         )
 
 
@@ -149,20 +140,24 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
         guaranteed = set(config.guaranteed_team_ids)
         skip = set(config.skip_team_ids)
 
-        # FF payload is the source of truth, intentionally overriding
-        # TeamDiscoveryInput so config can be tuned from the PostHog UI
-        # without a deploy. TeamDiscoveryInput is kept for Temporal's
-        # serialization contract but its values are not used at runtime.
         sample_percentage = config.sample_percentage
-        lookback_days = config.discovery_lookback_days
+        lookback_days = inputs.lookback_days
 
         try:
             end = datetime.now(UTC)
             begin = end - timedelta(days=lookback_days)
 
-            from posthog.tasks.llm_analytics_usage_report import get_teams_with_ai_events
+            from posthog.tasks.llm_analytics_usage_report import (
+                LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+                get_teams_with_ai_events,
+            )
 
-            ai_event_teams = await asyncio.to_thread(get_teams_with_ai_events, begin, end)
+            ai_event_teams = await asyncio.to_thread(
+                get_teams_with_ai_events,
+                begin,
+                end,
+                LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+            )
 
             remaining = [t for t in ai_event_teams if t not in guaranteed and t not in skip]
 

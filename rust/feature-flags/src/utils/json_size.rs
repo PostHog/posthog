@@ -44,6 +44,21 @@ pub fn estimate_json_size(value: &serde_json::Value) -> usize {
     }
 }
 
+/// Estimates the serialized size of a `serde_json::Map` as if it were flattened
+/// into a parent object (no surrounding `{}`). Used to weigh `#[serde(flatten)]
+/// extra` passthrough maps that capture unknown JSONB keys on flag-filter structs:
+/// without including them in the cache weight, a project member could store
+/// arbitrarily large unknown fields and bypass the byte-budget eviction.
+pub fn estimate_json_map_size(map: &serde_json::Map<String, serde_json::Value>) -> usize {
+    if map.is_empty() {
+        return 0;
+    }
+    map.iter()
+        .map(|(k, v)| 2 + escaped_bytes(k) + 1 + estimate_json_size(v))
+        .sum::<usize>()
+        + map.len().saturating_sub(1)
+}
+
 /// Returns the byte length of `s` after JSON-style escape expansion. Mirrors
 /// `serde_json::ser::format_escaped_str_contents`'s handling of the named
 /// escapes (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t` → 1 extra byte each)
