@@ -156,9 +156,7 @@ services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
 # LLM Gateway - owned by @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/* @PostHog/team-ai-observability @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/scripts/ @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/providers/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
 products/ai_observability/backend/api/proxy.py @PostHog/team-ai-gateway
 products/ai_observability/backend/api/test/test_proxy.py @PostHog/team-ai-gateway
 products/ai_observability/frontend/playground/ @PostHog/team-ai-gateway
