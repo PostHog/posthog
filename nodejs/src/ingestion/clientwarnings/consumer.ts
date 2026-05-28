@@ -7,6 +7,7 @@ import { createCommonIngestionConsumer } from '../common/common-ingestion-consum
 import { EventFilterManager } from '../common/event-filters'
 import { ProducerName } from '../common/outputs'
 import { Scope } from '../common/service-registry'
+import { PromiseSchedulerScope } from '../common/utils/promise-scheduler'
 import { IngestionOutputsConfig } from '../config'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
 import { IngestionOutputsScope } from '../outputs/scope'
@@ -29,6 +30,7 @@ export function createClientWarningsConsumer(
 ) {
     const scope = sharedScope.extend('clientwarnings', (container, builder) =>
         builder
+            .register('promiseScheduler', new PromiseSchedulerScope())
             .register(
                 'eventIngestionRestrictionManager',
                 new EventIngestionRestrictionManagerScope(container.redisPool, {
@@ -46,13 +48,6 @@ export function createClientWarningsConsumer(
     return createCommonIngestionConsumer({
         config,
         scope,
-        pipeline: ({ container, promiseScheduler }) =>
-            createClientWarningsPipeline({
-                outputs: container.outputs,
-                teamManager: container.teamManager,
-                eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
-                eventFilterManager: container.eventFilterManager,
-                promiseScheduler,
-            }),
+        pipeline: ({ container }) => createClientWarningsPipeline(container),
     })
 }

@@ -1,8 +1,13 @@
 import { HealthCheckResult } from '../../types'
-import { CommonIngestionConsumer, CommonIngestionConsumerConfig, PipelineFactory } from './common-ingestion-consumer'
+import {
+    CommonIngestionConsumer,
+    CommonIngestionConsumerConfig,
+    ContainerWithPromiseScheduler,
+    PipelineFactory,
+} from './common-ingestion-consumer'
 import { Scope } from './service-registry'
 
-export interface CreateCommonIngestionConsumerArgs<S extends Record<string, object>> {
+export interface CreateCommonIngestionConsumerArgs<S extends ContainerWithPromiseScheduler> {
     config: CommonIngestionConsumerConfig
     /** Pre-built (not started) Scope holding the consumer-owned services. */
     scope: Scope<S>
@@ -10,7 +15,7 @@ export interface CreateCommonIngestionConsumerArgs<S extends Record<string, obje
     healthcheck?: () => Promise<HealthCheckResult>
 }
 
-export function createCommonIngestionConsumer<S extends Record<string, object>>(
+export function createCommonIngestionConsumer<S extends ContainerWithPromiseScheduler>(
     args: CreateCommonIngestionConsumerArgs<S>
 ): CommonIngestionConsumer<S> {
     return new CommonIngestionConsumer<S>(args.config, args.scope, args.pipeline, args.healthcheck)

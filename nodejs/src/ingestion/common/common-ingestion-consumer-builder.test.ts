@@ -1,3 +1,4 @@
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from './common-ingestion-consumer'
 import { createCommonIngestionConsumer } from './common-ingestion-consumer-builder'
@@ -9,10 +10,13 @@ function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     } as unknown as IngestionOutputs<string>
 }
 
-function makeScope(): Scope<{ outputs: IngestionOutputs<string> }> {
+function makeScope(): Scope<{ outputs: IngestionOutputs<string>; promiseScheduler: PromiseScheduler }> {
     return newScopeBuilder()
         .register('outputs', {
             start: () => Promise.resolve({ value: makeOutputs(), stop: () => Promise.resolve() }),
+        })
+        .register('promiseScheduler', {
+            start: () => Promise.resolve({ value: new PromiseScheduler(), stop: () => Promise.resolve() }),
         })
         .build('consumer')
 }
