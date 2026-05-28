@@ -341,7 +341,8 @@ export class StateManager {
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        return buildActiveEnvironmentContextPrompt(user, org, project)
+        const projectBaseUrl = project?.id !== undefined ? this._api.getProjectBaseUrl(String(project.id)) : undefined
+        return buildActiveEnvironmentContextPrompt(user, org, project, projectBaseUrl)
     }
 
     /**
