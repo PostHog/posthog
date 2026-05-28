@@ -454,6 +454,10 @@ class TestPostHogCallback:
 
         call_kwargs = mock_client.capture.call_args.kwargs
         assert call_kwargs["groups"] == {"instance": "https://eu.posthog.com", "project": 456}
+        # $group_1 is stamped explicitly so the usage-report query's hardcoded
+        # filter matches regardless of how the destination team registers
+        # `instance` in GroupTypeMapping.
+        assert call_kwargs["properties"]["$group_1"] == "https://eu.posthog.com"
 
     @pytest.mark.asyncio
     async def test_on_success_mirrors_to_secondary_destination_when_configured(
@@ -486,13 +490,16 @@ class TestPostHogCallback:
             assert secondary_call.kwargs["host"] == "https://us.i.posthog.com"
             assert mock_client.capture.call_count == 2
 
-            # Both copies carry the EU origin region so the US-region usage report
-            # filter ($group_1 = 'https://us.posthog.com') excludes the mirrored copy.
+            # Both copies carry the EU origin region — via the SDK `groups` arg
+            # and via an explicit $group_1 property — so the US-region usage
+            # report filter ($group_1 = 'https://us.posthog.com') excludes the
+            # mirrored copy and does not double-count.
             for capture_call in mock_client.capture.call_args_list:
                 assert capture_call.kwargs["groups"] == {
                     "instance": "https://eu.posthog.com",
                     "project": 456,
                 }
+                assert capture_call.kwargs["properties"]["$group_1"] == "https://eu.posthog.com"
 
     @pytest.mark.asyncio
     async def test_on_success_skips_secondary_destination_when_unconfigured(

@@ -178,6 +178,11 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
             "$ai_billable": _is_product_billable(product),
+            # Stamped explicitly to bypass the SDK's group_type_index lookup.
+            # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
+            # so the gateway must guarantee that slot regardless of how the
+            # destination team's group types are registered.
+            "$group_1": self._region_url,
         }
 
         posthog_properties = get_posthog_properties() or {}
@@ -257,6 +262,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_error": standard_logging_object.get("error_str", ""),
             "ai_product": product,
             "$ai_billable": _is_product_billable(product),
+            "$group_1": self._region_url,
         }
 
         posthog_properties = get_posthog_properties() or {}
