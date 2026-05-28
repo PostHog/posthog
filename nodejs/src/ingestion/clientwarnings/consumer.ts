@@ -44,8 +44,7 @@ export function createClientWarningsConsumer(
             )
     )
 
-    const name = `ingestion-consumer-${config.INGESTION_CONSUMER_CONSUME_TOPIC}`
-    return new CommonIngestionConsumerScope(name, config, scope, ({ container }) =>
+    return new CommonIngestionConsumerScope('clientwarnings', config, scope, ({ container }) =>
         createClientWarningsPipeline(container)
     )
 }
