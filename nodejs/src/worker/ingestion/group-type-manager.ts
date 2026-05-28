@@ -91,7 +91,11 @@ export class GroupTypeManager {
     }
 
     public async fetchGroupTypesForProjects(projectIds: ProjectId[] | Set<ProjectId>): Promise<GroupTypesByProjectId> {
-        const results = await this.loader.getMany(Array.from(projectIds).map((id) => id.toString()))
+        const ids = Array.from(projectIds)
+        if (ids.length === 0) {
+            return {}
+        }
+        const results = await this.loader.getMany(ids.map((id) => id.toString()))
 
         return Object.fromEntries(
             Object.entries(results).map(([projectId, groupTypes]) => [projectId, groupTypes ?? {}])

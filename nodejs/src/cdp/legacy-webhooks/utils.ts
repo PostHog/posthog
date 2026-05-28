@@ -57,6 +57,31 @@ function makeGroupLookupKey(teamId: number, groupTypeIndex: number, groupKey: st
     return `${teamId}:${groupTypeIndex}:${groupKey}`
 }
 
+/**
+ * Returns the set of project IDs whose teams have group analytics enabled.
+ * Used by both the prefetch path and the enrichment path.
+ */
+export async function getProjectIdsWithGroupAnalytics(
+    events: PostIngestionEvent[],
+    teamManager: TeamManager
+): Promise<Set<ProjectId>> {
+    const checkedTeams = new Map<number, boolean>()
+    const projectIds = new Set<ProjectId>()
+
+    for (const event of events) {
+        const cached = checkedTeams.get(event.teamId)
+        const hasFeature = cached ?? (await teamManager.hasAvailableFeature(event.teamId, 'group_analytics'))
+        if (cached === undefined) {
+            checkedTeams.set(event.teamId, hasFeature)
+        }
+        if (hasFeature) {
+            projectIds.add(event.projectId)
+        }
+    }
+
+    return projectIds
+}
+
 export async function addGroupPropertiesToPostIngestionEventsBatch(
     events: PostIngestionEvent[],
     groupTypeManager: GroupTypeManager,
@@ -67,26 +92,7 @@ export async function addGroupPropertiesToPostIngestionEventsBatch(
         return []
     }
 
-    const uniqueTeamIds = [...new Set(events.map((e) => e.teamId))]
-    const teamHasGroupAnalytics = new Map<number, boolean>()
-    await Promise.all(
-        uniqueTeamIds.map(async (teamId) => {
-            const has = await teamManager.hasAvailableFeature(teamId, 'group_analytics')
-            teamHasGroupAnalytics.set(teamId, has)
-        })
-    )
-
-    const projectIdsNeedingGroups = new Set<ProjectId>()
-    for (const event of events) {
-        if (teamHasGroupAnalytics.get(event.teamId)) {
-            projectIdsNeedingGroups.add(event.projectId)
-        }
-    }
-
-    if (projectIdsNeedingGroups.size === 0) {
-        return events
-    }
-
+    const projectIdsNeedingGroups = await getProjectIdsWithGroupAnalytics(events, teamManager)
     const groupTypesByProject = await groupTypeManager.fetchGroupTypesForProjects(projectIdsNeedingGroups)
 
     const allTeamIds: TeamId[] = []
@@ -98,7 +104,7 @@ export async function addGroupPropertiesToPostIngestionEventsBatch(
     const eventGroupNeeds: (EventGroupNeed[] | null)[] = []
 
     for (const event of events) {
-        if (!teamHasGroupAnalytics.get(event.teamId)) {
+        if (!projectIdsNeedingGroups.has(event.projectId)) {
             eventGroupNeeds.push(null)
             continue
         }

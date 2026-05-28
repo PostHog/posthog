@@ -14,7 +14,7 @@ import { GroupRepository } from '../../worker/ingestion/groups/repositories/grou
 import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { addGroupPropertiesToPostIngestionEventsBatch } from '../legacy-webhooks/utils'
+import { addGroupPropertiesToPostIngestionEventsBatch, getProjectIdsWithGroupAnalytics } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
 export class LegacyWebhookService {
@@ -127,12 +127,12 @@ export class LegacyWebhookService {
         }
 
         if (events.length > 0) {
-            // Warm the group type cache so the enrichment step hits cache
-            // instead of making gRPC calls during the parallel processing storm.
-            // Best-effort: if this fails, enrichAndProcess will retry and handle
-            // the error with its own fallback logic.
+            // Warm the group type cache before the parallel processing storm.
+            // Uses the same filter as addGroupPropertiesToPostIngestionEventsBatch
+            // so we only prefetch for teams that will actually use the data.
+            // Best-effort: if this fails, enrichAndProcess will retry.
             try {
-                const projectIds = new Set(events.map((e) => e.projectId))
+                const projectIds = await getProjectIdsWithGroupAnalytics(events, this.teamManager)
                 await this.groupTypeManager.fetchGroupTypesForProjects(projectIds)
             } catch (e) {
                 logger.warn('Group type prefetch failed, enrichment will retry', e)
@@ -144,9 +144,10 @@ export class LegacyWebhookService {
 
     /**
      * Enrich filtered events with group properties and fire webhooks.
-     * Designed to run in parallel with other batch processing — the group
-     * type cache was warmed by filterAndPrefetchGroups, so no gRPC calls
-     * are made here.
+     * Designed to run in parallel with other batch processing. The group
+     * type cache is typically warm from filterAndPrefetchGroups, though
+     * if the prefetch failed the enrichment will fall back to fetching
+     * on demand.
      */
     public async enrichAndProcess(
         eventsWithoutGroups: PostIngestionEvent[]
