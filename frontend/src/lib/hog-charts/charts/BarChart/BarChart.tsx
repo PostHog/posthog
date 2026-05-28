@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { type BarChartPrivate, computeBarAtIndex, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
+import { type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
@@ -14,9 +14,11 @@ import {
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
     buildStackedPositionValue,
+    type BarScaleSet,
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
@@ -40,7 +42,15 @@ import type {
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { BarTooltip } from './BarTooltip'
-import { cursorOutsideBarFillExtent, seriesKeysAtCursor, strictSeriesKeyAtCursor } from './utils/bars-under-cursor'
+import {
+    type BarLayout,
+    type BarsAtCursorArgs,
+    barContainsPointOnBandAxis,
+    cursorOutsideBarFillExtent,
+    iterBarsAtCursor,
+    isStackedLayout,
+    resolveBarsAtCursor,
+} from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
@@ -120,10 +130,6 @@ function BarChartInner<Meta = unknown>({
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
-    // Stashed inside createScales so the onPointClick wrapper can read fresh d3 scales when
-    // resolving the segment under the cursor.
-    const d3ScalesRef = useRef<BarChartPrivate['__barChart'] | null>(null)
-
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
             return computePercentStackData(series, labels)
@@ -195,15 +201,13 @@ function BarChartInner<Meta = unknown>({
                 maxBandRange,
                 bandPadding,
             })
-            d3ScalesRef.current = d3Scales
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
 
-            // Stash the raw d3 scales in the private slot so drawStatic/drawHover can read them
-            // without a side-channel ref — every render gets a self-contained ChartScales object,
-            // which avoids strict-mode / concurrent-rendering races between createScales and the
-            // static-draw effect. See LineChart.tsx and ARCHITECTURE.md for the canonical pattern.
+            // Stash the raw d3 scales in the private slot so drawStatic/drawHover/click routing
+            // can read them from the committed ChartScales — every render gets a self-contained
+            // object, which avoids strict-mode / concurrent-rendering races.
             const barChartPrivate: BarChartPrivate = { __barChart: d3Scales }
 
             // For horizontal, expose the value scale as `y` (since AxisLabels horizontal mode
@@ -368,51 +372,22 @@ function BarChartInner<Meta = unknown>({
             }
             const hoveredLabel = drawLabels[hoverIndex]
             const [trackAxisStart = 0, trackAxisEnd = 0] = barTrack ? d3Scales.value.range() : []
-            let hitKeys: Set<string> | null = null
-            if (hoverPosition) {
-                const hits = seriesKeysAtCursor({
-                    series: coloredSeries,
-                    label: hoveredLabel,
-                    dataIndex: hoverIndex,
-                    cursor: hoverPosition,
-                    scales: d3Scales,
-                    layout: barLayout,
-                    isHorizontal,
-                    stackedData,
-                    topStackedKeyByAxis,
-                })
-                if (hits.size === 0) {
-                    lastHoverKeyRef.current = null
-                    return false
-                }
-                hitKeys = hits
-            }
             // Key includes bar-vs-track per series so bar → track moves at the same
             // hoverIndex still trigger a fade restart.
             type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
             const items: DrawItem[] = []
             let composition = ''
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
-                }
-                if (hitKeys && !hitKeys.has(s.key)) {
-                    continue
-                }
-                const stackedBand = stackedData?.get(s.key)
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                const isTop = topStackedKeyByAxis.get(axisId) === s.key
-                const bar = computeBarAtIndex({
-                    series: s,
-                    label: hoveredLabel,
-                    dataIndex: hoverIndex,
-                    scales: d3Scales,
-                    layout: barLayout,
-                    isHorizontal,
-                    stackedBand,
-                    isTopOfStack: isTop,
-                })
-                if (!bar) {
+            for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
+                series: coloredSeries,
+                label: hoveredLabel,
+                dataIndex: hoverIndex,
+                scales: d3Scales,
+                layout: barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+            })) {
+                if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
                     continue
                 }
                 const isTrackHighlight =
@@ -469,46 +444,30 @@ function BarChartInner<Meta = unknown>({
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
-    // Stacked/percent segments share a band slot — rewrite `clickData.series` to the
+    const seriesRef = useLatest(series)
+
+    // Stacked/percent segments share a band slot — rewrite the click payload to the
     // segment under the cursor so drop-off fillers and per-breakdown segments route correctly.
-    const wrappedOnPointClick = useMemo<((data: PointClickData<Meta>) => void) | undefined>(() => {
-        if (!onPointClick) {
-            return undefined
-        }
-        if (barLayout === 'grouped') {
-            return onPointClick
-        }
-        return (clickData) => {
-            const { cursor, label, dataIndex, crossSeriesData } = clickData
-            const d3Scales = d3ScalesRef.current
-            if (!cursor || !d3Scales) {
-                onPointClick(clickData)
-                return
+    const wrapClickData = useCallback(
+        (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+            if (!d3Scales) {
+                return clickData
             }
-            const hitKey = strictSeriesKeyAtCursor({
-                series: crossSeriesData.map((d) => d.series),
-                label,
-                dataIndex,
-                cursor,
-                scales: d3Scales,
-                layout: barLayout,
-                isHorizontal,
-                stackedData,
-                topStackedKeyByAxis,
-            })
-            const hit = hitKey ? crossSeriesData.find((d) => d.series.key === hitKey) : null
-            if (!hit) {
-                onPointClick(clickData)
-                return
-            }
-            onPointClick({
-                ...clickData,
-                series: hit.series,
-                value: hit.value,
-                seriesIndex: series.findIndex((s) => s.key === hit.series.key),
-            })
-        }
-    }, [onPointClick, barLayout, isHorizontal, stackedData, topStackedKeyByAxis, series])
+            return (
+                resolveClickedStackedSegment({
+                    clickData,
+                    d3Scales,
+                    barLayout,
+                    isHorizontal,
+                    stackedData,
+                    topStackedKeyByAxis,
+                    series: seriesRef.current,
+                }) ?? clickData
+            )
+        },
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef]
+    )
 
     return (
         <Chart
@@ -529,7 +488,8 @@ function BarChartInner<Meta = unknown>({
                     isHorizontal={isHorizontal}
                 />
             )}
-            onPointClick={wrappedOnPointClick}
+            onPointClick={onPointClick}
+            wrapClickData={onPointClick ? wrapClickData : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
@@ -538,4 +498,59 @@ function BarChartInner<Meta = unknown>({
             {children}
         </Chart>
     )
+}
+
+/** Pure helper extracted so the click-rewrite is unit-testable and the component-level
+ *  callback has no logic of its own — it just plumbs in scales + refs. Returns `null`
+ *  when nothing in the layout/cursor configuration warrants rewriting, signalling the
+ *  caller to pass the original `clickData` through unchanged. */
+export function resolveClickedStackedSegment<Meta>({
+    clickData,
+    d3Scales,
+    barLayout,
+    isHorizontal,
+    stackedData,
+    topStackedKeyByAxis,
+    series,
+}: {
+    clickData: PointClickData<Meta>
+    d3Scales: BarScaleSet
+    barLayout: BarLayout
+    isHorizontal: boolean
+    stackedData: Map<string, StackedBand> | undefined
+    topStackedKeyByAxis: Map<string, string>
+    series: Series<Meta>[]
+}): PointClickData<Meta> | null {
+    if (!isStackedLayout(barLayout)) {
+        return null
+    }
+    const { cursor, label, dataIndex, crossSeriesData } = clickData
+    if (!cursor) {
+        return null
+    }
+    const cursorArgs: BarsAtCursorArgs & { cursor: { x: number; y: number } } = {
+        series: crossSeriesData.map((d) => d.series),
+        label,
+        dataIndex,
+        cursor,
+        scales: d3Scales,
+        layout: barLayout,
+        isHorizontal,
+        stackedData,
+        topStackedKeyByAxis,
+    }
+    const { strictHit } = resolveBarsAtCursor(cursorArgs)
+    if (!strictHit) {
+        return null
+    }
+    const hit = crossSeriesData.find((d) => d.series.key === strictHit)
+    if (!hit) {
+        return null
+    }
+    return {
+        ...clickData,
+        series: hit.series,
+        value: hit.value,
+        seriesIndex: series.findIndex((s) => s.key === hit.series.key),
+    }
 }

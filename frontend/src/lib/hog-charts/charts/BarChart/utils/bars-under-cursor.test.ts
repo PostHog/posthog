@@ -59,4 +59,34 @@ describe('barContainsPoint', () => {
     ])('vertical bar — $desc -> $expected', ({ x, y, expected }) => {
         expect(barContainsPoint(verticalBar, { x, y })).toBe(expected)
     })
+
+    // Half-open semantics on the trailing edge: matches d3 band-scale `[start, start + size)`,
+    // so adjacent bars sharing a pixel boundary never both report a hit at that pixel.
+    describe('boundary pixels (half-open trailing edge)', () => {
+        it('vertical bar — leading edge (x=bar.x, y=bar.y) is inside', () => {
+            expect(barContainsPoint(verticalBar, { x: verticalBar.x, y: verticalBar.y })).toBe(true)
+        })
+
+        it('vertical bar — trailing edge (x=bar.x+width, y=bar.y+height) is outside', () => {
+            expect(
+                barContainsPoint(verticalBar, {
+                    x: verticalBar.x + verticalBar.width,
+                    y: verticalBar.y + verticalBar.height,
+                })
+            ).toBe(false)
+        })
+
+        it('horizontal bar — leading edge (x=bar.x, y=bar.y) is inside', () => {
+            expect(barContainsPoint(horizontalBar, { x: horizontalBar.x, y: horizontalBar.y })).toBe(true)
+        })
+
+        it('horizontal bar — trailing edge (x=bar.x+width, y=bar.y+height) is outside', () => {
+            expect(
+                barContainsPoint(horizontalBar, {
+                    x: horizontalBar.x + horizontalBar.width,
+                    y: horizontalBar.y + horizontalBar.height,
+                })
+            ).toBe(false)
+        })
+    })
 })

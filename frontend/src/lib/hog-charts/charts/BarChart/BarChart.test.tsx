@@ -246,12 +246,49 @@ describe('BarChart', () => {
             const tipB = await chart.waitForTooltip()
             expect(tipB.seriesData[0].series.key).toBe('b')
             const step = dimensions.plotWidth / LABELS.length
+            // Just inside the bottom edge of the plot, well below b's top to land in a's segment.
+            const NEAR_BOTTOM_OFFSET_PX = 8
             fireEvent.mouseMove(chart.element, {
                 clientX: dimensions.plotLeft + step * 1.5,
-                clientY: dimensions.plotTop + dimensions.plotHeight - 8,
+                clientY: dimensions.plotTop + dimensions.plotHeight - NEAR_BOTTOM_OFFSET_PX,
             })
             const tipA = await chart.waitForTooltip()
             expect(tipA.seriesData[0].series.key).toBe('a')
+        })
+
+        it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked' }}
+                    onPointClick={onPointClick}
+                />
+            )
+            const step = dimensions.plotWidth / LABELS.length
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1.5,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            fireEvent.click(chart.element)
+            const clickB: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickB.series.key).toBe('b')
+            expect(clickB.value).toBe(15)
+            expect(clickB.seriesIndex).toBe(1)
+
+            onPointClick.mockClear()
+            const NEAR_BOTTOM_OFFSET_PX = 8
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1.5,
+                clientY: dimensions.plotTop + dimensions.plotHeight - NEAR_BOTTOM_OFFSET_PX,
+            })
+            fireEvent.click(chart.element)
+            const clickA: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickA.series.key).toBe('a')
+            expect(clickA.value).toBe(20)
+            expect(clickA.seriesIndex).toBe(0)
         })
 
         it('percent tooltip shows each series own fraction, not the cumulative fraction', async () => {
