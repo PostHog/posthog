@@ -34,6 +34,12 @@ from .models import EarlyAccessFeature
 logger = structlog.get_logger(__name__)
 
 
+def _set_enrollment_filters(existing: dict, *, enrolled: bool | None, **overrides: Any) -> dict:
+    filters = {**existing, "feature_enrollment": enrolled, **overrides}
+    filters.pop("super_groups", None)
+    return filters
+
+
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
     A more minimal serializer, intended specificaly for non-generally-available features to be provided
@@ -128,12 +134,11 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-                serialized_data_filters = {
-                    **related_feature_flag.filters,
-                    "feature_enrollment": None,
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                }
-                serialized_data_filters.pop("super_groups", None)
+                serialized_data_filters = _set_enrollment_filters(
+                    related_feature_flag.filters,
+                    enrolled=None,
+                    groups=[{"properties": [], "rollout_percentage": 100}],
+                )
 
                 serializer = FeatureFlagSerializer(
                     related_feature_flag,
@@ -146,11 +151,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-                serialized_data_filters = {
-                    **related_feature_flag.filters,
-                    "feature_enrollment": True,
-                }
-                serialized_data_filters.pop("super_groups", None)
+                serialized_data_filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
                     related_feature_flag,
@@ -163,9 +164,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-                filters = {**related_feature_flag.filters, "feature_enrollment": None}
-                filters.pop("super_groups", None)
-                related_feature_flag.filters = filters
+                related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
                 related_feature_flag.save()
 
         updated_instance = super().update(instance, validated_data)
@@ -273,11 +272,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
 
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
-                serialized_data_filters = {
-                    **feature_flag.filters,
-                    "feature_enrollment": True,
-                }
-                serialized_data_filters.pop("super_groups", None)
+                serialized_data_filters = _set_enrollment_filters(feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
                     feature_flag,
@@ -337,9 +332,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=instance.team_id,
                 feature_flag_id=related_feature_flag.id,
             )
-            filters = {**related_feature_flag.filters, "feature_enrollment": None}
-            filters.pop("super_groups", None)
-            related_feature_flag.filters = filters
+            related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
             related_feature_flag.save()
 
         return super().destroy(request, *args, **kwargs)

@@ -431,7 +431,9 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
     return len(filter_json.encode("utf-8"))
 
 
-def _filter_person_properties_for_flag(filters: dict[str, Any], person_properties: dict[str, Any]) -> dict[str, Any]:
+def _filter_person_properties_for_flag(
+    filters: dict[str, Any], person_properties: dict[str, Any], flag_key: str | None = None
+) -> dict[str, Any]:
     """
     Filter person_properties to only include keys referenced by the given flag filters.
 
@@ -440,14 +442,18 @@ def _filter_person_properties_for_flag(filters: dict[str, Any], person_propertie
     response can leak property values that weren't relevant at the requested
     point in time.
 
-    Walks ``groups`` (regular release conditions) and
-    ``multivariate.override_property_values`` (per-variant property overrides).
+    Walks ``groups`` (regular release conditions),
+    ``multivariate.override_property_values`` (per-variant property overrides),
+    and the ``feature_enrollment`` flag (which implies ``$feature_enrollment/<key>``).
     Cohort-typed conditions reference person properties indirectly
     via the cohort definition; this helper does not resolve cohorts, so a flag
     whose only conditions are cohort lookups returns an empty person_properties
     block.
     """
     referenced_keys: set[str] = set()
+
+    if filters.get("feature_enrollment") and flag_key:
+        referenced_keys.add(f"$feature_enrollment/{flag_key}")
 
     for group in filters.get("groups", []) or []:
         for prop in group.get("properties", []) or []:
@@ -4010,7 +4016,9 @@ class FeatureFlagViewSet(
                 "reason": reason,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(evaluation_filters, person_properties),
+                "person_properties": _filter_person_properties_for_flag(
+                    evaluation_filters, person_properties, flag_key=feature_flag.key
+                ),
                 "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": detailed_conditions,
             }

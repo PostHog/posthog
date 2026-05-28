@@ -466,6 +466,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertNotIn("holdout_groups", flag.filters)
         self.assertEqual(flag.filters["holdout"], {"id": 1, "exclusion_percentage": 10})
 
+    def test_saving_flag_strips_legacy_super_groups(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="sg-cleanup",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "super_groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("super_groups", flag.filters)
+
     def test_saving_flag_strips_legacy_holdout_groups_without_holdout_key(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
