@@ -32,7 +32,7 @@ logger = structlog.get_logger(__name__)
 # `useWebAnalyticsPrecompute` is just the opt-in toggle, `modifiers` is
 # HogQL execution hints applied after the fact, and the rest are
 # metadata / pagination knobs applied at read time.
-_FILTERS_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
+_PRECOMPUTE_FILTERS_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     {
         "useWebAnalyticsPrecompute",
         "modifiers",
@@ -232,7 +232,7 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
 
 
-def compute_query_filters_hash(query: Any, team_timezone: str) -> str:
+def compute_precompute_filters_hash(query: Any, team_timezone: str) -> str:
     """Stable hash over the user-facing inputs that would fragment a precompute cache key.
 
     Emitted on the `web_analytics_query` and `lazy_computation.executed` structured
@@ -249,7 +249,7 @@ def compute_query_filters_hash(query: Any, team_timezone: str) -> str:
     interval, compare filter, test-accounts toggle, and team timezone.
     """
     dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
-    for key in _FILTERS_HASH_IGNORED_QUERY_FIELDS:
+    for key in _PRECOMPUTE_FILTERS_HASH_IGNORED_QUERY_FIELDS:
         dumped.pop(key, None)
     payload = {"query": dumped, "timezone": team_timezone}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()

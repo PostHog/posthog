@@ -16,7 +16,7 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_filters_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_precompute_filters_hash
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
@@ -47,47 +47,49 @@ def _stats(
     )
 
 
-class TestComputeQueryFiltersHash(BaseTest):
+class TestComputePrecomputeFiltersHash(BaseTest):
     def test_stable_across_calls_with_identical_query(self) -> None:
         q = _overview()
-        assert compute_query_filters_hash(q, "UTC") == compute_query_filters_hash(q, "UTC")
+        assert compute_precompute_filters_hash(q, "UTC") == compute_precompute_filters_hash(q, "UTC")
 
     def test_stable_across_freshly_built_equal_queries(self) -> None:
-        assert compute_query_filters_hash(_overview(), "UTC") == compute_query_filters_hash(_overview(), "UTC")
+        assert compute_precompute_filters_hash(_overview(), "UTC") == compute_precompute_filters_hash(
+            _overview(), "UTC"
+        )
 
     def test_date_range_fragments_key(self) -> None:
-        a = compute_query_filters_hash(_overview(date_from="-7d"), "UTC")
-        b = compute_query_filters_hash(_overview(date_from="-30d"), "UTC")
+        a = compute_precompute_filters_hash(_overview(date_from="-7d"), "UTC")
+        b = compute_precompute_filters_hash(_overview(date_from="-30d"), "UTC")
         assert a != b
 
     def test_breakdown_fragments_key(self) -> None:
-        a = compute_query_filters_hash(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
-        b = compute_query_filters_hash(_stats(breakdown_by=WebStatsBreakdown.OS), "UTC")
+        a = compute_precompute_filters_hash(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
+        b = compute_precompute_filters_hash(_stats(breakdown_by=WebStatsBreakdown.OS), "UTC")
         assert a != b
 
     def test_filter_value_fragments_key(self) -> None:
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
         firefox = [EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT)]
-        assert compute_query_filters_hash(_overview(properties=chrome), "UTC") != compute_query_filters_hash(
+        assert compute_precompute_filters_hash(_overview(properties=chrome), "UTC") != compute_precompute_filters_hash(
             _overview(properties=firefox), "UTC"
         )
 
     def test_filter_operator_fragments_key(self) -> None:
         exact = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
         is_not = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.IS_NOT)]
-        assert compute_query_filters_hash(_overview(properties=exact), "UTC") != compute_query_filters_hash(
+        assert compute_precompute_filters_hash(_overview(properties=exact), "UTC") != compute_precompute_filters_hash(
             _overview(properties=is_not), "UTC"
         )
 
     def test_query_kind_fragments_key(self) -> None:
-        assert compute_query_filters_hash(_overview(), "UTC") != compute_query_filters_hash(_stats(), "UTC")
+        assert compute_precompute_filters_hash(_overview(), "UTC") != compute_precompute_filters_hash(_stats(), "UTC")
 
     def test_timezone_fragments_key(self) -> None:
         q = _overview()
-        assert compute_query_filters_hash(q, "UTC") != compute_query_filters_hash(q, "America/New_York")
+        assert compute_precompute_filters_hash(q, "UTC") != compute_precompute_filters_hash(q, "America/New_York")
 
     def test_compare_filter_fragments_key(self) -> None:
-        assert compute_query_filters_hash(_overview(compare=False), "UTC") != compute_query_filters_hash(
+        assert compute_precompute_filters_hash(_overview(compare=False), "UTC") != compute_precompute_filters_hash(
             _overview(compare=True), "UTC"
         )
 
@@ -101,7 +103,7 @@ class TestComputeQueryFiltersHash(BaseTest):
         # same filter set in different orders they will hash to different keys.
         # Document the current behavior rather than the desired one — change
         # this assertion if we add canonical ordering upstream.
-        assert compute_query_filters_hash(_overview(properties=a), "UTC") != compute_query_filters_hash(
+        assert compute_precompute_filters_hash(_overview(properties=a), "UTC") != compute_precompute_filters_hash(
             _overview(properties=b), "UTC"
         )
 
@@ -116,16 +118,16 @@ class TestComputeQueryFiltersHash(BaseTest):
             properties=[],
             useWebAnalyticsPrecompute=False,
         )
-        assert compute_query_filters_hash(q_on, "UTC") == compute_query_filters_hash(q_off, "UTC")
+        assert compute_precompute_filters_hash(q_on, "UTC") == compute_precompute_filters_hash(q_off, "UTC")
 
     def test_hash_is_64_char_hex(self) -> None:
-        h = compute_query_filters_hash(_overview(), "UTC")
+        h = compute_precompute_filters_hash(_overview(), "UTC")
         assert len(h) == 64
         int(h, 16)
 
 
-class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
-    """Verifies that `WebAnalyticsQueryRunner.calculate()` binds `filters_hash`
+class TestPrecomputeFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
+    """Verifies that `WebAnalyticsQueryRunner.calculate()` binds `precompute_filters_hash`
     on `structlog.contextvars` so every log emitted inside the request —
     including from code called via `super().calculate()` and downstream paths
     like the lazy framework's `lazy_computation.executed` — picks it up via
@@ -146,9 +148,9 @@ class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def test_filters_hash_bound_during_super_calculate(self) -> None:
+    def test_precompute_filters_hash_bound_during_super_calculate(self) -> None:
         """While `super().calculate()` is running, `get_contextvars()` should
-        return `filters_hash` — this is the property the `merge_contextvars`
+        return `precompute_filters_hash` — this is the property the `merge_contextvars`
         processor relies on to attach the field to every log inside the call
         tree (`lazy_computation.executed`, eligibility-rejected lines, etc.).
 
@@ -157,7 +159,7 @@ class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
         binding class would replace the very method that wraps the
         contextvar block."""
         runner = self._runner()
-        expected = runner.filters_hash
+        expected = runner.precompute_filters_hash
         assert expected is not None
 
         captured: dict = {}
@@ -170,19 +172,19 @@ class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
         with mock.patch.object(AnalyticsQueryRunner, "calculate", spy):
             runner.calculate()
 
-        assert captured.get("filters_hash") == expected
+        assert captured.get("precompute_filters_hash") == expected
 
-    def test_filters_hash_unbound_after_calculate_returns(self) -> None:
+    def test_precompute_filters_hash_unbound_after_calculate_returns(self) -> None:
         """The contextvar must not leak past `calculate()` — `get_contextvars()`
         outside the request should NOT include the prior request's hash."""
         runner = self._runner()
         runner.calculate()
-        assert "filters_hash" not in get_contextvars()
+        assert "precompute_filters_hash" not in get_contextvars()
 
-    def test_filters_hash_unbound_after_calculate_raises(self) -> None:
+    def test_precompute_filters_hash_unbound_after_calculate_raises(self) -> None:
         """Same cleanup invariant when `calculate()` raises — the contextvar
         must still be unbound (otherwise an exception in one request would
-        leak its filters_hash into the next request on the same worker)."""
+        leak its precompute_filters_hash into the next request on the same worker)."""
         runner = self._runner()
 
         with mock.patch.object(AnalyticsQueryRunner, "calculate", side_effect=RuntimeError("boom")):
@@ -191,15 +193,15 @@ class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
             except RuntimeError:
                 pass
 
-        assert "filters_hash" not in get_contextvars()
+        assert "precompute_filters_hash" not in get_contextvars()
 
-    def test_query_tags_and_contextvar_carry_same_filters_hash(self) -> None:
+    def test_query_tags_and_contextvar_carry_same_precompute_filters_hash(self) -> None:
         """The same value must land in three places per request:
-        `runner.filters_hash`, `structlog.contextvars`, and the ClickHouse
+        `runner.precompute_filters_hash`, `structlog.contextvars`, and the ClickHouse
         query-log tags (`get_query_tag_value`). If they diverge a downstream
         join would silently produce wrong results."""
         runner = self._runner()
-        expected = runner.filters_hash
+        expected = runner.precompute_filters_hash
         assert expected is not None
 
         captured_contextvar: dict = {}
@@ -207,12 +209,12 @@ class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
         original = AnalyticsQueryRunner.calculate
 
         def spy(self_):
-            captured_contextvar["filters_hash"] = get_contextvars().get("filters_hash")
-            captured_query_tag["filters_hash"] = get_query_tag_value("filters_hash")
+            captured_contextvar["precompute_filters_hash"] = get_contextvars().get("precompute_filters_hash")
+            captured_query_tag["precompute_filters_hash"] = get_query_tag_value("precompute_filters_hash")
             return original(self_)
 
         with mock.patch.object(AnalyticsQueryRunner, "calculate", spy):
             runner.calculate()
 
-        assert captured_contextvar["filters_hash"] == expected
-        assert captured_query_tag["filters_hash"] == expected
+        assert captured_contextvar["precompute_filters_hash"] == expected
+        assert captured_query_tag["precompute_filters_hash"] == expected

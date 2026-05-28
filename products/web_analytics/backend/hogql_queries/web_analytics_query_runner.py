@@ -53,7 +53,7 @@ from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_ERRORS,
 )
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_filters_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_precompute_filters_hash
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +86,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     def calculate(self) -> WAR:
-        # `filters_hash` is bound on structlog contextvars here so every
+        # `precompute_filters_hash` is bound on structlog contextvars here so every
         # structured log emitted inside this request — `web_analytics_query`,
         # each lazy-precompute path's `*_rejected` / `*_eligible`, and the
         # framework's `lazy_computation.executed` — automatically carries it
@@ -95,7 +95,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # contextvar block (rather than delegated to a helper) so existing
         # tests that call `WebAnalyticsQueryRunner.calculate(<MagicMock>)`
         # exercise it directly.
-        with bound_contextvars(filters_hash=self.filters_hash):
+        with bound_contextvars(precompute_filters_hash=self.precompute_filters_hash):
             # Tag everything ClickHouse will see for this request in one call so
             # every downstream `sync_execute` (live, preagg, lazy precompute)
             # inherits a coherent `log_comment` payload.
@@ -105,7 +105,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             # layer (`posthog/api/services/query.py`) tags only the wrapping
             # payload — the weekly digest workflow (and any other non-HTTP
             # caller) reaches the runner directly with `log_comment.query`
-            # empty, so each runner records its own payload. `filters_hash`
+            # empty, so each runner records its own payload. `precompute_filters_hash`
             # mirrors the structlog contextvar so the same join key lands in
             # `system.query_log` rows too.
             query_kind = getattr(self.query, "kind", "Unknown")
@@ -117,7 +117,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 "product": Product.WEB_ANALYTICS,
                 "feature": Feature.QUERY,
                 "query": self.query.model_dump(mode="json"),
-                "filters_hash": self.filters_hash,
+                "precompute_filters_hash": self.precompute_filters_hash,
             }
             if breakdown_value is not None:
                 tag_kwargs["breakdown_by"] = [breakdown_value.value]
@@ -198,15 +198,15 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 )
 
     @cached_property
-    def filters_hash(self) -> Optional[str]:
+    def precompute_filters_hash(self) -> Optional[str]:
         """Stable hash of the user-facing query inputs that would fragment a
         precompute cache key. Bound on the structlog contextvars in
         `calculate()` so every log emitted inside the request — including the
         framework's `lazy_computation.executed` — carries it automatically and
         the log streams can be joined for queries-per-distinct-cache-key
-        analysis. See `compute_query_filters_hash` for the exact field set."""
+        analysis. See `compute_precompute_filters_hash` for the exact field set."""
         try:
-            return compute_query_filters_hash(self.query, self.team.timezone)
+            return compute_precompute_filters_hash(self.query, self.team.timezone)
         except Exception:
             return None
 

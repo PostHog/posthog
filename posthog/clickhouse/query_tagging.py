@@ -405,7 +405,7 @@ class QueryTags(BaseModel):
     # Set by web analytics runners; lets `system.query_log` rows be joined to the
     # `web_analytics_query` / `lazy_computation.executed` log lines that carry the
     # same value via `structlog.contextvars`.
-    filters_hash: Optional[str] = None
+    precompute_filters_hash: Optional[str] = None
 
     # data warehouse
     trend_volume_display: Optional[str] = None
