@@ -70,6 +70,12 @@ export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -116,10 +122,35 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe(
+                    'Validates the shape of each item inside the `conditions` JSONField.\n\nWithout this, the field was an unstructured JSON blob: callers could write any key (e.g.\n`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET\nendpoint echoed it back — making the eval look configured while the dispatcher (which\nreads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.'
+                )
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -170,6 +201,12 @@ export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
+
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -218,10 +255,35 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe(
+                    'Validates the shape of each item inside the `conditions` JSONField.\n\nWithout this, the field was an unstructured JSON blob: callers could write any key (e.g.\n`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET\nendpoint echoed it back — making the eval look configured while the dispatcher (which\nreads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.'
+                )
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([

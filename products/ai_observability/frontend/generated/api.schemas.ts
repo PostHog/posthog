@@ -69,6 +69,32 @@ export const OutputTypeEnumApi = {
     Boolean: 'boolean',
 } as const
 
+export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * Validates the shape of each item inside the `conditions` JSONField.
+
+Without this, the field was an unstructured JSON blob: callers could write any key (e.g.
+`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET
+endpoint echoed it back — making the eval look configured while the dispatcher (which
+reads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.
+ */
+export interface EvaluationConditionApi {
+    /**
+     * Stable identifier for this condition set.
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters (event or person) that scope which generations match this condition set. */
+    properties?: EvaluationConditionApiPropertiesItem[]
+}
+
 /**
  * * `openai` - Openai
  * `anthropic` - Anthropic
@@ -211,8 +237,8 @@ export interface EvaluationApi {
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
-    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-    conditions?: unknown
+    /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+    conditions?: EvaluationConditionApi[]
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -283,8 +309,8 @@ export interface PatchedEvaluationApi {
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
-    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-    conditions?: unknown
+    /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+    conditions?: EvaluationConditionApi[]
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
