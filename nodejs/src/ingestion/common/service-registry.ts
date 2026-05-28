@@ -166,9 +166,9 @@ class ManagerRunner implements Runner {
  * (or refcount onto) the parent, resolve its container, hand it to the
  * configure callback to build a child scope, then start the child.
  * On `stop`: stop the child then release the parent. The parent boot is
- * shared across all nests rooted at it via the parent's own refcount.
+ * shared across all extensions rooted at it via the parent's own refcount.
  */
-class NestedRunner<SParent extends Record<string, object>, SChild extends Record<string, object>> implements Runner {
+class ExtendedRunner<SParent extends Record<string, object>, SChild extends Record<string, object>> implements Runner {
     private parentHandle?: StartedScope<SParent>
     private childHandle?: StartedScope<SChild>
     private containerCache?: SParent & SChild
@@ -192,7 +192,7 @@ class NestedRunner<SParent extends Record<string, object>, SChild extends Record
             this.childHandle = childHandle
             this.containerCache = { ...parentHandle.container, ...childHandle.container }
         } catch (err) {
-            logger.error(`Scope[${this.childName}]: nest start failed, releasing parent ${this.parent.name}`, {
+            logger.error(`Scope[${this.childName}]: extend start failed, releasing parent ${this.parent.name}`, {
                 error: err,
             })
             try {
@@ -226,7 +226,7 @@ class NestedRunner<SParent extends Record<string, object>, SChild extends Record
 
     getContainer(): SParent & SChild {
         if (!this.containerCache) {
-            throw new Error(`nested scope "${this.childName}" is not started`)
+            throw new Error(`extended scope "${this.childName}" is not started`)
         }
         return this.containerCache
     }
@@ -444,11 +444,11 @@ export class Scope<S extends Record<string, object> = Record<never, object>> {
      * callback runs with the resolved container and the child is started.
      * On `stop`: the child is stopped, then this scope is released.
      */
-    nest<S2 extends Record<string, object>>(
+    extend<S2 extends Record<string, object>>(
         name: string,
         configure: (parentContainer: S, builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S2>
     ): Scope<S & S2> {
-        const runner = new NestedRunner<S, S2>(this, configure, name)
+        const runner = new ExtendedRunner<S, S2>(this, configure, name)
         return new Scope<S & S2>(name, () => runner.getContainer(), runner)
     }
 

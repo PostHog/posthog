@@ -264,13 +264,13 @@ describe('Lifecycle', () => {
         expect(stopCalls).toBe(2)
     })
 
-    it('chains a child lifecycle on top of a parent', async () => {
+    it('extends a parent scope with a child scope', async () => {
         const log: string[] = []
         const a = makeService('a', log)
         const b = makeService('b', log)
 
         const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
-        const child = parent.nest('child', (services, builder) => {
+        const child = parent.extend('child', (services, builder) => {
             // Services from the parent must be available here.
             expect(services.a).toBe(a)
             return builder.register('b', adaptManagedService(b))
@@ -287,32 +287,32 @@ describe('Lifecycle', () => {
         expect(log).toEqual(['start:a', 'start:b', 'stop:b', 'stop:a'])
     })
 
-    it('refcounts the parent across multiple chained lifecycles', async () => {
+    it('refcounts the parent across multiple extensions', async () => {
         const log: string[] = []
         const a = makeService('a', log)
         const b = makeService('b', log)
         const c = makeService('c', log)
 
         const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
-        const childB = parent.nest('childB', (_services, builder) => builder.register('b', adaptManagedService(b)))
-        const childC = parent.nest('childC', (_services, builder) => builder.register('c', adaptManagedService(c)))
+        const childB = parent.extend('childB', (_services, builder) => builder.register('b', adaptManagedService(b)))
+        const childC = parent.extend('childC', (_services, builder) => builder.register('c', adaptManagedService(c)))
 
         const hB = await childB.start()
         const hC = await childC.start()
 
-        // Parent boots exactly once even though both chains started.
+        // Parent boots exactly once even though both extensions started.
         expect(a.startCalls).toBe(1)
         expect(b.startCalls).toBe(1)
         expect(c.startCalls).toBe(1)
 
         await hB.stop()
-        // Releasing one chain doesn't tear the parent down — the other chain
-        // still holds it.
+        // Releasing one extension doesn't tear the parent down — the other
+        // extension still holds it.
         expect(a.stopCalls).toBe(0)
         expect(b.stopCalls).toBe(1)
 
         await hC.stop()
-        // Last chain released; parent now stops.
+        // Last extension released; parent now stops.
         expect(a.stopCalls).toBe(1)
         expect(c.stopCalls).toBe(1)
     })
@@ -326,7 +326,7 @@ describe('Lifecycle', () => {
         }
 
         const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
-        const child = parent.nest('child', (_services, builder) =>
+        const child = parent.extend('child', (_services, builder) =>
             builder.register('bad', adaptManagedService(failing))
         )
 
@@ -343,7 +343,7 @@ describe('Lifecycle', () => {
         let buildCalls = 0
 
         const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
-        const child = parent.nest('child', (_services, builder) => {
+        const child = parent.extend('child', (_services, builder) => {
             buildCalls++
             const b = makeService(`b${buildCalls}`, log)
             return builder.register('b', adaptManagedService(b))

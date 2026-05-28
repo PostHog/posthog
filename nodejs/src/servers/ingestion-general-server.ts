@@ -134,8 +134,8 @@ export class IngestionGeneralServer implements NodeServer {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
         // 1. Shared infrastructure — postgres + redis lifetimes are owned
-        //    by a server-level Lifecycle so consumers can chain off it via
-        //    `Lifecycle.chain` to get them as handles without taking
+        //    by a server-level Scope so consumers can extend off it via
+        //    `Scope.extend` to get them as handles without taking
         //    ownership.
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
@@ -152,12 +152,12 @@ export class IngestionGeneralServer implements NodeServer {
             .register('producerRegistry', new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config))
             .build('shared-infra')
 
-        // `teamManager` is built inside the chain via its Manager so it
-        // picks up `postgres` from the started infra lifecycle's services
-        // and is owned by the lifecycle. The server extracts it from the
-        // started services map to pass on to CDP services etc.
+        // `teamManager` is built inside the extension via its Manager so
+        // it picks up `postgres` from the started infra scope's container
+        // and is owned by that scope. The server extracts it from the
+        // started container to pass on to CDP services etc.
         const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-        const sharedServicesScope = sharedInfraScope.nest('shared', (container, builder) =>
+        const sharedServicesScope = sharedInfraScope.extend('shared', (container, builder) =>
             builder
                 .register('teamManager', new TeamManagerScope(container.postgres))
                 .register('staticDropEventTokens', {

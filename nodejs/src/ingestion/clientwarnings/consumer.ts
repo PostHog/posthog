@@ -27,7 +27,7 @@ export function createClientWarningsConsumer(
     config: ClientWarningsConsumerConfig,
     sharedScope: ClientWarningsSharedScope
 ) {
-    const scope = sharedScope.nest('clientwarnings', (container, builder) =>
+    const scope = sharedScope.extend('clientwarnings', (container, builder) =>
         builder
             .register(
                 'eventIngestionRestrictionManager',

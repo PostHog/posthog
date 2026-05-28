@@ -24,7 +24,7 @@ was rejected.
    tears down.
 5. **State machine.** `Stopped → Starting → Started → Stopping → Stopped`. A
    start during `Stopping` waits; a stop during `Starting` waits.
-6. **Nested scopes.** `parent.nest('child', (parentContainer, builder) => ...)`.
+6. **Extended scopes.** `parent.extend('child', (parentContainer, builder) => ...)`.
    Child sees parent's container as a fully typed input; child's container
    type is `Parent & Child`. Stopping the child releases its parent
    refcount.
@@ -136,8 +136,8 @@ Async factories first-class.
 
 - Same gaps as awilix: no eager ordered start, no rollback, no refcount, no
   state machine.
-- Nesting doesn't compose two typed containers the way our
-  `nest((parentContainer, builder) => ...)` does — parent containers exist
+- Extension doesn't compose two typed containers the way our
+  `extend((parentContainer, builder) => ...)` does — parent containers exist
   but the child's resolved type doesn't carry the parent through.
 
 Covers ~60% of `Scope`. Same conclusion as awilix — would save a bit of
@@ -223,7 +223,7 @@ scopes, no factory injection, no decorator gymnastics. Everything a DI
 container is built to solve, we don't have a problem with.
 
 What we *do* have a problem with — ordered async startup, rollback,
-refcounted shared infra, state machine, parent-typed nested scopes — is
+refcounted shared infra, state machine, parent-typed scope extensions — is
 *lifecycle graph* territory. In Java/Scala this is what `cats-effect.Resource`,
 ZIO's `Scope`, or Spring's lifecycle interfaces handle. In TS, the only
 library that ships the whole set is Effect.
