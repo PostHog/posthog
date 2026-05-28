@@ -311,12 +311,13 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
 
     options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
 
+    // undici 7.18+ removed `maxRedirections` from request options — redirects
+    // are now opt-in via the redirect interceptor. Default is no redirects.
     const result = await request(parsed.toString(), {
         method: options.method ?? 'GET',
         headers: options.headers,
         body: options.body,
         dispatcher,
-        maxRedirections: 0, // No redirects allowed by default
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
 

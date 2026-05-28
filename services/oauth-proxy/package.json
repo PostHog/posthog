@@ -21,7 +21,7 @@
         "typecheck:tsgo": "tsgo --noEmit"
     },
     "devDependencies": {
-        "@cloudflare/workers-types": "^4.20260120.0",
+        "@cloudflare/workers-types": "^4.20260524.1",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",

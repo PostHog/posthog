@@ -84,7 +84,8 @@ export const setupPlugin = async ({ attachments, global, config }: gcsMeta): Pro
     const storage = new Storage({
         projectId: credentials['project_id'],
         credentials,
-        autoRetry: false,
+        // @google-cloud/storage v7 moved autoRetry under retryOptions
+        retryOptions: { autoRetry: false },
     })
     global.bucket = storage.bucket(config.bucketName)
     global.eventsToIgnore = new Set<string>((config.exportEventsToIgnore || '').split(',').map((event) => event.trim()))

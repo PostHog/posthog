@@ -80,6 +80,9 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
         blob: () => {
             throw new Error('Not implemented')
         },
+        bytes: () => {
+            throw new Error('Not implemented')
+        },
         formData: () => {
             throw new Error('Not implemented')
         },
