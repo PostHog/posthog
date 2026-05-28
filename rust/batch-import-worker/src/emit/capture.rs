@@ -374,7 +374,10 @@ mod tests {
         });
 
         let result = txn.commit_write().await;
-        assert!(result.is_ok(), "expected Ok for empty batch, got {result:?}");
+        assert!(
+            result.is_ok(),
+            "expected Ok for empty batch, got {result:?}"
+        );
         assert_eq!(
             result.unwrap(),
             Duration::ZERO,

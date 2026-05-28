@@ -97,11 +97,8 @@ impl FormatConfig {
                     // events (the event itself plus optional identify and group
                     // identify events), so we collect into Vec<Vec<_>> and
                     // flatten after the error check.
-                    let result: Result<Vec<Vec<_>>, Error> = parsed
-                        .data
-                        .into_par_iter()
-                        .map(&event_transform)
-                        .collect();
+                    let result: Result<Vec<Vec<_>>, Error> =
+                        parsed.data.into_par_iter().map(&event_transform).collect();
 
                     Ok(Parsed {
                         data: result?.into_iter().flatten().collect(),
