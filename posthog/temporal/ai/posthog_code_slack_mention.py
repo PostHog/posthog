@@ -17,7 +17,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+from products.slack_app.backend.slack_thread import (
+    SlackThreadContext,
+    SlackThreadHandler,
+    ack_emoji_for,
+    stale_ack_emojis_for,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.repo_selection import (
     RepoSelectionRejectedError,
@@ -33,6 +38,45 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 # create a circular dependency.
 
 logger = structlog.get_logger(__name__)
+
+
+def _block_if_team_over_quota(
+    *,
+    integration: Any,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> bool:
+    """Refuse a Slack-bot turn when the team is over its AI credits quota.
+
+    Tach blocks ``products.slack_app`` from importing ``ee.billing``, so the
+    quota lookup lives here (where the temporal layer can freely import ee)
+    while the user-facing denial message lives in ``slack_app.backend.api``
+    (where the Slack-posting helpers live). Returns True when the team was
+    blocked and a denial was posted.
+    """
+    from products.slack_app.backend.api import post_quota_exhausted_denial
+
+    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+
+    if not is_team_limited(
+        integration.team.api_token,
+        QuotaResource.AI_CREDITS,
+        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+    ):
+        return False
+
+    post_quota_exhausted_denial(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context=context,
+    )
+    return True
 
 
 def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
@@ -205,6 +249,24 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             return
 
         try:
+            # Gate every workflow entry on the team's AI-credits quota before any
+            # other activity runs. Webhook-level short-circuit catches the common
+            # case (see products/slack_app/backend/api.py); this is the defense in
+            # depth that also covers replays, manual workflow starts, and the race
+            # where the webhook saw "not limited" but Redis flipped before we got
+            # here. Wrapped in `workflow.patched` so in-flight workflows from
+            # before this deploy stay deterministic on replay.
+            if workflow.patched("posthog-code-slack-billing-gate"):
+                blocked = await _execute_posthog_code_activity(
+                    enforce_posthog_code_billing_quota_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                )
+                if blocked:
+                    return
+
             followup_handled = await _execute_posthog_code_activity(
                 forward_posthog_code_followup_activity,
                 inputs,
@@ -891,6 +953,38 @@ def classify_posthog_code_task_needs_repo_activity(
 
 
 @activity.defn
+def enforce_posthog_code_billing_quota_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+) -> bool:
+    """Block the workflow when the team has exhausted its AI-credits quota.
+
+    Returns True when a denial was posted and the workflow should stop. Called
+    as the first activity in the mention workflow so the bot never proceeds to
+    Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
+    notably) for an over-quota team.
+    """
+    from posthog.models.integration import Integration, SlackIntegration
+
+    integration = Integration.objects.select_related("team").get(
+        id=inputs.integration_id,
+        kind="slack-posthog-code",
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+    return _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    )
+
+
+@activity.defn
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
@@ -1036,9 +1130,25 @@ def create_posthog_code_task_for_repo_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
+
+    # Refuse before the ack reaction or the permalink fetch: a denied mention
+    # should not first ack-react and then refuse a second later.
+    if _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    ):
+        return
+
     user_message_ts = event.get("ts")
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "seedling")
+        # Deterministic per ts so activity retries (maximum_attempts=3) land on
+        # the same emoji and `_safe_react`'s `already_reacted` short-circuit
+        # keeps the ack idempotent.
+        _safe_react(slack.client, channel, user_message_ts, ack_emoji_for(user_message_ts))
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1239,6 +1349,16 @@ def forward_posthog_code_followup_activity(
             thread_ts=thread_ts,
             text="Only the person who started this task can send follow-up messages to the agent.",
         )
+        return True
+
+    if _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="followup",
+    ):
         return True
 
     if task_run.is_terminal:
@@ -1482,7 +1602,7 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     if not user_message_ts:
         return
 
-    for stale_emoji in ("eyes", "seedling"):
+    for stale_emoji in stale_ack_emojis_for(user_message_ts):
         try:
             slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
         except Exception:

@@ -13,6 +13,10 @@ const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
 
+const productAliases = {
+    llm_analytics: 'ai_observability',
+}
+
 // Default to temp location (gitignored ephemeral artifact)
 const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.json')
 
@@ -129,6 +133,11 @@ function findPythonFiles(dir) {
  */
 function matchUrlToProduct(urlPath, productFolders) {
     const urlLower = urlPath.toLowerCase().replace(/-/g, '_')
+    for (const [legacyProduct, product] of Object.entries(productAliases)) {
+        if (productFolders.has(product) && urlLower.includes(`/${legacyProduct}/`)) {
+            return product
+        }
+    }
     for (const product of productFolders) {
         if (urlLower.includes(`/${product}/`)) {
             return product
@@ -146,6 +155,11 @@ function matchUrlToProduct(urlPath, productFolders) {
 function resolveTagToProduct(tag, mappings) {
     const { productFoldersOnDisk } = mappings
     const normalizedTag = tag.replace(/-/g, '_')
+    const aliasedProduct = productAliases[normalizedTag]
+
+    if (aliasedProduct && productFoldersOnDisk.has(aliasedProduct)) {
+        return aliasedProduct
+    }
 
     // Tag must match a product folder on disk
     if (productFoldersOnDisk.has(normalizedTag)) {
@@ -219,9 +233,9 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             let routingMethod = null
 
             // Priority 1: Tag matches product folder (includes auto-tags from backend)
-            const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
-            if (productTag) {
-                outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
+            const product = tags.map((tag) => resolveTagToProduct(tag, mappings)).find((product) => product !== null)
+            if (product) {
+                outputDir = resolveProductToOutputDir(product, mappings.productFoldersOnDisk)
                 routingMethod = 'tag'
             }
 

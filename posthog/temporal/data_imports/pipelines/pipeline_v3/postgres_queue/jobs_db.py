@@ -173,6 +173,7 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int = 50,
+        retry_backoff_base_seconds: int = 0,
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) advisory lock is acquirable.
 
@@ -181,6 +182,19 @@ class BatchQueue:
         Postgres is free to evaluate pg_try_advisory_lock on rows that are
         later discarded by other predicates or by LIMIT, creating phantom
         locks that unlock_for_batches never releases.
+
+        ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
+        the age of the latest status row: a batch is only eligible when
+        ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
+        (attempt is floored at 1 so that a zero-attempt row still waits at least one
+        base period).
+
+        Head-of-line gating per run: a batch is excluded if any earlier
+        ``batch_index`` in the same ``run_uuid`` is currently ``executing`` or
+        in ``waiting_retry`` whose backoff window has not yet elapsed. Earlier
+        batches that are unprocessed (NULL status) or ``waiting_retry`` with
+        backoff met are treated as siblings that will be returned alongside
+        in the same poll and processed sequentially by the consumer.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -198,7 +212,32 @@ class BatchQueue:
                     LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (s.batch_id IS NULL OR s.job_state = 'waiting_retry')
+                        AND (
+                            s.batch_id IS NULL
+                            OR (
+                                s.job_state = 'waiting_retry'
+                                AND s.created_at <= now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
+                                )
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_prev
+                            LEFT JOIN {STATUS_VIEW} s_prev ON b_prev.id = s_prev.batch_id
+                            WHERE b_prev.run_uuid = b.run_uuid
+                                AND b_prev.batch_index < b.batch_index
+                                AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND (
+                                    s_prev.job_state = 'executing'
+                                    OR (
+                                        s_prev.job_state = 'waiting_retry'
+                                        AND s_prev.created_at > now() - make_interval(
+                                            secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
+                                        )
+                                    )
+                                )
+                        )
                         AND b.run_uuid NOT IN (
                             SELECT DISTINCT b2.run_uuid
                             FROM {BATCH_TABLE} b2
@@ -214,7 +253,7 @@ class BatchQueue:
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {"limit": limit},
+                {"limit": limit, "backoff": retry_backoff_base_seconds},
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -245,11 +284,16 @@ class BatchQueue:
     @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int = 0,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
 
         Uses a MATERIALIZED CTE for the same reason as get_unprocessed_and_lock:
         candidate rows are fully resolved before any advisory lock is probed.
+
+        ``grace_seconds`` requires the 'executing' status row to be older than
+        this threshold before the batch is considered orphaned.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -268,6 +312,7 @@ class BatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND s.job_state = 'executing'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
                     ORDER BY b.created_at ASC, b.batch_index ASC
                 )
                 SELECT c.*
@@ -275,6 +320,7 @@ class BatchQueue:
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
+                {"grace": grace_seconds},
             )
             rows = await cur.fetchall()
 

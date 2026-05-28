@@ -5,7 +5,7 @@
 //!
 //! Requires Docker Kafka (same rig as legacy integration tests).
 //!
-//! TODO(v1): add HTTP-level integration tests (ServerHandle + POST /i/v1/general/events)
+//! TODO(v1): add HTTP-level integration tests (ServerHandle + POST /i/v1/analytics/events)
 //! and process_batch orchestration tests once the v1 HTTP router is merged into the
 //! main application and process_batch is fully implemented (currently a stub).
 

@@ -100,6 +100,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
             "user_access_level": "manager",
+            "parent_resource": None,
         }
 
         self.assert_notebook_activity(

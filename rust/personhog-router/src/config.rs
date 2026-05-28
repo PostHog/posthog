@@ -147,6 +147,11 @@ pub struct Config {
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
+    /// Log a warning when a gRPC response exceeds this size in bytes.
+    /// Set to 0 to disable. Default: 10 MiB.
+    #[envconfig(default = "10485760")]
+    pub response_size_warn_bytes: usize,
+
     // ── etcd coordination (leader mode only) ─────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,
