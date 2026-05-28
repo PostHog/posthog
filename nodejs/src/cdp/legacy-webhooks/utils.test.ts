@@ -72,7 +72,7 @@ describe('addGroupPropertiesToPostIngestionEventsBatch', () => {
         )
 
         expect(result).toEqual(events)
-        expect(mockGroupTypeManager.fetchGroupTypesForProjects).not.toHaveBeenCalled()
+        expect(mockGroupTypeManager.fetchGroupTypesForProjects).toHaveBeenCalledWith(new Set())
         expect(mockGroupRepository.fetchGroupsByKeys).not.toHaveBeenCalled()
     })
 
