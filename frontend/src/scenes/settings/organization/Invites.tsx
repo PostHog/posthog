@@ -110,7 +110,12 @@ export function InvitesTable(): JSX.Element {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: (_, invite) => InviteLinkComponent(invite.id, invite),
+            render: (_, invite) =>
+                restrictionReason ? (
+                    <i className="text-secondary">Only organization admins can view invite links</i>
+                ) : (
+                    InviteLinkComponent(invite.id, invite)
+                ),
         },
         {
             title: '',
