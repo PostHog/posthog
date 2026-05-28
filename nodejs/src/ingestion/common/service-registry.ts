@@ -111,29 +111,45 @@ class ManagerRunner implements Runner {
     ) {}
 
     async start(): Promise<void> {
+        logger.info(`Scope[${this.scopeName}]: starting ${this.entries.length} entries in parallel`)
+
+        const results = await Promise.allSettled(
+            this.entries.map(async (entry) => {
+                logger.info(`Scope[${this.scopeName}]: starting ${entry.name}`)
+                return await entry.manager.start()
+            })
+        )
+
         const started: Array<{ name: string; value: object; stop: () => Promise<void> }> = []
-        for (const entry of this.entries) {
-            logger.info(`Scope[${this.scopeName}]: starting ${entry.name}`)
-            try {
-                const { value, stop } = await entry.manager.start()
-                started.push({ name: entry.name, value: value as object, stop })
-            } catch (err) {
-                logger.error(
-                    `Scope[${this.scopeName}]: ${entry.name} start failed, rolling back ${started.length} started value(s)`,
-                    { error: err }
-                )
-                for (let i = started.length - 1; i >= 0; i--) {
-                    try {
-                        await started[i].stop()
-                    } catch (rollbackErr) {
-                        logger.error(`Scope[${this.scopeName}]: ${started[i].name} stop failed during rollback`, {
-                            error: rollbackErr,
-                        })
-                    }
-                }
-                throw err
+        const failures: Array<{ name: string; error: unknown }> = []
+
+        for (let i = 0; i < results.length; i++) {
+            const result = results[i]
+            const name = this.entries[i].name
+            if (result.status === 'fulfilled') {
+                started.push({ name, value: result.value.value as object, stop: result.value.stop })
+            } else {
+                failures.push({ name, error: result.reason })
             }
         }
+
+        if (failures.length > 0) {
+            for (const f of failures) {
+                logger.error(`Scope[${this.scopeName}]: ${f.name} start failed`, { error: f.error })
+            }
+            logger.error(`Scope[${this.scopeName}]: start failed, rolling back ${started.length} started value(s)`)
+            for (let i = started.length - 1; i >= 0; i--) {
+                try {
+                    await started[i].stop()
+                } catch (rollbackErr) {
+                    logger.error(`Scope[${this.scopeName}]: ${started[i].name} stop failed during rollback`, {
+                        error: rollbackErr,
+                    })
+                }
+            }
+            throw failures[0].error
+        }
+
         this.started = started
         this.containerCache = Object.fromEntries(started.map((s) => [s.name, s.value]))
     }
