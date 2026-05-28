@@ -45,6 +45,7 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
+    export_lazy_computation_job_stats,
     find_flags_with_enriched_analytics,
     ingestion_lag,
     kill_stale_queued_task_runs,
@@ -165,6 +166,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:
         sender.add_periodic_task(10, redis_celery_queue_depth.s(), name="10 sec queue probe")
+        sender.add_periodic_task(
+            30,
+            export_lazy_computation_job_stats.s(),
+            name="30 sec lazy_computation backlog probe",
+        )
 
     sender.add_periodic_task(
         60,
