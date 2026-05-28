@@ -1,27 +1,64 @@
+import crypto from 'node:crypto'
+import { Counter } from 'prom-client'
+
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
 
-function toBase64UrlSafe(input: string) {
-    // Encode to normal base64
-    const b64 = Buffer.from(input, 'utf8').toString('base64')
-    // Make URL safe and strip padding
+const SIGNATURE_BYTES = 16
+
+// Tracks the rotation curve from unsigned to signed tracking codes.
+export const trackingCodeFormatCounter = new Counter({
+    name: 'email_tracking_code_format_total',
+    help: 'Count of email tracking codes parsed by signature format',
+    labelNames: ['format', 'source'],
+})
+
+function toBase64UrlSafe(input: string | Buffer): string {
+    const b64 = Buffer.isBuffer(input) ? input.toString('base64') : Buffer.from(input, 'utf8').toString('base64')
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function fromBase64UrlSafe(b64url: string) {
-    // Restore base64 from URL-safe variant
+function fromBase64UrlSafeBuffer(b64url: string): Buffer {
     let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
-    // Pad to length multiple of 4
     while (b64.length % 4) {
         b64 += '='
     }
-    return Buffer.from(b64, 'base64').toString('utf8')
+    return Buffer.from(b64, 'base64')
+}
+
+function fromBase64UrlSafe(b64url: string): string {
+    return fromBase64UrlSafeBuffer(b64url).toString('utf8')
+}
+
+function getSigningKeys(): string[] {
+    return (defaultConfig.ENCRYPTION_SALT_KEYS || '').split(',').filter(Boolean)
+}
+
+function signPayload(payload: string, key: string): string {
+    const mac = crypto.createHmac('sha256', key).update(payload).digest().subarray(0, SIGNATURE_BYTES)
+    return toBase64UrlSafe(mac)
+}
+
+function verifySignature(payload: string, signature: string): boolean {
+    const expected = fromBase64UrlSafeBuffer(signature)
+    if (expected.length !== SIGNATURE_BYTES) {
+        return false
+    }
+    for (const key of getSigningKeys()) {
+        const candidate = crypto.createHmac('sha256', key).update(payload).digest().subarray(0, SIGNATURE_BYTES)
+        if (candidate.length === expected.length && crypto.timingSafeEqual(expected, candidate)) {
+            return true
+        }
+    }
+    return false
 }
 
 type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
     parentRunId?: string | null
     state?: { actionId?: string }
 }
+
+export type TrackingCodeFormat = 'signed' | 'unsigned'
 
 export const parseEmailTrackingCode = (
     encodedTrackingCode: string
@@ -31,12 +68,27 @@ export const parseEmailTrackingCode = (
     teamId: string
     actionId?: string
     parentRunId?: string
+    format: TrackingCodeFormat
 } | null => {
-    const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
+    if (!encodedTrackingCode) {
+        return null
+    }
+
+    let payloadB64 = encodedTrackingCode
+    let format: TrackingCodeFormat = 'unsigned'
+
+    const [payload, signature] = encodedTrackingCode.split('.')
+    if (signature !== undefined) {
+        if (!verifySignature(payload, signature)) {
+            return null
+        }
+        payloadB64 = payload
+        format = 'signed'
+    }
+
     try {
-        // Tracking codes emitted before the parentRunId field was added are 4 segments;
-        // newer codes append parentRunId as a 5th segment. Missing segment = undefined.
-        const [functionId, invocationId, teamId, actionId, parentRunId] = decodedTrackingCode.split(':')
+        const decoded = fromBase64UrlSafe(payloadB64)
+        const [functionId, invocationId, teamId, actionId, parentRunId] = decoded.split(':')
         if (!functionId || !invocationId) {
             return null
         }
@@ -46,6 +98,7 @@ export const parseEmailTrackingCode = (
             teamId,
             actionId: actionId || undefined,
             parentRunId: parentRunId || undefined,
+            format,
         }
     } catch {
         return null
@@ -53,10 +106,16 @@ export const parseEmailTrackingCode = (
 }
 
 export const generateEmailTrackingCode = (invocation: TrackingInvocation): string => {
-    // Generate a base64 encoded string free of equal signs
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
-    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`)
+    const payload = toBase64UrlSafe(
+        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`
+    )
+    const keys = getSigningKeys()
+    if (keys.length === 0) {
+        return payload
+    }
+    return `${payload}.${signPayload(payload, keys[0])}`
 }
 
 export const generateEmailTrackingPixelUrl = (invocation: TrackingInvocation): string => {

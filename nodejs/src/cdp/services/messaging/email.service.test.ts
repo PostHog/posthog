@@ -289,8 +289,10 @@ describe('EmailService', () => {
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
-            expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
+            // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
+            // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
+            expect(emails[0].html).toMatch(
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -339,42 +341,23 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input).toMatchInlineSnapshot(`
-                {
-                  "ConfigurationSetName": "posthog-messaging",
-                  "Content": {
-                    "Simple": {
-                      "Body": {
-                        "Html": {
-                          "Charset": "UTF-8",
-                          "Data": "Test HTML",
+            // ph_id is signed when ENCRYPTION_SALT_KEYS is configured; match structure only.
+            expect(sentCommand.input).toMatchObject({
+                ConfigurationSetName: 'posthog-messaging',
+                Content: {
+                    Simple: {
+                        Body: {
+                            Html: { Charset: 'UTF-8', Data: 'Test HTML' },
+                            Text: { Charset: 'UTF-8', Data: 'Test Text' },
                         },
-                        "Text": {
-                          "Charset": "UTF-8",
-                          "Data": "Test Text",
-                        },
-                      },
-                      "Subject": {
-                        "Charset": "UTF-8",
-                        "Data": "Test Subject",
-                      },
+                        Subject: { Charset: 'UTF-8', Data: 'Test Subject' },
                     },
-                  },
-                  "Destination": {
-                    "ToAddresses": [
-                      "\"Test User\" <test@example.com>",
-                    ],
-                  },
-                  "EmailTags": [
-                    {
-                      "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
-                    },
-                  ],
-                  "FeedbackForwardingEmailAddress": "test@posthog-test.com",
-                  "FromEmailAddress": "\"Test User\" <test@posthog-test.com>",
-                }
-            `)
+                },
+                Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
+                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9._-]+$/) }],
+                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
         })
 
         it('should include cc addresses in SES destination', async () => {
