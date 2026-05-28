@@ -91,6 +91,31 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 )
 
 
+# Per-job lifecycle counters. The executor framework processes jobs synchronously
+# inside `execute()` — there is no background queue and PENDING is just "an INSERT
+# is currently running in some pod". A point-in-time sample of PENDING rows can't
+# answer "are we keeping up?" because finished jobs vanish from the live set as
+# fast as new ones arrive. These counters are the queue-throughput primitive
+# instead: subtract the rates to get net backlog growth, slice by `outcome` to
+# see whether failures or staleness are climbing.
+#
+# `finished` outcomes:
+#   - `ready`  → INSERT succeeded, row moved PENDING → READY.
+#   - `failed` → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
+#   - `stale`  → another waiter detected the owning executor crashed and marked
+#                the row FAILED via `_try_mark_stale_job_as_failed`.
+LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
+    "lazy_computation_jobs_created_total",
+    "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
+    ["table"],
+)
+LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
+    "lazy_computation_jobs_finished_total",
+    "PreaggregationJob rows that reached a terminal status, labeled by outcome and table.",
+    ["outcome", "table"],
+)
+
+
 def _get_insert_settings(team_id: int) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
@@ -756,6 +781,8 @@ class LazyComputationExecutor:
                             did_work = True
                             continue
 
+                        LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(query_info.table)).inc()
+
                         try:
                             insert_start = time.monotonic()
                             insert_fn(team, new_job)
@@ -764,6 +791,9 @@ class LazyComputationExecutor:
                             new_job.computed_at = django_timezone.now()
                             new_job.save()
                             publish_job_completion(new_job.id, "ready")
+                            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                outcome="ready", table=str(query_info.table)
+                            ).inc()
                             jobs_created += 1
                             logger.info(
                                 "lazy_computation.job_completed",
@@ -781,6 +811,9 @@ class LazyComputationExecutor:
                             new_job.error = str(e)
                             new_job.save()
                             publish_job_completion(new_job.id, "failed")
+                            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                outcome="failed", table=str(query_info.table)
+                            ).inc()
                             jobs_created += 1
                             logger.warning(
                                 "lazy_computation.job_failed",
@@ -834,7 +867,7 @@ class LazyComputationExecutor:
 
                     for job in pending_jobs:
                         if self._is_job_stale(job):
-                            marked = self._try_mark_stale_job_as_failed(job)
+                            marked = self._try_mark_stale_job_as_failed(job, table=str(query_info.table))
                             if marked:
                                 logger.warning(
                                     "lazy_computation.job_marked_stale",
@@ -869,12 +902,17 @@ class LazyComputationExecutor:
         _log_execution("success", result)
         return result
 
-    def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
+    def _try_mark_stale_job_as_failed(self, job: PreaggregationJob, *, table: str) -> bool:
         """
         Try to mark a stale PENDING job as FAILED.
 
         Uses atomic update with status check to prevent races.
         Returns True if this call marked it, False if another waiter did or status changed.
+
+        `table` is the lazy table the waiter is targeting; only used for the
+        `jobs_finished_total{outcome="stale"}` Prometheus label so the count
+        is attributed to the same series the waiter would have produced on a
+        successful read.
         """
         updated = PreaggregationJob.objects.filter(
             id=job.id,
@@ -885,6 +923,7 @@ class LazyComputationExecutor:
         )
         if updated > 0:
             publish_job_completion(job.id, "failed")
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="stale", table=table).inc()
         return updated > 0
 
     def _is_job_stale(self, job: PreaggregationJob) -> bool:

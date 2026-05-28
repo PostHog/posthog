@@ -2290,7 +2290,7 @@ class TestPubsubAndStaleDetection(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        result = executor._try_mark_stale_job_as_failed(pending_job)
+        result = executor._try_mark_stale_job_as_failed(pending_job, table="preaggregation_results")
 
         assert result is True
         pending_job.refresh_from_db()
@@ -2309,10 +2309,10 @@ class TestPubsubAndStaleDetection(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        result1 = executor._try_mark_stale_job_as_failed(pending_job)
+        result1 = executor._try_mark_stale_job_as_failed(pending_job, table="preaggregation_results")
         assert result1 is True
 
-        result2 = executor._try_mark_stale_job_as_failed(pending_job)
+        result2 = executor._try_mark_stale_job_as_failed(pending_job, table="preaggregation_results")
         assert result2 is False
 
     # --- Publish on terminal transitions ---
@@ -2374,9 +2374,155 @@ class TestPubsubAndStaleDetection(BaseTest):
                 status=PreaggregationJob.Status.PENDING,
                 expires_at=django_timezone.now() + timedelta(days=7),
             )
-            executor._try_mark_stale_job_as_failed(stale_job)
+            executor._try_mark_stale_job_as_failed(stale_job, table="preaggregation_results")
             assert mock_publish.call_count == 1
             assert mock_publish.call_args[0][1] == "failed"
+
+
+class TestJobLifecycleCounters(BaseTest):
+    """Counters that answer "how many jobs were we creating vs finishing" — the
+    framework runs jobs synchronously, so PENDING is just "INSERT in flight" and
+    a periodic gauge sample misses everything that started and finished between
+    scrapes. These counters fire at the exact PG transitions so
+    `rate(created) - rate(finished)` reflects real throughput."""
+
+    TABLE = LazyComputationTable.PREAGGREGATION_RESULTS
+
+    def _query_info(self) -> QueryInfo:
+        query = parse_select(
+            "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return QueryInfo(query=query, table=self.TABLE, timezone="UTC")
+
+    @staticmethod
+    def _delta(metric, labels: dict[str, str], before: float) -> float:
+        sample = metric.labels(**labels)._value.get()
+        return sample - before
+
+    def test_successful_insert_increments_created_and_finished_ready(self):
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+        )
+
+        created_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(self.TABLE))._value.get()
+        ready_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="ready", table=str(self.TABLE))._value.get()
+
+        executor = LazyComputationExecutor()
+        result = executor.execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 4, 1, tzinfo=UTC),
+            end=datetime(2024, 4, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        assert self._delta(LAZY_COMPUTATION_JOBS_CREATED_TOTAL, {"table": str(self.TABLE)}, created_before) == 1.0
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+                {"outcome": "ready", "table": str(self.TABLE)},
+                ready_before,
+            )
+            == 1.0
+        )
+
+    def test_failed_insert_increments_created_and_finished_failed(self):
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+        )
+
+        created_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(self.TABLE))._value.get()
+        failed_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+            outcome="failed", table=str(self.TABLE)
+        )._value.get()
+
+        executor = LazyComputationExecutor(max_retries=0)
+        result = executor.execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 5, 1, tzinfo=UTC),
+            end=datetime(2024, 5, 2, tzinfo=UTC),
+            run_insert=lambda t, j: (_ for _ in ()).throw(Exception("boom")),
+        )
+
+        assert result.ready is False
+        assert self._delta(LAZY_COMPUTATION_JOBS_CREATED_TOTAL, {"table": str(self.TABLE)}, created_before) == 1.0
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+                {"outcome": "failed", "table": str(self.TABLE)},
+                failed_before,
+            )
+            == 1.0
+        )
+
+    def test_integrity_error_on_create_does_not_increment_created(self):
+        """Two executors racing on the same range produce one row in PG, not two —
+        the loser's IntegrityError path must not double-count creates."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+        )
+
+        created_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(self.TABLE))._value.get()
+
+        # Range has no existing coverage, so the executor enters the create path
+        # on every loop iteration. Patching `create_lazy_computation_job` to
+        # always raise IntegrityError simulates losing the partial-unique-index
+        # race on every attempt; the executor times out shortly after.
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
+            side_effect=IntegrityError("partial unique index race"),
+        ):
+            executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
+            result = executor.execute(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2024, 6, 1, tzinfo=UTC),
+                end=datetime(2024, 6, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+            assert result.ready is False  # Timed out: every create attempt lost the race.
+
+        assert self._delta(LAZY_COMPUTATION_JOBS_CREATED_TOTAL, {"table": str(self.TABLE)}, created_before) == 0.0
+
+    def test_stale_mark_increments_finished_stale_once(self):
+        """The atomic update means only the winning waiter increments the
+        counter — losers see updated=0 and don't fire."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+        )
+
+        stale_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="stale", table=str(self.TABLE))._value.get()
+
+        executor = LazyComputationExecutor()
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="stale_counter_hash",
+            time_range_start=datetime(2024, 7, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 7, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        marked = executor._try_mark_stale_job_as_failed(pending_job, table=str(self.TABLE))
+        assert marked is True
+        # Second call sees the row already FAILED and updates 0 rows — no
+        # counter bump, no duplicate publish.
+        marked_again = executor._try_mark_stale_job_as_failed(pending_job, table=str(self.TABLE))
+        assert marked_again is False
+
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+                {"outcome": "stale", "table": str(self.TABLE)},
+                stale_before,
+            )
+            == 1.0
+        )
 
 
 class TestIsNonRetryableError(BaseTest):
