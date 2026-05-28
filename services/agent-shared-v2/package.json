@@ -33,6 +33,7 @@
         "vitest": "^2.1.9"
     },
     "optionalDependencies": {
+        "ioredis": "^5.4.1",
         "node-rdkafka": "^3.4.0"
     },
     "engines": {

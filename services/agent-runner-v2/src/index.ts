@@ -13,11 +13,14 @@ import {
     createLogger,
     EncryptedFields,
     FsBundleStore,
+    NoopSessionEventBus,
     PgRevisionStore,
     PgSessionQueue,
+    RedisSessionEventBus,
     SCHEMA_SQL,
     SecretBroker,
     selectSandboxPool,
+    SessionEventBus,
 } from '@posthog/agent-shared-v2'
 
 import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
@@ -54,6 +57,16 @@ async function main(): Promise<void> {
         ? makeEncryptedEnvResolver({ revisions, encryption })
         : async () => ({})
 
+    // Cross-process event bus. With REDIS_URL set, ingress /listen on host A
+    // sees events published by a runner on host B. Without it the runner
+    // still works — events just go nowhere (no SSE consumers can connect).
+    let bus: SessionEventBus = new NoopSessionEventBus()
+    if (process.env.REDIS_URL) {
+        const redis = new RedisSessionEventBus({ url: process.env.REDIS_URL })
+        await redis.connect()
+        bus = redis
+    }
+
     const worker = new Worker({
         queue: new PgSessionQueue(pool),
         revisions,
@@ -61,6 +74,7 @@ async function main(): Promise<void> {
         sandboxes: selectSandboxPool(),
         pi: new PiAiClient(defaultApiKey),
         broker: new SecretBroker(),
+        bus,
         resolveIntegrations: async () => ({}),
         resolveSecrets,
         resolveModel: useGateway
