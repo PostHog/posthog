@@ -15,28 +15,28 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SdkSection } from './SdkDoctorComponents'
-import { SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
-import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
+import { SdkSection } from './SdkHealthComponents'
+import { SdkType, sdkHealthLogic } from './sdkHealthLogic'
+import { sdkHealthSceneLogic } from './sdkHealthSceneLogic'
 
 export const scene: SceneExport = {
-    component: SdkDoctorScene,
-    logic: sdkDoctorSceneLogic,
+    component: SdkHealthScene,
+    logic: sdkHealthSceneLogic,
 }
 
-export function SdkDoctorScene(): JSX.Element {
+export function SdkHealthScene(): JSX.Element {
     const {
         augmentedData,
         reportLoading: loading,
         needsUpdatingCount,
         hasErrors,
         snoozedUntil,
-    } = useValues(sdkDoctorLogic)
+    } = useValues(sdkHealthLogic)
     const { isDev } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
 
-    const { loadReport, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
+    const { loadReport, snoozeSdkHealth } = useActions(sdkHealthLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -49,17 +49,17 @@ export function SdkDoctorScene(): JSX.Element {
 
     const snoozeWarning = (): void => {
         posthog.capture('sdk doctor snooze warning')
-        snoozeSdkDoctor()
+        snoozeSdkHealth()
     }
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name="SDK Doctor"
+                name="SDK Health"
                 description="Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications."
                 resourceType={{
                     to: undefined,
-                    type: 'sdk_doctor',
+                    type: 'sdk_health',
                 }}
                 actions={
                     <>
@@ -69,7 +69,7 @@ export function SdkDoctorScene(): JSX.Element {
                                 type="secondary"
                                 to={urls.healthAlerts(['sdk_outdated'])}
                                 onClick={() => {
-                                    posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_doctor' })
+                                    posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_health' })
                                 }}
                                 icon={<IconBell className="size-4" />}
                                 tooltip="Subscribe to alerts when SDKs go outdated"
@@ -102,7 +102,7 @@ export function SdkDoctorScene(): JSX.Element {
 
             {/* Beta feedback banner */}
             <LemonBanner type="info">
-                <strong>SDK Doctor is in Beta!</strong> Help us improve by sharing your feedback?{' '}
+                <strong>SDK Health is in Beta!</strong> Help us improve by sharing your feedback?{' '}
                 <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
             </LemonBanner>
 

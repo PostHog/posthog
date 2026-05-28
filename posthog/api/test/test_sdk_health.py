@@ -4,19 +4,19 @@ from unittest.mock import patch
 from rest_framework import status
 
 
-class TestSdkDoctorViewSet(APIBaseTest):
-    """Tests for the /api/projects/{team_id}/sdk_doctor/report/ MCP-accessible endpoint."""
+class TestSdkHealthViewSet(APIBaseTest):
+    """Tests for the /api/projects/{team_id}/sdk_health/report/ MCP-accessible endpoint."""
 
     def _url(self) -> str:
-        return f"/api/projects/{self.team.pk}/sdk_doctor/report/"
+        return f"/api/projects/{self.team.pk}/sdk_health/report/"
 
     def test_requires_authentication(self) -> None:
         self.client.logout()
         response = self.client.get(self._url())
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
     def test_cold_cache_returns_empty_healthy_report(self, mock_github, mock_team) -> None:
         # Both caches cold → endpoint must still respond 200 with a healthy (but empty) report
         # rather than a 500 — agents should see "nothing to report" not a service error.
@@ -32,8 +32,8 @@ class TestSdkDoctorViewSet(APIBaseTest):
         assert data["team_sdk_count"] == 0
         assert data["sdks"] == []
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
     def test_happy_path_returns_digested_report(self, mock_github, mock_team) -> None:
         mock_team.return_value = {
             "posthog-node": [
@@ -67,8 +67,8 @@ class TestSdkDoctorViewSet(APIBaseTest):
         assert "posthog-node" in release["sql_query"]
         assert release["activity_page_url"].startswith(f"/project/{self.team.pk}/")
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
     def test_force_refresh_param_threaded_to_fetcher(self, mock_github, mock_team) -> None:
         mock_team.return_value = None
         mock_github.return_value = {}
@@ -80,11 +80,11 @@ class TestSdkDoctorViewSet(APIBaseTest):
         force_refresh = kwargs.get("force_refresh", args[1] if len(args) > 1 else None)
         assert force_refresh is True
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
     def test_partial_cache_missing_sdk_in_github_data_is_skipped(self, mock_github, mock_team) -> None:
         # team_data has two SDKs, but github cache only knows about one.
-        # The defensive `.get(lib, {})` in SdkDoctorViewSet.report is what makes this safe —
+        # The defensive `.get(lib, {})` in SdkHealthViewSet.report is what makes this safe —
         # compute_sdk_health skips SDKs with no latest_version rather than KeyError.
         # If someone ever swaps `.get(lib, {})` back to `sdk_data[lib]` (like the legacy
         # flat endpoint does), this test will catch it.
@@ -110,13 +110,13 @@ class TestSdkDoctorViewSet(APIBaseTest):
         assert "posthog-python" not in sdk_libs
 
 
-class TestSdkDoctorLegacyEndpoint(APIBaseTest):
-    """Tests for the legacy /api/sdk_doctor/ endpoint consumed by the onboarding scene."""
+class TestSdkHealthLegacyEndpoint(APIBaseTest):
+    """Tests for the legacy /api/sdk_health/ endpoint consumed by the onboarding scene."""
 
     def _url(self) -> str:
-        return "/api/sdk_doctor/"
+        return "/api/sdk_health/"
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
+    @patch("posthog.api.sdk_health.get_team_data")
     def test_cold_cache_returns_empty_200(self, mock_team) -> None:
         mock_team.return_value = {}
 
@@ -124,7 +124,7 @@ class TestSdkDoctorLegacyEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
+    @patch("posthog.api.sdk_health.get_team_data")
     def test_genuine_failure_returns_500(self, mock_team) -> None:
         mock_team.return_value = None
 
@@ -132,8 +132,8 @@ class TestSdkDoctorLegacyEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.json() == {"error": "Failed to get SDK versions. Please try again later."}
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
     def test_missing_github_data_returns_500(self, mock_github, mock_team) -> None:
         mock_team.return_value = {
             "posthog-node": [{"lib_version": "1.0.0", "count": 100, "max_timestamp": "2026-04-21T00:00:00Z"}]
@@ -144,8 +144,8 @@ class TestSdkDoctorLegacyEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.json() == {"error": "Failed to get GitHub SDK data. Please try again later."}
 
-    @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
     def test_happy_path_returns_combined_data(self, mock_github, mock_team) -> None:
         mock_team.return_value = {
             "posthog-node": [
