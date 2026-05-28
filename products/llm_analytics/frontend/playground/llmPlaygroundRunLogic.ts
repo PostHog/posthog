@@ -8,11 +8,11 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 
 import type { ModelOption } from '../modelPickerLogic'
-import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { type LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import type { llmPlaygroundRunLogicType } from './llmPlaygroundRunLogicType'
-import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
+import { resolveProviderKeyForPrompt, resolveRequestProvider } from './playgroundModelMatching'
 
 interface ToolCallChunk {
     id?: string
@@ -319,10 +319,24 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             return
                         }
 
-                        providerKeyId =
-                            resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
-                                ?.id ?? values.activeProviderKeyId
-                        selectedModelProvider = selectedModel.provider.toLowerCase()
+                        const resolvedProviderKey = resolveProviderKeyForPrompt(
+                            prompt,
+                            values.effectiveModelOptions,
+                            values.providerKeys
+                        )
+                        providerKeyId = resolvedProviderKey?.id ?? values.activeProviderKeyId
+                        const activeKey: LLMProviderKey | null =
+                            resolvedProviderKey ??
+                            (providerKeyId ? (values.providerKeys.find((k) => k.id === providerKeyId) ?? null) : null)
+                        const resolvedProvider = resolveRequestProvider(selectedModel, activeKey)
+                        if (!resolvedProvider) {
+                            lemonToast.error(`Unsupported provider for model "${selectedModel.id}"`)
+                            responseText = `**Error:** Unsupported provider for model "${selectedModel.id}".`
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+                        selectedModelProvider = resolvedProvider
 
                         const requestData: Record<string, unknown> = {
                             system: prompt.systemPrompt,

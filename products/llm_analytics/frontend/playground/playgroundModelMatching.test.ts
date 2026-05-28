@@ -1,9 +1,12 @@
+import type { ModelOption } from '../modelPickerLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import {
     isTraceLikeSelection,
     matchClosestModel,
     matchClosestModelOption,
     type MatchModelOption,
+    resolveProviderKeyForPrompt,
+    resolveRequestProvider,
     resolveTraceModelSelection,
 } from './playgroundModelMatching'
 
@@ -126,6 +129,56 @@ describe('playgroundModelMatching', () => {
             const keys = [providerKey('key-a', 'anthropic'), providerKey('key-z', 'anthropic')]
             const result = resolveTraceModelSelection('claude-sonnet-4', 'anthropic', models, keys)
             expect(result.providerKeyId).toBe('key-a')
+        })
+    })
+
+    describe('resolveProviderKeyForPrompt', () => {
+        const modelOption = (id: string, provider: string, providerKeyId?: string): ModelOption => ({
+            id,
+            name: id,
+            provider,
+            description: '',
+            providerKeyId,
+        })
+
+        it('matches an Azure provider key for a model whose registry provider is "Azure OpenAI"', () => {
+            const models = [modelOption('gpt-4.1', 'Azure OpenAI')]
+            const keys = [providerKey('key-azure', 'azure_openai')]
+            const result = resolveProviderKeyForPrompt({ model: 'gpt-4.1', selectedProviderKeyId: null }, models, keys)
+            expect(result?.id).toBe('key-azure')
+        })
+
+        it('does not return a key for an unrecognized provider', () => {
+            const models = [modelOption('mystery-model', 'Mystery Provider')]
+            const keys = [providerKey('key-openai', 'openai')]
+            const result = resolveProviderKeyForPrompt(
+                { model: 'mystery-model', selectedProviderKeyId: null },
+                models,
+                keys
+            )
+            expect(result).toBeNull()
+        })
+    })
+
+    describe('resolveRequestProvider', () => {
+        it('prefers the resolved provider key when given (Azure key + OpenAI-registered model)', () => {
+            const result = resolveRequestProvider({ provider: 'OpenAI' }, providerKey('key-azure', 'azure_openai'))
+            expect(result).toBe('azure_openai')
+        })
+
+        it('normalizes "Azure OpenAI" display name when no key is resolved', () => {
+            const result = resolveRequestProvider({ provider: 'Azure OpenAI' }, null)
+            expect(result).toBe('azure_openai')
+        })
+
+        it('normalizes "OpenAI" to "openai"', () => {
+            const result = resolveRequestProvider({ provider: 'OpenAI' }, null)
+            expect(result).toBe('openai')
+        })
+
+        it('returns null for unknown providers with no key', () => {
+            const result = resolveRequestProvider({ provider: 'Mystery' }, null)
+            expect(result).toBeNull()
         })
     })
 })

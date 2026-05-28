@@ -1,6 +1,7 @@
 import type { ModelOption } from '../modelPickerLogic'
 import {
     firstUsableProviderKeyIdForProvider,
+    type LLMProvider,
     type LLMProviderKey,
     normalizeLLMProvider,
     sortedUsableProviderKeyIds,
@@ -316,6 +317,21 @@ export function resolveProviderKeyForPrompt(
         }
     }
 
-    const provider = selectedModel.provider.toLowerCase()
+    const provider = normalizeLLMProvider(selectedModel.provider)
+    if (!provider) {
+        return null
+    }
     return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null
+}
+
+// Prefer the resolved provider key's canonical value over the model's display name —
+// otherwise a BYOK Azure key whose model is registered under "OpenAI" mismatches.
+export function resolveRequestProvider(
+    selectedModel: Pick<ModelOption, 'provider'>,
+    resolvedProviderKey: LLMProviderKey | null
+): LLMProvider | null {
+    if (resolvedProviderKey) {
+        return resolvedProviderKey.provider
+    }
+    return normalizeLLMProvider(selectedModel.provider)
 }
