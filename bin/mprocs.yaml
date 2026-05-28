@@ -237,6 +237,12 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            # Local LLM analytics — same target the llm-gateway uses. Project
+            # token writes to the dev team's project; without this the runner
+            # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
+            POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
+            POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
 
     agent-janitor:
         shell: |-
