@@ -50,7 +50,7 @@ from posthog.models.utils import generate_random_token
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
-from posthog.utils import _is_valid_ip_address
+from posthog.utils import _is_valid_ip_address, get_ip_address
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -972,6 +972,8 @@ class ActivityLoggingMiddleware:
         if client_header:
             activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
 
+        activity_storage.set_ip_address(get_ip_address(request) or None)
+
         try:
             response = self.get_response(request)
         finally:
@@ -1183,6 +1185,10 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
+    # POST but read-only: returns metadata about available incremental fields / columns
+    # for a data warehouse schema. Validates external credentials and lists schemas
+    # against the customer's source — no PostHog-side mutations.
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
