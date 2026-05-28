@@ -1329,23 +1329,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`
-            # guarantees non-None schema/table in that branch above.
+            # guarantees non-None schema/table in that branch above. `cast` narrows for mypy
+            # without a runtime check.
             if is_cdc_schema and should_sync and cdc_enabled:
-                assert metadata_source_schema is not None and metadata_source_table_name is not None
                 cdc_config = PostgresCDCConfig.from_source(new_source_model)
                 if cdc_config.management_mode == "posthog" and cdc_config.publication_name:
                     self._add_table_to_cdc_publication(
                         new_source_model,
                         cdc_config.publication_name,
-                        metadata_source_schema,
-                        metadata_source_table_name,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
                 # Apply the picker's column subset on the very first DataWarehouseTable build,
                 # not just on subsequent updates — otherwise users see all columns in HogQL until
                 # they hit save again or a refresh runs.
-                assert metadata_source_schema is not None and metadata_source_table_name is not None
                 schema_model.table = upsert_direct_postgres_table(
                     None,
                     schema_name=schema_name,
@@ -1357,8 +1356,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         incremental_field,
                     ),
                     source_catalog=metadata_source_catalog,
-                    source_schema=metadata_source_schema,
-                    source_table_name=metadata_source_table_name,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
                 )
                 schema_model.save(update_fields=["table"])
 
