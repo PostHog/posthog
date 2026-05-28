@@ -88,9 +88,9 @@ describe('BatchingPipeline', () => {
         await collector.feed(makeBatch([3]))
 
         expect(beforeBatchStep).toHaveBeenCalledTimes(2)
-        expect(beforeBatchStep.mock.calls[0][0].batchId).toBe(0)
+        expect(beforeBatchStep.mock.calls[0][0].batchContext.batchId).toBe(0)
         expect(beforeBatchStep.mock.calls[0][0].elements).toHaveLength(2)
-        expect(beforeBatchStep.mock.calls[1][0].batchId).toBe(1)
+        expect(beforeBatchStep.mock.calls[1][0].batchContext.batchId).toBe(1)
         expect(beforeBatchStep.mock.calls[1][0].elements).toHaveLength(1)
     })
 
@@ -240,17 +240,17 @@ describe('BatchingPipeline', () => {
     it('beforeBatch can add extra context to elements', async () => {
         const collector = newBatchingPipeline<any, any, MsgCtx, string>(
             (builder) =>
-                builder.pipe(({ elements, batchId }) =>
+                builder.pipe(({ elements, batchContext }) =>
                     Promise.resolve(
                         ok({
                             elements: elements.map((el: any) => ({
                                 ...el,
                                 context: {
                                     ...el.context,
-                                    batchStore: `store-for-batch-${batchId}`,
+                                    batchStore: `store-for-batch-${batchContext.batchId}`,
                                 },
                             })),
-                            batchContext: `store-for-batch-${batchId}`,
+                            batchContext: `store-for-batch-${batchContext.batchId}`,
                         })
                     )
                 ),
@@ -279,9 +279,9 @@ describe('BatchingPipeline', () => {
         const capturedAfter: Stores[] = []
         const collector = newBatchingPipeline<any, any, MsgCtx, Stores>(
             (builder) =>
-                builder.pipe(({ elements, batchId }) => {
+                builder.pipe(({ elements, batchContext: initBatchContext }) => {
                     const batchContext: Stores =
-                        batchId === 0
+                        initBatchContext.batchId === 0
                             ? { personsStore: 'persons-0', groupStore: 'groups-0' }
                             : { personsStore: 'persons-1', groupStore: 'groups-1' }
                     capturedBefore.push(batchContext)

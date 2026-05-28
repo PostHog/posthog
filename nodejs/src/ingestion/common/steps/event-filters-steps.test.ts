@@ -32,7 +32,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [{ result: ok({ foo: 1 }), context: makePipelineContext() }],
-            batchId: 0,
+            batchContext: { batchId: 0 },
         })
 
         expect(isOkResult(result)).toBe(true)
@@ -49,7 +49,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
                 { result: ok({ a: 1 }), context: makePipelineContext() },
                 { result: ok({ a: 2 }), context: makePipelineContext() },
             ],
-            batchId: 0,
+            batchContext: { batchId: 0 },
         })
 
         expect(isOkResult(result)).toBe(true)
@@ -67,7 +67,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [{ result: ok({ data: 'hello' }), context: makePipelineContext({ ctx: true }) }],
-            batchId: 0,
+            batchContext: { batchId: 0 },
         })
 
         expect(isOkResult(result)).toBe(true)

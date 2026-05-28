@@ -13,7 +13,7 @@ export interface BatchingContext {
 
 export interface BeforeBatchInput<TInput, CInput> {
     elements: OkResultWithContext<TInput, CInput>[]
-    batchId: number
+    batchContext: { batchId: number }
 }
 
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
@@ -134,7 +134,7 @@ export class BatchingPipeline<
 
         const batchId = this.nextBatchId++
 
-        const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchId }
+        const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchContext: { batchId } }
         const beforeResult = await this.beforePipeline.process(createOkContext(beforeInput, {}))
 
         if (!isOkResult(beforeResult.result)) {
