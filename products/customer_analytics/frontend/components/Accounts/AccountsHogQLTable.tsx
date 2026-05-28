@@ -10,7 +10,12 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { ACCOUNTS_HOGQL_COLUMN_NAMES, AccountRoleKey, accountsLogic } from './accountsLogic'
+import {
+    ACCOUNTS_HOGQL_COLUMN_NAMES,
+    ACCOUNTS_HOGQL_DATA_NODE_KEY,
+    AccountRoleKey,
+    accountsLogic,
+} from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
 
@@ -95,10 +100,13 @@ function RoleAssignmentCell({
     value: unknown
     role: AccountRoleKey
 }): JSX.Element {
-    const { isRoleSaving } = useValues(accountsLogic)
+    const { isRoleSaving, accountOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
     const accountId = String(getCell(record, 'id') ?? '')
-    const assignment = tupleToAssignment(value)
+    const overrideProperties = accountId ? accountOverrides[accountId]?.properties : undefined
+    const overrideRole = overrideProperties != null ? overrideProperties[role] : undefined
+    const assignment: AccountAssignment =
+        overrideRole === undefined ? tupleToAssignment(value) : (overrideRole as AccountAssignment)
     const saving = accountId ? isRoleSaving(accountId, role) : false
 
     return (
@@ -187,7 +195,7 @@ export function AccountsHogQLTable(): JSX.Element {
             setQuery={() => {
                 // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
             }}
-            context={CONTEXT}
+            context={{ ...CONTEXT, dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY }}
             readOnly
         />
     )
