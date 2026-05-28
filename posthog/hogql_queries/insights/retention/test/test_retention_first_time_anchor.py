@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 from unittest import TestCase
@@ -11,6 +12,7 @@ from posthog.schema import RetentionEntity
 from posthog.hogql import ast
 
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
+from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 
 
 def _walk_ast(node: Any, visit: Callable[[Any], None]) -> None:
@@ -197,3 +199,114 @@ class TestFirstTimeAnchorExpr(TestCase):
                 self.assertIsInstance(pred, ast.Constant)
                 assert isinstance(pred, ast.Constant)  # narrow for mypy
                 self.assertTrue(pred.value)
+
+
+# Pull the underlying function out of the cached_property descriptor so we can call it
+# against a lightweight stub instead of building a full RetentionQueryRunner.
+# Note: posthog's cached_property is `property(lru_cache(...)(func))`; .fget.__wrapped__ unwraps both.
+_start_and_return_entities_are_same = RetentionQueryRunner.start_and_return_entities_are_same.fget.__wrapped__  # type: ignore[attr-defined,union-attr]
+
+
+class TestStartAndReturnEntitiesAreSame(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "identical_events_entity",
+                RetentionEntity(id="$pageview", type="events"),
+                RetentionEntity(id="$pageview", type="events"),
+                True,
+            ),
+            (
+                "different_id",
+                RetentionEntity(id="$pageview", type="events"),
+                RetentionEntity(id="$screen", type="events"),
+                False,
+            ),
+            (
+                "different_type",
+                RetentionEntity(id="1", type="events"),
+                RetentionEntity(id="1", type="actions"),
+                False,
+            ),
+            (
+                "differing_properties",
+                RetentionEntity(
+                    id="$pageview",
+                    type="events",
+                    properties=[{"key": "browser", "value": "Chrome", "operator": "exact", "type": "event"}],
+                ),
+                RetentionEntity(id="$pageview", type="events", properties=[]),
+                False,
+            ),
+            (
+                "different_property_order",
+                # Order-sensitive — list equality is element-wise, so reordering counts as different.
+                # Documenting current behaviour so a future change doesn't silently widen this.
+                RetentionEntity(
+                    id="$pageview",
+                    type="events",
+                    properties=[
+                        {"key": "browser", "value": "Chrome", "operator": "exact", "type": "event"},
+                        {"key": "os", "value": "Mac", "operator": "exact", "type": "event"},
+                    ],
+                ),
+                RetentionEntity(
+                    id="$pageview",
+                    type="events",
+                    properties=[
+                        {"key": "os", "value": "Mac", "operator": "exact", "type": "event"},
+                        {"key": "browser", "value": "Chrome", "operator": "exact", "type": "event"},
+                    ],
+                ),
+                False,
+            ),
+            (
+                "dwh_same_table_and_timestamp_differing_aggregation_target",
+                # aggregation_target_field is intentionally NOT in the identity set — the WHERE
+                # predicate doesn't depend on it. Pinning the current behaviour so a future
+                # widening of the field set is a conscious choice.
+                RetentionEntity(
+                    type="data_warehouse",
+                    table_name="warehouse_activity",
+                    timestamp_field="occurred_at",
+                    aggregation_target_field="person_id",
+                    id="warehouse_activity",
+                ),
+                RetentionEntity(
+                    type="data_warehouse",
+                    table_name="warehouse_activity",
+                    timestamp_field="occurred_at",
+                    aggregation_target_field="account_id",
+                    id="warehouse_activity",
+                ),
+                True,
+            ),
+            (
+                "dwh_different_table_name",
+                RetentionEntity(
+                    type="data_warehouse",
+                    table_name="a",
+                    timestamp_field="ts",
+                    aggregation_target_field="person_id",
+                    id="a",
+                ),
+                RetentionEntity(
+                    type="data_warehouse",
+                    table_name="b",
+                    timestamp_field="ts",
+                    aggregation_target_field="person_id",
+                    id="b",
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_start_and_return_entities_are_same(
+        self,
+        _name: str,
+        start_event: RetentionEntity,
+        return_event: RetentionEntity,
+        expected: bool,
+    ) -> None:
+        stub = SimpleNamespace(start_event=start_event, return_event=return_event)
+        self.assertEqual(_start_and_return_entities_are_same(stub), expected)

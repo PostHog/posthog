@@ -66,6 +66,12 @@ DEFAULT_ENTITY = RetentionEntity(
     }
 )
 
+# Fields that define "same entity" for the purposes of WHERE-clause and aggregate
+# de-duplication. Mirrors the inputs entity_to_expr consumes:
+# id+type → event/action selection; table_name+timestamp_field → DWH routing;
+# properties → AND-chain.
+_ENTITY_IDENTITY_FIELDS: frozenset[str] = frozenset({"id", "type", "table_name", "timestamp_field", "properties"})
+
 
 class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     query: RetentionQuery
@@ -228,9 +234,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def start_and_return_entities_are_same(self) -> bool:
-        identity_fields = {"id", "type", "table_name", "timestamp_field", "properties"}
-        return self.start_event.model_dump(mode="json", include=identity_fields) == self.return_event.model_dump(
-            mode="json", include=identity_fields
+        return all(
+            getattr(self.start_event, field) == getattr(self.return_event, field) for field in _ENTITY_IDENTITY_FIELDS
         )
 
     @cached_property
@@ -250,10 +255,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         # when start == return — ClickHouse does not fully CSE the WHERE-side
         # or(X, X) and the un-wrapped predicate is measurably faster.
         if not self.is_first_ever_occurrence:
-            if self.start_and_return_entities_are_same:
-                global_event_filters.append(self.start_entity_expr)
-            else:
-                global_event_filters.append(ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr]))
+            relevant_event_filter: ast.Expr = (
+                self.start_entity_expr
+                if self.start_and_return_entities_are_same
+                else ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
+            )
+            global_event_filters.append(relevant_event_filter)
 
         if self.group_type_index is not None:
             global_event_filters.append(
