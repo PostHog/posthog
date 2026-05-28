@@ -723,10 +723,18 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "test"},
             )
 
-        with patch.object(ExperimentQueryRunner, "_ensure_exposures_precomputed", side_effect=Exception("boom")):
+        with (
+            patch.object(ExperimentQueryRunner, "_ensure_exposures_precomputed", side_effect=Exception("boom")),
+            patch("posthog.hogql_queries.experiments.experiment_query_runner.capture_exception") as mock_capture,
+        ):
             result = self._run_experiment(experiment, metric)
 
         assert result.baseline is not None
         assert result.baseline.number_of_samples == 3
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 3
+
+        # The fallback keeps the query working, but the precomputation failure must still
+        # be surfaced to error tracking rather than silently masked.
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == "exposure"
