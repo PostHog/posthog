@@ -200,7 +200,9 @@ export class PersonHogClient {
         if (config.callerTag) {
             const callerTag = config.callerTag
             interceptors.push((next) => async (req) => {
-                req.header.set('x-caller-tag', callerTag)
+                if (!req.header.has('x-caller-tag')) {
+                    req.header.set('x-caller-tag', callerTag)
+                }
                 return await next(req)
             })
         }

@@ -29,7 +29,7 @@ export async function addGroupPropertiesToPostIngestionEvent(
                 event.teamId as TeamId,
                 columnIndex as GroupTypeIndex,
                 groupKey,
-                { useReadReplica: true }
+                { useReadReplica: true, callerTag: 'cdp/legacy-webhooks-group-enrichment' }
             )
 
             const groupProperties = group ? group.group_properties : {}
@@ -132,7 +132,12 @@ export async function addGroupPropertiesToPostIngestionEventsBatch(
 
     const groupResults =
         allTeamIds.length > 0
-            ? await groupRepository.fetchGroupsByKeys(allTeamIds, allGroupTypeIndexes, allGroupKeys)
+            ? await groupRepository.fetchGroupsByKeys(
+                  allTeamIds,
+                  allGroupTypeIndexes,
+                  allGroupKeys,
+                  'cdp/legacy-webhooks-group-enrichment'
+              )
             : []
 
     const groupPropertiesMap = new Map<GroupLookupKey, Record<string, any>>()
