@@ -2,33 +2,158 @@ use std::collections::HashSet;
 
 use personhog_proto::personhog::types::v1::{Group, Person, ReadOptions};
 
-const PERSON_PROPERTIES_FIELDS: &[&str] =
-    &["properties", "properties_last_updated_at", "properties_last_operation"];
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum PersonField {
+    Id,
+    Uuid,
+    TeamId,
+    Properties,
+    PropertiesLastUpdatedAt,
+    PropertiesLastOperation,
+    CreatedAt,
+    Version,
+    IsIdentified,
+    IsUserId,
+    LastSeenAt,
+}
 
-const GROUP_PROPERTIES_FIELDS: &[&str] = &[
-    "group_properties",
-    "properties_last_updated_at",
-    "properties_last_operation",
-];
+impl PersonField {
+    const ALL: &[Self] = &[
+        Self::Id,
+        Self::Uuid,
+        Self::TeamId,
+        Self::Properties,
+        Self::PropertiesLastUpdatedAt,
+        Self::PropertiesLastOperation,
+        Self::CreatedAt,
+        Self::Version,
+        Self::IsIdentified,
+        Self::IsUserId,
+        Self::LastSeenAt,
+    ];
 
-/// Returns true if the field mask requires properties columns from the database.
-/// An empty mask means "all fields" and requires properties.
-pub fn needs_properties(read_options: &Option<ReadOptions>, property_fields: &[&str]) -> bool {
-    let mask = match read_options.as_ref() {
-        Some(opts) if !opts.field_mask.is_empty() => &opts.field_mask,
-        _ => return true,
-    };
-    mask.iter().any(|f| property_fields.contains(&f.as_str()))
+    fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "id" => Some(Self::Id),
+            "uuid" => Some(Self::Uuid),
+            "team_id" => Some(Self::TeamId),
+            "properties" => Some(Self::Properties),
+            "properties_last_updated_at" => Some(Self::PropertiesLastUpdatedAt),
+            "properties_last_operation" => Some(Self::PropertiesLastOperation),
+            "created_at" => Some(Self::CreatedAt),
+            "version" => Some(Self::Version),
+            "is_identified" => Some(Self::IsIdentified),
+            "is_user_id" => Some(Self::IsUserId),
+            "last_seen_at" => Some(Self::LastSeenAt),
+            _ => None,
+        }
+    }
+
+    fn is_property_field(self) -> bool {
+        matches!(
+            self,
+            Self::Properties | Self::PropertiesLastUpdatedAt | Self::PropertiesLastOperation
+        )
+    }
+
+    fn clear(self, person: &mut Person) {
+        match self {
+            Self::Id => person.id = 0,
+            Self::Uuid => person.uuid.clear(),
+            Self::TeamId => person.team_id = 0,
+            Self::Properties => person.properties.clear(),
+            Self::PropertiesLastUpdatedAt => person.properties_last_updated_at.clear(),
+            Self::PropertiesLastOperation => person.properties_last_operation.clear(),
+            Self::CreatedAt => person.created_at = 0,
+            Self::Version => person.version = 0,
+            Self::IsIdentified => person.is_identified = false,
+            Self::IsUserId => person.is_user_id = None,
+            Self::LastSeenAt => person.last_seen_at = None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum GroupField {
+    Id,
+    TeamId,
+    GroupTypeIndex,
+    GroupKey,
+    GroupProperties,
+    PropertiesLastUpdatedAt,
+    PropertiesLastOperation,
+    CreatedAt,
+    Version,
+}
+
+impl GroupField {
+    const ALL: &[Self] = &[
+        Self::Id,
+        Self::TeamId,
+        Self::GroupTypeIndex,
+        Self::GroupKey,
+        Self::GroupProperties,
+        Self::PropertiesLastUpdatedAt,
+        Self::PropertiesLastOperation,
+        Self::CreatedAt,
+        Self::Version,
+    ];
+
+    fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "id" => Some(Self::Id),
+            "team_id" => Some(Self::TeamId),
+            "group_type_index" => Some(Self::GroupTypeIndex),
+            "group_key" => Some(Self::GroupKey),
+            "group_properties" => Some(Self::GroupProperties),
+            "properties_last_updated_at" => Some(Self::PropertiesLastUpdatedAt),
+            "properties_last_operation" => Some(Self::PropertiesLastOperation),
+            "created_at" => Some(Self::CreatedAt),
+            "version" => Some(Self::Version),
+            _ => None,
+        }
+    }
+
+    fn is_property_field(self) -> bool {
+        matches!(
+            self,
+            Self::GroupProperties | Self::PropertiesLastUpdatedAt | Self::PropertiesLastOperation
+        )
+    }
+
+    fn clear(self, group: &mut Group) {
+        match self {
+            Self::Id => group.id = 0,
+            Self::TeamId => group.team_id = 0,
+            Self::GroupTypeIndex => group.group_type_index = 0,
+            Self::GroupKey => group.group_key.clear(),
+            Self::GroupProperties => group.group_properties.clear(),
+            Self::PropertiesLastUpdatedAt => group.properties_last_updated_at.clear(),
+            Self::PropertiesLastOperation => group.properties_last_operation.clear(),
+            Self::CreatedAt => group.created_at = 0,
+            Self::Version => group.version = 0,
+        }
+    }
 }
 
 /// Returns true if the field mask requires person properties columns.
 pub fn person_needs_properties(read_options: &Option<ReadOptions>) -> bool {
-    needs_properties(read_options, PERSON_PROPERTIES_FIELDS)
+    let mask = match read_options.as_ref() {
+        Some(opts) if !opts.field_mask.is_empty() => &opts.field_mask,
+        _ => return true,
+    };
+    mask.iter()
+        .any(|f| PersonField::from_wire(f).is_some_and(|f| f.is_property_field()))
 }
 
 /// Returns true if the field mask requires group properties columns.
 pub fn group_needs_properties(read_options: &Option<ReadOptions>) -> bool {
-    needs_properties(read_options, GROUP_PROPERTIES_FIELDS)
+    let mask = match read_options.as_ref() {
+        Some(opts) if !opts.field_mask.is_empty() => &opts.field_mask,
+        _ => return true,
+    };
+    mask.iter()
+        .any(|f| GroupField::from_wire(f).is_some_and(|f| f.is_property_field()))
 }
 
 /// Build a field mask set from read options. Returns None if all fields should be kept.
@@ -42,82 +167,30 @@ pub fn build_field_mask(read_options: &Option<ReadOptions>) -> Option<HashSet<St
 }
 
 /// Apply the field mask to a Person proto, zeroing out fields not in the mask.
-/// If the mask is None, all fields are kept.
 pub fn apply_person_field_mask(person: &mut Person, fields: &Option<HashSet<String>>) {
-    let fields = match fields {
-        Some(f) => f,
-        None => return,
-    };
-
-    if !fields.contains("id") {
-        person.id = 0;
-    }
-    if !fields.contains("uuid") {
-        person.uuid.clear();
-    }
-    if !fields.contains("team_id") {
-        person.team_id = 0;
-    }
-    if !fields.contains("properties") {
-        person.properties.clear();
-    }
-    if !fields.contains("properties_last_updated_at") {
-        person.properties_last_updated_at.clear();
-    }
-    if !fields.contains("properties_last_operation") {
-        person.properties_last_operation.clear();
-    }
-    if !fields.contains("created_at") {
-        person.created_at = 0;
-    }
-    if !fields.contains("version") {
-        person.version = 0;
-    }
-    if !fields.contains("is_identified") {
-        person.is_identified = false;
-    }
-    if !fields.contains("is_user_id") {
-        person.is_user_id = None;
-    }
-    if !fields.contains("last_seen_at") {
-        person.last_seen_at = None;
+    let Some(fields) = fields else { return };
+    let requested: HashSet<PersonField> = fields
+        .iter()
+        .filter_map(|s| PersonField::from_wire(s))
+        .collect();
+    for &field in PersonField::ALL {
+        if !requested.contains(&field) {
+            field.clear(person);
+        }
     }
 }
 
 /// Apply the field mask to a Group proto, zeroing out fields not in the mask.
-/// If the mask is None, all fields are kept.
 pub fn apply_group_field_mask(group: &mut Group, fields: &Option<HashSet<String>>) {
-    let fields = match fields {
-        Some(f) => f,
-        None => return,
-    };
-
-    if !fields.contains("id") {
-        group.id = 0;
-    }
-    if !fields.contains("team_id") {
-        group.team_id = 0;
-    }
-    if !fields.contains("group_type_index") {
-        group.group_type_index = 0;
-    }
-    if !fields.contains("group_key") {
-        group.group_key.clear();
-    }
-    if !fields.contains("group_properties") {
-        group.group_properties.clear();
-    }
-    if !fields.contains("properties_last_updated_at") {
-        group.properties_last_updated_at.clear();
-    }
-    if !fields.contains("properties_last_operation") {
-        group.properties_last_operation.clear();
-    }
-    if !fields.contains("created_at") {
-        group.created_at = 0;
-    }
-    if !fields.contains("version") {
-        group.version = 0;
+    let Some(fields) = fields else { return };
+    let requested: HashSet<GroupField> = fields
+        .iter()
+        .filter_map(|s| GroupField::from_wire(s))
+        .collect();
+    for &field in GroupField::ALL {
+        if !requested.contains(&field) {
+            field.clear(group);
+        }
     }
 }
 
@@ -132,6 +205,8 @@ mod tests {
         })
     }
 
+    // These constructors use explicit named fields so that adding a field to
+    // the proto causes a compile error here, reminding you to update the enum.
     fn populated_person() -> Person {
         Person {
             id: 42,
@@ -160,6 +235,49 @@ mod tests {
             created_at: 2000,
             version: 1,
         }
+    }
+
+    // ============================================================
+    // Drift guards — ensure enums stay in sync with proto structs.
+    // The populated_* constructors above use named fields (no `..Default`),
+    // so adding a proto field without updating the constructor is a compile
+    // error. These tests additionally verify that ALL covers every field.
+    // ============================================================
+
+    #[test]
+    fn person_field_all_covers_every_proto_field() {
+        assert_eq!(
+            PersonField::ALL.len(),
+            11,
+            "PersonField::ALL count doesn't match Person proto field count — \
+             did you add a field to the Person proto without updating PersonField?"
+        );
+        let mut person = populated_person();
+        let no_fields: HashSet<String> = HashSet::new();
+        apply_person_field_mask(&mut person, &Some(no_fields));
+        assert_eq!(
+            person,
+            Person::default(),
+            "masking with an empty set should zero every field"
+        );
+    }
+
+    #[test]
+    fn group_field_all_covers_every_proto_field() {
+        assert_eq!(
+            GroupField::ALL.len(),
+            9,
+            "GroupField::ALL count doesn't match Group proto field count — \
+             did you add a field to the Group proto without updating GroupField?"
+        );
+        let mut group = populated_group();
+        let no_fields: HashSet<String> = HashSet::new();
+        apply_group_field_mask(&mut group, &Some(no_fields));
+        assert_eq!(
+            group,
+            Group::default(),
+            "masking with an empty set should zero every field"
+        );
     }
 
     // ============================================================
@@ -196,7 +314,7 @@ mod tests {
     }
 
     // ============================================================
-    // needs_properties / person_needs_properties / group_needs_properties
+    // person_needs_properties / group_needs_properties
     // ============================================================
 
     use rstest::rstest;
@@ -229,19 +347,6 @@ mod tests {
     ) {
         let read_options = mask_fields.map(read_options_with_mask).flatten();
         assert_eq!(group_needs_properties(&read_options), expected);
-    }
-
-    #[test]
-    fn needs_properties_with_custom_property_fields_matches_against_those_fields() {
-        let custom_fields = &["custom_prop"];
-        assert!(!needs_properties(
-            &read_options_with_mask(vec!["id"]),
-            custom_fields
-        ));
-        assert!(needs_properties(
-            &read_options_with_mask(vec!["custom_prop"]),
-            custom_fields
-        ));
     }
 
     // ============================================================
@@ -461,9 +566,6 @@ mod tests {
         apply_group_field_mask(&mut group, &fields);
 
         assert_eq!(group.group_key, "acme", "group_key should be preserved");
-        assert_eq!(
-            group.id, 0,
-            "id should be zeroed by the real mask logic"
-        );
+        assert_eq!(group.id, 0, "id should be zeroed by the real mask logic");
     }
 }

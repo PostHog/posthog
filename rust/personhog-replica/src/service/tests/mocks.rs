@@ -981,10 +981,7 @@ impl storage::GroupStorage for PopulatedStorage {
         _consistency: storage::postgres::ConsistencyLevel,
         _include_properties: bool,
     ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
-        Ok(keys
-            .iter()
-            .map(|k| (k.clone(), Self::group()))
-            .collect())
+        Ok(keys.iter().map(|k| (k.clone(), Self::group())).collect())
     }
 
     async fn list_groups(

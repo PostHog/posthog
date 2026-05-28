@@ -160,7 +160,8 @@ async fn test_get_group() {
     let fetched = result.unwrap();
     assert_eq!(fetched.group_key, "company_123");
     assert_eq!(fetched.group_type_index, 0);
-    let fetched_props: serde_json::Value = serde_json::from_str(fetched.group_properties.as_deref().unwrap()).unwrap();
+    let fetched_props: serde_json::Value =
+        serde_json::from_str(fetched.group_properties.as_deref().unwrap()).unwrap();
     assert_eq!(fetched_props, properties);
 
     ctx.cleanup().await.ok();
@@ -246,7 +247,8 @@ async fn test_person_properties() {
 
     assert!(result.is_some());
     let fetched = result.unwrap();
-    let props: serde_json::Value = serde_json::from_str(fetched.properties.as_deref().unwrap()).unwrap();
+    let props: serde_json::Value =
+        serde_json::from_str(fetched.properties.as_deref().unwrap()).unwrap();
     assert_eq!(props["email"], "props_test@example.com");
     assert_eq!(props["plan"], "enterprise");
 
@@ -270,7 +272,11 @@ async fn test_get_persons_by_uuids() {
 
     let result = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &[person1.uuid, person2.uuid, nonexistent_uuid], true)
+        .get_persons_by_uuids(
+            ctx.team_id,
+            &[person1.uuid, person2.uuid, nonexistent_uuid],
+            true,
+        )
         .await
         .expect("Failed to get persons by uuids");
 
@@ -1681,11 +1687,7 @@ async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
 
     let results = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(
-            ctx.team_id,
-            &["props_did_test".to_string()],
-            false,
-        )
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], false)
         .await
         .expect("Failed to get persons without props");
     assert_eq!(results.len(), 1);
