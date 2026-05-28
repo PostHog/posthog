@@ -106,7 +106,7 @@ class RelaySlackMessageInput:
     text: str
     user_message_ts: str | None = None
     delete_progress: bool = True
-    reaction_emoji: str = "hedgehog"
+    reaction_emoji: str | None = None
 
 
 @activity.defn
@@ -156,7 +156,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if input.delete_progress:
         handler.delete_progress()
     handler.post_thread_message(f"{mention_prefix}{text}")
-    handler.update_reaction(input.reaction_emoji)
+    if input.reaction_emoji is not None:
+        handler.update_reaction(input.reaction_emoji)
 
     def _record_sent_relay(state: dict[str, Any]) -> None:
         sent_relay_ids = state.get("slack_sent_relay_ids") or []
