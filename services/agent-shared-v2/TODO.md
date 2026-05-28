@@ -93,15 +93,94 @@ Dockerfile in same dir; CI step to publish to ghcr.
 Stub at `sandbox-modal.ts`. Replace with real Modal sandbox provisioning
 when a Modal-backed deployment is wanted.
 
-### B5. Agent-mgmt MCP wired into services/mcp
+### B5. Agent authoring surface — deferred
 
-`agent-mgmt-mcp` package exists with all handlers + zod schemas. Not yet
-plugged into `services/mcp`'s TOOL_MAP / toolDefinitions YAML pipeline /
-scopes. Without this, agents can't be authored via MCP yet.
+`agent-mgmt-mcp` will be reworked as a follow-up; the current package
+shape is not the direction we'll ship. Don't wire it into `services/mcp`
+yet — leave the v1 mgmt path in place until we redesign this.
 
-Where: register `agent_mgmt:*` handlers under the existing tool framework
-in `services/mcp/src/tools/`. Each handler becomes a factory like the
-other tools.
+### B6. Redis pubsub bus (CRITICAL — cutover blocker)
+
+v1 has `RedisSessionBus` (`services/agent-core/src/pubsub/redis.ts`) used
+by ingress for cross-process /listen SSE. v2's `bus.ts` only ships
+`MemorySessionEventBus` + `NoopSessionEventBus`, so a session running on
+worker A can't be observed by an SSE client connected to ingress B.
+
+Where: new `RedisSessionEventBus` in `agent-shared-v2/src/bus.ts`
+implementing the same `SessionEventBus` interface. Wire it in
+`agent-ingress-v2`/`agent-runner-v2` entrypoints when `REDIS_URL` is set;
+fall back to memory otherwise. Reuse the v1 channel naming
+(`session:<id>`) so any existing tooling still works.
+
+### B7. EncryptedFields for Django env decryption (CRITICAL — cutover blocker)
+
+v1's runner decrypts `AgentApplication.encrypted_env` via
+`EncryptedFields` (Fernet, key rotation) — see
+`services/agent-core/src/encryption/index.ts` and the wire-up in
+`agent-runner/src/lib.ts:85`. v2's `SecretBroker` only handles
+nonce/redaction at tool dispatch, not at-rest decrypt.
+
+Where: vendor `EncryptedFields` into `agent-shared-v2/src/encryption.ts`
+(copy is fine — small, stable, already once-copied from cdp). Use it in
+the worker's `resolveSecrets()` resolver when reading from the real
+Django table.
+
+### B8. Prior session log loading from ClickHouse on resume
+
+NEITHER v1 nor v2 currently does this — the Kafka sink only writes. On
+resume today both versions rebuild from `pending_inputs` + the session
+state row, not from the durable `log_entries` audit. Now that the v2
+KafkaLogSink lands, the read side becomes feasible: query `log_entries`
+for the session at turn start and rehydrate prior tool calls / assistant
+text into the pi-ai message stream.
+
+Where: new helper in `agent-runner-v2` (or `agent-shared-v2`) that runs a
+parameterised CH query (instance_id = session.id, ordered by timestamp)
+and emits a `Message[]` for pi-ai. Behind a feature flag while we tune.
+
+### B9. Durable sandbox-instances tracking
+
+v1 has `SandboxInstancesRepository`
+(`services/agent-core/src/posthog-db/sandbox-instances.ts`) + a
+`SandboxTracker` that writes provisioning → ready → terminated rows to
+`agent_sandbox_instances`. Plus a sandbox-janitor that reaps stale rows.
+v2 has provider impls (`sandbox-{docker,modal,inprocess}.ts`) but no
+durable state — no cross-process view of which sandboxes are live.
+
+Where: new `sandbox-instance-store.ts` in `agent-shared-v2` mirroring
+v1's interface; new table in `pg-schema.ts`; the sandbox pools call into
+the store at provisioning/teardown.
+
+### B10. Poison-pill detection in janitor
+
+v1's janitor distinguishes stuck-but-recoverable from broken via a touch
+counter — fail after 3+ stalls (`agent-core/src/queue/janitor.ts:79`).
+v2's `sweep.ts` only single-shot re-queues stuck running and fails
+24h-stale waiting; nothing stops a bad job from re-queueing forever.
+
+Where: add `retry_count INT DEFAULT 0` to `agent_session_v2`; bump it on
+each `reapStuckRunning`; promote to `failed` past a threshold.
+
+### B11. `posthog.feature_flags.evaluate` builtin
+
+v1 has it as a runner builtin
+(`services/agent-runner/src/tools/builtins.ts:23` and
+`agent-core/src/builtins/index.ts:33`). Missing from v2's
+`agent-tools/src/tools/`.
+
+Where: new `posthog-feature-flags-evaluate.ts` in `agent-tools/src/tools/`
+calling the same backend as v1.
+
+### B12. Timing instrumentation helpers
+
+v1 has `withTiming` / `withTimingSync`
+(`services/agent-core/src/instrumentation/timing.ts`) emitting structured
+`event: 'timing'` logs around bundle fetch, sandbox lifecycle, LLM
+turns. v2's runner has no per-stage latency observability.
+
+Where: port the helper into `agent-shared-v2/src/timing.ts`; wrap the
+hot paths in `agent-runner-v2/src/run-turn.ts` and the bundle-fetch
+path.
 
 ---
 
@@ -122,12 +201,12 @@ suffix. One mechanical pass.
 
 ### C3. Slack @agent-builder bot (step 10)
 
-Build an agent in this system that drives the `agent_mgmt:*` tools to
-author other agents.
+Build an agent in this system that authors other agents — blocked on the
+authoring surface (B5).
 
 ### C4. Frontend wizard scene (step 11)
 
-`/agents/new` in PostHog, MCP client of `agent_mgmt:*`.
+`/agents/new` in PostHog — blocked on the authoring surface (B5).
 
 ### C5. Library tables (step 12)
 
@@ -139,13 +218,15 @@ Authoring-guide migrates from in-repo string to a `SkillTemplate` row.
 The data model already has `spec.mcps`. Runner side: open MCP clients to
 each entry, namespace-prefix tool names, route calls back.
 
-### C7. ClickHouseLogSink — real Kafka writer
+### C7. KafkaLogSink — production wire-up
 
-`ClickHouseLogSink` is a stub that throws on `write()`. Production needs:
-(a) a Kafka client (node-rdkafka or @platformatic/kafka), (b) the
-`log_entries` topic schema agreed with the consumer side, (c) a
-materialized-view setup in CH that reads the topic. The runner's call
-site is unchanged once this lands.
+`KafkaLogSink` is implemented (ports v1's `agent-core/log-entries/producer.ts`
+— rdkafka HighLevelProducer, fire-and-forget produce, snappy compression,
+lazy native import). Outstanding to ship:
+(a) wire it into `agent-runner-v2/src/index.ts` when `KAFKA_BROKERS` is
+set (Noop otherwise), (b) confirm the `log_entries` topic + CH
+materialized view exist in target deployments (same as v1 — no schema
+change), (c) once enabled in staging, verify rows land in CH end-to-end.
 
 ---
 

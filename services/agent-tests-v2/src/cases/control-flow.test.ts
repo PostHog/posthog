@@ -24,7 +24,7 @@ describe('control flow: real e2e', () => {
     })
 
     it('ask_for_input suspends the session to state=waiting', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'asker' })
         const res = await request(c.ingress).post('/agents/asker/run').send({ message: 'hi' })
         await c.drain()
@@ -33,7 +33,7 @@ describe('control flow: real e2e', () => {
     })
 
     it("end_session completes the session with the model's summary", async () => {
-        c.setScript([fauxCallTool('meta.end_session.v1', { summary: 'all done' })])
+        c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'all done' })])
         await c.deployAgent({ slug: 'ender' })
         const res = await request(c.ingress).post('/agents/ender/run').send({ message: 'wrap' })
         await c.drain()
@@ -46,12 +46,12 @@ describe('control flow: real e2e', () => {
         c.setScript(
             Array(5)
                 .fill(null)
-                .map(() => fauxCallTool('posthog.query.v1', { query: 'select 1' }))
+                .map(() => fauxCallTool('@posthog/query', { query: 'select 1' }))
         )
         await c.deployAgent({
             slug: 'loopy',
             spec: {
-                tools: [{ kind: 'native', id: 'posthog.query.v1' }],
+                tools: [{ kind: 'native', id: '@posthog/query' }],
                 limits: { max_turns: 3, max_tool_calls: 100, max_wall_seconds: 60 },
             },
         })

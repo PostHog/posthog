@@ -80,10 +80,10 @@ describe('runSession', () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const pi = new FauxPiClient([
-            toolUseTurn([toolCall('posthog.query.v1', { query: 'select 1' }, 'tc_1')]),
+            toolUseTurn([toolCall('@posthog/query', { query: 'select 1' }, 'tc_1')]),
             endTurn('query ran'),
         ])
-        const rev = makeRev({ tools: [{ kind: 'native', id: 'posthog.query.v1' }] })
+        const rev = makeRev({ tools: [{ kind: 'native', id: '@posthog/query' }] })
         const session = makeSession()
         const out = await runSession(rev, session, {
             pi,
@@ -102,10 +102,10 @@ describe('runSession', () => {
         expect(toolResult.toolCallId).toBe('tc_1')
     })
 
-    it('returns state=waiting on meta.ask_for_input.v1', async () => {
+    it('returns state=waiting on @posthog/meta-ask-for-input', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
-        const pi = new FauxPiClient([toolUseTurn([toolCall('meta.ask_for_input.v1', { prompt: 'Continue?' })])])
+        const pi = new FauxPiClient([toolUseTurn([toolCall('@posthog/meta-ask-for-input', { prompt: 'Continue?' })])])
         const out = await runSession(makeRev(), makeSession(), {
             pi,
             model: FAUX_MODEL,
@@ -118,10 +118,10 @@ describe('runSession', () => {
         expect(out.state === 'waiting' && out.prompt).toBe('Continue?')
     })
 
-    it('returns state=completed on meta.end_session.v1 with summary', async () => {
+    it('returns state=completed on @posthog/meta-end-session with summary', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
-        const pi = new FauxPiClient([toolUseTurn([toolCall('meta.end_session.v1', { summary: 'all done' })])])
+        const pi = new FauxPiClient([toolUseTurn([toolCall('@posthog/meta-end-session', { summary: 'all done' })])])
         const out = await runSession(makeRev(), makeSession(), {
             pi,
             model: FAUX_MODEL,
@@ -140,10 +140,10 @@ describe('runSession', () => {
         const pi = new FauxPiClient(
             Array(5)
                 .fill(null)
-                .map(() => toolUseTurn([toolCall('posthog.query.v1', { query: 'x' })]))
+                .map(() => toolUseTurn([toolCall('@posthog/query', { query: 'x' })]))
         )
         const rev = makeRev({
-            tools: [{ kind: 'native', id: 'posthog.query.v1' }],
+            tools: [{ kind: 'native', id: '@posthog/query' }],
             limits: { max_turns: 3, max_tool_calls: 10, max_wall_seconds: 60 },
         })
         const out = await runSession(rev, makeSession(), {
@@ -283,11 +283,11 @@ describe('runSession', () => {
             (() => {
                 // Abort right before returning — the next loop iteration sees it.
                 queueMicrotask(() => controller.abort())
-                return toolUseTurn([toolCall('posthog.query.v1', { query: 'x' })])
+                return toolUseTurn([toolCall('@posthog/query', { query: 'x' })])
             }) as never,
             endTurn('would never run'),
         ])
-        const rev = makeRev({ tools: [{ kind: 'native', id: 'posthog.query.v1' }] })
+        const rev = makeRev({ tools: [{ kind: 'native', id: '@posthog/query' }] })
         const out = await runSession(rev, makeSession(), {
             pi,
             model: FAUX_MODEL,
@@ -303,9 +303,9 @@ describe('runSession', () => {
     it('calls onTurnPersist after each turn', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
-        const pi = new FauxPiClient([toolUseTurn([toolCall('posthog.query.v1', { query: 'x' })]), endTurn('done')])
+        const pi = new FauxPiClient([toolUseTurn([toolCall('@posthog/query', { query: 'x' })]), endTurn('done')])
         const persisted: number[] = []
-        const rev = makeRev({ tools: [{ kind: 'native', id: 'posthog.query.v1' }] })
+        const rev = makeRev({ tools: [{ kind: 'native', id: '@posthog/query' }] })
         const session = makeSession()
         await runSession(rev, session, {
             pi,

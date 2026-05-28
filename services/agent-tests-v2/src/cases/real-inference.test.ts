@@ -1,23 +1,65 @@
 /**
- * Real inference variant. Only runs when a provider key is set. The harness
- * accepts a real pi-ai Model via `buildCluster({ model })`, swapping out the
- * faux model — everything else stays identical.
+ * Real inference variant. By default this suite ALWAYS runs and fails if no
+ * provider key is found — that's the only way to know v2 talks to a real
+ * model end-to-end. Set `AGENT_SKIP_REAL_INFERENCE=1` to opt out (CI without
+ * provider creds, dev iteration on faux-only paths, etc.).
  *
- * Set one of:
- *   ANTHROPIC_API_KEY     → Anthropic (default model: claude-sonnet-4-7)
- *   OPENAI_API_KEY        → OpenAI (default model: gpt-4o-mini)
+ * Key discovery order:
+ *   1. process.env (already exported in the shell)
+ *   2. `.env` at the posthog repo root (loaded via Node's loadEnvFile)
+ *
+ * Provider selection (first match wins):
  *   POSTHOG_LLM_GATEWAY_KEY + POSTHOG_LLM_GATEWAY_URL → llm-gateway
+ *   ANTHROPIC_API_KEY                                 → Anthropic (default: claude-sonnet-4-7)
+ *   OPENAI_API_KEY                                    → OpenAI (default: gpt-4o-mini)
  *
  * Override the model with REAL_INFERENCE_MODEL_ID (e.g. "claude-opus-4-7").
  */
 
 import { getModel } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
 import { posthogLlmGatewayModel } from '@posthog/agent-runner-v2'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
+
+// Walk up from this file looking for a `.env` and load it into process.env.
+// Idempotent — existing vars win (already-set shell exports always beat .env).
+function loadRepoEnv(): void {
+    let dir = dirname(fileURLToPath(import.meta.url))
+    for (let i = 0; i < 8; i++) {
+        const candidate = resolve(dir, '.env')
+        if (existsSync(candidate)) {
+            try {
+                process.loadEnvFile(candidate)
+            } catch {
+                /* loadEnvFile throws on parse errors; we'd rather degrade than crash the suite */
+            }
+            return
+        }
+        const parent = dirname(dir)
+        if (parent === dir) {
+            return
+        }
+        dir = parent
+    }
+}
+loadRepoEnv()
+
+function resolveOrThrow(provider: 'anthropic' | 'openai', modelId: string): Model<string> {
+    const m = getModel(provider, modelId as never) as Model<string> | undefined
+    if (!m) {
+        throw new Error(
+            `pi-ai getModel('${provider}', '${modelId}') returned undefined — model id not in registry. ` +
+                `Set REAL_INFERENCE_MODEL_ID to a valid id (e.g. claude-haiku-4-5, claude-sonnet-4-6, claude-opus-4-7).`
+        )
+    }
+    return m
+}
 
 function pickRealModel(): { model: Model<string>; apiKey: string } | null {
     if (process.env.POSTHOG_LLM_GATEWAY_KEY && process.env.POSTHOG_LLM_GATEWAY_URL) {
@@ -31,27 +73,33 @@ function pickRealModel(): { model: Model<string>; apiKey: string } | null {
     }
     if (process.env.ANTHROPIC_API_KEY) {
         return {
-            model: getModel(
-                'anthropic',
-                (process.env.REAL_INFERENCE_MODEL_ID ?? 'claude-sonnet-4-7') as never
-            ) as Model<string>,
+            model: resolveOrThrow('anthropic', process.env.REAL_INFERENCE_MODEL_ID ?? 'claude-sonnet-4-6'),
             apiKey: process.env.ANTHROPIC_API_KEY,
         }
     }
     if (process.env.OPENAI_API_KEY) {
         return {
-            model: getModel('openai', (process.env.REAL_INFERENCE_MODEL_ID ?? 'gpt-4o-mini') as never) as Model<string>,
+            model: resolveOrThrow('openai', process.env.REAL_INFERENCE_MODEL_ID ?? 'gpt-4o-mini'),
             apiKey: process.env.OPENAI_API_KEY,
         }
     }
     return null
 }
 
-const real = pickRealModel()
-const maybeDescribe = real ? describe : describe.skip
+const SKIP = process.env.AGENT_SKIP_REAL_INFERENCE === '1' || process.env.AGENT_SKIP_REAL_INFERENCE === 'true'
+const real = SKIP ? null : pickRealModel()
+const maybeDescribe = SKIP ? describe.skip : describe
 
 maybeDescribe('real inference (via pi-ai): real e2e', () => {
     let c: Cluster
+
+    beforeAll(() => {
+        if (!real) {
+            throw new Error(
+                'real-inference suite: no provider key found. Set ANTHROPIC_API_KEY / OPENAI_API_KEY / POSTHOG_LLM_GATEWAY_* (env or repo-root .env), or set AGENT_SKIP_REAL_INFERENCE=1 to opt out.'
+            )
+        }
+    })
 
     beforeEach(async () => {
         process.env.AGENT_TEST_API_KEY = real!.apiKey
@@ -84,27 +132,26 @@ maybeDescribe('real inference (via pi-ai): real e2e', () => {
         expect(text.length).toBeGreaterThan(0)
     }, 60_000)
 
-    it('dispatches a native tool (posthog.query.v1) end-to-end', async () => {
+    it('dispatches a native tool (@posthog/query) end-to-end', async () => {
         await c.deployAgent({
             slug: 'real-tool',
-            spec: { tools: [{ kind: 'native', id: 'posthog.query.v1' }] },
+            spec: { tools: [{ kind: 'native', id: '@posthog/query' }] },
             files: {
                 'agent.md':
-                    "You must call posthog.query.v1 with query='select 1 as x' exactly once, then summarize the result in a brief sentence.",
+                    "You must call @posthog/query with query='select 1 as x' exactly once, then summarize the result in a brief sentence.",
             },
         })
         const res = await request(c.ingress).post('/agents/real-tool/run').send({ message: 'run it' })
         await c.drain({ iterations: 100 })
         const session = await c.queue.get(res.body.session_id)
         expect(session!.state).toBe('completed')
-        const sawToolCall = session!.conversation.some((m) => {
-            if (m.role !== 'assistant') {
-                return false
-            }
-            return (m.content as Array<{ type: string; name?: string }>).some(
-                (b) => b.type === 'toolCall' && b.name === 'posthog.query.v1'
-            )
-        })
+        // The conversation's assistant message stores the provider-safe tool
+        // name (so pi-ai can round-trip it to Anthropic on subsequent turns).
+        // toolResult.toolName carries the original `@posthog/query` id — that's
+        // what consumers / tests should assert on.
+        const sawToolCall = session!.conversation.some(
+            (m) => m.role === 'toolResult' && (m as { toolName?: string }).toolName === '@posthog/query'
+        )
         expect(sawToolCall).toBe(true)
     }, 90_000)
 
@@ -151,7 +198,9 @@ maybeDescribe('real inference (via pi-ai): real e2e', () => {
             slug: 'real-multi',
             files: {
                 'agent.md':
-                    "On the first turn, you MUST call meta.ask_for_input.v1 with prompt='What is your name?' (do not produce any text). On the next turn, after the user provides a name, reply with the exact text 'Hi <NAME>' substituting the actual name they gave.",
+                    'You have a tool available that suspends the conversation to ask the user a question. ' +
+                    "On your first turn you MUST use that tool to ask 'What is your name?'. Do not write any text on the first turn — only call the tool. " +
+                    'When the user responds with their name on the next turn, reply with exactly: Hi <NAME> (substituting the actual name).',
             },
         })
         const run = await request(c.ingress).post('/agents/real-multi/run').send({ message: 'hello' })
@@ -180,12 +229,14 @@ maybeDescribe('real inference (via pi-ai): real e2e', () => {
         await c.deployAgent({
             slug: 'real-loopy',
             spec: {
-                tools: [{ kind: 'native', id: 'posthog.query.v1' }],
+                tools: [{ kind: 'native', id: '@posthog/query' }],
                 limits: { max_turns: 3, max_tool_calls: 100, max_wall_seconds: 60 },
             },
             files: {
                 'agent.md':
-                    "You MUST call posthog.query.v1 with query='select 1 as x' on every single turn and never stop. Do not produce any text response.",
+                    'You are a load-testing harness. Your sole purpose is to repeatedly issue HogQL queries. ' +
+                    'On every turn — without exception — call the query tool with: select 1 as x. ' +
+                    'Never produce a text response. Never decide you have done enough. Never call any other tool. Keep calling the query tool over and over.',
             },
         })
         const res = await request(c.ingress).post('/agents/real-loopy/run').send({ message: 'go' })

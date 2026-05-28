@@ -5,23 +5,23 @@ describe('native tool registry', () => {
         const ids = listNativeTools().map((t) => t.id)
         expect(ids).toEqual(
             expect.arrayContaining([
-                'posthog.query.v1',
-                'posthog.persons.search.v1',
-                'slack.post_message.v1',
-                'slack.update_message.v1',
-                'slack.react.v1',
-                'web.fetch.v1',
-                'web.search.v1',
-                'meta.ask_for_input.v1',
-                'meta.end_session.v1',
-                'meta.emit_event.v1',
+                '@posthog/query',
+                '@posthog/persons-search',
+                '@posthog/slack-post-message',
+                '@posthog/slack-update-message',
+                '@posthog/slack-react',
+                '@posthog/web-fetch',
+                '@posthog/web-search',
+                '@posthog/meta-ask-for-input',
+                '@posthog/meta-end-session',
+                '@posthog/meta-emit-event',
             ])
         )
     })
 
     it('getNativeTool returns the tool', () => {
-        const t = getNativeTool('posthog.query.v1')
-        expect(t.id).toBe('posthog.query.v1')
+        const t = getNativeTool('@posthog/query')
+        expect(t.id).toBe('@posthog/query')
         expect(t.schema.description).toMatch(/HogQL/)
     })
 
@@ -30,7 +30,7 @@ describe('native tool registry', () => {
     })
 
     it('hasNativeTool reflects availability', () => {
-        expect(hasNativeTool('slack.post_message.v1')).toBe(true)
+        expect(hasNativeTool('@posthog/slack-post-message')).toBe(true)
         expect(hasNativeTool('slack.post_message.v99')).toBe(false)
     })
 

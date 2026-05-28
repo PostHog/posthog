@@ -27,15 +27,17 @@ describe('dispatchTool', () => {
         log: () => undefined,
     }
 
-    it('returns suspend on meta.ask_for_input.v1', async () => {
-        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, 'meta.ask_for_input.v1', {
+    it('returns suspend on @posthog/meta-ask-for-input', async () => {
+        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, '@posthog/meta-ask-for-input', {
             prompt: 'Need approval?',
         })
         expect(out).toEqual({ kind: 'suspend', prompt: 'Need approval?' })
     })
 
-    it('returns end on meta.end_session.v1', async () => {
-        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, 'meta.end_session.v1', { summary: 'done' })
+    it('returns end on @posthog/meta-end-session', async () => {
+        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, '@posthog/meta-end-session', {
+            summary: 'done',
+        })
         expect(out).toEqual({ kind: 'end', summary: 'done' })
     })
 
@@ -51,9 +53,9 @@ describe('dispatchTool', () => {
         const out = await dispatchTool(
             {
                 ...baseInput,
-                rev: makeRev([{ kind: 'native', id: 'posthog.query.v1' }]),
+                rev: makeRev([{ kind: 'native', id: '@posthog/query' }]),
             },
-            'posthog.query.v1',
+            '@posthog/query',
             { query: 'select 1 as a' }
         )
         expect(out).toEqual({ kind: 'ok', result: { rows: [{ a: 1 }], columns: ['a'] } })
@@ -71,16 +73,16 @@ describe('dispatchTool', () => {
         const out = await dispatchTool(
             {
                 ...baseInput,
-                rev: makeRev([{ kind: 'native', id: 'posthog.query.v1' }]),
+                rev: makeRev([{ kind: 'native', id: '@posthog/query' }]),
             },
-            'posthog.query.v1',
+            '@posthog/query',
             { query: '' }
         )
         expect(out.kind).toBe('error')
     })
 
     it('rejects a tool not in the revision', async () => {
-        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, 'slack.post_message.v1', {})
+        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, '@posthog/slack-post-message', {})
         expect(out.kind).toBe('error')
         expect(out.kind === 'error' && out.message).toMatch(/not in revision/)
     })

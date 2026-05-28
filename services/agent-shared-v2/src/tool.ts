@@ -1,6 +1,6 @@
 /**
  * Native tool contract. Every tool exports these three:
- *   - id    : "posthog.query.v1" — versioned id; bumping creates a parallel tool
+ *   - id    : "@posthog/query" — versioned id; bumping creates a parallel tool
  *   - schema: declarative args/returns + requirements (description, cost hint)
  *   - run   : the actual call
  *

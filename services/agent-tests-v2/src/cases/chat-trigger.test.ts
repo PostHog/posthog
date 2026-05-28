@@ -46,7 +46,10 @@ describe('chat trigger: real e2e', () => {
     it('greeting-bot multi-turn: ask_for_input parks, /send resumes, second turn completes', async () => {
         // Turn 1: ask_for_input (parks the session at waiting).
         // Turn 2: a plain text response after the user's follow-up.
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: "What's your name?" }), fauxText('hello, alice')])
+        c.setScript([
+            fauxCallTool('@posthog/meta-ask-for-input', { prompt: "What's your name?" }),
+            fauxText('hello, alice'),
+        ])
         await c.deployAgent({ slug: 'greeter' })
         const res = await request(c.ingress).post('/agents/greeter/run').send({ message: 'hi' })
         const sid = res.body.session_id
@@ -67,7 +70,7 @@ describe('chat trigger: real e2e', () => {
     })
 
     it('basic-multi-turn: /send routes into pending_inputs while waiting; runner drains on resume', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' }), fauxText('ok done')])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' }), fauxText('ok done')])
         await c.deployAgent({ slug: 'multi' })
         const run = await request(c.ingress).post('/agents/multi/run').send({ message: 'first' })
         const sid = run.body.session_id

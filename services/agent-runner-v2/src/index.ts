@@ -10,6 +10,7 @@
 import { Pool } from 'pg'
 
 import {
+    createLogger,
     FsBundleStore,
     PgRevisionStore,
     PgSessionQueue,
@@ -21,6 +22,8 @@ import {
 import { posthogLlmGatewayModel } from './llm-gateway-model'
 import { PiAiClient, resolveModelCached } from './pi-client'
 import { Worker } from './worker'
+
+const log = createLogger('agent-runner-v2')
 
 async function main(): Promise<void> {
     const dbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
@@ -59,21 +62,16 @@ async function main(): Promise<void> {
     })
 
     const shutdown = (sig: string): void => {
-        // eslint-disable-next-line no-console
-        console.log(`[agent-runner-v2] ${sig} received — suspending in-flight sessions`)
+        log.info({ sig }, 'shutdown signal received — suspending in-flight sessions')
         void worker.stop()
     }
     process.on('SIGTERM', () => shutdown('SIGTERM'))
     process.on('SIGINT', () => shutdown('SIGINT'))
 
-    // eslint-disable-next-line no-console
-    console.log(
-        `[agent-runner-v2] starting worker loop (db=${dbUrl}, concurrency=${maxConcurrency}, gateway=${useGateway})`
-    )
+    log.info({ db: dbUrl, concurrency: maxConcurrency, gateway: useGateway }, 'starting worker loop')
     await worker.loop()
     await pool.end()
-    // eslint-disable-next-line no-console
-    console.log('[agent-runner-v2] stopped cleanly')
+    log.info({}, 'stopped cleanly')
 }
 
 // Silence unused-import warning while keeping resolveModelCached importable.
@@ -81,8 +79,7 @@ void resolveModelCached
 
 if (import.meta.url === `file://${process.argv[1]}`) {
     main().catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error('[agent-runner-v2] fatal', err)
+        log.fatal({ err: (err as Error).message, stack: (err as Error).stack }, 'fatal')
         process.exit(1)
     })
 }

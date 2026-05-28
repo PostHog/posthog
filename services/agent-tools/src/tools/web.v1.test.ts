@@ -4,7 +4,7 @@ import { setWebSearchProvider, webSearchV1 } from './web-search.v1'
 
 const originalFetch = global.fetch
 
-describe('web.fetch.v1', () => {
+describe('@posthog/web-fetch', () => {
     afterEach(() => {
         global.fetch = originalFetch
     })
@@ -35,7 +35,7 @@ describe('web.fetch.v1', () => {
     })
 })
 
-describe('web.search.v1', () => {
+describe('@posthog/web-search', () => {
     it('returns provider results', async () => {
         setWebSearchProvider({
             async search(q: string) {

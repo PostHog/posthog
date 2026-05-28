@@ -18,7 +18,7 @@ describe('AgentSpecSchema', () => {
                 { type: 'webhook', config: { path: '/hook' } },
             ],
             tools: [
-                { kind: 'native', id: 'posthog.query.v1' },
+                { kind: 'native', id: '@posthog/query' },
                 { kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' },
             ],
             mcps: [{ kind: 'agent', slug: 'weekly-digest' }],

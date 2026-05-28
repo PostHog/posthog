@@ -21,6 +21,7 @@ import {
     AgentSession,
     AssistantMessageRecord,
     BundleStore,
+    createLogger,
     IntegrationCredentials,
     LogLevel,
     LogSink,
@@ -36,6 +37,7 @@ import {
 import { listNativeTools } from '@posthog/agent-tools'
 
 import { PiClient } from './pi-client'
+import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 import { buildSystemPrompt } from './system-prompt'
 import { dispatchTool } from './tool-dispatch'
 
@@ -78,14 +80,38 @@ export type RunOutcome =
 
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
     const system = await buildSystemPrompt(rev, deps.bundle)
+    // Tools carry our internal ids (e.g. `@posthog/query`, `@posthog/meta-ask-for-input`,
+    // custom `my.tool`). Providers (Anthropic/OpenAI) reject most of those
+    // characters, so we sanitize at the pi-ai boundary and translate model-
+    // emitted tool calls back to the internal id before dispatch.
     const tools = await buildToolList(rev, deps.bundle)
+    const toolNameMap = buildToolNameMap(tools.map((t) => t.name))
+    for (const t of tools) {
+        t.name = providerSafeName(t.name)
+    }
     const bus: SessionEventBus = deps.bus ?? new NoopSessionEventBus()
     const logs: LogSink = deps.logs ?? new NoopLogSink()
     let turns = 0
+    // Per-session logger — every record carries session_id + application_id so
+    // you can grep one session's full lifecycle out of a busy log stream.
+    const runLog = createLogger('runner', {
+        session_id: session.id,
+        application_id: session.application_id,
+        team_id: session.team_id,
+    })
+    // Compat shim for tool-dispatch's `log(level, msg, meta)` signature.
     const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
-        // eslint-disable-next-line no-console
-        console.log(`[runner] ${level} ${msg}`, meta ?? '')
+        runLog[level](meta ?? {}, msg)
     }
+    runLog.debug(
+        {
+            spec_tools: rev.spec.tools.length,
+            tools_to_model: tools.length,
+            tool_names: tools.map((t) => t.name),
+            model: rev.spec.model,
+        },
+        'session.run.start'
+    )
     const emit = async (kind: SessionEventKind, data: Record<string, unknown> = {}): Promise<void> => {
         const ts = new Date().toISOString()
         await bus.publish({ session_id: session.id, kind, data, ts } satisfies SessionEvent)
@@ -129,7 +155,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             messages: session.conversation as unknown as Context['messages'],
             tools,
         }
+        runLog.debug({ turn: turns, messages: context.messages.length, tools: tools.length }, 'pi.invoke.begin')
         let result: AssistantMessage
+        const piStart = Date.now()
         try {
             result = await deps.pi.invoke(deps.model, context, {
                 apiKey: deps.apiKey,
@@ -139,10 +167,23 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         } catch (err) {
             const e = err as Error & { name?: string }
             if (e.name === 'AbortError' || deps.shutdownSignal?.aborted) {
+                runLog.debug({ turn: turns }, 'pi.invoke.aborted')
                 return { state: 'suspended', reason: 'shutdown', turns }
             }
+            runLog.error({ turn: turns, err: e.message }, 'pi.invoke.failed')
             return { state: 'failed', reason: e.message ?? 'pi-ai_error', turns }
         }
+        runLog.debug(
+            {
+                turn: turns,
+                durationMs: Date.now() - piStart,
+                stopReason: result.stopReason,
+                tokensIn: result.usage?.input,
+                tokensOut: result.usage?.output,
+                contentBlocks: result.content.length,
+            },
+            'pi.invoke.ok'
+        )
 
         // Persist the assistant message into the conversation. We store the
         // full AssistantMessage including api/provider/model/usage/stopReason
@@ -196,7 +237,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let end: { summary?: string } | null = null
 
         for (const call of toolCalls) {
-            await emit('tool_call', { name: call.name, args: call.arguments, id: call.id })
+            // Translate the provider-safe name (what the model emits) back
+            // to the internal id (what dispatchTool + our event consumers
+            // expect). Unknown names pass through unchanged — dispatchTool
+            // will reject them as not-in-spec.
+            const originalName = toolNameMap.get(call.name) ?? call.name
+            runLog.debug(
+                { turn: turns, tool: originalName, safeName: call.name, callId: call.id },
+                'tool.dispatch.begin'
+            )
+            await emit('tool_call', { name: originalName, args: call.arguments, id: call.id })
+            const dispatchStart = Date.now()
             const outcome = await dispatchTool(
                 {
                     teamId: session.team_id,
@@ -207,11 +258,21 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     secret: (name) => deps.secrets[name],
                     log,
                 },
-                call.name,
+                originalName,
                 call.arguments
             )
+            runLog.debug(
+                {
+                    turn: turns,
+                    tool: originalName,
+                    kind: outcome.kind,
+                    durationMs: Date.now() - dispatchStart,
+                    error: outcome.kind === 'error' ? outcome.message : undefined,
+                },
+                'tool.dispatch.done'
+            )
             await emit('tool_result', {
-                name: call.name,
+                name: originalName,
                 id: call.id,
                 ok: outcome.kind === 'ok',
                 error: outcome.kind === 'error' ? outcome.message : undefined,
@@ -219,7 +280,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             const toolResult: ToolResultMessage = {
                 role: 'toolResult',
                 toolCallId: call.id,
-                toolName: call.name,
+                toolName: originalName,
                 content: [
                     {
                         type: 'text',
@@ -262,10 +323,18 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     return { state: 'failed', reason: 'max_turns_exceeded', turns }
 }
 
+/**
+ * Meta control-flow tools — always exposed to the model, even if the agent
+ * spec doesn't list them. Without these the model can't suspend (ask the
+ * user) or cleanly end a session.
+ */
+const ALWAYS_ON_NATIVE_TOOL_IDS = ['@posthog/meta-ask-for-input', '@posthog/meta-end-session']
+
 async function buildToolList(rev: AgentRevision, bundle: BundleStore): Promise<Tool[]> {
     const decls: Tool[] = []
     const seen = new Set<string>()
-    for (const t of rev.spec.tools) {
+    const allTools = [...ALWAYS_ON_NATIVE_TOOL_IDS.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
+    for (const t of allTools) {
         if (seen.has(t.id)) {
             continue
         }

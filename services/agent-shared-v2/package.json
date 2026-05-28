@@ -18,6 +18,8 @@
     "dependencies": {
         "@earendil-works/pi-ai": "^0.76.0",
         "pg": "^8.6.0",
+        "pino": "^8.11.0",
+        "pino-pretty": "^9.4.0",
         "typebox": "^1.1.38",
         "uuid": "^10.0.0",
         "zod": "^4.3.6"
@@ -28,6 +30,9 @@
         "@types/uuid": "^10.0.0",
         "typescript": "catalog:",
         "vitest": "^2.1.9"
+    },
+    "optionalDependencies": {
+        "node-rdkafka": "^3.4.0"
     },
     "engines": {
         "node": ">=24 <25"

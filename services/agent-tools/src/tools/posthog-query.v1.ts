@@ -3,7 +3,7 @@ import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 import { getPosthogInternalClient } from '../posthog-client'
 
 export const posthogQueryV1 = defineNativeTool({
-    id: 'posthog.query.v1',
+    id: '@posthog/query',
     description: "Run a HogQL query against the team's PostHog project. Returns rows and column names.",
     args: Type.Object({
         query: Type.String({ minLength: 1, description: 'HogQL query string' }),

@@ -7,10 +7,12 @@
 
 import { Pool } from 'pg'
 
-import { PgSessionQueue, SCHEMA_SQL } from '@posthog/agent-shared-v2'
+import { createLogger, PgSessionQueue, SCHEMA_SQL } from '@posthog/agent-shared-v2'
 
 import { buildJanitorApp } from './server'
 import { sweepOnce } from './sweep'
+
+const log = createLogger('agent-janitor-v2')
 
 async function main(): Promise<void> {
     const port = parseInt(process.env.PORT ?? '8082', 10)
@@ -26,17 +28,16 @@ async function main(): Promise<void> {
     }
     const app = buildJanitorApp({ queue, sweep, internalSecret: process.env.INTERNAL_SECRET })
     app.listen(port, () => {
-        // eslint-disable-next-line no-console
-        console.log(`[agent-janitor-v2] listening on ${port}`)
+        log.info({ port }, 'listening')
     })
 
     setInterval(
         async () => {
             try {
-                await sweepOnce(sweep)
+                const result = await sweepOnce(sweep)
+                log.debug({ ...result }, 'sweep.done')
             } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error('[agent-janitor-v2] sweep failed', err)
+                log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'sweep.failed')
             }
         },
         parseInt(process.env.SWEEP_INTERVAL_MS ?? `${30 * 1000}`, 10)
@@ -45,8 +46,7 @@ async function main(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
     main().catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error('[agent-janitor-v2] fatal', err)
+        log.fatal({ err: (err as Error).message, stack: (err as Error).stack }, 'fatal')
         process.exit(1)
     })
 }

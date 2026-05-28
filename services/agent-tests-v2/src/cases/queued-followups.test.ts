@@ -26,7 +26,7 @@ describe('queued follow-ups: real e2e', () => {
     })
 
     it('a single /send during a parked turn lands in pending_inputs', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'go?' }), fauxText('ok')])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'go?' }), fauxText('ok')])
         await c.deployAgent({ slug: 'q1' })
         const run = await request(c.ingress).post('/agents/q1/run').send({ message: 'hi' })
         const sid = run.body.session_id
@@ -40,7 +40,7 @@ describe('queued follow-ups: real e2e', () => {
     })
 
     it('three /sends during a parked turn buffer in arrival order; drain preserves order', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'go?' }), fauxText('done')])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'go?' }), fauxText('done')])
         await c.deployAgent({ slug: 'q3' })
         const run = await request(c.ingress).post('/agents/q3/run').send({ message: 'first' })
         const sid = run.body.session_id
@@ -75,7 +75,7 @@ describe('queued follow-ups: real e2e', () => {
     it('a /send BEFORE the worker dequeues is durable (lands in conversation, not lost)', async () => {
         // mock-ask scripts the second invocation as ask_for_input so the session
         // parks. The fresh first-turn run never drains before /send fires.
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: '?' }), fauxText('done')])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: '?' }), fauxText('done')])
         await c.deployAgent({ slug: 'q-early' })
         const run = await request(c.ingress).post('/agents/q-early/run').send({ message: 'first' })
         const sid = run.body.session_id

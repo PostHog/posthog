@@ -3,9 +3,11 @@
  * this skeleton uses in-memory impls so it can boot in dev.
  */
 
-import { MemoryRevisionStore, MemorySessionQueue } from '@posthog/agent-shared-v2'
+import { createLogger, MemoryRevisionStore, MemorySessionQueue } from '@posthog/agent-shared-v2'
 
 import { buildApp } from './server'
+
+const log = createLogger('agent-ingress-v2')
 
 async function main(): Promise<void> {
     const port = parseInt(process.env.PORT ?? '8080', 10)
@@ -19,15 +21,13 @@ async function main(): Promise<void> {
         slackSigningSecret: process.env.SLACK_SIGNING_SECRET,
     })
     app.listen(port, () => {
-        // eslint-disable-next-line no-console
-        console.log(`[agent-ingress-v2] listening on ${port}`)
+        log.info({ port }, 'listening')
     })
 }
 
 if (require.main === module) {
     main().catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error('[agent-ingress-v2] fatal', err)
+        log.fatal({ err: (err as Error).message, stack: (err as Error).stack }, 'fatal')
         process.exit(1)
     })
 }

@@ -1,36 +1,56 @@
 /**
  * LogSink — the runner's structured-log out-bound. Each session lifecycle
- * event becomes a row in the team's `log_entries` ClickHouse table.
+ * event becomes a row in the team's `log_entries` ClickHouse table, via
+ * Kafka (same pipeline CDP uses, same shape v1's agent-runner wrote):
  *
- * Three impls:
+ *   runner ─Kafka─▶ topic: log_entries ─consumer─▶ log_entries (CH)
+ *
+ * Sinks:
  *   - InMemoryLogSink (tests + local dev) — captures entries for assertion
- *   - NoopLogSink (production runners that haven't wired logs yet)
- *   - ClickHouseLogSink (prod, via Kafka → CH; placeholder below)
+ *   - NoopLogSink (dev/local without a Kafka broker)
+ *   - KafkaLogSink (prod) — wraps node-rdkafka's HighLevelProducer; ports the
+ *     pattern from services/agent-core/src/log-entries/producer.ts.
  *
- * Schema mirrors the v1 `log_entries` table shape so an eventual migration is
- * a straight rename. The runner publishes one entry per lifecycle event;
- * downstream materialized views in ClickHouse aggregate by team / session /
- * level / event.
+ * Internal `LogEntry` shape is the structured event+data one — useful for
+ * test assertions and downstream consumers. The Kafka writer translates it
+ * to v1's flat `[kind] …` message format on the wire so the existing CH
+ * materialized view picks rows up without changes.
  */
+
+import type { HighLevelProducer, LibrdKafkaError, Metadata, ProducerGlobalConfig } from 'node-rdkafka'
+import { hostname } from 'node:os'
+
+import { createLogger } from './logger'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
+/**
+ * Structured log entry as the runner emits it. Same identifying fields as
+ * v1's CH row (team / app / session / timestamp / level), plus our structured
+ * `event` + `data` for typed consumers and tests.
+ */
 export interface LogEntry {
-    /** Time the event happened, ISO-8601. */
+    /** ISO-8601 (UTC) timestamp. */
     ts: string
     team_id: number
     application_id: string
     session_id: string
     level: LogLevel
-    /** Stable event name, e.g. "session_started", "tool_called", "session_failed". */
+    /** Stable event name: "session_started", "turn_started", "tool_call", "tool_result", "completed", "waiting", "failed". */
     event: string
-    /** Free-form structured data. ClickHouse stores it as JSON. */
+    /** Free-form structured data — serialized into the wire message. */
     data: Record<string, unknown>
 }
+
+export const AGENT_SESSION_LOG_SOURCE = 'agent_session'
 
 export interface LogSink {
     write(entries: LogEntry[]): Promise<void>
 }
+
+/* -------------------------------------------------------------------------- */
+/* In-memory + noop sinks (tests, local dev)                                  */
+/* -------------------------------------------------------------------------- */
 
 export class InMemoryLogSink implements LogSink {
     public readonly entries: LogEntry[] = []
@@ -55,17 +75,236 @@ export class NoopLogSink implements LogSink {
     }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Wire format — what the CH consumer expects on the Kafka topic              */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Placeholder for the real ClickHouse sink. Production writes via Kafka — the
- * client lib + the topic schema are out of scope here. Wire this up when the
- * pipeline lands; the interface above stays the same.
+ * v1 CH row shape. Mirrors `services/agent-core/src/log-entries/types.ts`.
+ * Field names + level case match the existing `log_entries` table.
  */
-export class ClickHouseLogSink implements LogSink {
-    constructor(_opts: { kafkaBrokers: string; topic: string }) {
-        // TODO: actually push to Kafka here.
+export interface LogEntryWire {
+    team_id: number
+    /** `agent_session` for everything emitted by the runner. */
+    log_source: string
+    /** AgentApplication UUID (string form). */
+    log_source_id: string
+    /** Session UUID (string form). */
+    instance_id: string
+    /** ISO timestamp with microsecond precision (matches `DateTime64(6, 'UTC')`). */
+    timestamp: string
+    level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR'
+    /** Flat human-readable line with a `[kind]` prefix. */
+    message: string
+}
+
+/** Mapping from our structured `event` → v1's flat-message `[kind]` prefix. */
+const EVENT_KIND: Record<string, string> = {
+    session_started: '[meta]',
+    turn_started: '[meta]',
+    assistant_text: '[chat]',
+    tool_call: '[tool]',
+    tool_result: '[tool]',
+    completed: '[event]',
+    waiting: '[event]',
+    failed: '[error]',
+}
+
+const LEVEL_MAP: Record<LogLevel, LogEntryWire['level']> = {
+    debug: 'DEBUG',
+    info: 'INFO',
+    warn: 'WARNING',
+    error: 'ERROR',
+}
+
+export function toWire(entry: LogEntry): LogEntryWire {
+    const kind = EVENT_KIND[entry.event] ?? '[event]'
+    const message = `${kind} ${entry.event}${Object.keys(entry.data).length ? ' ' + JSON.stringify(entry.data) : ''}`
+    return {
+        team_id: entry.team_id,
+        log_source: AGENT_SESSION_LOG_SOURCE,
+        log_source_id: entry.application_id,
+        instance_id: entry.session_id,
+        timestamp: entry.ts,
+        level: LEVEL_MAP[entry.level],
+        message,
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Kafka sink — production path. Ports services/agent-core/src/log-entries.   */
+/* -------------------------------------------------------------------------- */
+
+export interface KafkaLogSinkOptions {
+    /** Comma-separated brokers, e.g. `kafka:9092`. */
+    brokers: string
+    /** Defaults to `log_entries`. */
+    topic?: string
+    /** Optional rdkafka overrides; merged over the defaults. */
+    config?: Partial<ProducerGlobalConfig>
+    /** Optional name for log lines / metrics labels. Defaults to topic. */
+    name?: string
+    /**
+     * Optional logger for connection / failure events. Defaults to `console`.
+     * Production wires pino here.
+     */
+    logger?: {
+        info: (msg: string, meta?: unknown) => void
+        warn: (msg: string, meta?: unknown) => void
+        error: (msg: string, meta?: unknown) => void
+    }
+}
+
+/**
+ * Sensible defaults for a low-volume, fire-and-forget producer. Tuned the
+ * same way v1's producer was: rdkafka handles batching natively via
+ * `linger.ms` + `batch.size`, no in-process buffer.
+ */
+const DEFAULT_PRODUCER_CONFIG: ProducerGlobalConfig = {
+    'client.id': hostname(),
+    'linger.ms': 20,
+    'batch.size': 8 * 1024 * 1024,
+    'queue.buffering.max.messages': 100_000,
+    'compression.codec': 'snappy',
+    'metadata.max.age.ms': 30_000,
+    'socket.timeout.ms': 30_000,
+}
+
+/**
+ * Production Kafka writer. Wraps node-rdkafka's HighLevelProducer.
+ *
+ * Lifecycle:
+ *   const sink = new KafkaLogSink({ brokers: 'kafka:9092' })
+ *   await sink.connect()                             // once at boot
+ *   // runner calls sink.write([entry, …]) per turn
+ *   await sink.disconnect()                          // once at shutdown
+ *
+ * `node-rdkafka` is loaded via dynamic import the first time `connect()` is
+ * called — packages that never construct a KafkaLogSink (tests, dev w/ Noop)
+ * don't pay the native-module cost at import time.
+ */
+export class KafkaLogSink implements LogSink {
+    private readonly opts: KafkaLogSinkOptions
+    private readonly log: NonNullable<KafkaLogSinkOptions['logger']>
+    private producer: HighLevelProducer | null = null
+    private connected = false
+    private connectPromise: Promise<void> | null = null
+    private disposed = false
+
+    constructor(opts: KafkaLogSinkOptions) {
+        this.opts = opts
+        if (opts.logger) {
+            this.log = opts.logger
+        } else {
+            const pino = createLogger('kafka-log', { topic: opts.topic ?? 'log_entries' })
+            this.log = {
+                info: (m, meta) => pino.info(meta ?? {}, m),
+                warn: (m, meta) => pino.warn(meta ?? {}, m),
+                error: (m, meta) => pino.error(meta ?? {}, m),
+            }
+        }
     }
 
-    async write(_entries: LogEntry[]): Promise<void> {
-        throw new Error('ClickHouseLogSink not implemented — wire Kafka and CH first')
+    async connect(): Promise<void> {
+        if (this.connected) {
+            return
+        }
+        if (!this.connectPromise) {
+            this.connectPromise = this.doConnect()
+        }
+        return this.connectPromise
     }
+
+    private async doConnect(): Promise<void> {
+        // Lazy import so dev / test code paths don't need a native librdkafka.
+        const rdkafka = await import('node-rdkafka')
+        const merged: ProducerGlobalConfig = {
+            ...DEFAULT_PRODUCER_CONFIG,
+            'metadata.broker.list': this.opts.brokers,
+            ...this.opts.config,
+            dr_cb: false,
+        }
+        const producer = new rdkafka.HighLevelProducer(merged)
+        producer.on('event.error', (err: LibrdKafkaError) =>
+            this.log.error('rdkafka error', { name: this.opts.name ?? this.opts.topic, error: String(err) })
+        )
+        await new Promise<void>((resolve, reject) => {
+            producer.connect(undefined, (err: LibrdKafkaError, data: Metadata) => {
+                if (err) {
+                    reject(err)
+                    return
+                }
+                this.log.info('kafka log producer connected', {
+                    name: this.opts.name ?? this.opts.topic,
+                    topic: this.opts.topic ?? 'log_entries',
+                    brokers: (data as { brokers?: unknown })?.brokers,
+                })
+                resolve()
+            })
+        })
+        this.producer = producer
+        this.connected = true
+    }
+
+    /**
+     * Fire-and-forget batch write. Entries are individually produced; rdkafka
+     * batches on the wire via `linger.ms`. Drops on broker failure (logged via
+     * the rdkafka `event.error` handler) so the runner never blocks on logs.
+     */
+    async write(entries: LogEntry[]): Promise<void> {
+        if (this.disposed) {
+            return
+        }
+        if (!this.connected || !this.producer) {
+            this.log.warn('dropping entries (not connected)', { count: entries.length })
+            return
+        }
+        const topic = this.opts.topic ?? 'log_entries'
+        for (const entry of entries) {
+            const wire = toWire(entry)
+            const value = Buffer.from(safeClickhouseString(JSON.stringify(wire)))
+            try {
+                this.producer.produce(topic, null, value, null, Date.now(), noopDeliveryCallback)
+            } catch (err) {
+                this.log.error('produce failed', { topic, error: String(err) })
+            }
+        }
+    }
+
+    async disconnect(): Promise<void> {
+        this.disposed = true
+        if (!this.connected || !this.producer) {
+            return
+        }
+        const producer = this.producer
+        await new Promise<void>((resolve) =>
+            producer.flush(5_000, () => {
+                resolve()
+            })
+        )
+        await new Promise<void>((resolve) =>
+            producer.disconnect(() => {
+                resolve()
+            })
+        )
+        this.connected = false
+        this.producer = null
+    }
+}
+
+/** HighLevelProducer requires a delivery callback; we ignore it (fire-and-forget). */
+function noopDeliveryCallback(): void {
+    /* intentionally empty */
+}
+
+/**
+ * ClickHouse's JSON parser rejects lone Unicode surrogates. The CDP pipeline
+ * escapes them before producing onto Kafka so the consumer doesn't have to.
+ * Vendored from `services/agent-core/src/log-entries/safe-clickhouse-string.ts`.
+ */
+function safeClickhouseString(str: string): string {
+    return str.replace(/[\ud800-\udfff]/gu, (match) => {
+        const res = JSON.stringify(match)
+        return res.slice(1, res.length - 1) + `\\`
+    })
 }

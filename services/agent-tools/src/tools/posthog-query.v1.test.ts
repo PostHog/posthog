@@ -4,7 +4,7 @@ import { setPosthogInternalClient } from '../posthog-client'
 import { makeCapturingCtx } from '../test-helpers'
 import { posthogQueryV1 } from './posthog-query.v1'
 
-describe('posthog.query.v1', () => {
+describe('@posthog/query', () => {
     it('delegates to the internal client and logs', async () => {
         const calls: Array<{ team_id: number; query: string }> = []
         setPosthogInternalClient({

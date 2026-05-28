@@ -3,7 +3,7 @@ import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 import { getPosthogInternalClient } from '../posthog-client'
 
 export const posthogPersonsSearchV1 = defineNativeTool({
-    id: 'posthog.persons.search.v1',
+    id: '@posthog/persons-search',
     description: "Search for persons in the team's PostHog project by distinct id, email, or other property.",
     args: Type.Object({
         query: Type.String({ minLength: 1 }),

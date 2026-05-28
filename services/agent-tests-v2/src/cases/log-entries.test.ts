@@ -46,10 +46,10 @@ describe('log sink: real e2e', () => {
     })
 
     it('logs tool_call + tool_result events when the model invokes a tool', async () => {
-        c.setScript([fauxCallTool('posthog.query.v1', { query: 'select 1' }), fauxText('done')])
+        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
         await c.deployAgent({
             slug: 'logs-tool',
-            spec: { tools: [{ kind: 'native', id: 'posthog.query.v1' }] },
+            spec: { tools: [{ kind: 'native', id: '@posthog/query' }] },
         })
         const run = await request(c.ingress).post('/agents/logs-tool/run').send({ message: 'go' })
         await c.drain()
@@ -57,7 +57,7 @@ describe('log sink: real e2e', () => {
         const entries = c.logs.forSession(run.body.session_id)
         const toolCall = entries.find((e) => e.event === 'tool_call')
         const toolResult = entries.find((e) => e.event === 'tool_result')
-        expect(toolCall?.data.name).toBe('posthog.query.v1')
+        expect(toolCall?.data.name).toBe('@posthog/query')
         expect(toolResult?.data.ok).toBe(true)
     })
 
@@ -74,7 +74,7 @@ describe('log sink: real e2e', () => {
     })
 
     it('writes a waiting entry when the agent parks via ask_for_input', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'logs-wait' })
         const run = await request(c.ingress).post('/agents/logs-wait/run').send({ message: 'hi' })
         await c.drain()

@@ -1,7 +1,7 @@
 import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
 
 export const webFetchV1 = defineNativeTool({
-    id: 'web.fetch.v1',
+    id: '@posthog/web-fetch',
     description: "GET a URL and return its body. Only domains in the agent's spec.web_fetch_allowlist are permitted.",
     args: Type.Object({
         url: Type.String({ format: 'uri' }),

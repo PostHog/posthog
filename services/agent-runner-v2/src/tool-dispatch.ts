@@ -3,7 +3,7 @@
  *   - the native registry (in-process function), or
  *   - the session's sandbox (custom tool, dispatched via Sandbox.invoke).
  *
- * Meta tools (meta.ask_for_input.v1, meta.end_session.v1) are recognized here
+ * Meta tools (@posthog/meta-ask-for-input, @posthog/meta-end-session) are recognized here
  * and surface as control-flow signals — the runner branches on the returned
  * Outcome.kind to suspend or terminate the session.
  */
@@ -35,11 +35,11 @@ export async function dispatchTool(
     toolName: string,
     args: unknown
 ): Promise<ToolDispatchOutcome> {
-    if (toolName === 'meta.ask_for_input.v1') {
+    if (toolName === '@posthog/meta-ask-for-input') {
         const a = args as { prompt?: string }
         return { kind: 'suspend', prompt: a.prompt ?? '' }
     }
-    if (toolName === 'meta.end_session.v1') {
+    if (toolName === '@posthog/meta-end-session') {
         const a = args as { summary?: string }
         return { kind: 'end', summary: a.summary }
     }

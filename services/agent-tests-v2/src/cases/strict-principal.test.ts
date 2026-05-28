@@ -50,7 +50,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('pat agent: /send with the same PAT as /run → 200', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'ok?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
         await c.deployAgent({ slug: 'p1', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
             .post('/agents/p1/run')
@@ -69,7 +69,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('pat agent: /send with a different PAT → 403', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'ok?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
         await c.deployAgent({ slug: 'p2', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
             .post('/agents/p2/run')
@@ -88,7 +88,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('pat agent: /send with no auth → 401 (auth fails before strict-match)', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'ok?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
         await c.deployAgent({ slug: 'p3', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
             .post('/agents/p3/run')
@@ -102,7 +102,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('public agent: /send without auth → 200 (both principals are anonymous)', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'ok?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
         await c.deployAgent({ slug: 'pub', spec: { auth: { mode: 'public' } } })
         const run = await request(c.ingress).post('/agents/pub/run').send({ message: 'hi' })
         const sid = run.body.session_id

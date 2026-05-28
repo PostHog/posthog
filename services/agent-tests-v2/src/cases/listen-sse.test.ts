@@ -48,10 +48,10 @@ describe('listen SSE: real e2e', () => {
     })
 
     it('publishes tool_call + tool_result events when the model invokes a tool', async () => {
-        c.setScript([fauxCallTool('posthog.query.v1', { query: 'select 1' }), fauxText('done')])
+        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
         await c.deployAgent({
             slug: 'ssee-2',
-            spec: { tools: [{ kind: 'native', id: 'posthog.query.v1' }] },
+            spec: { tools: [{ kind: 'native', id: '@posthog/query' }] },
         })
         const events: SessionEvent[] = []
         const run = await request(c.ingress).post('/agents/ssee-2/run').send({ message: 'go' })
@@ -64,13 +64,13 @@ describe('listen SSE: real e2e', () => {
         const toolCallEvt = events.find((e) => e.kind === 'tool_call')
         const toolResultEvt = events.find((e) => e.kind === 'tool_result')
         expect(toolCallEvt).not.toBeUndefined()
-        expect(toolCallEvt!.data.name).toBe('posthog.query.v1')
+        expect(toolCallEvt!.data.name).toBe('@posthog/query')
         expect(toolResultEvt).not.toBeUndefined()
         expect(toolResultEvt!.data.ok).toBe(true)
     })
 
     it('publishes waiting on ask_for_input', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'ssee-3' })
         const events: SessionEvent[] = []
         const run = await request(c.ingress).post('/agents/ssee-3/run').send({ message: 'hi' })

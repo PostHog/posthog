@@ -40,7 +40,7 @@ describe('janitor: real e2e', () => {
     })
 
     it('POST /sessions/:id/cancel marks failed', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'j2', spec: {} })
         const create = await request(c.ingress).post('/agents/j2/run').send({ message: 'hi' })
         await c.drain()

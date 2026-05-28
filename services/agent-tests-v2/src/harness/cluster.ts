@@ -149,7 +149,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // real-inference + dedicated tests).
     const resolveModelForHarness = (): typeof model => model
 
-    // For native posthog.query.v1 etc. tests use the in-process echo client.
+    // For native @posthog/query etc. tests use the in-process echo client.
     setPosthogInternalClient({
         async runHogql({ query }) {
             return { rows: [{ query }], columns: ['query'] }

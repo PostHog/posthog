@@ -22,6 +22,7 @@ import type { Model } from '@earendil-works/pi-ai'
 import {
     AgentSession,
     BundleStore,
+    createLogger,
     LogSink,
     RevisionStore,
     SandboxPool,
@@ -32,6 +33,8 @@ import {
 
 import { PiClient, resolveModelCached } from './pi-client'
 import { runSession } from './run-turn'
+
+const log = createLogger('worker')
 
 export interface WorkerDeps {
     queue: SessionQueue
@@ -131,8 +134,11 @@ export class Worker {
     }
 
     async runOne(session: AgentSession): Promise<void> {
+        const sLog = log.child({ session_id: session.id, application_id: session.application_id })
+        sLog.debug({ revision_id: session.revision_id }, 'session.claim')
         const rev = await this.deps.revisions.getRevision(session.revision_id)
         if (!rev) {
+            sLog.warn({}, 'session.revision_missing — marking failed')
             await this.deps.queue.update(session.id, { state: 'failed' })
             return
         }
@@ -201,14 +207,14 @@ export class Worker {
                         return 'failed'
                 }
             })()
+            sLog.debug({ outcome: outcome.state, turns: outcome.turns, newState }, 'session.done')
             await this.deps.queue.update(session.id, {
                 state: newState,
                 conversation: session.conversation,
                 pending_inputs: session.pending_inputs,
             })
         } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error(`[runner-v2] session ${session.id} crashed:`, (err as Error).message)
+            sLog.error({ err: (err as Error).message, stack: (err as Error).stack }, 'session.crashed')
             await this.deps.queue.update(session.id, {
                 state: 'failed',
                 conversation: session.conversation,

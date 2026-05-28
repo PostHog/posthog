@@ -27,7 +27,7 @@ async function slackCall(token: string, method: string, body: Record<string, unk
 }
 
 export const slackPostMessageV1 = defineNativeTool({
-    id: 'slack.post_message.v1',
+    id: '@posthog/slack-post-message',
     description: 'Post a message to a Slack channel or thread.',
     args: Type.Object({
         team_integration_id: Type.String(),
@@ -53,7 +53,7 @@ export const slackPostMessageV1 = defineNativeTool({
 })
 
 export const slackUpdateMessageV1 = defineNativeTool({
-    id: 'slack.update_message.v1',
+    id: '@posthog/slack-update-message',
     description: 'Edit a previously-posted Slack message.',
     args: Type.Object({
         team_integration_id: Type.String(),
@@ -72,7 +72,7 @@ export const slackUpdateMessageV1 = defineNativeTool({
 })
 
 export const slackReactV1 = defineNativeTool({
-    id: 'slack.react.v1',
+    id: '@posthog/slack-react',
     description: 'Add an emoji reaction to a Slack message.',
     args: Type.Object({
         team_integration_id: Type.String(),

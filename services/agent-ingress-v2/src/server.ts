@@ -7,7 +7,9 @@
 import express, { Express, NextFunction, Request, Response } from 'express'
 
 import type { IdentityStore } from '@posthog/agent-shared-v2'
-import { RevisionStore, SessionQueue } from '@posthog/agent-shared-v2'
+import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared-v2'
+
+const log = createLogger('ingress')
 
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from './auth'
 import { SessionEventBus, MemorySessionEventBus } from './bus'
@@ -60,9 +62,8 @@ export function buildApp(opts: BuildAppOpts): Express {
     app.use(mount, chatRouter(triggerDeps))
     app.use(mount, mcpRouter(triggerDeps))
 
-    app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-        // eslint-disable-next-line no-console
-        console.error('[ingress] unhandled', err)
+    app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+        log.error({ err: err.message, stack: err.stack, path: req.path, method: req.method }, 'unhandled')
         res.status(500).json({ error: 'internal_error' })
     })
     return app

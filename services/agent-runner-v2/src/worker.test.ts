@@ -141,7 +141,7 @@ describe('Worker', () => {
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'faux/test',
-                tools: [{ kind: 'native', id: 'posthog.query.v1' }],
+                tools: [{ kind: 'native', id: '@posthog/query' }],
             }),
         })
         await bundle.write(rev.id, 'agent.md', 'x')
@@ -170,7 +170,7 @@ describe('Worker', () => {
                 (() => {
                     // Signal shutdown after the first turn so the next iteration sees it.
                     queueMicrotask(() => void worker.stop())
-                    return toolUseTurn([toolCall('posthog.query.v1', { query: 'x' })])
+                    return toolUseTurn([toolCall('@posthog/query', { query: 'x' })])
                 }) as never,
                 endTurn('never reaches here'),
             ]),

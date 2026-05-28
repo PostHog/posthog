@@ -58,7 +58,7 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/cancel of a parked (waiting) session → terminal failed', async () => {
-        c.setScript([fauxCallTool('meta.ask_for_input.v1', { prompt: 'continue?' })])
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'cc1' })
         const create = await request(c.ingress).post('/agents/cc1/run').send({ message: 'hi' })
         await c.drain()

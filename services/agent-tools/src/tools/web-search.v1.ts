@@ -11,7 +11,7 @@ export function setWebSearchProvider(p: WebSearchProvider): void {
 }
 
 export const webSearchV1 = defineNativeTool({
-    id: 'web.search.v1',
+    id: '@posthog/web-search',
     description: 'Search the web; returns title, url, and snippet for each result.',
     args: Type.Object({
         query: Type.String({ minLength: 1 }),
