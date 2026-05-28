@@ -1370,9 +1370,13 @@ def _compute_partner_scoped_teams(
 
     Returns the set of every team where ``TeamProvisioningConfig.application ==
     application`` (i.e. this partner provisioned the team for this user, attributed
-    at create time) AND ``stripe_project_id`` is set AND the team lives in the
-    same organization as ``base_team_id`` AND the user still has team-level
-    access. The organization filter pins the token to the authorization context:
+    at create time) AND the team lives in the same organization as ``base_team_id``
+    AND the user still has team-level access. This is partner-agnostic, not
+    Stripe-specific: ``stripe_project_id`` is the (legacily named) external project
+    id every partner sets, always written alongside ``application`` in
+    ``_resolve_or_create_project_team``, so the ``application`` filter already
+    implies a provisioned team. The organization filter pins the token to the
+    authorization context:
     a partner with OAuth grants in multiple orgs for the same user must not be
     able to reach an org-B team via an org-A token just because the user happens
     to be a member of both.
@@ -1398,7 +1402,6 @@ def _compute_partner_scoped_teams(
     candidate_team_ids = set(
         TeamProvisioningConfig.objects.filter(
             application=application,
-            stripe_project_id__isnull=False,
             team__organization_id=base_team.organization_id,
         ).values_list("team_id", flat=True)
     )
