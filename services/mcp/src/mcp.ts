@@ -8,7 +8,7 @@ import { ApiClient } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
-import { MCPClientProfile, isCodingAgentClient } from '@/lib/client-detection'
+import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
     MCP_SERVER_NAME,
@@ -503,7 +503,10 @@ export class MCP extends McpAgent<Env> {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params,
-                    suppressStructuredContentForFormattedResults: isCodingAgentClient(this.mcpClientName),
+                    suppressStructuredContentForFormattedResults: new MCPClientProfile({
+                        clientName: this.mcpClientName,
+                        vendorClient: this.requestProperties.mcpVendorClient,
+                    }).isCodingAgent(),
                     distinctId,
                 })
             } catch (error: any) {

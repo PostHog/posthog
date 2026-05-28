@@ -51,7 +51,6 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpClientVersion: '1.0',
             mcpProtocolVersion: '2025-03-26',
             mcpConsumer: 'session-consumer',
-            mode: 'cli',
             mcpVendorClient: 'ClaudeCode',
         },
         allTools: [],
@@ -85,7 +84,6 @@ describe('Hono MCP analytics contexts', () => {
             mcp_session_client_version: '1.0',
             mcp_session_protocol_version: '2025-03-26',
             mcp_session_consumer: 'session-consumer',
-            mcp_session_mode: 'cli',
             mcp_session_vendor_client: 'ClaudeCode',
         })
     })
@@ -97,6 +95,5 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.$mcp_client_name).toBe('Claude Desktop')
         expect(properties.mcp_session_client_name).toBeUndefined()
         expect(properties.mcp_session_vendor_client).toBeUndefined()
-        expect(properties.mcp_session_mode).toBeUndefined()
     })
 })

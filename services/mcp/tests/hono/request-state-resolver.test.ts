@@ -114,7 +114,6 @@ describe('RequestStateResolver MCP client contexts', () => {
             mcpClientName: 'claude-code',
             mcpClientVersion: '1.0',
             mcpProtocolVersion: '2025-03-26',
-            mode: 'cli',
         })
         expect(mockSessionStore.get('mcpClientName')).toBe('claude-code')
         expect(mockSessionStore.get('mcpClientVersion')).toBe('1.0')
@@ -129,7 +128,6 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.useSingleExec).toBe(false)
         expect(props.mode).toBe('tools')
         expect(result.requestContext.mode).toBe('tools')
-        expect(result.sessionContext?.mode).toBe('tools')
         expect(mockSessionStore.get('mcpMode')).toBeUndefined()
     })
 

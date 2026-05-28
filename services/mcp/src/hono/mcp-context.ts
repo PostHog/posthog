@@ -4,9 +4,7 @@ import type { McpMode } from '@/lib/utils'
 export type MCPClientContext = Pick<
     RequestProperties,
     'mcpClientName' | 'mcpClientVersion' | 'mcpProtocolVersion' | 'mcpConsumer' | 'mcpVendorClient'
-> & {
-    mode?: McpMode | undefined
-}
+>
 
 export type MCPRequestContext = MCPClientContext &
     Pick<
@@ -22,7 +20,9 @@ export type MCPRequestContext = MCPClientContext &
         | 'mcpSessionId'
         | 'mcpConversationId'
         | 'region'
-    >
+    > & {
+        mode?: McpMode | undefined
+    }
 
 export type MCPSessionContext = MCPClientContext
 
@@ -58,7 +58,6 @@ export function buildMCPSessionAnalyticsProperties(sessionContext: MCPSessionCon
         mcp_session_client_version: sessionContext.mcpClientVersion,
         mcp_session_protocol_version: sessionContext.mcpProtocolVersion,
         mcp_session_consumer: sessionContext.mcpConsumer,
-        mcp_session_mode: sessionContext.mode,
         mcp_session_vendor_client: sessionContext.mcpVendorClient,
     }
 }

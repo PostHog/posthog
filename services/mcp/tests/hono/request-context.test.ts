@@ -189,7 +189,6 @@ describe('RequestContext', () => {
                     mcpProtocolVersion: '2025-03-26',
                     mcpConsumer: 'session-consumer',
                     mcpVendorClient: 'ClaudeCode',
-                    mode: 'cli',
                 }
             )
 
@@ -203,7 +202,6 @@ describe('RequestContext', () => {
                 mcp_session_client_version: '1.0',
                 mcp_session_consumer: 'session-consumer',
                 mcp_session_vendor_client: 'ClaudeCode',
-                mcp_session_mode: 'cli',
             })
         })
 

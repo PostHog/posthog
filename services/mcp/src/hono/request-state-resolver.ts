@@ -39,7 +39,7 @@ export function resolveModeAndVersion(args: {
     clientProfile: MCPClientProfile
     flagVersion: number | undefined
     clientVersion: number | undefined
-}): { useSingleExec: boolean; version: number } {
+}): { mode: McpMode; useSingleExec: boolean; version: number } {
     const { mode, clientProfile, flagVersion, clientVersion } = args
     const useSingleExec =
         mode === 'cli' ||
@@ -48,12 +48,21 @@ export function resolveModeAndVersion(args: {
                 clientProfile.isPostHogCodeConsumer() ||
                 clientProfile.isVibeCodingClient()))
     const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
-    return { useSingleExec, version }
+    return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec, version }
 }
 
 // ─── Resolver ───
 
 const SYSTEM_FLAGS = ['mcp-version-2'] as const
+const SESSION_CONTEXT_KEYS = [
+    'mcpClientName',
+    'mcpClientVersion',
+    'mcpProtocolVersion',
+    'mcpConsumer',
+    'mcpVendorClient',
+] as const
+type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
+type SessionContextCache = Pick<State, SessionContextKey>
 
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
@@ -67,8 +76,8 @@ export class RequestStateResolver {
     }
 
     async resolve(props: RequestProperties): Promise<ResolvedState> {
-        const reqCtx = new RequestContext(this.redis, this.env, props)
         const requestContext = buildMCPRequestContext(props)
+        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
         const sessionContext = await this.resolveSessionContext(reqCtx, requestContext)
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
@@ -117,16 +126,13 @@ export class RequestStateResolver {
             mode: resolvedMode,
             useSingleExec,
             version,
-        } = this.resolveSessionModeAndVersion({
-            explicitMode: requestContext.mode,
+        } = resolveModeAndVersion({
+            mode: requestContext.mode,
             clientProfile,
             flagVersion,
             clientVersion,
         })
         requestContext.mode = resolvedMode
-        if (sessionContext) {
-            sessionContext.mode = resolvedMode
-        }
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
 
@@ -176,44 +182,25 @@ export class RequestStateResolver {
             return null
         }
 
-        const [cachedName, cachedVersion, cachedProtocol, cachedConsumer, cachedVendor] = await Promise.all([
-            reqCtx.sessionCache.get('mcpClientName'),
-            reqCtx.sessionCache.get('mcpClientVersion'),
-            reqCtx.sessionCache.get('mcpProtocolVersion'),
-            reqCtx.sessionCache.get('mcpConsumer'),
-            reqCtx.sessionCache.get('mcpVendorClient'),
-        ])
+        const cachedEntries = await Promise.all(
+            SESSION_CONTEXT_KEYS.map(async (key) => [key, await reqCtx.sessionCache.get(key)] as const)
+        )
+        const cachedContext = Object.fromEntries(cachedEntries) as Partial<SessionContextCache>
 
-        const cacheUpdates: Partial<
-            Pick<State, 'mcpClientName' | 'mcpClientVersion' | 'mcpProtocolVersion' | 'mcpConsumer' | 'mcpVendorClient'>
-        > = {}
-        if (!cachedName && requestContext.mcpClientName) {
-            cacheUpdates.mcpClientName = requestContext.mcpClientName
-        }
-        if (!cachedVersion && requestContext.mcpClientVersion) {
-            cacheUpdates.mcpClientVersion = requestContext.mcpClientVersion
-        }
-        if (!cachedProtocol && requestContext.mcpProtocolVersion) {
-            cacheUpdates.mcpProtocolVersion = requestContext.mcpProtocolVersion
-        }
-        if (!cachedConsumer && requestContext.mcpConsumer) {
-            cacheUpdates.mcpConsumer = requestContext.mcpConsumer
-        }
-        if (!cachedVendor && requestContext.mcpVendorClient) {
-            cacheUpdates.mcpVendorClient = requestContext.mcpVendorClient
+        const cacheUpdates: Partial<SessionContextCache> = {}
+        for (const key of SESSION_CONTEXT_KEYS) {
+            if (!cachedContext[key] && requestContext[key]) {
+                cacheUpdates[key] = requestContext[key]
+            }
         }
 
         if (Object.keys(cacheUpdates).length > 0) {
             await reqCtx.sessionCache.setMany(cacheUpdates)
         }
 
-        return {
-            mcpClientName: cachedName || requestContext.mcpClientName || undefined,
-            mcpClientVersion: cachedVersion || requestContext.mcpClientVersion || undefined,
-            mcpProtocolVersion: cachedProtocol || requestContext.mcpProtocolVersion || undefined,
-            mcpConsumer: cachedConsumer || requestContext.mcpConsumer || undefined,
-            mcpVendorClient: cachedVendor || requestContext.mcpVendorClient || undefined,
-        }
+        return Object.fromEntries(
+            SESSION_CONTEXT_KEYS.map((key) => [key, cachedContext[key] || requestContext[key] || undefined])
+        ) as MCPSessionContext
     }
 
     private async resolveAllFlags(
@@ -230,27 +217,5 @@ export class RequestStateResolver {
         } catch {
             return {}
         }
-    }
-
-    private resolveSessionModeAndVersion(args: {
-        explicitMode: McpMode | undefined
-        clientProfile: MCPClientProfile
-        flagVersion: number | undefined
-        clientVersion: number | undefined
-    }): { mode: McpMode; useSingleExec: boolean; version: number } {
-        const { explicitMode, clientProfile, flagVersion, clientVersion } = args
-        const candidate = resolveModeAndVersion({
-            mode: explicitMode,
-            clientProfile,
-            flagVersion,
-            clientVersion,
-        })
-        const candidateMode: McpMode = candidate.useSingleExec ? 'cli' : 'tools'
-
-        if (explicitMode) {
-            return { mode: explicitMode, useSingleExec: candidate.useSingleExec, version: candidate.version }
-        }
-
-        return { mode: candidateMode, useSingleExec: candidate.useSingleExec, version: candidate.version }
     }
 }

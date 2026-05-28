@@ -1,7 +1,6 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
-import { isCodingAgentClient } from '@/lib/client-detection'
 import {
     handleToolError,
     MissingOrganizationContextError,
@@ -12,7 +11,6 @@ import {
     findRecoverableApiError,
 } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import type { RequestProperties } from '@/lib/request-properties'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
@@ -43,9 +41,9 @@ export class ToolExecutor {
         this.instructionsBuilder = instructionsBuilder
     }
 
-    async handleToolsList(state: ResolvedState, props: RequestProperties): Promise<ListToolsResult> {
+    async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
         if (state.useSingleExec) {
-            return { tools: [this.instructionsBuilder.buildExecToolEntry(state, props)] }
+            return { tools: [this.instructionsBuilder.buildExecToolEntry(state)] }
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -63,11 +61,7 @@ export class ToolExecutor {
         return { tools: filteredTools }
     }
 
-    async handleToolCall(
-        params: Record<string, unknown> | undefined,
-        _props: RequestProperties,
-        state: ResolvedState
-    ): Promise<unknown> {
+    async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
@@ -145,7 +139,7 @@ export class ToolExecutor {
                 toolMeta: tool._meta,
                 toolName: tool.name,
                 params: validation.data,
-                suppressStructuredContentForFormattedResults: isCodingAgentClient(state.clientProfile.clientName),
+                suppressStructuredContentForFormattedResults: state.clientProfile.isCodingAgent(),
                 distinctId,
             })
         } catch (error: unknown) {
@@ -187,7 +181,7 @@ export class ToolExecutor {
                 toolMeta: resolved._meta,
                 toolName: 'exec',
                 params: validation.data,
-                suppressStructuredContentForFormattedResults: isCodingAgentClient(state.clientProfile.clientName),
+                suppressStructuredContentForFormattedResults: state.clientProfile.isCodingAgent(),
                 distinctId: undefined,
             })
         } catch (error: unknown) {

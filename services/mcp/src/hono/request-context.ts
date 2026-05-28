@@ -36,11 +36,16 @@ export class RequestContext {
     private requestContext: MCPRequestContext
     private sessionContext: MCPSessionContext | null = null
 
-    constructor(redis: RedisLike, env: Env, props: RequestProperties) {
+    constructor(
+        redis: RedisLike,
+        env: Env,
+        props: RequestProperties,
+        requestContext: MCPRequestContext = buildMCPRequestContext(props)
+    ) {
         this.redis = redis
         this.env = env
         this.props = props
-        this.requestContext = buildMCPRequestContext(props)
+        this.requestContext = requestContext
     }
 
     get tokenCache(): RedisCache<State> {
