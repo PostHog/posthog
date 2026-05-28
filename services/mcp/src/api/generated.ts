@@ -1325,6 +1325,8 @@ export namespace Schemas {
          * @nullable
          */
       client?: string | null;
+      /** @nullable */
+      ip_address?: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
@@ -1504,6 +1506,7 @@ export namespace Schemas {
     export const ParserMode = {
       CppOnly: 'cpp_only',
       CppWithRustShadow: 'cpp_with_rust_shadow',
+      CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
       RustWithCppShadow: 'rust_with_cpp_shadow',
       RustOnly: 'rust_only',
       RustPyOnly: 'rust_py_only',
@@ -1580,7 +1583,7 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
-      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+      /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -3254,12 +3257,14 @@ export namespace Schemas {
       ignore_zeros?: boolean | null;
       isSharedMetric?: boolean | null;
       kind?: 'ExperimentMetric';
+      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
       lower_bound_percentile?: number | null;
       metric_type?: 'mean';
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
       source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -3287,6 +3292,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ExperimentMetricOutlierHandling {
+      ignore_zeros?: boolean | null;
+      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+      lower_bound_percentile?: number | null;
+      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+      upper_bound_percentile?: number | null;
+    }
+
     export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentRatioMetric {
@@ -3294,6 +3307,7 @@ export namespace Schemas {
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
       denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
       isSharedMetric?: boolean | null;
@@ -3301,6 +3315,7 @@ export namespace Schemas {
       metric_type?: 'ratio';
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
       uuid?: string | null;
@@ -15854,6 +15869,14 @@ export namespace Schemas {
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
       kind: Kind;
+      /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+      math?: ExperimentMetricMathType | null;
+      /** Group type index to aggregate over. Required when math is 'unique_group'. */
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+      math_hogql?: string | null;
+      /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+      math_property?: string | null;
       /** Event property filters to narrow which events are counted. */
       properties?: EventPropertyFilter[] | null;
     }
@@ -15875,14 +15898,22 @@ export namespace Schemas {
       conversion_window?: number | null;
       /** For ratio metrics: denominator source. */
       denominator?: ExperimentApiEventSource | null;
+      /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
+      denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       /** Whether higher or lower values indicate success. */
       goal?: ExperimentMetricGoal | null;
+      /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+      ignore_zeros?: boolean | null;
       kind?: 'ExperimentMetric';
+      /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation. */
+      lower_bound_percentile?: number | null;
       metric_type: ExperimentMetricType;
       /** Human-readable metric name. */
       name?: string | null;
       /** For ratio metrics: numerator source. */
       numerator?: ExperimentApiEventSource | null;
+      /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
+      numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       retention_window_end?: number | null;
       retention_window_start?: number | null;
       retention_window_unit?: FunnelConversionWindowTimeUnit | null;
@@ -15893,6 +15924,8 @@ export namespace Schemas {
       /** For retention metrics: start event. */
       start_event?: ExperimentApiEventSource | null;
       start_handling?: StartHandling | null;
+      /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
+      upper_bound_percentile?: number | null;
       /** Unique identifier. Auto-generated if omitted. */
       uuid?: string | null;
     }
@@ -18136,6 +18169,7 @@ export namespace Schemas {
       key: string;
       label?: string;
       choices?: InputsSchemaItemChoicesItem[];
+      searchable?: boolean;
       required?: boolean;
       default?: unknown;
       secret?: boolean;
@@ -20399,6 +20433,27 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
     } as const;
 
+    /**
+     * Typed output for view set `list`.
+     */
+    export interface ListOutput {
+      /** ID of the file download batch export run. */
+      id: string;
+      /** Current status of the file download batch export run.
+
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `FailedBilling` - Failed Billing
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
+      status: BatchExportRunStatusEnum;
+    }
+
     export interface LiveDebuggerBreakpoint {
       readonly id: string;
       /** @nullable */
@@ -21580,6 +21635,15 @@ export namespace Schemas {
       readonly sync_interval: string | null;
     }
 
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    export type NotebookParentResource = {
+      readonly type: 'account';
+      readonly id: string;
+    } | null;
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -21615,6 +21679,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+         * @nullable
+         */
+      readonly parent_resource: NotebookParentResource;
       _create_in_folder?: string;
     }
 
@@ -22996,6 +23065,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedListOutputList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ListOutput[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -28825,6 +28903,15 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
     }
 
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    export type PatchedNotebookParentResource = {
+      readonly type: 'account';
+      readonly id: string;
+    } | null;
+
     export interface PatchedNotebook {
       /** UUID of the notebook. */
       readonly id?: string;
@@ -28860,6 +28947,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /**
+         * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+         * @nullable
+         */
+      readonly parent_resource?: PatchedNotebookParentResource;
       _create_in_folder?: string;
     }
 
@@ -35046,6 +35138,21 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
+    export interface QuotaResourceLimit {
+      /** True when the team is currently over its quota for this resource and limits are in effect. */
+      limited: boolean;
+    }
+
+    /**
+     * Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added.
+     */
+    export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
+
+    export interface QuotaLimitsResponse {
+      /** Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added. */
+      limited: QuotaLimitsResponseLimited;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -38768,6 +38875,10 @@ export namespace Schemas {
     event?: string;
     format?: EnvironmentsEventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -38803,6 +38914,10 @@ export namespace Schemas {
 
     export type EnvironmentsEventsRetrieveParams = {
     format?: EnvironmentsEventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EnvironmentsEventsRetrieveFormat = typeof EnvironmentsEventsRetrieveFormat[keyof typeof EnvironmentsEventsRetrieveFormat];
@@ -38903,6 +39018,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsFileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
@@ -42184,6 +42310,10 @@ export namespace Schemas {
      */
     hogql_filter?: string;
     /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[];
+    /**
      * When set, filters rows authored by the system (no user).
      * @nullable
      */
@@ -42841,6 +42971,10 @@ export namespace Schemas {
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string;
+    /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[];
     /**
      * When set, filters rows authored by the system (no user).
      * @nullable
@@ -43846,6 +43980,10 @@ export namespace Schemas {
     event?: string;
     format?: EventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -43881,6 +44019,10 @@ export namespace Schemas {
 
     export type EventsRetrieveParams = {
     format?: EventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EventsRetrieveFormat = typeof EventsRetrieveFormat[keyof typeof EventsRetrieveFormat];
@@ -44197,6 +44339,17 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type FileDownloadBatchExportsLogsRetrieveParams = {
@@ -46803,6 +46956,11 @@ export namespace Schemas {
      * Filter to a single workflow (e.g. 'onboarding').
      */
     workflow_id?: string;
+    };
+
+    export type WizardSessionsStreamRetrieveParams = {
+    skill_id?: string;
+    workflow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {

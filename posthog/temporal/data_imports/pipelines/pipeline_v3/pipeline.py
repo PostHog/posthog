@@ -185,6 +185,16 @@ class PipelineV3(Generic[ResumableData]):
         start_time = time.perf_counter()
         status = "success"
 
+        await self._logger.ainfo(
+            "V3 Pipeline: Extraction starting",
+            run_uuid=self._s3_batch_writer.get_run_uuid(),
+            sync_type=sync_type,
+            is_incremental=self._is_incremental,
+            is_resume=should_resume,
+            is_first_ever_sync=self._delta_table_helper.is_first_sync,
+            reset_pipeline=self._reset_pipeline,
+        )
+
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
 
@@ -262,6 +272,7 @@ class PipelineV3(Generic[ResumableData]):
             }
         except Exception:
             status = "error"
+            self._logger.exception("V3 Pipeline: Extraction failed")
             try:
                 self._s3_batch_writer.cleanup()
             except Exception:

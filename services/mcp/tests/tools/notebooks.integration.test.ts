@@ -172,6 +172,115 @@ describe('Notebooks', { concurrent: false }, () => {
         })
     })
 
+    describe('notebook-edit tool', () => {
+        const createTool = getToolByName('notebooks-create')
+        const retrieveTool = getToolByName('notebooks-retrieve')
+        const editTool = getToolByName('notebook-edit')
+
+        it('should replace a paragraph by value and bump the version', async () => {
+            const createResult = await createTool.handler(context, {
+                title: generateUniqueKey('Edit Test Notebook'),
+                content: {
+                    type: 'doc',
+                    content: [
+                        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Heading' }] },
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph.' }] },
+                    ],
+                },
+            })
+            const created = parseToolResponse(createResult)
+            createdNotebookShortIds.push(created.short_id)
+
+            const editResult = await editTool.handler(context, {
+                short_id: created.short_id,
+                old_value: { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph.' }] },
+                new_value: { type: 'paragraph', content: [{ type: 'text', text: 'Edited paragraph.' }] },
+            })
+            const edited = parseToolResponse(editResult)
+
+            expect(edited.short_id).toBe(created.short_id)
+            expect(edited.version).toBe(created.version + 1)
+            const serialized = JSON.stringify(edited.content)
+            expect(serialized).toContain('Edited paragraph.')
+            expect(serialized).not.toContain('Original paragraph.')
+        })
+
+        it('should replace every occurrence when replace_all is true', async () => {
+            const createResult = await createTool.handler(context, {
+                title: generateUniqueKey('Edit Replace-All Notebook'),
+                content: {
+                    type: 'doc',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                    ],
+                },
+            })
+            const created = parseToolResponse(createResult)
+            createdNotebookShortIds.push(created.short_id)
+
+            const editResult = await editTool.handler(context, {
+                short_id: created.short_id,
+                old_value: { type: 'text', text: 'duplicate' },
+                new_value: { type: 'text', text: 'unique' },
+                replace_all: true,
+            })
+            const edited = parseToolResponse(editResult)
+
+            const serialized = JSON.stringify(edited.content)
+            expect(serialized).not.toContain('"text":"duplicate"')
+            expect((serialized.match(/"text":"unique"/g) || []).length).toBe(2)
+        })
+
+        it('should error when old_value matches multiple places without replace_all', async () => {
+            const createResult = await createTool.handler(context, {
+                title: generateUniqueKey('Edit Ambiguous Notebook'),
+                content: {
+                    type: 'doc',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                    ],
+                },
+            })
+            const created = parseToolResponse(createResult)
+            createdNotebookShortIds.push(created.short_id)
+
+            await expect(
+                editTool.handler(context, {
+                    short_id: created.short_id,
+                    old_value: { type: 'text', text: 'duplicate' },
+                    new_value: { type: 'text', text: 'unique' },
+                })
+            ).rejects.toThrow(/matches 2 places/)
+
+            // Notebook untouched.
+            const retrieveResult = await retrieveTool.handler(context, { short_id: created.short_id })
+            const retrieved = parseToolResponse(retrieveResult)
+            expect(retrieved.version).toBe(created.version)
+        })
+
+        it('should error when old_value is not found', async () => {
+            const createResult = await createTool.handler(context, {
+                title: generateUniqueKey('Edit Missing Notebook'),
+                content: {
+                    type: 'doc',
+                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
+                },
+            })
+            const created = parseToolResponse(createResult)
+            createdNotebookShortIds.push(created.short_id)
+
+            await expect(
+                editTool.handler(context, {
+                    short_id: created.short_id,
+                    old_value: { type: 'text', text: 'Nope' },
+                    new_value: { type: 'text', text: 'Something' },
+                })
+            ).rejects.toThrow(/was not found/)
+        })
+    })
+
     describe('notebooks-destroy tool', () => {
         const createTool = getToolByName('notebooks-create')
         const destroyTool = getToolByName('notebooks-destroy')
