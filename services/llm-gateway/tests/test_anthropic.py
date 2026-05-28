@@ -515,6 +515,53 @@ class TestAnthropicMessagesEndpoint:
             mock_make_call.assert_called_once()
             mock_anthropic.assert_not_called()
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_streams_through_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        """Exercises the streaming branch of the Cloudflare Anthropic route end to end:
+        the routed llm_call returns an async iterator of Anthropic-shaped events,
+        format_sse_stream forwards them, and the gateway emits SSE chunks to the client.
+        """
+
+        async def fake_stream():
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"hi"}}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+        with patch(
+            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=fake_stream())
+
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                with authenticated_client.stream(
+                    "POST",
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "stream": True,
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                ) as response:
+                    assert response.status_code == 200
+                    body = "".join(response.iter_text())
+
+            assert "message_start" in body
+            assert "content_block_delta" in body
+            assert "message_stop" in body
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
     def test_invalid_provider_header_returns_400(
         self,
         authenticated_client: TestClient,

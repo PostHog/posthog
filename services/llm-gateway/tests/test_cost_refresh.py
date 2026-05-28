@@ -7,7 +7,11 @@ from unittest.mock import MagicMock, patch
 import litellm
 import pytest
 
-from llm_gateway.rate_limiting.cost_refresh import CostRefreshService, apply_cost_aliases
+from llm_gateway.rate_limiting.cost_refresh import (
+    CostRefreshService,
+    apply_cost_aliases,
+    normalize_metric_labels,
+)
 from llm_gateway.rate_limiting.model_cost_service import ModelCostService
 
 
@@ -43,6 +47,23 @@ class TestApplyCostAliases:
         cost: dict[str, Any] = {"openai/@cf/moonshotai/kimi-k2.6": {"input_cost_per_token": 0.999}}
         apply_cost_aliases(cost)
         mock_logger.warning.assert_not_called()
+
+
+class TestNormalizeMetricLabels:
+    def test_returns_user_facing_labels_for_aliased_model(self) -> None:
+        provider, model = normalize_metric_labels("openai/@cf/moonshotai/kimi-k2.6", "openai")
+        assert provider == "cloudflare"
+        assert model == "@cf/moonshotai/kimi-k2.6"
+
+    def test_passes_through_unaliased_model(self) -> None:
+        provider, model = normalize_metric_labels("gpt-4o", "openai")
+        assert provider == "openai"
+        assert model == "gpt-4o"
+
+    def test_passes_through_unknown_model(self) -> None:
+        provider, model = normalize_metric_labels("unknown", "unknown")
+        assert provider == "unknown"
+        assert model == "unknown"
 
 
 class TestModelCostServiceAliases:

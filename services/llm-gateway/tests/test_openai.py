@@ -255,6 +255,49 @@ class TestChatCompletionsEndpoint:
         mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
         mock_acompletion.assert_not_called()
 
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    @patch("llm_gateway.api.openai.make_cloudflare_completion_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_cf_model_streams_through_cloudflare(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        mock_acompletion: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        """Exercises the streaming branch of the Cloudflare OpenAI route end to end:
+        the routed llm_call returns an async iterator, format_sse_stream wraps it,
+        and the gateway emits SSE chunks back to the client.
+        """
+        mock_ensure_configured.return_value = ("https://api.cloudflare.com/ai/v1", "test-key")
+
+        async def fake_stream():
+            for content in ("hello", "world"):
+                chunk = MagicMock()
+                chunk.model_dump = MagicMock(return_value={"choices": [{"delta": {"content": content}, "index": 0}]})
+                yield chunk
+
+        mock_make_call.return_value = AsyncMock(return_value=fake_stream())
+
+        with authenticated_client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assert '"hello"' in body
+        assert '"world"' in body
+        assert "[DONE]" in body
+        mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
+        mock_acompletion.assert_not_called()
+
 
 class TestUnsupportedModelRejection:
     """Gemini/Vertex models must be rejected before reaching litellm, which would

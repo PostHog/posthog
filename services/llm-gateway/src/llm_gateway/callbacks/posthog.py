@@ -11,6 +11,7 @@ from posthoganalytics import Posthog
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.products.config import get_product_config
+from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
     get_posthog_flags,
@@ -146,9 +147,14 @@ class PostHogCallback(InstrumentedCallback):
 
         is_streaming = standard_logging_object.get("stream", False)
 
+        ai_provider, ai_model = normalize_metric_labels(
+            standard_logging_object.get("model", ""),
+            standard_logging_object.get("custom_llm_provider", ""),
+        )
+
         properties: dict[str, Any] = {
-            "$ai_model": standard_logging_object.get("model", ""),
-            "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
+            "$ai_model": ai_model,
+            "$ai_provider": ai_provider,
             "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),

@@ -19,6 +19,25 @@ COST_ALIASES: dict[str, str] = {
     "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
 }
 
+# For the same aliased models, the (provider, model) labels litellm reports
+# don't match what the user asked for. Map the litellm-view model key → the
+# user-facing (provider, model) pair we want to emit in metrics. Kept separate
+# from COST_ALIASES because cost lookups go through litellm.model_cost (keyed
+# on the litellm-view model), while metric labels should reflect user intent.
+ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
+    "openai/@cf/moonshotai/kimi-k2.6": ("cloudflare", "@cf/moonshotai/kimi-k2.6"),
+}
+
+
+def normalize_metric_labels(litellm_model: str, litellm_provider: str) -> tuple[str, str]:
+    """Translate the (provider, model) labels litellm sees into the user-facing
+    (provider, model) we want in metrics. Returns (provider, model).
+    """
+    override = ALIAS_METRIC_LABELS.get(litellm_model)
+    if override is None:
+        return litellm_provider, litellm_model
+    return override
+
 
 def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
     """Mutate model_cost to add alias keys for non-canonical provider routings.
