@@ -38,10 +38,14 @@ _SEGMENT_SPLIT = re.compile(r"\|\||&&|\||;|\n")
 
 __all__ = [
     "CalledCliCommand",
+    "ComposedWithPostProcessing",
     "DryRanBeforeWrite",
     "UsedHelpDiscovery",
     "parse_cli_invocations",
 ]
+
+# Post-processing tools an agent pipes CLI output into — the composition the CLI is for.
+_POST_PROCESS_TOOLS = ("jq", "python", "python3")
 
 
 @dataclass(frozen=True)
@@ -160,6 +164,27 @@ def score_dry_ran_before_write(calls: list[ToolCall], category: str, verb: str) 
     }
 
 
+def score_composed_post_processing(calls: list[ToolCall]) -> tuple[float | None, dict]:
+    """Did the agent compose the CLI with a post-processor (``jq`` / ``python``)?
+
+    The composition story is the whole point of a CLI: pull data with ``posthog-cli``,
+    then ``jq``/``python`` over it rather than reasoning over raw JSON in-context.
+    ``None`` if the CLI was never used (case doesn't exercise this).
+    """
+    if not cli_invocations(calls):
+        return None, {"reason": "no posthog-cli usage"}
+    for call in calls:
+        if call.name != BASH_TOOL_NAME:
+            continue
+        command = call.input.get("command")
+        if not isinstance(command, str):
+            continue
+        tokens = command.replace("|", " ").split()
+        if any(tok == tool or tok.endswith("/" + tool) for tool in _POST_PROCESS_TOOLS for tok in tokens):
+            return 1.0, {"reason": "post-processed CLI output", "call_id": call.call_id}
+    return 0.0, {"reason": "no jq/python post-processing of CLI output"}
+
+
 # ---- Scorer wiring ----
 
 
@@ -239,4 +264,20 @@ class DryRanBeforeWrite(_CliScorer):
         if calls is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
         score, metadata = score_dry_ran_before_write(calls, spec["category"], spec["verb"])
+        return Score(name=self._name(), score=score, metadata=metadata)
+
+
+class ComposedWithPostProcessing(_CliScorer):
+    """Binary: did the agent pipe CLI output into ``jq``/``python`` to compute the answer?"""
+
+    def _name(self) -> str:
+        return "composed_with_post_processing"
+
+    def _evaluate(self, output, expected) -> Score:
+        if _read_spec(expected, self._name()) is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        calls = _bash_calls(output)
+        if calls is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        score, metadata = score_composed_post_processing(calls)
         return Score(name=self._name(), score=score, metadata=metadata)

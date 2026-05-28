@@ -10,6 +10,7 @@ from __future__ import annotations
 from ee.hogai.eval.sandboxed.cli_posthog.scorers import (
     parse_cli_invocations,
     score_called_command,
+    score_composed_post_processing,
     score_dry_ran_before_write,
     score_used_help_discovery,
 )
@@ -148,4 +149,33 @@ def test_only_dry_run_passes():
 def test_dry_run_command_never_invoked_is_none():
     calls = [_bash("posthog-cli feature-flag get-all", 0)]
     score, _ = score_dry_ran_before_write(calls, "feature-flag", "create")
+    assert score is None
+
+
+# ---- score_composed_post_processing ----
+
+
+def test_composition_piped_to_jq_passes():
+    calls = [_bash("posthog-cli dashboard get-all --json '{}' | jq '.results | length'", 0)]
+    score, _ = score_composed_post_processing(calls)
+    assert score == 1.0
+
+
+def test_composition_python_in_separate_call_passes():
+    calls = [
+        _bash("posthog-cli dashboard get-all > out.json", 0),
+        _bash("python3 count_names.py out.json", 1),
+    ]
+    score, _ = score_composed_post_processing(calls)
+    assert score == 1.0
+
+
+def test_composition_without_postprocessing_fails():
+    calls = [_bash("posthog-cli dashboard get-all", 0)]
+    score, _ = score_composed_post_processing(calls)
+    assert score == 0.0
+
+
+def test_composition_no_cli_usage_is_none():
+    score, _ = score_composed_post_processing([_bash("jq '.' out.json", 0)])
     assert score is None
