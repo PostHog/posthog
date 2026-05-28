@@ -475,7 +475,7 @@ export const InsightQueryInputSchema = z.object({
         ),
 })
 
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })

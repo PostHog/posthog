@@ -493,7 +493,7 @@ export class ApiRequest {
 
     // # AI observability
 
-    public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
+    public aiObservabilityTranslate(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
@@ -2147,7 +2147,7 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
-    llmAnalytics: {
+    aiObservability: {
         translate(params: { text: string; targetLanguage?: string }): Promise<{
             translation: string
             detected_language?: string
@@ -2158,7 +2158,7 @@ const api = {
                 text: params.text,
                 target_language: params.targetLanguage,
             }
-            return new ApiRequest().llmAnalyticsTranslate().create({ data })
+            return new ApiRequest().aiObservabilityTranslate().create({ data })
         },
     },
     insights: {

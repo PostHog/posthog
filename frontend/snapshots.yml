@@ -6122,6 +6122,10 @@ snapshots:
         hash: v1.k794b7964.30246f37bec093282c28c4c2369664dbf97e256a3b7c4c635e63ca6f602e38a1.2HxEltsdIMc67gyXe563-b-N8rp-rat-FtoBkwJyx1w
     scenes-other-login--sso-error--light:
         hash: v1.k794b7964.e3531f02585f69ca46e68222d24b33db7e853635b357d95b3c792b2b97f8a45b.P3WyrTpc-AkNiK9F-Tdx7dtDFZlRpeZi0q8ijJ2FuFI
+    scenes-other-onboarding--ai-observability-sdk-install--dark:
+        hash: v1.k794b7964.292d2ee9e110862fbe1f2bc966c29b1266208b8269feb9aaaace7e78b085099e.yU6nnYUKuAW1id5P4LCEWrppb7vNoqxdAihFOAOyWi4
+    scenes-other-onboarding--ai-observability-sdk-install--light:
+        hash: v1.k794b7964.4d5018b9c134616b097565ea5753c67cc9705bb6cd8ee98bdfab3d1d9a02eaba.5xmnyRqXlHkOx55iuXixkfYuCEwzOG_utTlW2V8nzDE
     scenes-other-onboarding--alerts--dark:
         hash: v1.k794b7964.d66fb935e8f6fcf6d71031d9a59bf76501c90d29e5e5bae324b2cb2bbcd15ed7.4Cvshejpp_prXnrtkj5xZMl08OoFB6I6RreTrsQ4Hno
     scenes-other-onboarding--alerts--light:
@@ -6142,10 +6146,6 @@ snapshots:
         hash: v1.k794b7964.729b6d650f9f970660d9bd2176479959ada2920e63c9840b03f046e40e4d9e7a.ghq-4-BdJ3sYpoxjgp2hXP40zaf9By2Ou3mAlzGLEns
     scenes-other-onboarding--link-data--light:
         hash: v1.k794b7964.6bb749ad27cd5d98035a1fcbb0145dd93354f4a436ad9a7561cc3a879e47c28b.oKTxm-f5tLQtrCH-T2Se38qHGyqpdmvIfVAcnVAbyfw
-    scenes-other-onboarding--llm-analytics-sdk-install--dark:
-        hash: v1.k794b7964.334a9ab6ba9cc3a98f23310225673233e7a994840e13db5afcf58b1a7c6f0e71.OLbHijBYftOQ-N29VITiLym-2AQhOpAYsCKDD549ABc
-    scenes-other-onboarding--llm-analytics-sdk-install--light:
-        hash: v1.k794b7964.afec0f914e8aa576633a337e2289b9d8199cea2b193b13792ee0e89e11075dcf.doBwvclWn3mIaCOq5LW9DlflBKJLamOoCMx9VYqzk98
     scenes-other-onboarding--product-analytics-configuration--dark:
         hash: v1.k794b7964.08af688052c51fafa75fdcdc3754e7289fc18fb53596a2e928daa418aa02859d.lTGrMS9pD0saS4FeHB0VzmPt5pJKMMHzVx2nVd95gEY
     scenes-other-onboarding--product-analytics-configuration--light:
@@ -6170,6 +6170,10 @@ snapshots:
         hash: v1.k794b7964.3ebbb833ccdf866a5ec4d46849d1a4b85b998247390537142e6c46f9e0e15268.7zNIgJVAQSjE81-nO8Fd5TWIDpjdcHk0BUqhxgVOv04
     scenes-other-onboarding--workflows-custom-installation-instructions--light:
         hash: v1.k794b7964.6e5fbd3a6656ff7d711556a9c0a3aa727a2f3b04a2cd7035bd45347b67ad9293.XUTjpyN9wnkW56NfDf80u1UGXqryJyBYE1a373_alUk
+    scenes-other-onboarding-post-onboarding-modal--ai-observability--dark:
+        hash: v1.k794b7964.9c143ad56b4ef49573961c3a4c4d54c77e9f56c087805759ebad15d44380e844.X3A27rPDv6ANhma6iQYFE15_EST_3D7yrRiwE1PwqdI
+    scenes-other-onboarding-post-onboarding-modal--ai-observability--light:
+        hash: v1.k794b7964.86b53143d8254fa135e0731d1733e2c77ee53af575eaa1725f937fa18f60b306.IDYFmst4bOTWQBpfmOpXdpoPIuPomJ2jvAORvfJakaU
     scenes-other-onboarding-post-onboarding-modal--data-warehouse--dark:
         hash: v1.k794b7964.520c92cba88b5d84a60d010138c2eb11fb4efe65a95e49d76300d9fffcf14076.oBsBNpaPAm1gN73g3YHalz2LE3Ykkk1ZO5OBkLBkT5o
     scenes-other-onboarding-post-onboarding-modal--data-warehouse--light:
@@ -6194,10 +6198,6 @@ snapshots:
         hash: v1.k794b7964.618eed3ae7b50487e7ad4c32b2325938231904073526f0883d6220fc6c8f8954.VzT6-fuZhaxl5gf6UBB2DLZOG8AiJ1klzRda0kLfVoQ
     scenes-other-onboarding-post-onboarding-modal--feature-flags--light:
         hash: v1.k794b7964.cd1e4554b2a74f71efcdab7197fd1093d5911e432a1de3d6d286a12cbedb403d.sgdBqokgnUIb_mb0MSOjoauBxQSIYJzzKkWxwp8OJiw
-    scenes-other-onboarding-post-onboarding-modal--llm-analytics--dark:
-        hash: v1.k794b7964.9c143ad56b4ef49573961c3a4c4d54c77e9f56c087805759ebad15d44380e844.1dkBkAC4oTmLtj8hQGQY7xdbCvAiJ6jpCqSEq_tmhEg
-    scenes-other-onboarding-post-onboarding-modal--llm-analytics--light:
-        hash: v1.k794b7964.86b53143d8254fa135e0731d1733e2c77ee53af575eaa1725f937fa18f60b306.LxgLdmR3CKADtKZ2xzFdghBLPxOdOSp25sYHTtZQUPA
     scenes-other-onboarding-post-onboarding-modal--logs--dark:
         hash: v1.k794b7964.f9a6892e642aebe076aaeef5075dcef1d09cb7f820985443c66db143f60f11d2.fYzgtRRPAV6qgVvUpdwMQEw6Llm7nQRigyaOYSfaK8c
     scenes-other-onboarding-post-onboarding-modal--logs--light:

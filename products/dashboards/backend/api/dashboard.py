@@ -69,6 +69,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
@@ -76,7 +77,6 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
-from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
@@ -1094,7 +1094,7 @@ class DashboardsViewSet(
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     TEMPLATE_MAP = {
-        "llm-analytics": get_llm_analytics_default_template,
+        "llm-analytics": get_ai_observability_default_template,
         "mcp-analytics": get_mcp_analytics_default_template,
     }
 

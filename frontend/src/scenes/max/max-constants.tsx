@@ -1094,7 +1094,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Search LLM traces',
         description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
         icon: iconForType('llm_analytics'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Searched LLM traces'
@@ -1105,9 +1105,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',
-        product: Scene.LLMAnalyticsEvaluation,
+        product: Scene.AIObservabilityEvaluation,
         icon: iconForType('llm_evaluations'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Tested evaluation code'
@@ -1172,19 +1172,19 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetrics,
         ]),
     },
-    [AgentMode.LLMAnalytics]: {
+    [AgentMode.AIObservability]: {
         name: 'AI observability',
         description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
-            Scene.LLMAnalytics,
-            Scene.LLMAnalyticsTrace,
-            Scene.LLMAnalyticsEvaluation,
-            Scene.LLMAnalyticsEvaluations,
-            Scene.LLMAnalyticsDataset,
-            Scene.LLMAnalyticsDatasets,
-            Scene.LLMAnalyticsPlayground,
-            Scene.LLMAnalyticsUsers,
+            Scene.AIObservability,
+            Scene.AIObservabilityTrace,
+            Scene.AIObservabilityEvaluation,
+            Scene.AIObservabilityEvaluations,
+            Scene.AIObservabilityDataset,
+            Scene.AIObservabilityDatasets,
+            Scene.AIObservabilityPlayground,
+            Scene.AIObservabilityUsers,
         ]),
     },
     [AgentMode.UserInterview]: {

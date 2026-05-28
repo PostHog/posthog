@@ -1,3 +1,5 @@
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+
 import { hasScope } from '@/lib/api'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -5,8 +7,6 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { ResolvedState } from './request-state-resolver'
 
@@ -69,7 +69,7 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecToolEntry(state: ResolvedState, _props: RequestProperties): McpTool {
+    buildExecToolEntry(state: ResolvedState): McpTool {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         const ctx = this.buildContext(state)
         const commandReference = this.formatter.buildExecCommandReference(ctx, {
