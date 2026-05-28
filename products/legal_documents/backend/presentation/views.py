@@ -18,7 +18,7 @@ from .permissions import IsCloudOrDevDeployment, IsOrganizationAdminOrOwner
 from .serializers import CreateLegalDocumentSerializer, LegalDocumentSerializer
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "legal_document"
     permission_classes = [IsCloudOrDevDeployment, permissions.IsAuthenticated, IsOrganizationAdminOrOwner]

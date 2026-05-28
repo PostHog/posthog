@@ -2202,6 +2202,40 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
     })
     .describe('Mixin for serializers to add user access control fields')
 
+export const dashboardTemplatesCreateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesCreateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesCreateBodyTagsItemMax = 255
+
+export const dashboardTemplatesCreateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesCreateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesCreateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesCreateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesCreateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesCreateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesCreateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
 export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
@@ -2268,6 +2302,18 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string().max(dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax))
         .nullish(),
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
+/**
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
+ */
+export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ zod.object({
+    source_template_id: zod
+        .uuid()
+        .describe(
+            'UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint.'
+        ),
 })
 
 export const ExportsCreateBody = /* @__PURE__ */ zod

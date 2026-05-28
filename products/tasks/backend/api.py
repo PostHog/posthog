@@ -240,7 +240,6 @@ class TasksAccessPermission(BasePermission):
         return has_tasks_access(request.user)
 
 
-@extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.

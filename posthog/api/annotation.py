@@ -129,7 +129,7 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.

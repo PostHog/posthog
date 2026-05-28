@@ -274,7 +274,6 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         }
 
 
-@extend_schema(tags=["llm_analytics"])
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """CRUD for evaluation report configurations + report run history."""
 

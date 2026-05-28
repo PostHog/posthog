@@ -56,6 +56,43 @@ export const SandboxCreateBody = /* @__PURE__ */ zod.object({
         .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
 })
 
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxPartialUpdateBodyNameMax = 255
+
+export const sandboxPartialUpdateBodyAllowedDomainsItemMax = 255
+
+export const sandboxPartialUpdateBodyRepositoriesItemMax = 255
+
+export const SandboxPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(sandboxPartialUpdateBodyNameMax).optional(),
+    network_access_level: zod
+        .enum(['trusted', 'full', 'custom'])
+        .optional()
+        .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'),
+    allowed_domains: zod
+        .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
+        .optional()
+        .describe('List of allowed domains for custom network access'),
+    include_default_domains: zod
+        .boolean()
+        .optional()
+        .describe('Whether to include default trusted domains (GitHub, npm, PyPI)'),
+    repositories: zod
+        .array(zod.string().max(sandboxPartialUpdateBodyRepositoriesItemMax))
+        .optional()
+        .describe('List of repositories this environment applies to (format: org\/repo)'),
+    environment_variables: zod
+        .unknown()
+        .optional()
+        .describe('Encrypted environment variables (write-only, never returned in responses)'),
+    private: zod
+        .boolean()
+        .optional()
+        .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
+})
+
 export const taskAutomationsCreateBodyNameMax = 255
 
 export const taskAutomationsCreateBodyRepositoryMax = 255
@@ -74,6 +111,69 @@ export const TaskAutomationsCreateBody = /* @__PURE__ */ zod.object({
     cron_expression: zod.string().max(taskAutomationsCreateBodyCronExpressionMax),
     timezone: zod.string().max(taskAutomationsCreateBodyTimezoneMax).optional(),
     template_id: zod.string().max(taskAutomationsCreateBodyTemplateIdMax).nullish(),
+    enabled: zod.boolean().optional(),
+})
+
+export const taskAutomationsUpdateBodyNameMax = 255
+
+export const taskAutomationsUpdateBodyRepositoryMax = 255
+
+export const taskAutomationsUpdateBodyCronExpressionMax = 100
+
+export const taskAutomationsUpdateBodyTimezoneMax = 128
+
+export const taskAutomationsUpdateBodyTemplateIdMax = 255
+
+export const TaskAutomationsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taskAutomationsUpdateBodyNameMax),
+    prompt: zod.string(),
+    repository: zod.string().max(taskAutomationsUpdateBodyRepositoryMax),
+    github_integration: zod.number().nullish(),
+    cron_expression: zod.string().max(taskAutomationsUpdateBodyCronExpressionMax),
+    timezone: zod.string().max(taskAutomationsUpdateBodyTimezoneMax).optional(),
+    template_id: zod.string().max(taskAutomationsUpdateBodyTemplateIdMax).nullish(),
+    enabled: zod.boolean().optional(),
+})
+
+export const taskAutomationsPartialUpdateBodyNameMax = 255
+
+export const taskAutomationsPartialUpdateBodyRepositoryMax = 255
+
+export const taskAutomationsPartialUpdateBodyCronExpressionMax = 100
+
+export const taskAutomationsPartialUpdateBodyTimezoneMax = 128
+
+export const taskAutomationsPartialUpdateBodyTemplateIdMax = 255
+
+export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taskAutomationsPartialUpdateBodyNameMax).optional(),
+    prompt: zod.string().optional(),
+    repository: zod.string().max(taskAutomationsPartialUpdateBodyRepositoryMax).optional(),
+    github_integration: zod.number().nullish(),
+    cron_expression: zod.string().max(taskAutomationsPartialUpdateBodyCronExpressionMax).optional(),
+    timezone: zod.string().max(taskAutomationsPartialUpdateBodyTimezoneMax).optional(),
+    template_id: zod.string().max(taskAutomationsPartialUpdateBodyTemplateIdMax).nullish(),
+    enabled: zod.boolean().optional(),
+})
+
+export const taskAutomationsRunCreateBodyNameMax = 255
+
+export const taskAutomationsRunCreateBodyRepositoryMax = 255
+
+export const taskAutomationsRunCreateBodyCronExpressionMax = 100
+
+export const taskAutomationsRunCreateBodyTimezoneMax = 128
+
+export const taskAutomationsRunCreateBodyTemplateIdMax = 255
+
+export const TaskAutomationsRunCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taskAutomationsRunCreateBodyNameMax),
+    prompt: zod.string(),
+    repository: zod.string().max(taskAutomationsRunCreateBodyRepositoryMax),
+    github_integration: zod.number().nullish(),
+    cron_expression: zod.string().max(taskAutomationsRunCreateBodyCronExpressionMax),
+    timezone: zod.string().max(taskAutomationsRunCreateBodyTimezoneMax).optional(),
+    template_id: zod.string().max(taskAutomationsRunCreateBodyTemplateIdMax).nullish(),
     enabled: zod.boolean().optional(),
 })
 

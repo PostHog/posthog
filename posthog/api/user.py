@@ -765,7 +765,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=(

@@ -1906,6 +1906,42 @@ export interface PaginatedTableListApi {
     results: TableApi[]
 }
 
+export type PatchedTableApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
+
+export type PatchedTableApiOptions = { [key: string]: unknown }
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedTableApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    format?: TableFormatEnumApi
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 500 */
+    url_pattern?: string
+    credential?: CredentialApi
+    readonly columns?: readonly PatchedTableApiColumnsItem[]
+    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
+    /** @nullable */
+    readonly external_schema?: PatchedTableApiExternalSchema
+    options?: PatchedTableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
 export interface ViewLinkApi {
     readonly id: string
     /** @nullable */
@@ -1932,6 +1968,25 @@ export interface PaginatedViewLinkListApi {
     /** @nullable */
     previous?: string | null
     results: ViewLinkApi[]
+}
+
+export interface PatchedViewLinkApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 400 */
+    source_table_name?: string
+    /** @maxLength 400 */
+    source_table_key?: string
+    /** @maxLength 400 */
+    joining_table_name?: string
+    /** @maxLength 400 */
+    joining_table_key?: string
+    /** @maxLength 400 */
+    field_name?: string
+    configuration?: unknown
 }
 
 export interface ViewLinkValidationApi {

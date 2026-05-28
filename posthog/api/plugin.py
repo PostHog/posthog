@@ -333,7 +333,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return cast(Plugin, super().update(plugin, validated_data))
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
@@ -778,7 +778,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return response
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()

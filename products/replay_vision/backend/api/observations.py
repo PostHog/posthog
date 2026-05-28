@@ -5,7 +5,7 @@ from django.db.models import QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -13,7 +13,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -189,7 +188,6 @@ class ReplayObservationFilter(django_filters.FilterSet):
         fields = ["status", "triggered_by", "session_id"]
 
 
-@extend_schema(tags=[VISION_TAG])
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

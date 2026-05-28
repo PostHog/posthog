@@ -282,7 +282,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [

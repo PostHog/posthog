@@ -215,7 +215,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
-@extend_schema(tags=["workflows"])
+@extend_schema(extensions={"x-product": "workflows"})
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()

@@ -25,7 +25,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (

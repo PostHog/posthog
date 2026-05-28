@@ -399,7 +399,6 @@ class TestHogResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["llm_analytics"])
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]

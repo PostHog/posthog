@@ -19,7 +19,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
-    ProductKey,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -906,7 +905,6 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.

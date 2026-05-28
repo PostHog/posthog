@@ -620,7 +620,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         ],
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
@@ -884,7 +884,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()

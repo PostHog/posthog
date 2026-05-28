@@ -65,7 +65,7 @@ See [serializer-fields.md](references/serializer-fields.md) for patterns and exa
 12. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
 13. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
 14. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
-15. **ViewSets outside `products/` need product attribution** — ViewSets in `products/<name>/backend/` are auto-attributed via module path. ViewSets in `posthog/api/` or `ee/` aren't; declare attribution via `@extend_schema(extensions={"x-product": "<product>"})` (preferred — codegen routing only) or via `tags=["<product>"]` (also affects Swagger UI display). Without it, the MCP scaffold and frontend type generator can't route the endpoint to the right product
+15. **ViewSets outside `products/` need `@extend_schema(extensions={"x-product": "<product>"})`** — ViewSets in `products/<name>/backend/` are auto-attributed via module path; ViewSets in `posthog/api/` or `ee/` aren't and must declare attribution explicitly via the `x-product` extension. Accepts a plain string (`"product_analytics"`) or `ProductKey.X` enum (kebab values are normalized). Don't use `tags=["<product>"]` to influence codegen routing — `tags` is for Swagger UI display only. Without `x-product`, the MCP scaffold and frontend type generator can't route the endpoint to the right product
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 

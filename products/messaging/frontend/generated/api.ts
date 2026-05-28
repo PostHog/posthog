@@ -17,6 +17,8 @@ import type {
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageTemplateListApi,
+    PatchedMessageCategoryApi,
+    PatchedMessageTemplateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -77,6 +79,75 @@ export const messagingCategoriesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(messageCategoryApi),
+    })
+}
+
+export const getMessagingCategoriesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_categories/${id}/`
+}
+
+export const messagingCategoriesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingCategoriesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_categories/${id}/`
+}
+
+export const messagingCategoriesUpdate = async (
+    projectId: string,
+    id: string,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageCategoryApi),
+    })
+}
+
+export const getMessagingCategoriesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_categories/${id}/`
+}
+
+export const messagingCategoriesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMessageCategoryApi?: NonReadonly<PatchedMessageCategoryApi>,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMessageCategoryApi),
+    })
+}
+
+export const getMessagingCategoriesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_categories/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const messagingCategoriesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getMessagingCategoriesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -367,5 +438,74 @@ export const messagingTemplatesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(messageTemplateApi),
+    })
+}
+
+export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_templates/${id}/`
+}
+
+export const messagingTemplatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_templates/${id}/`
+}
+
+export const messagingTemplatesUpdate = async (
+    projectId: string,
+    id: string,
+    messageTemplateApi: NonReadonly<MessageTemplateApi>,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageTemplateApi),
+    })
+}
+
+export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_templates/${id}/`
+}
+
+export const messagingTemplatesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMessageTemplateApi),
+    })
+}
+
+export const getMessagingTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/messaging_templates/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const messagingTemplatesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getMessagingTemplatesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }

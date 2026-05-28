@@ -2193,6 +2193,15 @@ export interface DashboardTemplateApi {
     is_featured?: boolean
 }
 
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
+
 export interface PatchedDashboardTemplateApi {
     readonly id?: string
     /**
@@ -2227,6 +2236,11 @@ export interface PatchedDashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+}
+
+export interface CopyDashboardTemplateApi {
+    /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+    source_template_id: string
 }
 
 /**
@@ -3387,6 +3401,37 @@ export type OrganizationsProjectsListParams = {
      */
     search?: string
 }
+
+export type DashboardTemplatesListParams = {
+    /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
+     */
+    ordering?: string
+    /**
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     */
+    scope?: DashboardTemplatesListScope
+}
+
+export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[keyof typeof DashboardTemplatesListScope]
+
+export const DashboardTemplatesListScope = {
+    FeatureFlag: 'feature_flag',
+    Global: 'global',
+    Team: 'team',
+} as const
 
 export type ExportsListParams = {
     /**

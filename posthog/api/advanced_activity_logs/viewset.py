@@ -143,7 +143,7 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["activity_logs", "platform_features"])
+@extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
@@ -341,7 +341,7 @@ class AvailableFiltersResponseSerializer(serializers.Serializer):
     detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
 
 
-@extend_schema(tags=["platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
@@ -537,7 +537,7 @@ class OrganizationActivityLogPermission(BasePermission):
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
-@extend_schema(tags=["activity_logs", "platform_features"])
+@extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
 class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
     """
     Organization-wide view of activity logs across every project in the organization.

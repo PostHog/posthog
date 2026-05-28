@@ -111,7 +111,7 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class UserIntegrationViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
