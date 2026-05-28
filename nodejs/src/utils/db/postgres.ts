@@ -225,12 +225,12 @@ export class PostgresRouter {
 }
 
 /**
- * Lifecycle owner for a `PostgresRouter`. `start` constructs the router
- * (which opens connection pools eagerly), `stop` ends every pool. Plumb
- * this into a `Lifecycle` so the router's lifetime is tied to the
- * lifecycle that owns it.
+ * Scope entry for a `PostgresRouter`. `start` constructs the router
+ * (which opens connection pools eagerly), `stop` ends every pool. Register
+ * this in a `Scope` so the router's lifetime is tied to the scope that
+ * owns it.
  */
-export class PostgresRouterManager {
+export class PostgresRouterScope {
     constructor(
         private readonly config: PostgresRouterConfig,
         private readonly appName?: string

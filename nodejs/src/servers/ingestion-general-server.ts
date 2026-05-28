@@ -45,8 +45,8 @@ import { buildGroupRepository, buildPersonRepository, createPersonHogClient } fr
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
-import { PostgresRouter, PostgresRouterManager } from '../utils/db/postgres'
-import { RedisPoolManager, createRedisPoolFromConfig } from '../utils/db/redis'
+import { PostgresRouter, PostgresRouterScope } from '../utils/db/postgres'
+import { RedisPoolScope, createRedisPoolFromConfig } from '../utils/db/redis'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -142,10 +142,10 @@ export class IngestionGeneralServer implements NodeServer {
 
         const sharedInfraScope = newScope('shared-infra', (builder) =>
             builder
-                .register('postgres', new PostgresRouterManager(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .register('postgres', new PostgresRouterScope(this.config, this.config.PLUGIN_SERVER_MODE!))
                 .register(
                     'redisPool',
-                    new RedisPoolManager({
+                    new RedisPoolScope({
                         connection: createIngestionRedisConnectionConfig(this.config),
                         poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,

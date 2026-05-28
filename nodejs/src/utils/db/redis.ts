@@ -50,11 +50,11 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
 }
 
 /**
- * Lifecycle owner for a `RedisPool`. `start` creates the pool (which
- * connects to Redis eagerly via `autostart`), `stop` drains the pool then
- * clears it so all connections are released.
+ * Scope entry for a `RedisPool`. `start` creates the pool (which connects
+ * to Redis eagerly via `autostart`), `stop` drains the pool then clears
+ * it so all connections are released.
  */
-export class RedisPoolManager {
+export class RedisPoolScope {
     constructor(private readonly config: RedisPoolConfig) {}
 
     start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
