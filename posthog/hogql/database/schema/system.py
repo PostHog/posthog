@@ -192,6 +192,30 @@ dashboards: PostgresTable = PostgresTable(
     },
 )
 
+dashboard_tiles: PostgresTable = PostgresTable(
+    name="dashboard_tiles",
+    postgres_table_name="posthog_dashboardtile",
+    access_scope="dashboard",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id"),
+        "insight_id": IntegerDatabaseField(name="insight_id", nullable=True),
+        "text_id": IntegerDatabaseField(name="text_id", nullable=True),
+        "button_tile_id": StringDatabaseField(name="button_tile_id", nullable=True),
+        "layouts": StringJSONDatabaseField(name="layouts"),
+        "color": StringDatabaseField(name="color", nullable=True),
+        "show_description": BooleanDatabaseField(name="show_description", nullable=True),
+        "transparent_background": BooleanDatabaseField(name="transparent_background", nullable=True),
+        "filters_overrides": StringJSONDatabaseField(name="filters_overrides", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True, nullable=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_deleted"]), ast.Constant(value=False)]),
+        ),
+    },
+)
+
 insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
@@ -1131,6 +1155,7 @@ class SystemTables(TableNode):
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),

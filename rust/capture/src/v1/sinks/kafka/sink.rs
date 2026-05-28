@@ -44,12 +44,10 @@ fn effective_partition_key<'a>(
 }
 
 /// Shared label values for metrics emitted within a single `publish_batch` call.
-/// All fields are `&'static str` (zero-cost) or `SharedString` (Arc-based, so
-/// `.clone()` is a refcount bump rather than a heap allocation).
 struct MetricLabels {
     sink: &'static str,
     mode: &'static str,
-    path: metrics::SharedString,
+    path: &'static str,
     attempt: metrics::SharedString,
 }
 
@@ -92,7 +90,7 @@ fn reject_publishable(
         "mode" => labels.mode,
         "cluster" => labels.sink,
         "outcome" => Outcome::RetriableError.as_tag(),
-        "path" => labels.path.clone(),
+        "path" => labels.path,
         "attempt" => labels.attempt.clone(),
     )
     .increment(publishable.len() as u64);
@@ -166,7 +164,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     "mode" => labels.mode,
                     "cluster" => labels.sink,
                     "outcome" => Outcome::FatalError.as_tag(),
-                    "path" => labels.path.clone(),
+                    "path" => labels.path,
                     "attempt" => labels.attempt.clone(),
                 )
                 .increment(1);
@@ -250,7 +248,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "mode" => labels.mode,
                             "cluster" => labels.sink,
                             "outcome" => outcome.as_tag(),
-                            "path" => labels.path.clone(),
+                            "path" => labels.path,
                             "attempt" => labels.attempt.clone(),
                         )
                         .increment(1);
@@ -298,7 +296,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                         "mode" => labels.mode,
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
-                        "path" => labels.path.clone(),
+                        "path" => labels.path,
                         "attempt" => labels.attempt.clone(),
                     )
                     .increment(1);
@@ -310,7 +308,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "mode" => labels.mode,
                             "cluster" => labels.sink,
                             "outcome" => outcome_tag,
-                            "path" => labels.path.clone(),
+                            "path" => labels.path,
                             "attempt" => labels.attempt.clone(),
                         )
                         .record(secs.as_secs_f64());
@@ -354,7 +352,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             "mode" => labels.mode,
             "cluster" => labels.sink,
             "outcome" => Outcome::Timeout.as_tag(),
-            "path" => labels.path.clone(),
+            "path" => labels.path,
             "attempt" => labels.attempt.clone(),
         )
         .increment(timed_out_keys.len() as u64);
@@ -382,7 +380,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let labels = MetricLabels {
             sink: self.name.as_str(),
             mode: self.capture_mode.as_tag(),
-            path: ctx.path.clone().into(),
+            path: ctx.path,
             attempt: ctx.attempt.to_string().into(),
         };
 

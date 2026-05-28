@@ -752,6 +752,65 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
         },
     },
+    marketing_diagnose_setup: {
+        name: 'Diagnose marketing analytics',
+        description:
+            'Diagnose marketing analytics setup with a health check across data sources, attribution, and conversion goals',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Diagnosed marketing analytics' : 'Diagnosing marketing analytics...',
+    },
+    marketing_explain_conversion_goal: {
+        name: 'Explain a conversion goal',
+        description:
+            'Explain a conversion goal by showing which events drove its count, broken down by source and integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Explained conversion goal' : 'Explaining conversion goal...',
+    },
+    marketing_list_conversion_goals: {
+        name: 'List conversion goals',
+        description: 'List conversion goals with their last-30d performance',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed conversion goals' : 'Listing conversion goals...',
+    },
+    marketing_list_data_sources: {
+        name: 'List marketing data sources',
+        description: 'List marketing data sources with platform-side health for every connected ad integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed marketing data sources' : 'Listing marketing data sources...',
+    },
+    marketing_audit_utm: {
+        name: 'Audit UTM tagging',
+        description: 'Audit UTM tagging to find issues that prevent attribution to ad platforms',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Audited UTM tagging' : 'Auditing UTM tagging...',
+    },
+    marketing_suggest_conversion_goals: {
+        name: 'Suggest conversion goals',
+        description: 'Suggest conversion goals by ranking custom events that are good candidates',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested conversion goals' : 'Suggesting conversion goals...',
+    },
+    marketing_suggest_utm_mappings: {
+        name: 'Suggest UTM mappings',
+        description:
+            'Suggest UTM mappings by detecting unmatched utm_source values and proposing custom_source_mappings entries',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested UTM mappings' : 'Suggesting UTM mappings...',
+    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',
@@ -1035,7 +1094,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Search LLM traces',
         description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
         icon: iconForType('llm_analytics'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Searched LLM traces'
@@ -1046,9 +1105,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',
-        product: Scene.LLMAnalyticsEvaluation,
+        product: Scene.AIObservabilityEvaluation,
         icon: iconForType('llm_evaluations'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Tested evaluation code'
@@ -1113,19 +1172,19 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetrics,
         ]),
     },
-    [AgentMode.LLMAnalytics]: {
+    [AgentMode.AIObservability]: {
         name: 'AI observability',
         description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
-            Scene.LLMAnalytics,
-            Scene.LLMAnalyticsTrace,
-            Scene.LLMAnalyticsEvaluation,
-            Scene.LLMAnalyticsEvaluations,
-            Scene.LLMAnalyticsDataset,
-            Scene.LLMAnalyticsDatasets,
-            Scene.LLMAnalyticsPlayground,
-            Scene.LLMAnalyticsUsers,
+            Scene.AIObservability,
+            Scene.AIObservabilityTrace,
+            Scene.AIObservabilityEvaluation,
+            Scene.AIObservabilityEvaluations,
+            Scene.AIObservabilityDataset,
+            Scene.AIObservabilityDatasets,
+            Scene.AIObservabilityPlayground,
+            Scene.AIObservabilityUsers,
         ]),
     },
     [AgentMode.UserInterview]: {

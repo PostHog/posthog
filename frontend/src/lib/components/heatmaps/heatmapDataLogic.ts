@@ -172,7 +172,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     actions.setIsReady(false)
 
-                    const { date_from, date_to, filter_test_accounts } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -187,6 +187,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
                             filter_test_accounts,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
                         },
                         '?'
                     )}`
@@ -224,7 +225,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     await breakpoint(100)
 
-                    const { date_from, date_to, filter_test_accounts } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
                     const { type } = values.heatmapFilters
 
                     const apiURL = `/api/heatmap/events/${encodeParams(
@@ -237,6 +238,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             filter_test_accounts,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
                             points: JSON.stringify(area.points),
                         },
                         '?'
@@ -413,7 +415,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 return
             }
 
-            const { date_from, date_to, filter_test_accounts } = values.commonFilters
+            const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
@@ -427,6 +429,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     viewport_width_min: values.viewportRange.min,
                     viewport_width_max: values.viewportRange.max,
                     filter_test_accounts,
+                    cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
                     points: JSON.stringify(area.points),
                     offset: nextOffset,
                 },

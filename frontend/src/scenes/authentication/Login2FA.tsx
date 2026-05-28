@@ -5,8 +5,10 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -17,6 +19,7 @@ export function Login2FA(): JSX.Element {
         useValues(login2FALogic)
     const { beginPasskey2FA } = useActions(login2FALogic)
     const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <BridgePage
@@ -31,7 +34,26 @@ export function Login2FA(): JSX.Element {
         >
             <div className="deprecated-space-y-2">
                 <h2>Two-Factor Authentication</h2>
-                <p>Enter a token from your authenticator app, use your passkey, or enter a backup code.</p>
+                <p>
+                    Enter a token from your authenticator app, use your passkey, or enter a backup code.
+                    {preflight?.cloud && (
+                        <>
+                            {' '}
+                            <Link
+                                data-attr="2fa-contact-support"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    openSupportForm({
+                                        kind: 'support',
+                                        target_area: 'login',
+                                    })
+                                }}
+                            >
+                                Need help?
+                            </Link>
+                        </>
+                    )}
+                </p>
 
                 {passkeysAvailable && (
                     <>

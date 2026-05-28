@@ -10,9 +10,12 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ActionsNode,
+    Breakdown,
+    BreakdownFilter,
     EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentMetricMathType,
+    ExperimentMetricOutlierHandling,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
@@ -1246,3 +1249,270 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         assert len(result.variant_results) == 1
         # Test: 1 purchase totaling 75, ratio = 75/1 = 75
         self.assertEqual(result.variant_results[0].number_of_samples, 1)
+
+    def _seed_winsorization_journeys(self, feature_flag) -> None:
+        """Seed 20 users (10 control, 10 test) for ratio winsorization tests.
+
+        Per-user numerator = purchase ``amount`` (SUM); denominator = ``pageview`` count (TOTAL).
+
+        Pooled per-user numerators sorted: eighteen 100s, one 200, one 5000.
+            quantileExact(0.9) = element at index floor(0.9 * 20) = 18 -> cap_N = 200.
+        Pooled per-user denominators sorted: eighteen 2s, one 5, one 50.
+            quantileExact(0.9) = element at index 18 -> cap_D = 5.
+
+        The numerator outlier (5000) is a test user while the denominator outlier (50) is a
+        control user, so capping each component clamps a *different* user — exercising the
+        independent capping of numerator and denominator.
+        """
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # (distinct_id, variant, numerator amount, denominator pageview count)
+        users = [
+            ("control_1", "control", 100, 50),  # denominator outlier (50 -> cap 5)
+            ("control_2", "control", 100, 2),
+            ("control_3", "control", 100, 2),
+            ("control_4", "control", 100, 2),
+            ("control_5", "control", 100, 2),
+            ("control_6", "control", 100, 2),
+            ("control_7", "control", 100, 2),
+            ("control_8", "control", 100, 2),
+            ("control_9", "control", 100, 2),
+            ("control_10", "control", 200, 5),  # numerator & denominator boundary (== caps)
+            ("test_1", "test", 100, 2),
+            ("test_2", "test", 100, 2),
+            ("test_3", "test", 100, 2),
+            ("test_4", "test", 100, 2),
+            ("test_5", "test", 100, 2),
+            ("test_6", "test", 100, 2),
+            ("test_7", "test", 100, 2),
+            ("test_8", "test", 100, 2),
+            ("test_9", "test", 100, 2),
+            ("test_10", "test", 5000, 2),  # numerator outlier (5000 -> cap 200)
+        ]
+
+        journeys: dict[str, list[dict]] = {}
+        for distinct_id, variant, amount, pageviews in users:
+            events: list[dict] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                {
+                    "event": "purchase",
+                    "timestamp": "2024-01-02T12:01:00",
+                    "properties": {ff_property: variant, "amount": amount},
+                },
+            ]
+            for _ in range(pageviews):
+                events.append(
+                    {
+                        "event": "pageview",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {ff_property: variant},
+                    }
+                )
+            journeys[distinct_id] = events
+
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_outlier_handling_numerator_only(self, name, use_precomputation):
+        """Capping only the numerator leaves the denominator untouched."""
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            denominator=EventsNode(event="pageview", math=ExperimentMetricMathType.TOTAL),
+            numerator_outlier_handling=ExperimentMetricOutlierHandling(upper_bound_percentile=0.9),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        self._seed_winsorization_journeys(feature_flag)
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
+
+        # Numerator capped at 200: control unchanged (no outlier), test's 5000 -> 200.
+        # control: 9*100 + 200 = 1100 ; test: 9*100 + 200 = 1100
+        self.assertEqual(control_variant.sum, 1100)
+        self.assertEqual(test_variant.sum, 1100)
+
+        # Denominator left uncapped: control = 50 + 8*2 + 5 = 71 ; test = 10*2 = 20
+        self.assertEqual(control_variant.denominator_sum, 71)
+        self.assertEqual(test_variant.denominator_sum, 20)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_outlier_handling_numerator_and_denominator_independent(self, name, use_precomputation):
+        """Numerator and denominator are capped independently, each at its own threshold."""
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            denominator=EventsNode(event="pageview", math=ExperimentMetricMathType.TOTAL),
+            numerator_outlier_handling=ExperimentMetricOutlierHandling(upper_bound_percentile=0.9),
+            denominator_outlier_handling=ExperimentMetricOutlierHandling(upper_bound_percentile=0.9),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        self._seed_winsorization_journeys(feature_flag)
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
+
+        # Numerator capped at 200 -> both variants 1100 (as above).
+        self.assertEqual(control_variant.sum, 1100)
+        self.assertEqual(test_variant.sum, 1100)
+
+        # Denominator capped at 5: control's outlier 50 -> 5, so control = 5 + 8*2 + 5 = 26 ;
+        # test has no denominator outlier so it stays 10*2 = 20.
+        self.assertEqual(control_variant.denominator_sum, 26)
+        self.assertEqual(test_variant.denominator_sum, 20)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_outlier_handling_with_breakdown(self):
+        """Winsorization computes per-breakdown thresholds for ratio metrics, not global ones."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            denominator=EventsNode(event="pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+            numerator_outlier_handling=ExperimentMetricOutlierHandling(upper_bound_percentile=0.95),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Chrome users have low numerators, Safari users high — if thresholds were global,
+        # Safari values would be capped at Chrome's percentile.
+        journeys: dict[str, list[dict]] = {}
+        for variant in ("control", "test"):
+            for i in range(4):
+                browser = "Chrome" if i < 2 else "Safari"
+                amount = (10 + i * 10) if browser == "Chrome" else (100 + (i - 2) * 100)
+                journeys[f"{variant}_{i}"] = [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": feature_flag.key,
+                            "$browser": browser,
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {ff_property: variant, "amount": amount, "$browser": browser},
+                    },
+                    {
+                        "event": "pageview",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {ff_property: variant, "$browser": browser},
+                    },
+                ]
+
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # The query builds and runs with per-breakdown winsorization.
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)
+        for breakdown_result in result.breakdown_results:
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsInstance(breakdown_result.variants, list)
