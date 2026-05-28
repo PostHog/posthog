@@ -17,7 +17,7 @@ first.
   loop), concurrency, shutdown.
 - [src/resolvers/](src/resolvers/) — secrets, integrations, model
   selection. Each is a function the caller can override; the harness
-  - prod wire different concrete impls.
+  and prod wire different concrete impls.
 - [src/models/](src/models/) — `PiAiClient` + the LLM-gateway model
   factory.
 - [src/index.ts](src/index.ts) — prod bin entry. Reads env, wires
