@@ -1,3 +1,4 @@
+export * from './encrypted-env-resolver'
 export * from './faux-pi-client'
 export * from './llm-gateway-model'
 export * from './pi-client'

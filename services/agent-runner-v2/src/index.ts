@@ -11,6 +11,7 @@ import { Pool } from 'pg'
 
 import {
     createLogger,
+    EncryptedFields,
     FsBundleStore,
     PgRevisionStore,
     PgSessionQueue,
@@ -19,6 +20,7 @@ import {
     selectSandboxPool,
 } from '@posthog/agent-shared-v2'
 
+import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
 import { posthogLlmGatewayModel } from './llm-gateway-model'
 import { PiAiClient, resolveModelCached } from './pi-client'
 import { Worker } from './worker'
@@ -41,15 +43,26 @@ async function main(): Promise<void> {
 
     const maxConcurrency = parseInt(process.env.AGENT_MAX_CONCURRENCY ?? '8', 10)
 
+    const revisions = new PgRevisionStore(pool)
+
+    // Build the resolveSecrets path. If ENCRYPTION_SALT_KEYS is set, decrypt
+    // AgentApplication.encrypted_env via Fernet (matches Django). Otherwise
+    // start with no secrets — dev / CI is happy without encryption configured.
+    const encryptionSaltKeys = process.env.ENCRYPTION_SALT_KEYS ?? ''
+    const encryption = new EncryptedFields(encryptionSaltKeys)
+    const resolveSecrets = encryption.isConfigured
+        ? makeEncryptedEnvResolver({ revisions, encryption })
+        : async () => ({})
+
     const worker = new Worker({
         queue: new PgSessionQueue(pool),
-        revisions: new PgRevisionStore(pool),
+        revisions,
         bundle: new FsBundleStore(bundleRoot),
         sandboxes: selectSandboxPool(),
         pi: new PiAiClient(defaultApiKey),
         broker: new SecretBroker(),
         resolveIntegrations: async () => ({}),
-        resolveSecrets: async () => ({}),
+        resolveSecrets,
         resolveModel: useGateway
             ? // Route every model through PostHog's llm-gateway, keeping spec.model
               // as the model id but ignoring the provider prefix.
