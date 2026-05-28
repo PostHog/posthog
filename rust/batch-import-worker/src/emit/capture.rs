@@ -115,6 +115,20 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
             .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?;
         let count = events.len();
 
+        // Short-circuit on empty transactions. The Capture HTTP API rejects
+        // empty batches with HTTP 400 (CaptureError::EmptyBatch), which is a
+        // non-retryable error. If we let it propagate, do_commit's two-phase
+        // commit would leave the job stuck in `paused` state: begin_part_commit
+        // pauses before commit_write is attempted, and a non-retryable failure
+        // never reaches complete_commit. This path is hit whenever a source
+        // part has zero events (e.g. an Amplitude 404 for a date range with
+        // no activity), and there's nothing meaningful to send to Capture
+        // anyway.
+        if count == 0 {
+            info!("skipping capture send for empty event batch");
+            return Ok(Duration::ZERO);
+        }
+
         let min_duration = get_min_txn_duration(self.send_rate, count);
         let txn_elapsed = self.start.elapsed();
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
@@ -335,6 +349,38 @@ mod tests {
             events: Mutex::new(vec![event]),
             retry_policy: BackoffPolicy::new(Duration::ZERO, 1.0, Duration::ZERO),
         })
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_skips_http_on_empty_batch() {
+        // If the worker has zero events to send (e.g. an Amplitude 404 produced
+        // an empty source part), commit_write must short-circuit instead of
+        // hitting Capture's HTTP API. The API rejects empty batches with 400
+        // (CaptureError::EmptyBatch), which is non-retryable and would leave
+        // the job stuck in `paused` via do_commit's two-phase commit.
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/batch/")
+            .expect(0) // must not be hit
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = Box::new(CaptureTransaction {
+            client: &client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(vec![]),
+            retry_policy: BackoffPolicy::new(Duration::ZERO, 1.0, Duration::ZERO),
+        });
+
+        let result = txn.commit_write().await;
+        assert!(result.is_ok(), "expected Ok for empty batch, got {result:?}");
+        assert_eq!(
+            result.unwrap(),
+            Duration::ZERO,
+            "empty batch should return zero sleep"
+        );
+        mock.assert();
     }
 
     #[tokio::test]
