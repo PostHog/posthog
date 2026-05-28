@@ -3,14 +3,14 @@
 Builds a compact, JSON-serializable view of a ``RunSnapshot`` so the LLM
 reviewer can reason over diff metrics without needing the full ORM
 instance — and without us shipping image bytes to the model. The actual
-verdict comes from ``claude_reviewer``; this module is pure data prep.
+verdict comes from ``agent_reviewer``; this module is pure data prep.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from ..diff_metadata import DiffMetadata
+from .diff_metadata import DiffMetadata
 
 AGENT_NAME = "claude-haiku-4-5"
 

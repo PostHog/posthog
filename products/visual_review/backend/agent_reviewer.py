@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.llm import MaxChatAnthropic
 
-from .heuristic import SnapshotSignals
+from .agent_signals import SnapshotSignals
 
 logger = structlog.get_logger(__name__)
 

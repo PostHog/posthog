@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import patch
 
-from products.visual_review.backend.ai import claude_reviewer, heuristic
+from products.visual_review.backend import agent_reviewer, agent_signals
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.enums import ChangeKind, ReviewState, RunStatus, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
@@ -15,7 +15,7 @@ from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 class TestSelectSignals:
     def _signals(self, count, diff_pct_start=1.0):
         return [
-            heuristic.SnapshotSignals(
+            agent_signals.SnapshotSignals(
                 identifier=f"story-{i}",
                 result="changed",
                 diff_percentage=diff_pct_start + i,
@@ -32,14 +32,14 @@ class TestSelectSignals:
 
     def test_under_cap_keeps_all(self):
         signals = self._signals(10)
-        kept, dropped = claude_reviewer._select_signals(signals)
+        kept, dropped = agent_reviewer._select_signals(signals)
         assert len(kept) == 10
         assert dropped == 0
 
     def test_over_cap_drops_smallest_diffs_first(self):
-        signals = self._signals(claude_reviewer.MAX_SNAPSHOTS_PER_CALL + 5)
-        kept, dropped = claude_reviewer._select_signals(signals)
-        assert len(kept) == claude_reviewer.MAX_SNAPSHOTS_PER_CALL
+        signals = self._signals(agent_reviewer.MAX_SNAPSHOTS_PER_CALL + 5)
+        kept, dropped = agent_reviewer._select_signals(signals)
+        assert len(kept) == agent_reviewer.MAX_SNAPSHOTS_PER_CALL
         assert dropped == 5
         # Kept set should be the highest-diff entries — the lowest-diff
         # ones (identifiers story-0..4) should have been dropped.
@@ -66,12 +66,12 @@ class TestGenerateAgentReviewFacade:
 
     def _mock_llm_output(self, snapshots: list[tuple[str, str]], run_verdict: str = "approved"):
         """Build a stub RunReviewOutput with one entry per (identifier, verdict)."""
-        return claude_reviewer.RunReviewOutput(
+        return agent_reviewer.RunReviewOutput(
             run_verdict=run_verdict,
             run_confidence=0.8,
             run_summary=f"Reviewed {len(snapshots)} snapshot(s)",
             snapshots=[
-                claude_reviewer.SnapshotVerdictOutput(
+                agent_reviewer.SnapshotVerdictOutput(
                     identifier=identifier,
                     verdict=verdict,
                     confidence=0.85,
@@ -86,7 +86,7 @@ class TestGenerateAgentReviewFacade:
         with pytest.raises(ValueError, match="must be completed"):
             api.generate_agent_review(run.id, team_id=team.id, user=user)
 
-    @patch("products.visual_review.backend.ai.claude_reviewer.review_run")
+    @patch("products.visual_review.backend.agent_reviewer.review_run")
     def test_writes_verdict_to_snapshot_and_run_metadata(self, mock_review, repo, team, user):
         run = self._make_run(repo, team)
         # One focused pixel diff that should come back approved
@@ -129,7 +129,7 @@ class TestGenerateAgentReviewFacade:
 
         assert result.agent_review is not None
         assert result.agent_review.snapshot_count == 1
-        assert result.agent_review.agent == claude_reviewer.MODEL_NAME
+        assert result.agent_review.agent == agent_reviewer.MODEL_NAME
 
         snapshots = api.get_run_snapshots(run.id, team_id=team.id)
         by_identifier = {s.identifier: s for s in snapshots}
@@ -138,7 +138,7 @@ class TestGenerateAgentReviewFacade:
         assert by_identifier["button--primary"].agent_review.verdict == "approved"
         assert by_identifier["card--default"].agent_review is None
 
-    @patch("products.visual_review.backend.ai.claude_reviewer.review_run")
+    @patch("products.visual_review.backend.agent_reviewer.review_run")
     def test_records_deferred_for_snapshots_the_model_skipped(self, mock_review, repo, team, user):
         """If the model omits an identifier we sent, record a defensive deferred verdict."""
         run = self._make_run(repo, team)
@@ -164,7 +164,7 @@ class TestGenerateAgentReviewFacade:
         assert by_identifier["a"].agent_review.verdict == "approved"
         assert by_identifier["b"].agent_review.verdict == "deferred"
 
-    @patch("products.visual_review.backend.ai.claude_reviewer.review_run")
+    @patch("products.visual_review.backend.agent_reviewer.review_run")
     def test_skips_llm_call_when_no_actionable_snapshots(self, mock_review, repo, team, user):
         run = self._make_run(repo, team)
         RunSnapshot.objects.create(
@@ -183,7 +183,7 @@ class TestGenerateAgentReviewFacade:
         assert result.agent_review.snapshot_count == 0
         assert result.agent_review.verdict == "approved"
 
-    @patch("products.visual_review.backend.ai.claude_reviewer.review_run")
+    @patch("products.visual_review.backend.agent_reviewer.review_run")
     def test_is_idempotent(self, mock_review, repo, team, user):
         run = self._make_run(repo, team)
         RunSnapshot.objects.create(
@@ -210,7 +210,7 @@ class TestGenerateAgentReviewFacade:
         snapshot = RunSnapshot.objects.get(run=run, identifier="story--default")
         assert isinstance(snapshot.metadata["agent_review"], dict)
 
-    @patch("products.visual_review.backend.ai.claude_reviewer.review_run")
+    @patch("products.visual_review.backend.agent_reviewer.review_run")
     def test_strips_agent_review_from_loose_metadata_field(self, mock_review, repo, team, user):
         """The agent_review entry must be exposed as the typed field only,
         not also duplicated inside the loose `metadata` dict on the wire."""

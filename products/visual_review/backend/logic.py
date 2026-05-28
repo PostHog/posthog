@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 from posthog.models import Team
 from posthog.models.integration import GitHubRateLimitError
 
-from .ai import claude_reviewer, heuristic
+from . import agent_reviewer, agent_signals
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
 from .diff_metadata import DiffMetadata
@@ -2679,6 +2679,28 @@ def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
         .exclude(result=SnapshotResult.UNCHANGED)
     )
 
+    now_iso = timezone.now().isoformat()
+
+    # No actionable snapshots — skip the LLM call entirely (no point burning
+    # credits on an empty payload) and write a no-op rollup so the UI shows a
+    # benign "no changes to review" state instead of spinning. Without this
+    # short-circuit, `agent_reviewer.review_run([])` would still bill a round
+    # trip and return a degenerate response.
+    if not snapshots:
+        empty_rollup = {
+            "verdict": "approved",
+            "confidence": 1.0,
+            "summary": "No actionable snapshots in this run.",
+            "agent": agent_reviewer.MODEL_NAME,
+            "generated_at": now_iso,
+            "snapshot_count": 0,
+        }
+        with transaction.atomic(using=WRITER_DB):
+            locked = _get_run_for_update(run_id, team_id=team_id)
+            locked.metadata = _merge_agent_review(locked.metadata, empty_rollup)
+            locked.save(using=WRITER_DB, update_fields=["metadata"])
+        return get_run_with_snapshots(run_id, team_id=team_id)
+
     # ProductTeamModel stores team_id as a plain BigIntegerField — fetch the Team from the main DB.
     # Use the verified ``team_id`` argument (already enforced by get_run above) rather than re-deriving
     # from run.team_id, so future loosening of get_run can't silently swap which team's context is used.
@@ -2687,7 +2709,7 @@ def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
     except Team.DoesNotExist as e:
         raise ValueError(f"Team {team_id} no longer exists") from e
 
-    signals = [heuristic.signals_from_snapshot(s) for s in snapshots]
+    signals = [agent_signals.signals_from_snapshot(s) for s in snapshots]
     run_metadata_for_prompt = {
         "run_id": str(run.id),
         "run_type": run.run_type,
@@ -2698,14 +2720,13 @@ def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
         "base_branch": (run.metadata or {}).get("base_branch"),
     }
 
-    output = claude_reviewer.review_run(
+    output = agent_reviewer.review_run(
         run_metadata=run_metadata_for_prompt,
         signals=signals,
         user=user,
         team=team,
     )
 
-    now_iso = timezone.now().isoformat()
     verdict_by_identifier = {v.identifier: v for v in output.snapshots}
     missing_verdicts = 0
 
@@ -2720,7 +2741,7 @@ def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
                 "verdict": "deferred",
                 "confidence": 0.0,
                 "reasoning": "Agent did not produce a verdict for this snapshot — defer to human review.",
-                "agent": claude_reviewer.MODEL_NAME,
+                "agent": agent_reviewer.MODEL_NAME,
                 "generated_at": now_iso,
             }
         else:
@@ -2728,7 +2749,7 @@ def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
                 "verdict": v.verdict,
                 "confidence": v.confidence,
                 "reasoning": v.reasoning,
-                "agent": claude_reviewer.MODEL_NAME,
+                "agent": agent_reviewer.MODEL_NAME,
                 "generated_at": now_iso,
             }
         snapshot.metadata = _merge_agent_review(snapshot.metadata, verdict_payload)
@@ -2752,7 +2773,7 @@ def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
         "verdict": run_verdict,
         "confidence": run_confidence,
         "summary": run_summary,
-        "agent": claude_reviewer.MODEL_NAME,
+        "agent": agent_reviewer.MODEL_NAME,
         "generated_at": now_iso,
         "snapshot_count": len(signals),
     }
