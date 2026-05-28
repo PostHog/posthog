@@ -7,11 +7,11 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconChevronDown, IconOpenInNew, IconPencil, IconX } from '@posthog/icons'
+import { IconChevronDown, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonMenu, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
-import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
