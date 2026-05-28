@@ -3,6 +3,30 @@
 Use Playwright MCP as the browser lens. Prefer user-visible assertions over
 implementation assertions.
 
+## MCP Availability
+
+This skill requires browser MCP/tooling. If no Playwright/browser MCP tools are
+available in the current session, stop and ask before configuring anything:
+"I do not see a Playwright/browser MCP tool in this session. Do you want me to
+configure one for this agent environment, or would you prefer to set it up
+yourself? If I configure it, should it be local to this repo/workspace,
+user-wide, or another scope supported by your client?"
+
+Prefer the narrowest non-committed scope that works for the user's current
+client. Never silently edit checked-in repo MCP config such as `.mcp.json`,
+use a project/repo-committed scope, or commit MCP config just to run QA. After
+adding a browser MCP server, tell the user they may need to reconnect/restart
+the agent session before rerunning `qa-frontend`.
+
+Client-specific examples are guidance, not universal instructions:
+
+- Claude Code local scope:
+  `claude mcp add --scope local playwright -- npx -y @playwright/mcp@0.0.75`
+- Cursor or other clients: use that client's local or user MCP settings, not
+  repo-committed config.
+- Codex: use available Browser/Playwright tooling if exposed; otherwise ask the
+  user how they want browser automation configured for their Codex environment.
+
 ## Browser Flow Skeleton
 
 1. `mcp__playwright__browser_navigate` to the target URL.

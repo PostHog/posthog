@@ -23,15 +23,20 @@ import mimetypes
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import requests
 
+load_dotenv_file: Any = None
 try:
-    from dotenv import load_dotenv as load_dotenv_file
+    from dotenv import load_dotenv as _load_dotenv_file
 except ImportError:
-    load_dotenv_file = None
+    pass
+else:
+    load_dotenv_file = _load_dotenv_file
 
 EXIT_NO_CREDENTIALS = 2
+EXIT_PARTIAL = 1
 EXIT_FATAL = 3
 MAX_DESCRIPTION_LEN = 60
 EVIDENCE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
@@ -360,7 +365,11 @@ def main() -> int:
     if output_path:
         output_path.write_text(serialized)
     sys.stdout.write(serialized + "\n")
-    return 0 if not manifest.failed else 1
+    if not manifest.failed:
+        return 0
+    if manifest.uploaded:
+        return EXIT_PARTIAL
+    return EXIT_FATAL
 
 
 if __name__ == "__main__":

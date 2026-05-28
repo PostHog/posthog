@@ -6,6 +6,9 @@ Use this reference after the frontend QA loop completes and findings are settled
 
 PR mode only. Upload is optional and must be explicitly approved before any file
 leaves the developer's machine. Local mode never uploads evidence.
+Use a dedicated Cloudinary account/API key for QA evidence, not a production or
+customer-media account. Treat uploaded files as public PR evidence: anyone with
+the URL may be able to view them.
 
 Required environment variable:
 
@@ -20,12 +23,13 @@ into chat, logs, artifacts, or PR comments.
 The upload script loads the repo `.env` through `python-dotenv`, so no manual
 sourcing is needed when invoking it through `uv run`.
 
-If `CLOUDINARY_URL` is missing, tell the user that evidence cannot be uploaded
-and the PR comment will omit local evidence links. Continue the QA run and
-render a text-only evidence note instead of exposing local filesystem paths.
+If `CLOUDINARY_URL` is missing and the user wants uploaded evidence, tell them
+to add the internal 1Password value to the local repo `.env`, or continue with
+text-only/local evidence. Never expose local filesystem paths in PR comments.
 
-Before upload, show the user the exact upload set and ask for approval. Pick only
-human-facing evidence:
+Before upload, show the user the exact upload set and ask for approval. Upload
+only reviewed screenshots/GIFs that do not show secrets, private customer data,
+or unrelated local context. Pick only human-facing evidence:
 
 - `frontend-qa.gif`, only if generated and inspected as readable
 - 1-3 key screenshots that match the findings or PASS narrative
@@ -55,7 +59,7 @@ The script emits a manifest JSON with `uploaded`, `failed`, and
 - `0` - at least one file uploaded, none failed
 - `1` - partial failure, some files uploaded
 - `2` - `CLOUDINARY_URL` missing, nothing attempted
-- `3` - fatal error
+- `3` - fatal error, or upload attempted but no files uploaded
 
 Substitute uploaded URLs into the PR comment using the `url` field from each
 `uploaded` entry. Do not reconstruct URLs from `public_id`.
