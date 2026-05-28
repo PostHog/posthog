@@ -35,14 +35,46 @@ export interface EventIngestionRestrictionManagerOptions {
  * - OR within each filter type (value in set)
  * - Empty filter = matches all (neutral in AND)
  *
- * Constructed by `EventIngestionRestrictionManagerScope.start()` with a
- * primed background refresher; the class itself has no lifecycle methods.
+ * The constructor does not prime the cache; call `prime()` (or wrap
+ * construction in `EventIngestionRestrictionManagerScope`) to await
+ * the initial load.
  */
 export class EventIngestionRestrictionManager {
-    constructor(
-        private readonly staticRestrictionMap: RestrictionMap,
-        private readonly dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
-    ) {}
+    private redisPool: GenericPool<Redis>
+    private pipeline: IngestionPipeline
+    private staticRestrictionMap: RestrictionMap = new RestrictionMap()
+    private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
+
+    constructor(redisPool: GenericPool<Redis>, options: EventIngestionRestrictionManagerOptions = {}) {
+        const {
+            pipeline = 'analytics',
+            staticDropEventTokens = [],
+            staticSkipPersonTokens = [],
+            staticForceOverflowTokens = [],
+            staticRedirectToDlqTokens = [],
+        } = options
+
+        this.redisPool = redisPool
+        this.pipeline = pipeline
+
+        this.addStaticRestrictions(RestrictionType.DROP_EVENT, staticDropEventTokens)
+        this.addStaticRestrictions(RestrictionType.SKIP_PERSON_PROCESSING, staticSkipPersonTokens)
+        this.addStaticRestrictions(RestrictionType.FORCE_OVERFLOW, staticForceOverflowTokens)
+        this.addStaticRestrictions(RestrictionType.REDIRECT_TO_DLQ, staticRedirectToDlqTokens)
+
+        this.dynamicConfigRefresher = new BackgroundRefresher(async () => {
+            logger.debug('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
+            return await this.buildRestrictionMap()
+        })
+    }
+
+    async prime(): Promise<void> {
+        // Failures are logged but don't surface — static restrictions still
+        // apply, and `tryGet` will retry in the background on subsequent reads.
+        await this.dynamicConfigRefresher.get().catch((error) => {
+            logger.error('Failed to initialize event ingestion restriction config', { error })
+        })
+    }
 
     async forceRefresh(): Promise<void> {
         await this.dynamicConfigRefresher.refresh()
@@ -53,17 +85,113 @@ export class EventIngestionRestrictionManager {
         if (!token) {
             return EMPTY_RESTRICTIONS
         }
-        const restrictionMap = this.dynamicConfigRefresher.tryGet() ?? this.staticRestrictionMap
-        return restrictionMap.getRestrictions(token, headers)
+        const restrictionManager = this.dynamicConfigRefresher.tryGet() ?? this.staticRestrictionMap
+        return restrictionManager.getRestrictions(token, headers)
+    }
+
+    private addStaticRestrictions(restrictionType: RestrictionType, entries: string[]): void {
+        for (const entry of entries) {
+            // Static config supports: token, token:distinct_id (legacy), token:distinct_id:value
+            if (entry.includes(':distinct_id:')) {
+                const [token, , distinctId] = entry.split(':')
+                const filters = new RestrictionFilters({ distinctIds: [distinctId] })
+                this.staticRestrictionMap.addRestriction(token, {
+                    restrictionType,
+                    scope: { type: 'filtered', filters },
+                })
+            } else if (entry.includes(':')) {
+                // Legacy format: token:distinct_id
+                const [token, distinctId] = entry.split(':')
+                const filters = new RestrictionFilters({ distinctIds: [distinctId] })
+                this.staticRestrictionMap.addRestriction(token, {
+                    restrictionType,
+                    scope: { type: 'filtered', filters },
+                })
+            } else {
+                this.staticRestrictionMap.addRestriction(entry, {
+                    restrictionType,
+                    scope: { type: 'all' },
+                })
+            }
+        }
+    }
+
+    private async buildRestrictionMap(): Promise<RestrictionMap> {
+        const manager = new RestrictionMap()
+        manager.merge(this.staticRestrictionMap)
+
+        const dynamicRules = await this.fetchDynamicRestrictionsFromRedis()
+        for (const { token, rule } of dynamicRules) {
+            manager.addRestriction(token, rule)
+        }
+
+        return manager
+    }
+
+    private async fetchDynamicRestrictionsFromRedis(): Promise<{ token: string; rule: RestrictionRule }[]> {
+        const rules: { token: string; rule: RestrictionRule }[] = []
+
+        try {
+            const redisClient = await this.redisPool.acquire()
+            try {
+                const pipeline = redisClient.pipeline()
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.SKIP_PERSON_PROCESSING}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_DLQ}`)
+                const [dropResult, skipResult, overflowResult, dlqResult] = await pipeline.exec()
+
+                const processRedisResult = (redisResult: any, restrictionType: RestrictionType) => {
+                    if (!redisResult?.[1]) {
+                        return
+                    }
+
+                    try {
+                        const json = parseJSON(redisResult[1] as string)
+                        const parseResult = RedisRestrictionArraySchema.safeParse(json)
+
+                        if (!parseResult.success) {
+                            logger.warn(`Failed to parse Redis restriction config for ${restrictionType}`, {
+                                error: parseResult.error,
+                            })
+                            return
+                        }
+
+                        for (const item of parseResult.data) {
+                            if (!item.pipelines || !item.pipelines.includes(this.pipeline)) {
+                                continue
+                            }
+
+                            const rule = toRestrictionRule(item, restrictionType)
+                            rules.push({ token: item.token, rule })
+                        }
+                    } catch (error) {
+                        logger.warn(`Failed to parse JSON for ${restrictionType}`, { error })
+                    }
+                }
+
+                processRedisResult(dropResult, RestrictionType.DROP_EVENT)
+                processRedisResult(skipResult, RestrictionType.SKIP_PERSON_PROCESSING)
+                processRedisResult(overflowResult, RestrictionType.FORCE_OVERFLOW)
+                processRedisResult(dlqResult, RestrictionType.REDIRECT_TO_DLQ)
+            } catch (error) {
+                logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })
+            } finally {
+                await this.redisPool.release(redisClient)
+            }
+        } catch (error) {
+            logger.warn('Error acquiring Redis client from pool for token restrictions', { error })
+        }
+
+        return rules
     }
 }
 
 /**
- * Lifecycle owner for `EventIngestionRestrictionManager`. `start()` builds
- * the static restriction map from the supplied options, sets up the
- * background refresher that fetches dynamic config from Redis, primes the
- * cache, and constructs the manager with everything ready. The returned
- * manager has no lifecycle of its own.
+ * Scope entry for `EventIngestionRestrictionManager`. `start()` constructs
+ * the manager from the supplied options and awaits the initial cache
+ * prime before handing it back. Stop is a no-op — the manager doesn't
+ * hold lifetime-bound resources directly.
  */
 export class EventIngestionRestrictionManagerScope {
     constructor(
@@ -72,130 +200,8 @@ export class EventIngestionRestrictionManagerScope {
     ) {}
 
     async start(): Promise<{ value: EventIngestionRestrictionManager; stop: () => Promise<void> }> {
-        const {
-            pipeline = 'analytics',
-            staticDropEventTokens = [],
-            staticSkipPersonTokens = [],
-            staticForceOverflowTokens = [],
-            staticRedirectToDlqTokens = [],
-        } = this.options
-
-        const staticRestrictionMap = new RestrictionMap()
-        addStaticRestrictions(staticRestrictionMap, RestrictionType.DROP_EVENT, staticDropEventTokens)
-        addStaticRestrictions(staticRestrictionMap, RestrictionType.SKIP_PERSON_PROCESSING, staticSkipPersonTokens)
-        addStaticRestrictions(staticRestrictionMap, RestrictionType.FORCE_OVERFLOW, staticForceOverflowTokens)
-        addStaticRestrictions(staticRestrictionMap, RestrictionType.REDIRECT_TO_DLQ, staticRedirectToDlqTokens)
-
-        const redisPool = this.redisPool
-        const dynamicConfigRefresher = new BackgroundRefresher(async () => {
-            logger.debug('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
-            const manager = new RestrictionMap()
-            manager.merge(staticRestrictionMap)
-            const dynamicRules = await fetchDynamicRestrictionsFromRedis(redisPool, pipeline)
-            for (const { token, rule } of dynamicRules) {
-                manager.addRestriction(token, rule)
-            }
-            return manager
-        })
-
-        // Prime the dynamic config cache. Failures are logged but don't block
-        // start — static restrictions still apply, and `tryGet` will retry in
-        // the background on subsequent reads.
-        await dynamicConfigRefresher.get().catch((error) => {
-            logger.error('Failed to initialize event ingestion restriction config', { error })
-        })
-
-        return {
-            value: new EventIngestionRestrictionManager(staticRestrictionMap, dynamicConfigRefresher),
-            stop: () => Promise.resolve(),
-        }
+        const manager = new EventIngestionRestrictionManager(this.redisPool, this.options)
+        await manager.prime()
+        return { value: manager, stop: () => Promise.resolve() }
     }
-}
-
-function addStaticRestrictions(map: RestrictionMap, restrictionType: RestrictionType, entries: string[]): void {
-    for (const entry of entries) {
-        // Static config supports: token, token:distinct_id (legacy), token:distinct_id:value
-        if (entry.includes(':distinct_id:')) {
-            const [token, , distinctId] = entry.split(':')
-            const filters = new RestrictionFilters({ distinctIds: [distinctId] })
-            map.addRestriction(token, {
-                restrictionType,
-                scope: { type: 'filtered', filters },
-            })
-        } else if (entry.includes(':')) {
-            // Legacy format: token:distinct_id
-            const [token, distinctId] = entry.split(':')
-            const filters = new RestrictionFilters({ distinctIds: [distinctId] })
-            map.addRestriction(token, {
-                restrictionType,
-                scope: { type: 'filtered', filters },
-            })
-        } else {
-            map.addRestriction(entry, {
-                restrictionType,
-                scope: { type: 'all' },
-            })
-        }
-    }
-}
-
-async function fetchDynamicRestrictionsFromRedis(
-    redisPool: GenericPool<Redis>,
-    pipeline: IngestionPipeline
-): Promise<{ token: string; rule: RestrictionRule }[]> {
-    const rules: { token: string; rule: RestrictionRule }[] = []
-
-    try {
-        const redisClient = await redisPool.acquire()
-        try {
-            const redisPipeline = redisClient.pipeline()
-            redisPipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`)
-            redisPipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.SKIP_PERSON_PROCESSING}`)
-            redisPipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
-            redisPipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_DLQ}`)
-            const [dropResult, skipResult, overflowResult, dlqResult] = await redisPipeline.exec()
-
-            const processRedisResult = (redisResult: any, restrictionType: RestrictionType) => {
-                if (!redisResult?.[1]) {
-                    return
-                }
-
-                try {
-                    const json = parseJSON(redisResult[1] as string)
-                    const parseResult = RedisRestrictionArraySchema.safeParse(json)
-
-                    if (!parseResult.success) {
-                        logger.warn(`Failed to parse Redis restriction config for ${restrictionType}`, {
-                            error: parseResult.error,
-                        })
-                        return
-                    }
-
-                    for (const item of parseResult.data) {
-                        if (!item.pipelines || !item.pipelines.includes(pipeline)) {
-                            continue
-                        }
-
-                        const rule = toRestrictionRule(item, restrictionType)
-                        rules.push({ token: item.token, rule })
-                    }
-                } catch (error) {
-                    logger.warn(`Failed to parse JSON for ${restrictionType}`, { error })
-                }
-            }
-
-            processRedisResult(dropResult, RestrictionType.DROP_EVENT)
-            processRedisResult(skipResult, RestrictionType.SKIP_PERSON_PROCESSING)
-            processRedisResult(overflowResult, RestrictionType.FORCE_OVERFLOW)
-            processRedisResult(dlqResult, RestrictionType.REDIRECT_TO_DLQ)
-        } catch (error) {
-            logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })
-        } finally {
-            await redisPool.release(redisClient)
-        }
-    } catch (error) {
-        logger.warn('Error acquiring Redis client from pool for token restrictions', { error })
-    }
-
-    return rules
 }
