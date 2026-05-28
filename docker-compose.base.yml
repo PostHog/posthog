@@ -265,6 +265,20 @@ services:
             - --
         command:
             ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
+        # Without this, bin/wait-for-docker treats the container as ready the instant
+        # weed execs, which races the bucket bootstrap loop. The previous MinIO config
+        # `mkdir -p ... && minio server` created buckets BEFORE the server started, so
+        # there was no race; SeaweedFS creates them via `weed shell` after startup.
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'L=$$(echo s3.bucket.list | /usr/bin/weed shell -master=localhost:19001 2>&1); echo "$$L" | grep -q posthog && echo "$$L" | grep -q ducklake-dev && echo "$$L" | grep -q ai-blobs',
+                ]
+            interval: 5s
+            timeout: 10s
+            retries: 30
+            start_period: 10s
 
     objectstorage-azure:
         image: mcr.microsoft.com/azure-storage/azurite:3.35.0

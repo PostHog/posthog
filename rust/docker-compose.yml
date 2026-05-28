@@ -86,6 +86,17 @@ services:
             - --
         command:
             ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
+        # See the matching healthcheck on the dev objectstorage in docker-compose.base.yml.
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'L=$$(echo s3.bucket.list | /usr/bin/weed shell -master=localhost:19001 2>&1); echo "$$L" | grep -q capture && echo "$$L" | grep -q posthog',
+                ]
+            interval: 5s
+            timeout: 10s
+            retries: 30
+            start_period: 10s
 
     kafka-ui:
         image: provectuslabs/kafka-ui:latest
