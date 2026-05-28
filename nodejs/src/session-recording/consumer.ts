@@ -82,11 +82,20 @@ export class SessionRecordingIngester {
     private readonly eventIngestionRestrictionManagerScope: EventIngestionRestrictionManagerScope
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
+    private sessionReplayPipeline!: BatchPipelineUnwrapper<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         { message: Message },
         OverflowOutput
+    >
+    private readonly outputs: IngestionOutputs<
+        | IngestionWarningsOutput
+        | DlqOutput
+        | OverflowOutput
+        | TophogOutput
+        | LogEntriesOutput
+        | ReplayEventsOutput
+        | SessionFeaturesOutput
     >
     private readonly topHog: TopHog
     private readonly keyStore: KeyStore
@@ -123,6 +132,7 @@ export class SessionRecordingIngester {
 
         this.redisPool = redisPool
         this.restrictionRedisPool = restrictionRedisPool
+        this.outputs = outputs
 
         let s3Client: S3Client | null = null
         if (
@@ -213,17 +223,6 @@ export class SessionRecordingIngester {
             keyStore: this.keyStore,
             encryptor: this.encryptor,
         })
-
-        this.sessionReplayPipeline = createSessionReplayPipeline({
-            outputs,
-            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
-            promiseScheduler: this.promiseScheduler,
-            teamService: this.teamService,
-            topHog: this.topHog,
-            sessionBatchManager: this.sessionBatchManager,
-            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
-        })
     }
 
     public get service(): PluginServerService {
@@ -289,6 +288,17 @@ export class SessionRecordingIngester {
         const started = await this.eventIngestionRestrictionManagerScope.start()
         this.eventIngestionRestrictionManager = started.value
         this.stopEventIngestionRestrictionManager = started.stop
+
+        this.sessionReplayPipeline = createSessionReplayPipeline({
+            outputs: this.outputs,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowEnabled: this.overflowEnabled(),
+            promiseScheduler: this.promiseScheduler,
+            teamService: this.teamService,
+            topHog: this.topHog,
+            sessionBatchManager: this.sessionBatchManager,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
+        })
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio

@@ -336,8 +336,10 @@ export class IngestionGeneralServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
-            postgres: this.postgres,
+            // `redisPool` and `postgres` are owned by `sharedInfraScope` and
+            // get torn down by `stopSharedServices()` below. Only
+            // cookielessRedisPool stays here — it's not on the scope.
+            redisPools: [this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             pubsub: this.pubsub,
             additionalCleanup: async () => {
                 this.cookielessManager?.shutdown()
