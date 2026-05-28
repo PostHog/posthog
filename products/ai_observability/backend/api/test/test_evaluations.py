@@ -3,6 +3,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
@@ -460,7 +461,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
         self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
 
-    @pytest.mark.parametrize("rollout_percentage", [-1, 101, 150])
+    @parameterized.expand([(-1,), (101,), (150,)])
     def test_rollout_percentage_out_of_range_rejected(self, rollout_percentage):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
