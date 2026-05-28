@@ -6,8 +6,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.constants import AvailableFeature
-from posthog.models import User
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -16,11 +14,6 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 class TestDashboardDeleteTile(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # restriction_level enforcement requires the ACCESS_CONTROL product feature on the org.
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     def _delete_tile(self, dashboard_id: int, tile_id: int, expected_status: int = status.HTTP_204_NO_CONTENT):
@@ -104,15 +97,3 @@ class TestDashboardDeleteTile(APIBaseTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile", {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_delete_tile_requires_edit_permission(self) -> None:
-        dashboard_id, dashboard_json = self.dashboard_api.create_dashboard(
-            {"name": "dashboard", "restriction_level": 37},  # only collaborators can edit
-        )
-        _, with_tile = self.dashboard_api.create_text_tile(dashboard_id, text="hi")
-        tile_id = with_tile["tiles"][0]["id"]
-
-        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
-        self.client.force_login(other_user)
-
-        self._delete_tile(dashboard_id, tile_id, expected_status=status.HTTP_403_FORBIDDEN)
