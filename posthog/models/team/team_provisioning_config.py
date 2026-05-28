@@ -25,5 +25,10 @@ class TeamProvisioningConfig(models.Model):
     stripe_project_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
     service_id = models.CharField(max_length=255, default="analytics")
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["application", "stripe_project_id"], name="tpc_app_stripe_proj_idx"),
+        ]
+
 
 register_team_extension_signal(TeamProvisioningConfig, logger=logger)
