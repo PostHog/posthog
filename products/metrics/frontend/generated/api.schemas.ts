@@ -22,3 +22,5 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
+
+export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown }

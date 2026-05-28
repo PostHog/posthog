@@ -188,7 +188,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self,
         *,
         ai_product: str = "posthog_code",
-        model: str = "claude-opus-4-7",
+        model: str = "claude-opus-4-8",
         tool: str | None = "Bash",
         trace_id: str = "trace-1",
         cost: float = 1.5,
@@ -324,7 +324,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             properties={
                 "$ai_total_cost_usd": 999.99,
                 "ai_product": "posthog_code",
-                "$ai_model": "claude-opus-4-7",
+                "$ai_model": "claude-opus-4-8",
                 "$ai_tools_called": "Bash",
                 "$ai_trace_id": "their-trace",
             },

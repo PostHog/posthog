@@ -38088,6 +38088,21 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    export interface VisionQuota {
+      /** Total observations the org may complete per calendar month. */
+      readonly monthly_quota: number;
+      /** Observations created this month that are in flight or have succeeded, counted against the quota. */
+      readonly usage_this_month: number;
+      /** `monthly_quota - usage_this_month`, floored at 0. */
+      readonly remaining: number;
+      /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+      readonly exhausted: boolean;
+      /** First moment of the current quota period (UTC). */
+      readonly period_start: string;
+      /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+      readonly period_end: string;
+    }
+
     /**
      * * `pending` - pending
     * `provisioning` - provisioning
@@ -40784,6 +40799,8 @@ export namespace Schemas {
       Log: 'log',
       Resource: 'resource',
     } as const;
+
+    export type EnvironmentsMetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsPersistedFolderListParams = {
     /**
@@ -46255,6 +46272,8 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
     export type NotebooksListParams = {
     /**

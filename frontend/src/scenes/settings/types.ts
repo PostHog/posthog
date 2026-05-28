@@ -44,6 +44,7 @@ export type SettingSectionId =
     | 'environment-discussions'
     | 'environment-access-control'
     | 'environment-secret-api-keys'
+    | 'environment-exports'
     | 'environment-danger-zone'
     | 'project-details'
     | 'project-danger-zone'
