@@ -29,8 +29,6 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
-    supports_column_selection: bool = True
-
     @property
     def get_implementation(self) -> BigQueryImplementation:
         return _BIGQUERY_IMPLEMENTATION

@@ -98,18 +98,6 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 
-# SQL sources whose `SQLSource.supports_column_selection` is `True`. Used by the create flow at
-# `_create_schemas_for_new_source` to gate `schema_metadata` writes. Kept as a literal set so
-# test mocks of `SourceRegistry.get_source` don't need to satisfy an `isinstance(SQLSource)` check.
-_SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION: set[ExternalDataSourceType] = {
-    ExternalDataSourceType.POSTGRES,
-    ExternalDataSourceType.MYSQL,
-    ExternalDataSourceType.MSSQL,
-    ExternalDataSourceType.BIGQUERY,
-    ExternalDataSourceType.SNOWFLAKE,
-    ExternalDataSourceType.REDSHIFT,
-}
-
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
     "timed out": "Connection timed out while fetching schemas from the source.",
@@ -1265,11 +1253,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
 
-            # Postgres has its own location resolver (dotted-name fallback, `public` default).
-            # Other SQL sources take the driver-discovered values verbatim from `SourceSchema`.
-            # `postgres_db_*` are the Postgres-only resolved values (guaranteed `str` by the
-            # wrapper) used by the CDC publication + direct-postgres paths below, which only
-            # run for Postgres anyway.
+            # `postgres_db_*` feed CDC + direct-postgres paths that only run for Postgres.
             metadata_source_catalog: str | None
             metadata_source_schema: str | None
             metadata_source_table_name: str | None
@@ -1297,7 +1281,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema=metadata_source_schema,
                     source_table_name=metadata_source_table_name,
                 )
-                if source_type_model in _SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION
+                if bool(getattr(source, "supports_column_selection", False))
                 else {}
             )
 
@@ -1765,9 +1749,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif ExternalDataSourceType(instance.source_type) in _SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION and isinstance(
-                source, SQLSource
-            ):
+            elif isinstance(source, SQLSource) and source.supports_column_selection:
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",

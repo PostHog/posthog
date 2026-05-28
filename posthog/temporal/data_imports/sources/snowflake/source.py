@@ -33,8 +33,6 @@ SnowflakeErrors = {
 
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
-    supports_column_selection: bool = True
-
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION

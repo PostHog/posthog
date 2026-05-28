@@ -85,9 +85,6 @@ export default function SchemaForm(): JSX.Element {
         toggleSchemaShouldSync(schema, checked)
     }
 
-    // Gate on the driver's `supports_column_selection`: legacy gating only checked direct-query
-    // mode, which left non-Postgres sources showing a picker whose selection was silently
-    // ignored at sync time.
     const shouldShowSyncColumns = !isDirectQueryMode && !!selectedConnector?.supportsColumnSelection
 
     // scroll to top of container
