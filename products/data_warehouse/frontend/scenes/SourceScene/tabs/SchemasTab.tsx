@@ -33,7 +33,6 @@ import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/comp
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
-import { ColumnSelectionModal } from './ColumnSelectionModal'
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -92,9 +91,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
     const prefixedSourceId = `managed-${id}`
-
-    const [columnModalSchema, setColumnModalSchema] = useState<ExternalDataSourceSchema | null>(null)
-    const supportsColumnSelection = source?.supports_column_selection ?? false
 
     return (
         <>
@@ -173,18 +169,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 cancelSchema={cancelSchema}
                 deleteTable={deleteTable}
                 showMetrics={showMetrics}
-                onConfigureColumns={supportsColumnSelection ? setColumnModalSchema : undefined}
-            />
-            <ColumnSelectionModal
-                isOpen={columnModalSchema !== null}
-                schema={columnModalSchema}
-                onClose={() => setColumnModalSchema(null)}
-                onSave={(enabledColumns) => {
-                    if (columnModalSchema) {
-                        updateSchema({ ...columnModalSchema, enabled_columns: enabledColumns })
-                    }
-                    setColumnModalSchema(null)
-                }}
             />
             {source?.source_type &&
                 REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
@@ -226,7 +210,6 @@ interface ManagedSchemaTableProps {
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
-    onConfigureColumns?: (schema: ExternalDataSourceSchema) => void
 }
 
 function ManagedSchemaTable({
@@ -241,7 +224,6 @@ function ManagedSchemaTable({
     cancelSchema,
     deleteTable,
     showMetrics,
-    onConfigureColumns,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
@@ -457,17 +439,6 @@ function ManagedSchemaTable({
                         }
                         return (
                             <div className="flex justify-end items-center gap-1">
-                                {onConfigureColumns && (
-                                    <SourceEditorAction source={source}>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => onConfigureColumns(schema)}
-                                        >
-                                            Columns
-                                        </LemonButton>
-                                    </SourceEditorAction>
-                                )}
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
