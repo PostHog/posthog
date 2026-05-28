@@ -337,6 +337,25 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
 
+    def test_authorize_with_prompt_none_authenticated_does_not_crash(self):
+        # Regression: a missing `validate_silent_login` override on OAuthValidator caused
+        # oauthlib to raise NotImplementedError -> 500 whenever an OIDC client sent
+        # `prompt=none` with the `openid` scope.
+        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_authorize_with_prompt_none_unauthenticated_redirects_to_login(self):
+        self.client.logout()
+        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login?next=/oauth/authorize/", response["Location"])
+
     def test_cannot_get_token_with_invalid_code(self):
         data = {
             "grant_type": "authorization_code",
