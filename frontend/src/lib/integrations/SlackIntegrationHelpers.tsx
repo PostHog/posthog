@@ -74,6 +74,7 @@ export type SlackChannelPickerProps = {
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
     const {
         slackChannels,
+        allSlackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
         isMemberOfSlackChannel,
@@ -165,6 +166,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 }
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+
+            {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    Only the first 200 channels are shown — type to search for a specific channel.
+                </p>
+            ) : null}
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">
