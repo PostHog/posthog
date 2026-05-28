@@ -271,7 +271,10 @@ describe('janitor HTTP', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 'mem://b',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'chat', config: { require_auth: false } }],
+            }),
         })
         const app = buildJanitorApp({
             queue,

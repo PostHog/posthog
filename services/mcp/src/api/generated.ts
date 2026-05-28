@@ -3851,6 +3851,121 @@ export namespace Schemas {
       tools: AgentNativeToolEntry[];
     }
 
+    export type AgentRevisionSpecTriggersItem = {
+      type: 'slack';
+      config: {
+      channel_id?: string;
+      mention_only: boolean;
+      trusted_workspaces: string[] | '*';
+    };
+    } | {
+      type: 'webhook';
+      config: {
+      path: string;
+      secret?: string;
+    };
+    } | {
+      type: 'cron';
+      config: {
+      schedule: string;
+      timezone: string;
+    };
+    } | {
+      type: 'chat';
+      config: {
+      require_auth: boolean;
+    };
+    } | {
+      type: 'mcp';
+      config: { [key: string]: unknown };
+    };
+
+    export type AgentRevisionSpecToolsItem = {
+      kind: 'native';
+      id: string;
+    } | {
+      kind: 'custom';
+      id: string;
+      path: string;
+    };
+
+    export type AgentRevisionSpecMcpsItem = {
+      kind: 'agent';
+      slug: string;
+    } | {
+      kind: 'external';
+      url: string;
+      auth?: {
+      integration?: string;
+    };
+      allowlist?: string[];
+    };
+
+    export type AgentRevisionSpecSkillsItem = {
+      id: string;
+      path: string;
+      description?: string;
+    };
+
+    export type AgentRevisionSpecLimits = {
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_turns: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_tool_calls: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_wall_seconds: number;
+    };
+
+    export type AgentRevisionSpecAuthMode = typeof AgentRevisionSpecAuthMode[keyof typeof AgentRevisionSpecAuthMode];
+
+
+    export const AgentRevisionSpecAuthMode = {
+      Public: 'public',
+      Pat: 'pat',
+      PosthogInternal: 'posthog_internal',
+      SharedSecret: 'shared_secret',
+    } as const;
+
+    export type AgentRevisionSpecAuth = {
+      mode: AgentRevisionSpecAuthMode;
+      header?: string;
+    };
+
+    export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
+
+
+    export const AgentRevisionSpecReasoning = {
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+    } as const;
+
+    export type AgentRevisionSpec = {
+      /** @minLength 1 */
+      model: string;
+      triggers: AgentRevisionSpecTriggersItem[];
+      tools: AgentRevisionSpecToolsItem[];
+      mcps: AgentRevisionSpecMcpsItem[];
+      skills: AgentRevisionSpecSkillsItem[];
+      integrations: string[];
+      secrets: string[];
+      limits: AgentRevisionSpecLimits;
+      entrypoint: string;
+      auth: AgentRevisionSpecAuth;
+      reasoning?: AgentRevisionSpecReasoning;
+    };
+
     /**
      * * `draft` - draft
     * `ready` - ready
@@ -3876,8 +3991,7 @@ export namespace Schemas {
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256: string | null;
-      /** Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec. */
-      spec?: unknown;
+      spec?: AgentRevisionSpec;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -26817,6 +26931,121 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export type PatchedAgentRevisionSpecTriggersItem = {
+      type: 'slack';
+      config: {
+      channel_id?: string;
+      mention_only: boolean;
+      trusted_workspaces: string[] | '*';
+    };
+    } | {
+      type: 'webhook';
+      config: {
+      path: string;
+      secret?: string;
+    };
+    } | {
+      type: 'cron';
+      config: {
+      schedule: string;
+      timezone: string;
+    };
+    } | {
+      type: 'chat';
+      config: {
+      require_auth: boolean;
+    };
+    } | {
+      type: 'mcp';
+      config: { [key: string]: unknown };
+    };
+
+    export type PatchedAgentRevisionSpecToolsItem = {
+      kind: 'native';
+      id: string;
+    } | {
+      kind: 'custom';
+      id: string;
+      path: string;
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItem = {
+      kind: 'agent';
+      slug: string;
+    } | {
+      kind: 'external';
+      url: string;
+      auth?: {
+      integration?: string;
+    };
+      allowlist?: string[];
+    };
+
+    export type PatchedAgentRevisionSpecSkillsItem = {
+      id: string;
+      path: string;
+      description?: string;
+    };
+
+    export type PatchedAgentRevisionSpecLimits = {
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_turns: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_tool_calls: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_wall_seconds: number;
+    };
+
+    export type PatchedAgentRevisionSpecAuthMode = typeof PatchedAgentRevisionSpecAuthMode[keyof typeof PatchedAgentRevisionSpecAuthMode];
+
+
+    export const PatchedAgentRevisionSpecAuthMode = {
+      Public: 'public',
+      Pat: 'pat',
+      PosthogInternal: 'posthog_internal',
+      SharedSecret: 'shared_secret',
+    } as const;
+
+    export type PatchedAgentRevisionSpecAuth = {
+      mode: PatchedAgentRevisionSpecAuthMode;
+      header?: string;
+    };
+
+    export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
+
+
+    export const PatchedAgentRevisionSpecReasoning = {
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+    } as const;
+
+    export type PatchedAgentRevisionSpec = {
+      /** @minLength 1 */
+      model: string;
+      triggers: PatchedAgentRevisionSpecTriggersItem[];
+      tools: PatchedAgentRevisionSpecToolsItem[];
+      mcps: PatchedAgentRevisionSpecMcpsItem[];
+      skills: PatchedAgentRevisionSpecSkillsItem[];
+      integrations: string[];
+      secrets: string[];
+      limits: PatchedAgentRevisionSpecLimits;
+      entrypoint: string;
+      auth: PatchedAgentRevisionSpecAuth;
+      reasoning?: PatchedAgentRevisionSpecReasoning;
+    };
+
     export interface PatchedAgentRevision {
       readonly id?: string;
       readonly application?: string;
@@ -26826,8 +27055,7 @@ export namespace Schemas {
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256?: string | null;
-      /** Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec. */
-      spec?: unknown;
+      spec?: PatchedAgentRevisionSpec;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;

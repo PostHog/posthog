@@ -18,6 +18,7 @@ import { AgentRevision, BundleStore } from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
 
 export type ValidationCode =
+    | 'no_triggers'
     | 'missing_entrypoint'
     | 'unknown_native_tool'
     | 'missing_custom_tool_compiled'
@@ -43,6 +44,17 @@ export interface ValidationReport {
 export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleStore): Promise<ValidationReport> {
     const errors: ValidationError[] = []
     const resolvedNatives: string[] = []
+
+    // An agent with no triggers has no surface to be invoked through — every
+    // /run / /webhook / cron tick would 404 with `no_*_trigger`. Treat as a
+    // hard error at freeze so we can't promote a dead-on-arrival revision.
+    if (rev.spec.triggers.length === 0) {
+        errors.push({
+            code: 'no_triggers',
+            message: 'spec.triggers is empty; the agent has no entry points and cannot be invoked',
+            pointer: 'spec.triggers',
+        })
+    }
 
     const entrypoint = rev.spec.entrypoint || 'agent.md'
     if (!(await bundle.exists(rev.id, entrypoint))) {

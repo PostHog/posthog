@@ -382,6 +382,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             if (!ok) {
                 return
             }
+            // Validate before freezing — freeze is the contract that says
+            // "this is a real candidate for running." A revision that would
+            // fail validation can't pass that gate; otherwise we'd ship dead
+            // agents like the original Hedgebox Helper v2 (empty triggers).
+            const report = await validateRevisionBundle(ok.rev!, opts.bundles!)
+            if (!report.ok) {
+                res.status(422).json({ error: 'validation_failed', report })
+                return
+            }
             const sha = await opts.bundles!.freeze(req.params.id)
             // Stamp the sha + flip the row to `ready` so the runner can pick it
             // up via `setLiveRevision` later. Two writes; the second is the

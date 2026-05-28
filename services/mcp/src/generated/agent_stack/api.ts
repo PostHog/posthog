@@ -142,16 +142,172 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 })
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault = true
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = {}
+export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsDefault = 50
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxToolCallsDefault = 200
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxToolCallsExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxToolCallsMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsDefault = 900
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
+    max_turns: 50,
+    max_tool_calls: 200,
+    max_wall_seconds: 900,
+}
+export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsCreateBodySpecAuthModeDefault = `public`
+export const agentApplicationsRevisionsCreateBodySpecAuthDefault = { mode: 'public' }
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
     bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
     spec: zod
-        .unknown()
-        .optional()
-        .describe(
-            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec."
-        ),
+        .object({
+            model: zod.string().min(1),
+            triggers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            type: zod.literal('slack'),
+                            config: zod.object({
+                                channel_id: zod.string().optional(),
+                                mention_only: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault
+                                    ),
+                                trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('webhook'),
+                            config: zod.object({
+                                path: zod.string(),
+                                secret: zod.string().optional(),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('cron'),
+                            config: zod.object({
+                                schedule: zod.string(),
+                                timezone: zod
+                                    .string()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault
+                                    ),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('chat'),
+                            config: zod.object({
+                                require_auth: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault
+                                    ),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('mcp'),
+                            config: zod
+                                .object({})
+                                .default(agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecTriggersDefault),
+            tools: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('native'),
+                            id: zod.string(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('custom'),
+                            id: zod.string(),
+                            path: zod.string(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecToolsDefault),
+            mcps: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('agent'),
+                            slug: zod.string(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('external'),
+                            url: zod.url(),
+                            auth: zod
+                                .object({
+                                    integration: zod.string().optional(),
+                                })
+                                .optional(),
+                            allowlist: zod.array(zod.string()).optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecMcpsDefault),
+            skills: zod
+                .array(
+                    zod.object({
+                        id: zod.string(),
+                        path: zod.string(),
+                        description: zod.string().optional(),
+                    })
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
+            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
+            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
+            limits: zod
+                .object({
+                    max_turns: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsDefault),
+                    max_tool_calls: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxToolCallsExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxToolCallsMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxToolCallsDefault),
+                    max_wall_seconds: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsDefault),
+                })
+                .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
+            entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
+            auth: zod
+                .object({
+                    mode: zod
+                        .enum(['public', 'pat', 'posthog_internal', 'shared_secret'])
+                        .default(agentApplicationsRevisionsCreateBodySpecAuthModeDefault),
+                    header: zod.string().optional(),
+                })
+                .default(agentApplicationsRevisionsCreateBodySpecAuthDefault),
+            reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+        })
+        .optional(),
 })
 
 /**
@@ -228,15 +384,174 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
         ),
 })
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = {}
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsDefault = 50
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxToolCallsDefault = 200
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxToolCallsExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxToolCallsMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsDefault = 900
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
+    max_turns: 50,
+    max_tool_calls: 200,
+    max_wall_seconds: 900,
+}
+export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModeDefault = `public`
+export const agentApplicationsRevisionsPartialUpdateBodySpecAuthDefault = { mode: 'public' }
+
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
     bundle_uri: zod.string().optional(),
     spec: zod
-        .unknown()
-        .optional()
-        .describe(
-            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec."
-        ),
+        .object({
+            model: zod.string().min(1),
+            triggers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            type: zod.literal('slack'),
+                            config: zod.object({
+                                channel_id: zod.string().optional(),
+                                mention_only: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault
+                                    ),
+                                trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('webhook'),
+                            config: zod.object({
+                                path: zod.string(),
+                                secret: zod.string().optional(),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('cron'),
+                            config: zod.object({
+                                schedule: zod.string(),
+                                timezone: zod
+                                    .string()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault
+                                    ),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('chat'),
+                            config: zod.object({
+                                require_auth: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault
+                                    ),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.literal('mcp'),
+                            config: zod
+                                .object({})
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault),
+            tools: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('native'),
+                            id: zod.string(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('custom'),
+                            id: zod.string(),
+                            path: zod.string(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault),
+            mcps: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('agent'),
+                            slug: zod.string(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('external'),
+                            url: zod.url(),
+                            auth: zod
+                                .object({
+                                    integration: zod.string().optional(),
+                                })
+                                .optional(),
+                            allowlist: zod.array(zod.string()).optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault),
+            skills: zod
+                .array(
+                    zod.object({
+                        id: zod.string(),
+                        path: zod.string(),
+                        description: zod.string().optional(),
+                    })
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
+            integrations: zod
+                .array(zod.string())
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
+            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
+            limits: zod
+                .object({
+                    max_turns: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsDefault),
+                    max_tool_calls: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxToolCallsExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxToolCallsMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxToolCallsDefault),
+                    max_wall_seconds: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsDefault),
+                })
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
+            entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
+            auth: zod
+                .object({
+                    mode: zod
+                        .enum(['public', 'pat', 'posthog_internal', 'shared_secret'])
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecAuthModeDefault),
+                    header: zod.string().optional(),
+                })
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecAuthDefault),
+            reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+        })
+        .optional(),
 })
 
 /**

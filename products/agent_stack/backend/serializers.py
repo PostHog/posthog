@@ -8,9 +8,14 @@ deferred to the eventual MCP redesign (see TODO B5 in agent-shared).
 
 from __future__ import annotations
 
+from typing import Any
+
+import jsonschema
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import AgentApplication, AgentRevision
+from .spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
 
 
 class AgentApplicationSerializer(serializers.ModelSerializer):
@@ -34,20 +39,27 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "team", "live_revision", "archived_at", "created_by", "created_at", "updated_at"]
 
 
+@extend_schema_field(AGENT_SPEC_JSON_SCHEMA)
+class AgentSpecField(serializers.JSONField):
+    """Spec JSON typed against `AGENT_SPEC_JSON_SCHEMA` so drf-spectacular
+    publishes the real shape downstream — generated TS types, MCP tool
+    descriptions, and the OpenAPI doc all see real fields instead of an
+    opaque `{}`."""
+
+
 class AgentRevisionSerializer(serializers.ModelSerializer):
-    spec = serializers.JSONField(
-        required=False,
-        default=dict,
-        help_text=(
-            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema "
-            "(zod) in services/agent-shared/src/spec/spec.ts. "
-            "Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). "
-            "Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, "
-            "`integrations`, `secrets`, `limits`, `entrypoint`, `auth`. "
-            "Do NOT pass `name` / `description` here — those belong on "
-            "AgentApplication, not on the revision spec."
-        ),
-    )
+    spec = AgentSpecField(required=False, default=dict)
+
+    def validate_spec(self, value: Any) -> Any:
+        # Same shape the janitor's `AgentSpecSchema.parse` will reject on
+        # read. Catching it here turns a future 500 / process-level surprise
+        # into a clean 400 at write time.
+        try:
+            jsonschema.validate(value, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE)
+        except jsonschema.ValidationError as e:
+            path = ".".join(str(p) for p in e.absolute_path) or "<root>"
+            raise serializers.ValidationError(f"spec.{path}: {e.message}") from e
+        return value
 
     class Meta:
         model = AgentRevision

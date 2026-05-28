@@ -2,6 +2,9 @@ import { AgentRevision, AgentSpec, AgentSpecSchema, MemoryBundleStore } from '@p
 
 import { validateRevisionBundle } from './validate-spec'
 
+// Default fixture has a `chat` trigger so every test isn't forced to declare
+// one. The `no_triggers` rule is exercised explicitly below by passing
+// `triggers: []`.
 function mkRev(spec: Partial<AgentSpec> = {}): AgentRevision {
     return {
         id: 'rev1',
@@ -12,7 +15,11 @@ function mkRev(spec: Partial<AgentSpec> = {}): AgentRevision {
         state: 'draft',
         bundle_uri: 'mem://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'anthropic/claude-haiku-4-5', ...spec }),
+        spec: AgentSpecSchema.parse({
+            model: 'anthropic/claude-haiku-4-5',
+            triggers: [{ type: 'chat', config: { require_auth: false } }],
+            ...spec,
+        }),
     }
 }
 
@@ -108,6 +115,20 @@ describe('validateRevisionBundle', () => {
                 code: 'missing_skill',
                 message: expect.stringContaining('skills/missing.md'),
                 pointer: 'spec.skills[1].path',
+            },
+        ])
+    })
+
+    it('reports no_triggers when spec.triggers is empty', async () => {
+        const bundles = new MemoryBundleStore()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        const report = await validateRevisionBundle(mkRev({ triggers: [] }), bundles)
+        expect(report.ok).toBe(false)
+        expect(report.errors).toEqual([
+            {
+                code: 'no_triggers',
+                message: expect.stringContaining('no entry points'),
+                pointer: 'spec.triggers',
             },
         ])
     })
