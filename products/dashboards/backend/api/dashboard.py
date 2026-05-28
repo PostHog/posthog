@@ -45,6 +45,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.trigram_search import (
@@ -55,7 +56,6 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
@@ -965,8 +965,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _sync_filesystem_for_insights(insight_ids: list[int], team_id: int) -> None:
         """Re-run FileSystem sync for insights whose ``deleted`` flag was changed via bulk update."""
+        # The default Insight manager excludes deleted=True, so use the unfiltered manager —
+        # this helper is invoked specifically after bulk deletes/undeletes and must see both.
         # nosemgrep: idor-lookup-without-team (caller passed a team-scoped id list)
-        insights = Insight.objects.filter(id__in=insight_ids, team_id=team_id).select_related("team")
+        insights = Insight.objects_including_soft_deleted.filter(id__in=insight_ids, team_id=team_id).select_related(
+            "team"
+        )
         for insight in insights:
             fs_data = insight.get_file_system_representation()
             try:

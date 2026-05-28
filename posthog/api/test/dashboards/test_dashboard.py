@@ -827,9 +827,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         from posthog.models.file_system.file_system import FileSystem
 
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        insight_id, _ = self.dashboard_api.create_insight(
-            {"name": "round-tripped", "dashboards": [dashboard_id]}
-        )
+        insight_id, _ = self.dashboard_api.create_insight({"name": "round-tripped", "dashboards": [dashboard_id]})
         insight = Insight.objects.get(id=insight_id)
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
