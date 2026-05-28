@@ -1,12 +1,50 @@
 import { dayjs } from 'lib/dayjs'
 
+import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+
 import {
+    getDashboardTileDisplayName,
+    isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
+
+describe('getDashboardTileDisplayName', () => {
+    it('uses widget header title when no custom name is set', () => {
+        const tile: DashboardTile<QueryBasedInsightModel> = {
+            id: 1,
+            widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
+            layouts: {},
+            color: null,
+        }
+
+        expect(getDashboardTileDisplayName(tile)).toBe('Top issues')
+    })
+
+    it('uses custom widget name when set', () => {
+        const tile: DashboardTile<QueryBasedInsightModel> = {
+            id: 1,
+            widget: { id: 1, widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
+            layouts: {},
+            color: null,
+        }
+
+        expect(getDashboardTileDisplayName(tile)).toBe('Critical errors')
+    })
+})
+
+describe('isWidgetTileVisibleOnPlacement', () => {
+    it.each([
+        [DashboardPlacement.Dashboard, true],
+        [DashboardPlacement.Public, false],
+        [DashboardPlacement.Export, false],
+    ])('placement=%s → %s', (placement, expected) => {
+        expect(isWidgetTileVisibleOnPlacement(placement)).toBe(expected)
+    })
+})
 
 describe('parseURLVariables', () => {
     it.each([
