@@ -10,13 +10,15 @@
 
 import {
     AssistantMessage,
-    complete,
+    completeSimple,
     Context,
     getModel,
     KnownProvider,
     Model,
-    ProviderStreamOptions,
+    SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
+
+import type { ReasoningEffort } from '@posthog/agent-shared'
 
 export interface PiClient {
     /**
@@ -34,23 +36,33 @@ export interface InvokeOpts {
     apiKey?: string
     /** Cancel the in-flight request (used for shutdown). */
     signal?: AbortSignal
+    /**
+     * Reasoning-effort knob for reasoning-capable models (Anthropic extended
+     * thinking, OpenAI o-series, Gemini thinking). Forwarded to pi-ai's
+     * `completeSimple({ reasoning })`. Non-reasoning models ignore it.
+     * Omit to use the provider default.
+     */
+    reasoning?: ReasoningEffort
 }
 
 /**
- * Production impl. Backed by pi-ai's `complete()`. The default `apiKey` is
- * applied to every call unless `InvokeOpts.apiKey` overrides.
+ * Production impl. Backed by pi-ai's `completeSimple()`. The default `apiKey`
+ * is applied to every call unless `InvokeOpts.apiKey` overrides. Switched from
+ * the bare `complete()` so the typed `reasoning` knob is available without
+ * stuffing it into an open-record bag.
  */
 export class PiAiClient implements PiClient {
     constructor(private readonly defaultApiKey?: string) {}
 
     async invoke(model: Model<string>, context: Context, opts?: InvokeOpts): Promise<AssistantMessage> {
-        const streamOpts: ProviderStreamOptions = {
+        const streamOpts: SimpleStreamOptions = {
             apiKey: opts?.apiKey ?? this.defaultApiKey,
             maxTokens: opts?.maxTokens,
             temperature: opts?.temperature,
             signal: opts?.signal,
+            reasoning: opts?.reasoning,
         }
-        return complete(model, context, streamOpts)
+        return completeSimple(model, context, streamOpts)
     }
 }
 
