@@ -20,21 +20,12 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
-    /// Final destination read by ClickHouse via the kafka_property_values
-    /// table engine. The merger writes here.
     #[envconfig(default = "clickhouse_property_values")]
     pub output_topic: String,
 
-    /// Intermediate topic for the two-stage aggregation shuffle. The
-    /// events/groups workers produce here (keyed by full tuple); the
-    /// merger consumes here and re-aggregates to merge cross-pod
-    /// duplicates before forwarding to `output_topic`.
     #[envconfig(default = "property_vals_intermediate")]
     pub intermediate_topic: String,
 
-    /// Consumer group for the merger (intermediate -> output). Distinct
-    /// from the events/groups consumer groups so partition assignment is
-    /// independent.
     #[envconfig(default = "clickhouse-property-vals-rs-merger")]
     pub merger_consumer_group: String,
 
