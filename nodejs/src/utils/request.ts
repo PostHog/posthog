@@ -13,6 +13,7 @@ import {
     RequestInit,
     Response,
     errors,
+    interceptors,
     request,
     fetch as undiciFetch,
 } from 'undici'
@@ -257,6 +258,11 @@ class InsecureAgent extends Agent {
     }
 }
 
+// Pin redirect-following to 0 so the SSRF allow-list (DNS lookup / proxy CONNECT)
+// authoritatively governs which origin we talk to. Without this, callers would
+// only be protected by undici's "no interceptor → don't follow" default.
+const noRedirects = interceptors.redirect({ maxRedirections: 0 })
+
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
@@ -264,19 +270,19 @@ function makeSecureDispatcher(): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
-    if (proxyUrl) {
-        return new ProxyAgent({
-            uri: proxyUrl,
-            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            requestTls: {},
-        })
-    }
-    return new SecureAgent()
+    const base = proxyUrl
+        ? new ProxyAgent({
+              uri: proxyUrl,
+              keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+              connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+              requestTls: {},
+          })
+        : new SecureAgent()
+    return base.compose(noRedirects)
 }
 
 const sharedSecureAgent = makeSecureDispatcher()
-const sharedInsecureAgent = new InsecureAgent()
+const sharedInsecureAgent = new InsecureAgent().compose(noRedirects)
 
 /**
  * Reads a response body stream and destroys it immediately after to release
