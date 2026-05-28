@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -38,24 +37,15 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    FilterLogicalOperator,
-    LogPropertyFilter,
-    PersonType,
-    PersonsTabType,
-    PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
-import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -212,26 +202,6 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
-
-    // Pinned filter for the Logs tab: scopes every log query to this person. Rendered
-    // without an X in the filter bar so the user can't accidentally drop the scope and
-    // see project-wide logs on what's meant to be a per-person view.
-    const logsDistinctIdAttributeKey = currentTeam?.logs_distinct_id_attribute_key || 'distinct_id'
-    const personDistinctIds = person?.distinct_ids
-    const logsPinnedFilters = useMemo(
-        () => ({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    key: logsDistinctIdAttributeKey,
-                    type: PropertyFilterType.LogAttribute,
-                    operator: PropertyOperator.Exact,
-                    value: personDistinctIds ?? [],
-                } as LogPropertyFilter,
-            ],
-        }),
-        [logsDistinctIdAttributeKey, personDistinctIds]
-    )
 
     if (personError) {
         return <NotFound object="person" meta={{ urlId }} />
@@ -404,16 +374,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                     {
                         key: PersonsTabType.LOGS,
                         label: <span data-attr="persons-logs-tab">Logs</span>,
-                        content: (
-                            <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[25rem]">
-                                <LogsViewer
-                                    id={`person-${person.uuid ?? person.id}`}
-                                    pinnedFilters={logsPinnedFilters}
-                                    showFullScreenButton={false}
-                                    showSavedViewsButton={false}
-                                />
-                            </div>
-                        ),
+                        content: <PersonLogsTab person={person} />,
                     },
                     {
                         key: PersonsTabType.EXCEPTIONS,
