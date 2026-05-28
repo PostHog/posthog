@@ -87,7 +87,7 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
         hasMetricName,
     } = useValues(logic)
     const { setMetricName, setAggregation, setDateFrom, setDateTo, fetchQueryResults } = useActions(logic)
-    const { items: pickerItems, itemsLoading: pickerLoading } = useValues(pickerLogic)
+    const { items: pickerItems, itemsLoading: pickerLoading, search: pickerSearch } = useValues(pickerLogic)
     const { setSearch: setPickerSearch, loadItems: loadPickerItems } = useActions(pickerLogic)
 
     // Prime the picker once on mount so the dropdown isn't empty before the user types.
@@ -101,7 +101,21 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
     }, [metricName, aggregation, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const pickerOptions = useMemo(
-        () => pickerItems.map((item) => ({ key: item.name, label: item.name })),
+        () =>
+            pickerItems.map((item) => ({
+                key: item.name,
+                label: item.name,
+                labelComponent: (
+                    <div className="min-w-0 space-y-0.5">
+                        <div className="truncate">{item.name}</div>
+                        {item.metric_type && (
+                            <div className="text-xs text-muted">
+                                <span>{item.metric_type}</span>
+                            </div>
+                        )}
+                    </div>
+                ),
+            })),
         [pickerItems]
     )
     const selectedMetricType = useMemo(
@@ -169,6 +183,16 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
                         allowCustomValues
                         onInputChange={setPickerSearch}
                         onChange={(next) => setMetricName(next[0] ?? '')}
+                        data-attr="metrics-name-picker"
+                        emptyStateComponent={
+                            <div className="px-2 py-1 text-sm text-muted">
+                                {pickerLoading
+                                    ? 'Loading metrics…'
+                                    : pickerSearch
+                                      ? 'No metrics match this search.'
+                                      : 'No metrics ingested in the last 7 days.'}
+                            </div>
+                        }
                     />
                     {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
                         <span className="text-xs text-secondary">
