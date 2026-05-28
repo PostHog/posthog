@@ -232,15 +232,19 @@ function buildMatrix(products, durations) {
     const matrix = []
     const packable = []
 
-    // Single product whose own effective cost overflows TARGET — split via
-    // pytest-split inside the product. Each resulting sub-shard runs in its
-    // own runner, so the per-product overhead is paid per sub-shard.
+    // Split a product across multiple shards only when its raw duration plus
+    // one per-product overhead exceeds the target wall clock. Don't apply the
+    // safety factor here — that inflation is for packing-capacity decisions
+    // (avoid stuffing a bucket beyond budget under variance), not for the
+    // "must we split?" check. Using the inflated cost for splitting causes
+    // borderline products to fragment into uneven sub-shards (pytest-split
+    // can't balance well when many tests have flat-default 0.01s values),
+    // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
-        const cost = productEffectiveCost(product, durations)
-        if (cost > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(cost / PRODUCT_TARGET_WALL_SECONDS)
-            const duration = getProductDuration(product, durations)
-            console.error(`  ${product}: ${(duration / 60).toFixed(1)} min → split across ${shards} shards`)
+        const raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
+            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             for (let i = 1; i <= shards; i++) {
                 matrix.push({
