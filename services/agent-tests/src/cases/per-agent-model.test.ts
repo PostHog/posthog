@@ -112,7 +112,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
             const rev = await revisions.createRevision({
                 application_id: app.id,
                 parent_revision_id: null,
-                created_by: 'h',
+                created_by_id: null,
                 bundle_uri: `fs://${bundleRoot}/${app.id}/`,
                 spec,
             })

@@ -7,7 +7,7 @@ Auth is a single shared secret carried in `x-internal-secret`. Endpoints are
 documented in services/agent-janitor/src/server.ts.
 
 Configured via two env vars:
-    AGENT_JANITOR_URL          base URL (default: http://localhost:8082)
+    AGENT_JANITOR_URL          base URL (default: http://localhost:3031)
     AGENT_JANITOR_SECRET       value sent as `x-internal-secret`
 """
 
@@ -35,7 +35,10 @@ class JanitorClientError(Exception):
 
 class JanitorClient:
     def __init__(self, base_url: str | None = None, secret: str | None = None, timeout: float = 30.0) -> None:
-        self.base_url = (base_url or os.environ.get("AGENT_JANITOR_URL") or "http://localhost:8082").rstrip("/")
+        # Default matches `bin/mprocs.yaml`'s janitor `PORT=${AGENT_JANITOR_PORT:-3031}`.
+        # Keep these two in lockstep — Django + janitor must agree on the URL
+        # for the bundle proxy to work in dev without explicit env wiring.
+        self.base_url = (base_url or os.environ.get("AGENT_JANITOR_URL") or "http://localhost:3031").rstrip("/")
         self.secret = secret if secret is not None else os.environ.get("AGENT_JANITOR_SECRET", "")
         self.timeout = timeout
 
@@ -93,6 +96,9 @@ class JanitorClient:
 
     def freeze(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/freeze")
+
+    def validate(self, revision_id: str) -> dict:
+        return self._call("POST", f"/revisions/{revision_id}/validate")
 
     def clone_from(self, target_revision_id: str, source_revision_id: str) -> dict:
         return self._call(

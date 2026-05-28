@@ -263,27 +263,27 @@
             "readOnlyHint": true
         }
     },
-    "agent-applications-disable-revision-create": {
-        "description": "Pull a revision out of traffic by setting its deployment_status to `disabled`. Use this to roll back a broken live or preview revision. Idempotent — disabling an already-disabled revision is a no-op. Allowed from any state (does not require state=ready).",
+    "agent-applications-create": {
+        "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote.",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "Disable revision",
-        "title": "Disable revision",
+        "summary": "Create an agent application",
+        "title": "Create an agent application",
         "required_scopes": ["agent_application:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
     },
-    "agent-applications-env-partial-update": {
-        "description": "Set or remove individual environment variables on an application. Body shape: `{ keys: { FOO: \"bar\", OLD: null } }` — `null` removes the key. Returns the application with `env_redacted` updated. Required for promoting a revision when the manifest declares new secrets that aren't yet set.",
+    "agent-applications-destroy": {
+        "description": "Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped to `archived=false`).",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "Patch secrets",
-        "title": "Patch secrets",
+        "summary": "Archive an agent application",
+        "title": "Archive an agent application",
         "required_scopes": ["agent_application:write"],
         "new_mcp": true,
         "annotations": {
@@ -294,7 +294,7 @@
         }
     },
     "agent-applications-list": {
-        "description": "List every agent application in the current project. Use this to discover available agent slugs, see who created what, and inspect basic metadata (name, description, has_env). The returned `slug` field is the canonical identifier — pass it as `id` to the per-application tools (revisions, sessions, env).",
+        "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable.",
         "category": "Agent stack",
         "feature": "agent_stack",
         "summary": "List agent applications",
@@ -308,42 +308,27 @@
             "readOnlyHint": true
         }
     },
-    "agent-applications-preview-create": {
-        "description": "Mark a ready revision as `deployment_status: preview` for testing without affecting live traffic. Same readiness + secret requirements as promote.",
+    "agent-applications-partial-update": {
+        "description": "Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create` (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "Mark revision as preview",
-        "title": "Mark revision as preview",
+        "summary": "Update an agent application",
+        "title": "Update an agent application",
         "required_scopes": ["agent_application:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-applications-promote-create": {
-        "description": "Promote a ready revision to `deployment_status: live`. Replaces the previous live revision. The revision must be in `state: ready` and the application's env must contain every required secret declared by the bundle manifest — otherwise returns 409 with a `missing_secrets` list.",
-        "category": "Agent stack",
-        "feature": "agent_stack",
-        "summary": "Promote revision to live",
-        "title": "Promote revision to live",
-        "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
     },
     "agent-applications-retrieve": {
-        "description": "Get a single agent application by slug. Returns name, description, env_redacted (redacted env preview), created/updated timestamps. For prompt/tools/triggers, fetch the live revision via `agent-applications-revisions-list?deployment_status=live`.",
+        "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "Get agent application",
-        "title": "Get agent application",
+        "summary": "Get an agent application",
+        "title": "Get an agent application",
         "required_scopes": ["agent_application:read"],
         "new_mcp": true,
         "annotations": {
@@ -353,42 +338,12 @@
             "readOnlyHint": true
         }
     },
-    "agent-applications-revisions-list": {
-        "description": "List all deployment revisions for an application, newest first. Supports filtering by `deployment_status` (live | preview | disabled) and `state` (pending_upload | uploaded | validating | ready | failed). Use this to find a specific revision id for show / promote / disable, or to see which one is currently serving traffic (`deployment_status: live`).",
+    "agent-applications-revisions-archive-create": {
+        "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent.",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "List revisions",
-        "title": "List revisions",
-        "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-applications-revisions-retrieve": {
-        "description": "Get a single revision by id. Returns the parsed manifest (prompt, tools, triggers), bundle metadata (size, sha256), validation_report (when state=failed), and timestamps.",
-        "category": "Agent stack",
-        "feature": "agent_stack",
-        "summary": "Get revision",
-        "title": "Get revision",
-        "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-applications-sessions-cancel": {
-        "description": "Cancel a running session. Sets the session's status to `canceled` so the runner workers stop processing it. Use this to kill stuck or runaway agents. Idempotent: cancelling an already-terminal session is a no-op.",
-        "category": "Agent stack",
-        "feature": "agent_stack",
-        "summary": "Cancel session",
-        "title": "Cancel session",
+        "summary": "Archive a revision",
+        "title": "Archive a revision",
         "required_scopes": ["agent_application:write"],
         "new_mcp": true,
         "annotations": {
@@ -398,12 +353,12 @@
             "readOnlyHint": false
         }
     },
-    "agent-applications-sessions-list": {
-        "description": "List recent agent runtime sessions for an application. Each entry includes id, status (available | running | completed | failed | canceled), scheduled / created / last_heartbeat timestamps, transition_count. Supports filters: status, limit, created_before.",
+    "agent-applications-revisions-bundle-retrieve": {
+        "description": "Bulk download — returns `{ files: { path: utf-8 content, … } }` for every file in the bundle. Use when you want to edit the whole agent locally; mutate files, then push back via the bundle PUT (replace mode).",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "List sessions",
-        "title": "List sessions",
+        "summary": "Pull every file in a revision's bundle",
+        "title": "Pull every file in a revision's bundle",
         "required_scopes": ["agent_application:read"],
         "new_mcp": true,
         "annotations": {
@@ -413,12 +368,72 @@
             "readOnlyHint": true
         }
     },
-    "agent-applications-sessions-logs": {
-        "description": "Fetch per-session log entries from ClickHouse. Each entry has timestamp, level (DEBUG | INFO | WARNING | ERROR) and a human-readable message. Pass `after=<iso-timestamp>` to paginate forward (use the response's `next_after` cursor). Default limit 200, max 500.",
+    "agent-applications-revisions-bundle-update": {
+        "description": "Body `{ files: { path: content, … }, mode: \"replace\" | \"merge\" }`. `replace` wipes the existing bundle before writing the new set (use after a full edit); `merge` upserts (use for incremental adds). Only `state=draft` revisions accept this.",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "Read session logs",
-        "title": "Read session logs",
+        "summary": "Push a full bundle to a draft revision",
+        "title": "Push a full bundle to a draft revision",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-clone-from-create": {
+        "description": "Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions must belong to the same team.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Clone bundle from another revision",
+        "title": "Clone bundle from another revision",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-create": {
+        "description": "Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or `agent-applications-revisions-new-draft-create` to seed it from an existing revision.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Create a draft revision",
+        "title": "Create a draft revision",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-file-destroy": {
+        "description": "Remove the file at `?path=…` from a draft revision. Idempotent — deleting an already-absent file is a no-op.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Delete one file",
+        "title": "Delete one file",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-file-retrieve": {
+        "description": "Returns `{ path, content }` for one file in the bundle. Pass `?path=…` (e.g. `?path=skills/research.md`). Works on any revision state.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Read one file",
+        "title": "Read one file",
         "required_scopes": ["agent_application:read"],
         "new_mcp": true,
         "annotations": {
@@ -428,12 +443,162 @@
             "readOnlyHint": true
         }
     },
-    "agent-applications-sessions-retrieve": {
-        "description": "Get a single session by id. Returns the same shape as the list endpoint but with full state metadata including state_byte_size (a hint that very large state may need offloading).",
+    "agent-applications-revisions-file-update": {
+        "description": "Body `{ content: \"…\" }`. Creates or overwrites the file at `?path=…` in a draft revision. Use for targeted edits (one skill, one tool source); for bulk changes use the bundle PUT.",
         "category": "Agent stack",
         "feature": "agent_stack",
-        "summary": "Get session",
-        "title": "Get session",
+        "summary": "Write one file",
+        "title": "Write one file",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-freeze-create": {
+        "description": "Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing sha256.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Freeze a draft revision",
+        "title": "Freeze a draft revision",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-list": {
+        "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List revisions of an application",
+        "title": "List revisions of an application",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-revisions-manifest-retrieve": {
+        "description": "Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last looked.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List files in a revision's bundle",
+        "title": "List files in a revision's bundle",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-revisions-new-draft-create": {
+        "description": "One-shot helper: creates a draft revision under `application_id` and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use this for the common \"edit live\" workflow — branch from the current live revision, mutate files, freeze, promote.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Branch a new draft from an existing revision",
+        "title": "Branch a new draft from an existing revision",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-partial-update": {
+        "description": "Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner side; an invalid spec will surface when the next session starts, not here.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Update a revision's spec",
+        "title": "Update a revision's spec",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-promote-create": {
+        "description": "Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent: promoting an already-live revision is a no-op.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Promote a revision to live",
+        "title": "Promote a revision to live",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-retrieve": {
+        "description": "Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` / `agent-applications-revisions-bundle-retrieve`.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Get a revision",
+        "title": "Get a revision",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-revisions-validate-create": {
+        "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Validate a revision's bundle + spec",
+        "title": "Validate a revision's bundle + spec",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-set-env-create": {
+        "description": "Body `{ env: { KEY: \"value\", … } }`. The whole env is replaced (not patched); pass the full set you want available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Replace the application's env block",
+        "title": "Replace the application's env block",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-native-tools-list": {
+        "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List native tools the runner knows",
+        "title": "List native tools the runner knows",
         "required_scopes": ["agent_application:read"],
         "new_mcp": true,
         "annotations": {

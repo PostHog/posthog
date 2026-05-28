@@ -31,7 +31,7 @@ export interface NewApplication {
 export interface NewRevision {
     application_id: string
     parent_revision_id: string | null
-    created_by: string
+    created_by_id: number | null
     bundle_uri: string
     spec: AgentSpec
 }
@@ -99,7 +99,7 @@ export class MemoryRevisionStore implements RevisionStore {
             id: this.genId('rev'),
             application_id: input.application_id,
             parent_revision_id: input.parent_revision_id,
-            created_by: input.created_by,
+            created_by_id: input.created_by_id,
             created_at: new Date().toISOString(),
             state: 'draft',
             bundle_uri: input.bundle_uri,

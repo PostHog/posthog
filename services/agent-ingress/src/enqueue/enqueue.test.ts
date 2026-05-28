@@ -18,7 +18,7 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
         id: 'rev1',
         application_id: app.id,
         parent_revision_id: null,
-        created_by: 'u',
+        created_by_id: null,
         created_at: 'now',
         state: 'live' as const,
         bundle_uri: 's3://x/',

@@ -248,7 +248,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
             const rev = await revisions.createRevision({
                 application_id: app.id,
                 parent_revision_id: null,
-                created_by: 'harness',
+                created_by_id: null,
                 bundle_uri: `fs://${bundleRoot}/${app.id}/`,
                 spec,
             })

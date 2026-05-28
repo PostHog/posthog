@@ -185,6 +185,11 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "agent_application"  # share the parent's scope
+    # AgentRevision is tenant-scoped via its parent application, not directly.
+    # The URL kwarg `project_id` from the parent router defaults to filtering
+    # `team__project_id` on the queryset, but AgentRevision only has
+    # `application__team__project_id`. Rewrite the parent lookup accordingly.
+    filter_rewrite_rules = {"project_id": "application__team__project_id"}
     scope_object_write_actions = [
         "create",
         "update",
@@ -198,14 +203,17 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "delete_file",
         "put_bundle",
     ]
-    scope_object_read_actions = ["list", "retrieve", "manifest", "get_file", "get_bundle"]
+    scope_object_read_actions = ["list", "retrieve", "manifest", "get_file", "get_bundle", "validate"]
     serializer_class = AgentRevisionSerializer
     queryset = AgentRevision.objects.all()
 
     def get_application(self) -> AgentApplication:
+        # drf-extensions nested routing passes the parent URL kwarg as
+        # `parent_lookup_application_id` (see `parents_query_lookups` in the
+        # nested router registration in posthog/api/__init__.py).
         app = _resolve_application(
             AgentApplication.objects.filter(team_id=self.team_id, archived=False),
-            self.kwargs.get("application_id") or self.kwargs.get("parent_lookup_application"),
+            self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id"),
         )
         if app is None:
             raise NotFound("Application not found")
@@ -290,6 +298,10 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().manifest, str(revision.id)))
 
+    # DRF routes /file/ and /bundle/ across multiple HTTP verbs via a single
+    # @action + .mapping.<verb> chain. Three separate @action decorators with
+    # the same url_path don't merge — the last one registered wins and the
+    # others 405.
     @action(detail=True, methods=["get"], url_path="file")
     def get_file(self, request: Request, **kwargs) -> Response:
         """Read one file by `?path=...`. Works on any revision state."""
@@ -299,7 +311,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Missing ?path=… query parameter.")
         return Response(self._call(_janitor().get_file, str(revision.id), path))
 
-    @action(detail=True, methods=["put"], url_path="file")
+    @get_file.mapping.put
     def put_file(self, request: Request, **kwargs) -> Response:
         """Write one file by `?path=...`. Draft-only (janitor enforces)."""
         revision: AgentRevision = self.get_object()
@@ -310,7 +322,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body.is_valid(raise_exception=True)
         return Response(self._call(_janitor().put_file, str(revision.id), path, body.validated_data["content"]))
 
-    @action(detail=True, methods=["delete"], url_path="file")
+    @get_file.mapping.delete
     def delete_file(self, request: Request, **kwargs) -> Response:
         """Delete one file by `?path=...`. Draft-only."""
         revision: AgentRevision = self.get_object()
@@ -326,7 +338,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().get_bundle, str(revision.id)))
 
-    @action(detail=True, methods=["put"], url_path="bundle")
+    @get_bundle.mapping.put
     def put_bundle(self, request: Request, **kwargs) -> Response:
         """Bulk-push the bundle. Body `{ files, mode: replace|merge }`."""
         revision: AgentRevision = self.get_object()
@@ -340,6 +352,64 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 body.validated_data["mode"],
             )
         )
+
+    @extend_schema(
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionValidateResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(),
+                    "revision_id": drf_serializers.UUIDField(),
+                    "revision_state": drf_serializers.CharField(),
+                    "errors": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentRevisionValidationError",
+                            fields={
+                                "code": drf_serializers.CharField(),
+                                "message": drf_serializers.CharField(),
+                                "pointer": drf_serializers.CharField(),
+                            },
+                        ),
+                    ),
+                    "resolved_natives": drf_serializers.ListField(child=drf_serializers.CharField()),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="validate")
+    def validate(self, request: Request, **kwargs) -> Response:
+        """Pre-flight checks before freeze + promote: entrypoint file exists,
+        every native tool id is registered, every custom tool has its
+        compiled.js + schema.json, every skill path exists, every declared
+        secret has a value set in the application's env block. Returns
+        `{ ok, errors: [...] }`. Works on any revision state."""
+        revision: AgentRevision = self.get_object()
+        report = self._call(_janitor().validate, str(revision.id))
+        errors = list(report.get("errors", []))
+
+        application = revision.application
+        decrypted = application.encrypted_env or ""
+        available_keys: set[str] = set()
+        if decrypted:
+            try:
+                env_map = json.loads(decrypted)
+                if isinstance(env_map, dict):
+                    available_keys = {str(k) for k in env_map}
+            except (ValueError, TypeError):
+                pass
+        for i, secret_name in enumerate(revision.spec.get("secrets") or []):
+            if secret_name not in available_keys:
+                errors.append(
+                    {
+                        "code": "missing_secret",
+                        "message": f'secret "{secret_name}" is not set in the application env',
+                        "pointer": f"spec.secrets[{i}]",
+                    }
+                )
+        report["errors"] = errors
+        report["ok"] = len(errors) == 0
+        return Response(report)
 
     @action(detail=True, methods=["post"], url_path="freeze")
     def freeze(self, request: Request, **kwargs) -> Response:

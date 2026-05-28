@@ -1,4 +1,5 @@
 """Django app configuration for agent_stack."""
+
 from django.apps import AppConfig
 
 

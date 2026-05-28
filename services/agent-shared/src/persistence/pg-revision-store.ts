@@ -62,7 +62,7 @@ export class PgRevisionStore implements RevisionStore {
 
     async getRevision(revisionId: string): Promise<AgentRevision | null> {
         const r = await this.pool.query(
-            `SELECT id, application_id, parent_revision_id, created_by, created_at, state,
+            `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
                     bundle_uri, bundle_sha256, spec
              FROM agent_revision WHERE id = $1`,
             [revisionId]
@@ -72,7 +72,7 @@ export class PgRevisionStore implements RevisionStore {
 
     async listRevisions(applicationId: string): Promise<AgentRevision[]> {
         const r = await this.pool.query(
-            `SELECT id, application_id, parent_revision_id, created_by, created_at, state,
+            `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
                     bundle_uri, bundle_sha256, spec
              FROM agent_revision WHERE application_id = $1
              ORDER BY created_at ASC`,
@@ -85,13 +85,13 @@ export class PgRevisionStore implements RevisionStore {
         const id = uuidv4()
         await this.pool.query(
             `INSERT INTO agent_revision
-                (id, application_id, parent_revision_id, created_by, bundle_uri, spec)
+                (id, application_id, parent_revision_id, created_by_id, bundle_uri, spec)
              VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
             [
                 id,
                 input.application_id,
                 input.parent_revision_id,
-                input.created_by,
+                input.created_by_id,
                 input.bundle_uri,
                 JSON.stringify(input.spec),
             ]
@@ -163,7 +163,7 @@ function rowToRev(row: {
     id: string
     application_id: string
     parent_revision_id: string | null
-    created_by: string
+    created_by_id: number | null
     created_at: Date
     state: string
     bundle_uri: string
@@ -174,7 +174,7 @@ function rowToRev(row: {
         id: row.id,
         application_id: row.application_id,
         parent_revision_id: row.parent_revision_id,
-        created_by: row.created_by,
+        created_by_id: row.created_by_id,
         created_at: row.created_at.toISOString(),
         state: row.state as RevisionState,
         bundle_uri: row.bundle_uri,

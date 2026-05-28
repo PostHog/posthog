@@ -60,6 +60,12 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            # The runner / janitor address bundles by revision_id; bundle_uri is
+            # the storage-prefix metadata. We default it server-side so MCP
+            # callers (and humans) creating a draft don't need to know about it.
+            "bundle_uri": {"required": False, "default": ""},
+        }
 
 
 class SetEnvRequestSerializer(serializers.Serializer):

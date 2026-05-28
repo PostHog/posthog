@@ -11,7 +11,7 @@ function makeRev(
         id: 'rev1',
         application_id: 'app1',
         parent_revision_id: null,
-        created_by: 'u',
+        created_by_id: null,
         created_at: '2026-05-27',
         state: 'live',
         bundle_uri: 's3://',

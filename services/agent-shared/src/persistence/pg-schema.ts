@@ -130,7 +130,9 @@ CREATE TABLE IF NOT EXISTS agent_revision (
     id              UUID PRIMARY KEY,
     application_id  UUID NOT NULL REFERENCES agent_application(id) ON DELETE CASCADE,
     parent_revision_id UUID,
-    created_by      TEXT NOT NULL DEFAULT '',
+    -- Matches Django's FK column convention (Django writes created_by_id).
+    -- No FK to posthog_user — the test schema is self-contained.
+    created_by_id   INTEGER,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     state           TEXT NOT NULL DEFAULT 'draft',
     bundle_uri      TEXT NOT NULL,

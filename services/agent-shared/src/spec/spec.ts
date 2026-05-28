@@ -144,7 +144,8 @@ export interface AgentRevision {
     id: string
     application_id: string
     parent_revision_id: string | null
-    created_by: string
+    /** Posthog user id (Django FK). Null for revisions created outside the auth flow (tests, system). */
+    created_by_id: number | null
     created_at: string
     state: RevisionState
     bundle_uri: string

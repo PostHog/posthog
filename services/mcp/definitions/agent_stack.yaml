@@ -287,6 +287,21 @@ tools:
     agent-applications-revisions-update:
         operation: agent_applications_revisions_update
         enabled: false
+    agent-applications-revisions-validate-create:
+        operation: agent_applications_revisions_validate_create
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate a revision's bundle + spec
+        description: >
+            Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown
+            native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the
+            bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a
+            draft before calling `agent-applications-revisions-freeze-create`.
     agent-applications-set-env-create:
         operation: agent_applications_set_env_create
         enabled: true

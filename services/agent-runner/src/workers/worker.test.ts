@@ -33,7 +33,7 @@ describe('Worker', () => {
         const rev = await revisions.createRevision({
             application_id: app.id,
             parent_revision_id: null,
-            created_by: 'u',
+            created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({ model: 'faux/test' }),
         })
@@ -86,7 +86,7 @@ describe('Worker', () => {
         const rev = await revisions.createRevision({
             application_id: app.id,
             parent_revision_id: null,
-            created_by: 'u',
+            created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'faux/test',
@@ -139,7 +139,7 @@ describe('Worker', () => {
         const rev = await revisions.createRevision({
             application_id: app.id,
             parent_revision_id: null,
-            created_by: 'u',
+            created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'faux/test',

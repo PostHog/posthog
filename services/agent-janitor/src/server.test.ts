@@ -106,7 +106,7 @@ describe('janitor HTTP', () => {
         const rev = await revisions.createRevision({
             application_id: apprec.id,
             parent_revision_id: null,
-            created_by: 'u',
+            created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({ model: 'x' }),
         })
@@ -213,7 +213,7 @@ describe('janitor HTTP', () => {
         const draft = await revisions.createRevision({
             application_id: apps[0].id,
             parent_revision_id: revisionId,
-            created_by: 'u',
+            created_by_id: null,
             bundle_uri: 'mem://b2',
             spec: { model: 'x' } as never,
         })
