@@ -1,6 +1,7 @@
 from django.test import TestCase
 
 from posthog.models.activity_logging.activity_log import Change, describe_change, dict_changes_between
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 

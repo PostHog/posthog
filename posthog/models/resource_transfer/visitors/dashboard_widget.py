@@ -5,6 +5,7 @@ from typing import Any
 from django.db import models
 
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
+
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import normalize_widget_type
 

@@ -7,11 +7,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Project, Team
-from posthog.models.scoping import team_scope
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+from posthog.models.scoping import team_scope
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -162,9 +162,7 @@ class TestResourceTransferPreview(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        widget_resource = next(
-            r for r in response.json()["resources"] if r["resource_kind"] == "DashboardWidget"
-        )
+        widget_resource = next(r for r in response.json()["resources"] if r["resource_kind"] == "DashboardWidget")
         assert widget_resource["display_name"] == "Top issues"
         assert "DashboardWidget" not in widget_resource["display_name"]
         assert str(widget.pk) not in widget_resource["display_name"]

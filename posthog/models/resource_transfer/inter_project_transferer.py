@@ -10,7 +10,6 @@ from django.db.models import Q
 import structlog
 
 from posthog.models import Project, Team, User
-from posthog.models.scoping import team_scope
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import (
     ResourceKind,
@@ -22,6 +21,7 @@ from posthog.models.resource_transfer.types import (
     RewriteRelationFn,
 )
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
+from posthog.models.scoping import team_scope
 
 logger = structlog.get_logger(__name__)
 

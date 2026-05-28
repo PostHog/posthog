@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 from rest_framework import status
 
 from posthog.models.team import Team
+
 from products.dashboards.backend.widget_registry import DashboardWidgetTypeInput
 
 
