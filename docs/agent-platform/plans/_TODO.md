@@ -85,17 +85,16 @@ file (and out of this list) once the design lands.
       the same resolver path; existing `?revision_id=<uuid>` override
       stays as the canonical "I know the full UUID" form.
 
-- [ ] **MCP tools for invoking a created agent.** The `agent_stack`
-      MCP surface today is authoring-only (`agent-applications-*`,
-      `agent-applications-revisions-*`). After an authoring harness
-      (Claude Code, etc.) creates and promotes an agent via MCP, it
-      has no in-band way to talk to it — the ingress runtime endpoints
-      (`/agents/<slug>/run`, `/send`, `/listen`) aren't wrapped as
-      tools, so the next step isn't discoverable from the tool list.
-      Add `agent-invoke` / `agent-send` / `agent-listen` (SSE stream
-      shape TBD for MCP) so the authoring AI can iterate end-to-end
-      without leaving MCP. See [`agent-authoring-flow.md`](agent-authoring-flow.md)
-      for the broader test-run surface this slots into.
+- [x] ~~**Agents expose their own MCP server**~~ — see
+      [`agent-as-mcp-server.md`](agent-as-mcp-server.md). The mcp
+      trigger on the ingress becomes a first-class HTTP MCP endpoint
+      at `/agents/<slug>/mcp`. v0 default `ask({ message, session_id?
+})` tool + sessions-as-resources + reuse of `spec.auth`. v1 lets
+      the author (or authoring AI) declare typed entry-points via
+      `spec.mcp.tools[]`. Replaces the original "wrap ingress
+      endpoints as Django/MCP tools" idea — direct ingress-as-MCP is
+      cleaner: no Django proxy, no PostHog-specific auth, the agent
+      stands on its own.
 
 - [ ] **Defensive programming across the three node services.** A
       malformed request to the janitor today can take the process down.
