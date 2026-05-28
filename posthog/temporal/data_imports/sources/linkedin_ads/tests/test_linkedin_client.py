@@ -204,18 +204,19 @@ class TestLinkedinAdsClient:
             ANALYTICS_RESPONSE_CAP,
         )
 
+        calls = 0
+
         def respond(*args, **kwargs):
             # Only the very first (widest) window caps; every narrower window thereafter fits.
+            nonlocal calls
             response = mock.MagicMock()
             response.status_code = 200
-            if respond.calls == 0:
+            if calls == 0:
                 response.elements = [{"impressions": i} for i in range(ANALYTICS_RESPONSE_CAP)]
             else:
                 response.elements = [{"impressions": 1}]
-            respond.calls += 1
+            calls += 1
             return response
-
-        respond.calls = 0
 
         mock_client_instance = mock_restli_client.return_value
         mock_client_instance.finder.side_effect = respond
