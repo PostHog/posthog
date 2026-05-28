@@ -88,7 +88,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "select 1",
                 "errors": [
                     {
-                        "message": "extraneous input '1' expecting <EOF>",
+                        "message": "trailing tokens after expression: Number",
                         "start": 7,
                         "end": 8,
                         "fix": None,

@@ -117,7 +117,8 @@ def get_hogql_metadata(
         response.isValid = False
         if isinstance(e, ExposedHogQLError):
             error = str(e)
-            if "mismatched input '<EOF>' expecting" in error:
+            # cpp-json (ANTLR) and rust-py word EOF differently; collapse both into a single human-readable string.
+            if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
                 error = "Unexpected end of query"
             if e.end and e.start and e.end < e.start:
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
