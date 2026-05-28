@@ -1,0 +1,54 @@
+name: Backend CI shadow drift check
+
+# Fails when .github/workflows/ci-backend.yml changes without a matching update
+# to .depot/workflows/ci-backend.yml. The depot file is a hand-maintained shadow
+# of canonical (see header comment in the depot file for the intentional deltas);
+# without this check, canonical drifts silently and the depot timing trial stops
+# measuring the same work.
+#
+# Cheap to run — only triggers when one of the two files changes.
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/ci-backend.yml
+            - .depot/workflows/ci-backend.yml
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check:
+        name: Both ci-backend files updated together
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+            - name: Compare PR diff scope
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=100 origin "$BASE_SHA"
+                  changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+                      .github/workflows/ci-backend.yml \
+                      .depot/workflows/ci-backend.yml)
+                  if echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$' && \
+                     ! echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$'; then
+                      echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
+                      echo "The depot shadow must stay apples-to-apples with canonical. Mirror the change into the depot file"
+                      echo "(or, if the change is one of the intentional deltas listed in the depot file header, document why it is depot-exempt)."
+                      exit 1
+                  fi
+                  if echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$' && \
+                     ! echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$'; then
+                      echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
+                  fi
+                  echo "Shadow drift check passed."
