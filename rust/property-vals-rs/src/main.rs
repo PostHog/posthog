@@ -94,8 +94,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
 
-    // Events worker — consumes raw events, fans out to per-pod aggregates,
-    // produces to the intermediate topic.
     let events_consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
     let events_producer = AggregatedProducer::new(
         &config.kafka,
@@ -105,8 +103,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // Groups worker — consumes group-identify events, fans out, produces
-    // to the intermediate topic (same destination as the events worker).
     let mut groups_consumer_config = config.consumer.clone();
     groups_consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
     groups_consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
@@ -119,9 +115,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // Merger — consumes the intermediate topic and merges the per-pod
-    // emissions the events/groups workers produced for the same tuple, then
-    // forwards to the final output topic that ClickHouse reads.
     let mut merger_consumer_config = config.consumer.clone();
     merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
     merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
