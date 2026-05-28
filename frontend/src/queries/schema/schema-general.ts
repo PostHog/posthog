@@ -6608,6 +6608,9 @@ export enum ProductIntentContext {
     LOGS_SET_FILTERS = 'logs_set_filters',
     LOGS_SETTINGS_OPENED = 'logs_settings_opened',
 
+    // Metrics
+    METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
+
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
