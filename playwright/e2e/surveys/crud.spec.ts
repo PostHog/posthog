@@ -4,13 +4,22 @@ import { randomString } from '../../utils'
 import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
+    // Only archived surveys (or drafts) expose the "Delete permanently" action.
     await page.locator('[data-attr=open-context-panel-button]').first().click()
+    await page.locator('[data-attr=survey-archive]').click()
+
+    const archiveDialog = page.locator('.LemonModal__layout').filter({ hasText: 'Archive this survey?' })
+    await expect(archiveDialog).toBeVisible()
+    await archiveDialog.getByRole('button', { name: 'Archive', exact: true }).click()
+    await expect(archiveDialog).not.toBeVisible()
+
+    // Context menu is open again after archiving, so we can click "Delete permanently" right away
     await page.locator('[data-attr=survey-delete]').click()
 
-    await expect(page.locator('.LemonModal__layout')).toBeVisible()
-    await expect(page.getByText('Delete this survey?')).toBeVisible()
-    await page.getByRole('button', { name: 'Delete' }).click()
-    await expect(page.getByText('Active')).toBeVisible()
+    const deleteDialog = page.locator('.LemonModal__layout').filter({ hasText: 'Permanently delete this survey?' })
+    await expect(deleteDialog).toBeVisible()
+    await deleteDialog.getByRole('button', { name: 'Delete permanently' }).click()
+
     await expect(page.locator(`[data-row-key="${name}"]`)).not.toBeVisible()
 }
 
@@ -50,20 +59,20 @@ test.describe('CRUD Survey', () => {
         await page.goToMenuItem('surveys')
     })
 
-    // NOTE: Currently skipping this because we changed to the new layout
-    // and this doesn't support the new layout yet.
-    test.skip('creates, launches, edits and deletes new survey', async ({ page }) => {
+    test('creates, launches, edits and deletes new survey', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
         await expect(page).toHaveTitle('Surveys • PostHog')
 
-        await page.locator('[data-attr="new-survey"]').click()
-        await page.locator('[data-attr="new-blank-survey"]').click()
+        await page.addInitScript(() => {
+            localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
+        })
+        await page.goto('/surveys/new')
 
         await page.locator('[data-attr="scene-title-textarea"]').fill(name)
         await page.locator('[data-attr="survey-question-type-0"]').click()
-        await page.getByText('Rating').click()
+        await page.locator('[data-attr="survey-question-type-0-rating"]').click()
 
-        await expect(page.locator('[id="scenes.surveys.surveyLogic.new.survey.questions.0.question"]')).toHaveValue(
+        await expect(page.locator('[data-attr="survey-question-label-0"]')).toHaveValue(
             /How likely are you to recommend/
         )
 
@@ -72,7 +81,9 @@ test.describe('CRUD Survey', () => {
         )
 
         await expect(
-            page.locator('[id="scenes.surveys.surveyLogic.new.survey.questions.0.upperBoundLabel"]')
+            page
+                .locator('.Field', { has: page.locator('.LemonLabel', { hasText: 'Upper bound label' }) })
+                .locator('input')
         ).toHaveValue('Very likely')
 
         await page.locator('[id="scenes.surveys.surveyLogic.new.survey.questions.0.scale"]').click()
@@ -90,27 +101,22 @@ test.describe('CRUD Survey', () => {
         await expect(surveyForm.locator('.ratings-number')).toHaveCount(5)
 
         await page.locator('.LemonCollapsePanel', { hasText: 'Display conditions' }).click()
-        await page.getByText('All users').click()
-        await expect(page.locator('.Popover__content')).toBeVisible()
-        await page.locator('.Popover__content').getByText('Users who match').click()
+        await page.locator('[data-attr="survey-display-conditions-select-users"]').click()
 
         await page.locator('body').evaluate((el) => el.scrollTo(0, el.scrollHeight))
 
         await page.getByRole('button', { name: 'Add property targeting' }).click()
         await page.getByRole('button', { name: 'Add condition', exact: true }).click()
-        await page.getByRole('rowgroup').getByText('is_demo').click()
+        await page.locator('[data-attr=taxonomic-filter-searchfield]').fill('is_demo')
+        await page.locator('.taxonomic-list-row').getByText('is_demo').first().click()
 
         await page.locator('span').filter({ hasText: 'Enter value...' }).click()
         await page.getByPlaceholder('Enter value...').fill('t')
         await page.getByPlaceholder('Enter value...').press('Enter')
 
-        // This is causing a test to flake. The screenshot shows the element in question, but we can't find it here.
-        // Try submitting the form regardless. If the "t" element is not present, it'll fail anyway.
-
-        // await expect(page.getByTitle('t')).toBeVisible()
-
-        await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').click()
-        await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').fill('50')
+        const rolloutInput = page.locator('[data-attr="rollout-percentage"]')
+        await rolloutInput.click()
+        await rolloutInput.fill('50')
 
         const saveButton = page.locator('[data-attr="save-survey"]').nth(0)
         await expect(saveButton).toBeEnabled()
