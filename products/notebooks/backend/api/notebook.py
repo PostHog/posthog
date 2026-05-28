@@ -182,14 +182,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             },
         }
 
-    def validate_content(self, value: Any) -> Any:
-        if not isinstance(value, dict):
-            return value
-        try:
-            return normalize_notebook_query_nodes(value)
-        except InvalidNotebookQueryError as err:
-            raise serializers.ValidationError(str(err))
-
     @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
     def get_parent_resource(self, obj: Notebook) -> dict | None:
         # Group parents are skipped: ResourceNotebook stores group PK but personhog has no get-by-pk RPC.
@@ -197,6 +189,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
         if link is None:
             return None
         return {"type": "account", "id": str(link.account_id)}
+
+    def validate_content(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        try:
+            return normalize_notebook_query_nodes(value)
+        except InvalidNotebookQueryError as err:
+            raise serializers.ValidationError(str(err))
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
