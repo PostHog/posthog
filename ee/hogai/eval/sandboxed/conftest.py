@@ -71,7 +71,6 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
-        item.keywords.pop("django_db", None)
 
 
 @pytest.fixture(scope="session")

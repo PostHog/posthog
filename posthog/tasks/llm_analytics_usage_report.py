@@ -31,13 +31,23 @@ def get_ph_client() -> PostHogClient:
     return PostHogClient("sTMFPsFhdP1Ssg", sync_mode=True)
 
 
-# AI events dynamically generated from AIEventType enum
 AI_EVENTS = [event.value for event in AIEventType]
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 
-# Events that should make a team eligible for an AI observability usage report.
-# Keep this list broader than AI_EVENTS when a non-AI event should still trigger reporting.
 LLM_ANALYTICS_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
+
+# Restricted to customer-emitted events that produce data downstream LLM analytics workflows can act on:
+# excludes server-side artifacts like summaries, reports, and clusters, and prompt-management events that
+# don't generate traces.
+LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS: list[str] = [
+    AIEventType.FIELD_AI_GENERATION.value,
+    AIEventType.FIELD_AI_EMBEDDING.value,
+    AIEventType.FIELD_AI_SPAN.value,
+    AIEventType.FIELD_AI_TRACE.value,
+    AIEventType.FIELD_AI_METRIC.value,
+    AIEventType.FIELD_AI_FEEDBACK.value,
+    AIEventType.FIELD_AI_EVALUATION.value,
+]
 
 # ClickHouse query settings for AI observability queries
 CH_LLM_ANALYTICS_SETTINGS = {
@@ -216,9 +226,13 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
+def get_teams_with_ai_events(
+    begin: datetime,
+    end: datetime,
+    trigger_events: list[str],
+) -> list[int]:
     """
-    Get all team_ids that have at least one AI observability report trigger event in the period.
+    Get all team_ids that have at least one AI observability trigger event in the period.
 
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
@@ -242,7 +256,7 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
         results = sync_execute(
             query,
             {
-                "llm_analytics_report_trigger_events": LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
+                "llm_analytics_report_trigger_events": trigger_events,
                 "begin": begin,
                 "end": end,
             },
@@ -658,7 +672,12 @@ def _get_all_llm_analytics_reports(
     logger.info("Querying AI observability usage data")
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
-    team_ids = get_teams_with_ai_events(period_start, period_end)
+    try:
+        team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
+    except Exception:
+        logger.exception("[AIO Usage Error] teams query failed", phase="teams")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
 
     if not team_ids:
         logger.info("No teams with AI observability trigger events found")
@@ -668,7 +687,12 @@ def _get_all_llm_analytics_reports(
 
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
-    all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+    try:
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+    except Exception:
+        logger.exception("[AIO Usage Error] metrics query failed", phase="metrics")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
 
     # Phase 3: Get LLM prompt fetched counts (best effort)
@@ -683,12 +707,22 @@ def _get_all_llm_analytics_reports(
 
     # Phase 4: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
-    all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+    try:
+        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+    except Exception:
+        logger.exception("[AIO Usage Error] breakdowns query failed", phase="breakdowns")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
 
     # Phase 5: Get LLM feedback survey metrics
     logger.info("Querying LLM feedback survey metrics")
-    survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+    try:
+        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+    except Exception:
+        logger.exception("[AIO Usage Error] surveys query failed", phase="surveys")
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
 
     # Get team to organization mapping
@@ -853,7 +887,9 @@ def capture_llm_analytics_report(
         logger.info(f"Captured AI observability usage report for organization {organization_id}")
     except Exception as err:
         logger.exception(
-            f"AI observability usage report sent to PostHog for organization {organization_id} failed: {str(err)}",
+            "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
+            organization_id=organization_id,
+            error=str(err),
         )
 
         try:
@@ -865,7 +901,11 @@ def capture_llm_analytics_report(
                 properties={"error": str(err)},
             )
         except Exception as capture_err:
-            logger.exception(f"Failed to capture error event: {capture_err}")
+            logger.exception(
+                "[AIO Usage Error] Failed to capture error event",
+                organization_id=organization_id,
+                error=str(capture_err),
+            )
 
         raise
 
@@ -948,7 +988,11 @@ def send_llm_analytics_usage_reports(
             total_orgs_sent += 1
 
         except Exception as err:
-            logger.exception(f"Failed to queue AI observability report for organization {org_id}: {err}")
+            logger.exception(
+                "[AIO Usage Error] Failed to queue AI observability report for organization",
+                organization_id=org_id,
+                error=str(err),
+            )
             capture_exception(err)
 
     logger.info(
