@@ -14928,6 +14928,165 @@
   }
   '''
 # ---
+# name: test_template_string_top_level_carries_outer_span[Hello_TypeScript_arrayMap_a_a_1_2_3-46be7f64]
+  '''
+  {
+    args: [
+      {
+        end: 20
+        start: 2
+        value: "Hello, TypeScript "
+      },
+      {
+        args: [
+          {
+            args: [
+              "a"
+            ]
+            end: 36
+            expr: {
+              chain: [
+                "a"
+              ]
+              end: 36
+              from_asterisk: False
+              start: 35
+            }
+            start: 30
+          },
+          {
+            end: 47
+            exprs: [
+              {
+                end: 40
+                start: 39
+                value: 1
+              },
+              {
+                end: 43
+                start: 42
+                value: 2
+              },
+              {
+                end: 46
+                start: 45
+                value: 3
+              }
+            ]
+            start: 38
+          }
+        ]
+        distinct: False
+        end: 48
+        name: "arrayMap"
+        start: 21
+      },
+      {
+        end: 50
+        start: 49
+        value: "!"
+      }
+    ]
+    distinct: False
+    end: 50
+    name: "concat"
+    start: 0
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[Hello_arrayMap_a_a_1_2_3-c722f938]
+  '''
+  {
+    args: [
+      {
+        end: 9
+        start: 2
+        value: "Hello, "
+      },
+      {
+        args: [
+          {
+            args: [
+              "a"
+            ]
+            end: 25
+            expr: {
+              chain: [
+                "a"
+              ]
+              end: 25
+              from_asterisk: False
+              start: 24
+            }
+            start: 19
+          },
+          {
+            end: 36
+            exprs: [
+              {
+                end: 29
+                start: 28
+                value: 1
+              },
+              {
+                end: 32
+                start: 31
+                value: 2
+              },
+              {
+                end: 35
+                start: 34
+                value: 3
+              }
+            ]
+            start: 27
+          }
+        ]
+        distinct: False
+        end: 37
+        name: "arrayMap"
+        start: 10
+      },
+      {
+        end: 39
+        start: 38
+        value: "!"
+      }
+    ]
+    distinct: False
+    end: 39
+    name: "concat"
+    start: 0
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[v_event_properties_lib_version-3939e081]
+  '''
+  {
+    args: [
+      {
+        end: 4
+        start: 2
+        value: "v="
+      },
+      {
+        chain: [
+          "event",
+          "properties",
+          "$lib_version"
+        ]
+        end: 34
+        from_asterisk: False
+        start: 5
+      }
+    ]
+    distinct: False
+    end: 35
+    name: "concat"
+    start: 0
+  }
+  '''
+# ---
 # name: test_trailing_comma_after_joined_table_chain[SELECT_FROM_a_JOIN_b_ON_1-43ece755]
   '''
   {

@@ -4905,6 +4905,19 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIsNone(internal.start)
             self.assertIsNone(internal.end)
 
+        def test_template_string_top_level_carries_outer_span(self):
+            # `parse_full_template_string` returns the result of the body splitter — a multi-chunk
+            # `concat(...)` or a single chunk — but cpp's visitor positions the TOP node via the
+            # rule ctx, which spans the whole `F'…'` input (incl. the leading `F'`). Pinned so a
+            # regression that drops the outer wrap (or only positions inner chunks) fails here.
+            cases = (
+                "Hello, {arrayMap(a -> a, [1, 2, 3])}!",
+                "v={event.properties.$lib_version}",
+                "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+            )
+            for src in cases:
+                self._assert_ast(src, "template")
+
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.
             cases = (
