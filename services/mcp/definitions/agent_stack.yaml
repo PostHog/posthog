@@ -63,6 +63,26 @@ tools:
         description: >
             Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create`
             (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.
+    agent-applications-preview-proxy:
+        operation: agent_applications_preview_proxy
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Invoke a draft revision via the Django preview-proxy
+        description: >
+            Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public
+            ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to
+            (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path
+            `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it),
+            `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this
+            application. See docs/agent-platform/plans/draft-preview-auth.md.
+    agent-applications-preview-proxy-get:
+        operation: agent_applications_preview_proxy_get
+        enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true
@@ -302,23 +322,6 @@ tools:
             unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in
             the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this
             on a draft before calling `agent-applications-revisions-freeze-create`.
-    agent-applications-preview-proxy:
-        operation: agent_applications_preview_proxy
-        enabled: true
-        scopes:
-            - agent_application:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Invoke a draft revision via the Django preview-proxy
-        description: >
-            Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public
-            ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to
-            (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path
-            `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it),
-            `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this
-            application. See docs/agent-platform/plans/draft-preview-auth.md.
     agent-applications-sessions-list:
         operation: agent_applications_sessions_list
         enabled: true
