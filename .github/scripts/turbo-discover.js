@@ -44,16 +44,20 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // by optimize_test_durations.py (using JUnit to identify carriers and
 // subtract the migration tax). Durations reflect actual test work.
 //
-// DJANGO_OVERHEAD_SECONDS covers the fixed per-shard cost outside test work:
-//   job setup (checkout, deps, docker)  ~1.9 min
-//   pytest collection/splitting         ~1.1 min
-//   Django migration (per-shard DB setup) ~1.0 min
-// The migration portion shrank after the persons DB and product DB test setup
-// fixes stopped Django from walking the full migration graph on every alias —
-// what used to be ~6.5 min of state_forwards work is now closer to 1 min of
-// default-DB migrate (or near-zero on a schema-cache hit). Retune once a master
-// run produces fresh first-test-per-shard JUnit data.
-const DJANGO_OVERHEAD_SECONDS = 4 * 60
+// Per-segment overhead constants below cover the fixed per-shard cost
+// outside test work: job setup, pytest collection, per-shard DB setup,
+// per-segment infra. Measured from JUnit + job wall clocks on a recent
+// run (lower bound — includes some per-test fixture setup that JUnit's
+// junit_duration_report=call doesn't capture):
+//   Core:     median 303s, max 591s   → 4 min covers it comfortably
+//   CorePOE:  median 233s, max 280s   → 4 min has headroom
+//   Temporal: median 375s, max 693s   → 6 min, temporal-server boot adds
+//                                        meaningful fixed cost beyond Core
+const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
+    Core: 4 * 60,
+    CorePOE: 4 * 60,
+    Temporal: 6 * 60,
+}
 const DJANGO_TARGET_WALL_SECONDS = 20 * 60
 const DJANGO_SAFETY_FACTOR = 1.3
 const DJANGO_MIN_SHARDS = 3
@@ -206,8 +210,8 @@ function getSegmentDuration(segment, durations) {
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
-function calculateShards(totalWorkSeconds) {
-    const testBudget = DJANGO_TARGET_WALL_SECONDS - DJANGO_OVERHEAD_SECONDS
+function calculateShards(totalWorkSeconds, overheadSeconds) {
+    const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
     if (testBudget <= 0) return DJANGO_MAX_SHARDS
     const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
     return Math.max(DJANGO_MIN_SHARDS, Math.min(DJANGO_MAX_SHARDS, shards))
@@ -216,9 +220,10 @@ function calculateShards(totalWorkSeconds) {
 function buildDjangoShards(durations) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
+        const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
         const duration = getSegmentDuration(segment, durations)
-        const shards = durations ? calculateShards(duration) : DJANGO_FALLBACK_SHARDS[segment]
-        const wall = DJANGO_OVERHEAD_SECONDS + duration / shards
+        const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
+        const wall = overhead + duration / shards
         result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
         const source = durations ? 'auto' : 'fallback'
         console.error(
