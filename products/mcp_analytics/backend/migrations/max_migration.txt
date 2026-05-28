@@ -1,1 +1,1 @@
-0006_alter_mcpsession_distinct_id_and_more
+0007_alter_mcpsession_options_and_more
