@@ -244,14 +244,6 @@ export const AgentApplicationsRevisionsArchiveCreateParams = /* @__PURE__ */ zod
         ),
 })
 
-export const agentApplicationsRevisionsArchiveCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsArchiveCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsArchiveCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
-
 /**
  * Bulk-pull: returns `{ files: { path: content, ... }, ... }`. Use
 this when the MCP wants the whole bundle to work on locally.
@@ -279,13 +271,19 @@ export const AgentApplicationsRevisionsBundleUpdateParams = /* @__PURE__ */ zod.
         ),
 })
 
-export const agentApplicationsRevisionsBundleUpdateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsBundleUpdateBodyModeDefault = `replace`
 
-export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsBundleUpdateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
+    .object({
+        files: zod.record(zod.string(), zod.string()),
+        mode: zod
+            .enum(['replace', 'merge'])
+            .describe('* `replace` - replace\n* `merge` - merge')
+            .default(agentApplicationsRevisionsBundleUpdateBodyModeDefault),
+    })
+    .describe(
+        "Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.\n\n`files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the\nexisting bundle before writing the new set; `'merge'` upserts."
+    )
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -300,13 +298,13 @@ export const AgentApplicationsRevisionsCloneFromCreateParams = /* @__PURE__ */ z
         ),
 })
 
-export const agentApplicationsRevisionsCloneFromCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCloneFromCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_revision_id: zod.string(),
+    })
+    .describe(
+        'Body shape for POST /revisions/<id>/clone_from/ — copy every file\nfrom `source_revision_id` into this (draft) revision.'
+    )
 
 /**
  * Read one file by `?path=...`. Works on any revision state.
@@ -319,6 +317,10 @@ export const AgentApplicationsRevisionsFileRetrieveParams = /* @__PURE__ */ zod.
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const AgentApplicationsRevisionsFileRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.'),
 })
 
 /**
@@ -334,13 +336,17 @@ export const AgentApplicationsRevisionsFileUpdateParams = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const agentApplicationsRevisionsFileUpdateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsFileUpdateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
+export const AgentApplicationsRevisionsFileUpdateQueryParams = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.'),
 })
+
+export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string(),
+    })
+    .describe(
+        'Body shape for PUT /revisions/<id>/file/. `path` lives in the query\nstring (matches the janitor wire format); `content` is the new file body.'
+    )
 
 /**
  * Delete one file by `?path=...`. Draft-only.
@@ -353,6 +359,10 @@ export const AgentApplicationsRevisionsFileDestroyParams = /* @__PURE__ */ zod.o
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const AgentApplicationsRevisionsFileDestroyQueryParams = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.'),
 })
 
 /**
@@ -369,14 +379,6 @@ export const AgentApplicationsRevisionsFreezeCreateParams = /* @__PURE__ */ zod.
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-})
-
-export const agentApplicationsRevisionsFreezeCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsFreezeCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsFreezeCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
 })
 
 /**
@@ -403,14 +405,6 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-})
-
-export const agentApplicationsRevisionsPromoteCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsPromoteCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsPromoteCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
 })
 
 /**
@@ -444,13 +438,14 @@ export const AgentApplicationsRevisionsNewDraftCreateParams = /* @__PURE__ */ zo
         ),
 })
 
-export const agentApplicationsRevisionsNewDraftCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsNewDraftCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod
+    .object({
+        application_id: zod.string(),
+        source_revision_id: zod.string(),
+    })
+    .describe(
+        'Body shape for POST /revisions/clone_from/ — atomically create a new\ndraft revision under `application_id` and clone its initial bundle from\n`source_revision_id`. Convenience for the "edit live" flow so the MCP\ndoesn\'t have to do create-then-clone-from in two calls.'
+    )
 
 /**
  * Agent applications — the deployable unit of the platform.
@@ -540,18 +535,13 @@ export const AgentApplicationsSetEnvCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const agentApplicationsSetEnvCreateBodyNameMax = 255
-
-export const agentApplicationsSetEnvCreateBodySlugMax = 63
-
-export const agentApplicationsSetEnvCreateBodyArchivedDefault = false
-
-export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(agentApplicationsSetEnvCreateBodyNameMax),
-    slug: zod.string().max(agentApplicationsSetEnvCreateBodySlugMax),
-    description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsSetEnvCreateBodyArchivedDefault),
-})
+export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
+    .object({
+        env: zod.record(zod.string(), zod.string()),
+    })
+    .describe(
+        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
+    )
 
 /**
  * Read-only catalog of every @posthog/* native tool the runner knows.

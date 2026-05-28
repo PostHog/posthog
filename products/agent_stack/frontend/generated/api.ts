@@ -11,14 +11,22 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AgentApplicationApi,
     AgentApplicationsListParams,
+    AgentApplicationsRevisionsFileDestroyParams,
+    AgentApplicationsRevisionsFileRetrieveParams,
+    AgentApplicationsRevisionsFileUpdateParams,
     AgentApplicationsRevisionsListParams,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
     AgentRevisionValidateResponseApi,
+    CloneFromRequestApi,
+    NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
     PatchedAgentApplicationApi,
     PatchedAgentRevisionApi,
+    SetEnvRequestApi,
+    WriteBundleRequestApi,
+    WriteFileRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -379,14 +387,11 @@ export const agentApplicationsRevisionsArchiveCreate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsArchiveCreateUrl(projectId, applicationId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
     })
 }
 
@@ -425,14 +430,14 @@ export const agentApplicationsRevisionsBundleUpdate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
+    writeBundleRequestApi: WriteBundleRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsBundleUpdateUrl(projectId, applicationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
+        body: JSON.stringify(writeBundleRequestApi),
     })
 }
 
@@ -451,19 +456,36 @@ export const agentApplicationsRevisionsCloneFromCreate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
+    cloneFromRequestApi: CloneFromRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsCloneFromCreateUrl(projectId, applicationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
+        body: JSON.stringify(cloneFromRequestApi),
     })
 }
 
-export const getAgentApplicationsRevisionsFileRetrieveUrl = (projectId: string, applicationId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
+export const getAgentApplicationsRevisionsFileRetrieveUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    params: AgentApplicationsRevisionsFileRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
 }
 
 /**
@@ -473,16 +495,37 @@ export const agentApplicationsRevisionsFileRetrieve = async (
     projectId: string,
     applicationId: string,
     id: string,
+    params: AgentApplicationsRevisionsFileRetrieveParams,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsFileRetrieveUrl(projectId, applicationId, id), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsFileRetrieveUrl(projectId, applicationId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getAgentApplicationsRevisionsFileUpdateUrl = (projectId: string, applicationId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
+export const getAgentApplicationsRevisionsFileUpdateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    params: AgentApplicationsRevisionsFileUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
 }
 
 /**
@@ -492,19 +535,40 @@ export const agentApplicationsRevisionsFileUpdate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
+    writeFileRequestApi: WriteFileRequestApi,
+    params: AgentApplicationsRevisionsFileUpdateParams,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsFileUpdateUrl(projectId, applicationId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
-    })
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsFileUpdateUrl(projectId, applicationId, id, params),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(writeFileRequestApi),
+        }
+    )
 }
 
-export const getAgentApplicationsRevisionsFileDestroyUrl = (projectId: string, applicationId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
+export const getAgentApplicationsRevisionsFileDestroyUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    params: AgentApplicationsRevisionsFileDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
 }
 
 /**
@@ -514,9 +578,10 @@ export const agentApplicationsRevisionsFileDestroy = async (
     projectId: string,
     applicationId: string,
     id: string,
+    params: AgentApplicationsRevisionsFileDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsRevisionsFileDestroyUrl(projectId, applicationId, id), {
+    return apiMutator<void>(getAgentApplicationsRevisionsFileDestroyUrl(projectId, applicationId, id, params), {
         ...options,
         method: 'DELETE',
     })
@@ -536,14 +601,11 @@ export const agentApplicationsRevisionsFreezeCreate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsFreezeCreateUrl(projectId, applicationId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
     })
 }
 
@@ -584,14 +646,11 @@ export const agentApplicationsRevisionsPromoteCreate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsPromoteCreateUrl(projectId, applicationId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
     })
 }
 
@@ -637,14 +696,14 @@ explicit create + clone_from sequence.
 export const agentApplicationsRevisionsNewDraftCreate = async (
     projectId: string,
     applicationId: string,
-    agentRevisionApi?: NonReadonly<AgentRevisionApi>,
+    newDraftRevisionRequestApi: NewDraftRevisionRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsNewDraftCreateUrl(projectId, applicationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentRevisionApi),
+        body: JSON.stringify(newDraftRevisionRequestApi),
     })
 }
 
@@ -769,14 +828,14 @@ agent-shared/src/runtime/encryption.ts).
 export const agentApplicationsSetEnvCreate = async (
     projectId: string,
     id: string,
-    agentApplicationApi: NonReadonly<AgentApplicationApi>,
+    setEnvRequestApi: SetEnvRequestApi,
     options?: RequestInit
 ): Promise<AgentApplicationApi> => {
     return apiMutator<AgentApplicationApi>(getAgentApplicationsSetEnvCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(agentApplicationApi),
+        body: JSON.stringify(setEnvRequestApi),
     })
 }
 

@@ -27,7 +27,8 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import (
     serializers as drf_serializers,
     status,
@@ -130,6 +131,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.archived_at = timezone.now()
         instance.save(update_fields=["archived", "archived_at", "updated_at"])
 
+    @extend_schema(request=SetEnvRequestSerializer)
     @action(detail=True, methods=["post"], url_path="set_env")
     def set_env(self, request: Request, **kwargs) -> Response:
         """Replace the agent's encrypted env block.
@@ -240,6 +242,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(f"Cannot edit spec on a {instance.state} revision; create a new draft instead.")
         return super().update(request, *args, **kwargs)
 
+    @extend_schema(request=PromoteRevisionRequestSerializer)
     @action(detail=True, methods=["post"], url_path="promote")
     def promote(self, request: Request, **kwargs) -> Response:
         """ready → live. Sets the parent application's live_revision."""
@@ -267,6 +270,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "live"})
 
+    @extend_schema(request=None)
     @action(detail=True, methods=["post"], url_path="archive")
     def archive(self, request: Request, **kwargs) -> Response:
         """Mark a revision archived. If it was the live one, clear the
@@ -292,6 +296,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
 
+    @extend_schema(request=None)
     @action(detail=True, methods=["get"], url_path="manifest")
     def manifest(self, request: Request, **kwargs) -> Response:
         """List every file in this revision's bundle (path, size, sha256)."""
@@ -302,6 +307,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # @action + .mapping.<verb> chain. Three separate @action decorators with
     # the same url_path don't merge — the last one registered wins and the
     # others 405.
+    _FILE_PATH_PARAM = OpenApiParameter(
+        "path",
+        OpenApiTypes.STR,
+        OpenApiParameter.QUERY,
+        required=True,
+        description="Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.",
+    )
+
+    @extend_schema(parameters=[_FILE_PATH_PARAM], request=None)
     @action(detail=True, methods=["get"], url_path="file")
     def get_file(self, request: Request, **kwargs) -> Response:
         """Read one file by `?path=...`. Works on any revision state."""
@@ -311,6 +325,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Missing ?path=… query parameter.")
         return Response(self._call(_janitor().get_file, str(revision.id), path))
 
+    @extend_schema(parameters=[_FILE_PATH_PARAM], request=WriteFileRequestSerializer)
     @get_file.mapping.put
     def put_file(self, request: Request, **kwargs) -> Response:
         """Write one file by `?path=...`. Draft-only (janitor enforces)."""
@@ -322,6 +337,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body.is_valid(raise_exception=True)
         return Response(self._call(_janitor().put_file, str(revision.id), path, body.validated_data["content"]))
 
+    @extend_schema(parameters=[_FILE_PATH_PARAM], request=None)
     @get_file.mapping.delete
     def delete_file(self, request: Request, **kwargs) -> Response:
         """Delete one file by `?path=...`. Draft-only."""
@@ -331,6 +347,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Missing ?path=… query parameter.")
         return Response(self._call(_janitor().delete_file, str(revision.id), path))
 
+    @extend_schema(request=None)
     @action(detail=True, methods=["get"], url_path="bundle")
     def get_bundle(self, request: Request, **kwargs) -> Response:
         """Bulk-pull: returns `{ files: { path: content, ... }, ... }`. Use
@@ -338,6 +355,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().get_bundle, str(revision.id)))
 
+    @extend_schema(request=WriteBundleRequestSerializer)
     @get_bundle.mapping.put
     def put_bundle(self, request: Request, **kwargs) -> Response:
         """Bulk-push the bundle. Body `{ files, mode: replace|merge }`."""
@@ -411,6 +429,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report["ok"] = len(errors) == 0
         return Response(report)
 
+    @extend_schema(request=None)
     @action(detail=True, methods=["post"], url_path="freeze")
     def freeze(self, request: Request, **kwargs) -> Response:
         """Freeze the bundle: draft → ready, stamps sha256 on the row.
@@ -427,6 +446,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
+    @extend_schema(request=CloneFromRequestSerializer)
     @action(detail=True, methods=["post"], url_path="clone_from")
     def clone_from(self, request: Request, **kwargs) -> Response:
         """Copy every file from `source_revision_id` into this revision."""
@@ -441,6 +461,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Source revision not found in this team.")
         return Response(self._call(_janitor().clone_from, str(revision.id), source_id))
 
+    @extend_schema(request=NewDraftRevisionRequestSerializer)
     @action(detail=False, methods=["post"], url_path="new_draft")
     def new_draft(self, request: Request, **kwargs) -> Response:
         """Create a fresh draft revision under `application_id` and seed it

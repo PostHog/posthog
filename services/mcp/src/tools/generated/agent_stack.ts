@@ -9,7 +9,6 @@ import {
     AgentApplicationsPartialUpdateBody,
     AgentApplicationsPartialUpdateParams,
     AgentApplicationsRetrieveParams,
-    AgentApplicationsRevisionsArchiveCreateBody,
     AgentApplicationsRevisionsArchiveCreateParams,
     AgentApplicationsRevisionsBundleRetrieveParams,
     AgentApplicationsRevisionsBundleUpdateBody,
@@ -19,10 +18,12 @@ import {
     AgentApplicationsRevisionsCreateBody,
     AgentApplicationsRevisionsCreateParams,
     AgentApplicationsRevisionsFileDestroyParams,
+    AgentApplicationsRevisionsFileDestroyQueryParams,
     AgentApplicationsRevisionsFileRetrieveParams,
+    AgentApplicationsRevisionsFileRetrieveQueryParams,
     AgentApplicationsRevisionsFileUpdateBody,
     AgentApplicationsRevisionsFileUpdateParams,
-    AgentApplicationsRevisionsFreezeCreateBody,
+    AgentApplicationsRevisionsFileUpdateQueryParams,
     AgentApplicationsRevisionsFreezeCreateParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsRevisionsListQueryParams,
@@ -31,7 +32,6 @@ import {
     AgentApplicationsRevisionsNewDraftCreateParams,
     AgentApplicationsRevisionsPartialUpdateBody,
     AgentApplicationsRevisionsPartialUpdateParams,
-    AgentApplicationsRevisionsPromoteCreateBody,
     AgentApplicationsRevisionsPromoteCreateParams,
     AgentApplicationsRevisionsRetrieveParams,
     AgentApplicationsRevisionsValidateCreateParams,
@@ -157,7 +157,7 @@ const agentApplicationsRetrieve = (): ToolBase<typeof AgentApplicationsRetrieveS
 
 const AgentApplicationsRevisionsArchiveCreateSchema = AgentApplicationsRevisionsArchiveCreateParams.omit({
     project_id: true,
-}).extend(AgentApplicationsRevisionsArchiveCreateBody.shape)
+})
 
 const agentApplicationsRevisionsArchiveCreate = (): ToolBase<
     typeof AgentApplicationsRevisionsArchiveCreateSchema,
@@ -167,20 +167,9 @@ const agentApplicationsRevisionsArchiveCreate = (): ToolBase<
     schema: AgentApplicationsRevisionsArchiveCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsArchiveCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
-        }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
-        }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/archive/`,
-            body,
         })
         return result
     },
@@ -219,14 +208,11 @@ const agentApplicationsRevisionsBundleUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsBundleUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
+        if (params.files !== undefined) {
+            body['files'] = params.files
         }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
+        if (params.mode !== undefined) {
+            body['mode'] = params.mode
         }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'PUT',
@@ -250,14 +236,8 @@ const agentApplicationsRevisionsCloneFromCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsCloneFromCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
-        }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
+        if (params.source_revision_id !== undefined) {
+            body['source_revision_id'] = params.source_revision_id
         }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'POST',
@@ -301,7 +281,7 @@ const agentApplicationsRevisionsCreate = (): ToolBase<
 
 const AgentApplicationsRevisionsFileDestroySchema = AgentApplicationsRevisionsFileDestroyParams.omit({
     project_id: true,
-})
+}).extend(AgentApplicationsRevisionsFileDestroyQueryParams.shape)
 
 const agentApplicationsRevisionsFileDestroy = (): ToolBase<
     typeof AgentApplicationsRevisionsFileDestroySchema,
@@ -314,6 +294,9 @@ const agentApplicationsRevisionsFileDestroy = (): ToolBase<
         const result = await context.api.request<unknown>({
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/file/`,
+            query: {
+                path: params.path,
+            },
         })
         return result
     },
@@ -321,7 +304,7 @@ const agentApplicationsRevisionsFileDestroy = (): ToolBase<
 
 const AgentApplicationsRevisionsFileRetrieveSchema = AgentApplicationsRevisionsFileRetrieveParams.omit({
     project_id: true,
-})
+}).extend(AgentApplicationsRevisionsFileRetrieveQueryParams.shape)
 
 const agentApplicationsRevisionsFileRetrieve = (): ToolBase<
     typeof AgentApplicationsRevisionsFileRetrieveSchema,
@@ -334,14 +317,17 @@ const agentApplicationsRevisionsFileRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/file/`,
+            query: {
+                path: params.path,
+            },
         })
         return result
     },
 })
 
-const AgentApplicationsRevisionsFileUpdateSchema = AgentApplicationsRevisionsFileUpdateParams.omit({
-    project_id: true,
-}).extend(AgentApplicationsRevisionsFileUpdateBody.shape)
+const AgentApplicationsRevisionsFileUpdateSchema = AgentApplicationsRevisionsFileUpdateParams.omit({ project_id: true })
+    .extend(AgentApplicationsRevisionsFileUpdateQueryParams.shape)
+    .extend(AgentApplicationsRevisionsFileUpdateBody.shape)
 
 const agentApplicationsRevisionsFileUpdate = (): ToolBase<
     typeof AgentApplicationsRevisionsFileUpdateSchema,
@@ -352,19 +338,16 @@ const agentApplicationsRevisionsFileUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsFileUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
-        }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
+        if (params.content !== undefined) {
+            body['content'] = params.content
         }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/file/`,
             body,
+            query: {
+                path: params.path,
+            },
         })
         return result
     },
@@ -372,7 +355,7 @@ const agentApplicationsRevisionsFileUpdate = (): ToolBase<
 
 const AgentApplicationsRevisionsFreezeCreateSchema = AgentApplicationsRevisionsFreezeCreateParams.omit({
     project_id: true,
-}).extend(AgentApplicationsRevisionsFreezeCreateBody.shape)
+})
 
 const agentApplicationsRevisionsFreezeCreate = (): ToolBase<
     typeof AgentApplicationsRevisionsFreezeCreateSchema,
@@ -382,20 +365,9 @@ const agentApplicationsRevisionsFreezeCreate = (): ToolBase<
     schema: AgentApplicationsRevisionsFreezeCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsFreezeCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
-        }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
-        }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/freeze/`,
-            body,
         })
         return result
     },
@@ -458,14 +430,11 @@ const agentApplicationsRevisionsNewDraftCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsNewDraftCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
+        if (params.application_id !== undefined) {
+            body['application_id'] = params.application_id
         }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
+        if (params.source_revision_id !== undefined) {
+            body['source_revision_id'] = params.source_revision_id
         }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'POST',
@@ -509,7 +478,7 @@ const agentApplicationsRevisionsPartialUpdate = (): ToolBase<
 
 const AgentApplicationsRevisionsPromoteCreateSchema = AgentApplicationsRevisionsPromoteCreateParams.omit({
     project_id: true,
-}).extend(AgentApplicationsRevisionsPromoteCreateBody.shape)
+})
 
 const agentApplicationsRevisionsPromoteCreate = (): ToolBase<
     typeof AgentApplicationsRevisionsPromoteCreateSchema,
@@ -519,20 +488,9 @@ const agentApplicationsRevisionsPromoteCreate = (): ToolBase<
     schema: AgentApplicationsRevisionsPromoteCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsPromoteCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.parent_revision !== undefined) {
-            body['parent_revision'] = params.parent_revision
-        }
-        if (params.bundle_uri !== undefined) {
-            body['bundle_uri'] = params.bundle_uri
-        }
-        if (params.spec !== undefined) {
-            body['spec'] = params.spec
-        }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/promote/`,
-            body,
         })
         return result
     },
@@ -589,17 +547,8 @@ const agentApplicationsSetEnvCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsSetEnvCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.slug !== undefined) {
-            body['slug'] = params.slug
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.archived !== undefined) {
-            body['archived'] = params.archived
+        if (params.env !== undefined) {
+            body['env'] = params.env
         }
         const result = await context.api.request<Schemas.AgentApplication>({
             method: 'POST',

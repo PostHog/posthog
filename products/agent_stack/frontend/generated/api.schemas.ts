@@ -91,6 +91,47 @@ export interface PatchedAgentRevisionApi {
     readonly updated_at?: string
 }
 
+export type WriteBundleRequestApiFiles = { [key: string]: string }
+
+/**
+ * * `replace` - replace
+ * `merge` - merge
+ */
+export type WriteBundleRequestModeEnumApi =
+    (typeof WriteBundleRequestModeEnumApi)[keyof typeof WriteBundleRequestModeEnumApi]
+
+export const WriteBundleRequestModeEnumApi = {
+    Replace: 'replace',
+    Merge: 'merge',
+} as const
+
+/**
+ * Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.
+
+`files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the
+existing bundle before writing the new set; `'merge'` upserts.
+ */
+export interface WriteBundleRequestApi {
+    files: WriteBundleRequestApiFiles
+    mode?: WriteBundleRequestModeEnumApi
+}
+
+/**
+ * Body shape for POST /revisions/<id>/clone_from/ — copy every file
+from `source_revision_id` into this (draft) revision.
+ */
+export interface CloneFromRequestApi {
+    source_revision_id: string
+}
+
+/**
+ * Body shape for PUT /revisions/<id>/file/. `path` lives in the query
+string (matches the janitor wire format); `content` is the new file body.
+ */
+export interface WriteFileRequestApi {
+    content: string
+}
+
 export interface AgentRevisionValidationErrorApi {
     code: string
     message: string
@@ -103,6 +144,17 @@ export interface AgentRevisionValidateResponseApi {
     revision_state: string
     errors: AgentRevisionValidationErrorApi[]
     resolved_natives: string[]
+}
+
+/**
+ * Body shape for POST /revisions/clone_from/ — atomically create a new
+draft revision under `application_id` and clone its initial bundle from
+`source_revision_id`. Convenience for the "edit live" flow so the MCP
+doesn't have to do create-then-clone-from in two calls.
+ */
+export interface NewDraftRevisionRequestApi {
+    application_id: string
+    source_revision_id: string
 }
 
 export interface PatchedAgentApplicationApi {
@@ -122,6 +174,18 @@ export interface PatchedAgentApplicationApi {
     readonly created_by?: number | null
     readonly created_at?: string
     readonly updated_at?: string
+}
+
+export type SetEnvRequestApiEnv = { [key: string]: string }
+
+/**
+ * Body shape for AgentApplicationViewSet.set_env.
+
+`env` is a JSON object of string→string. The view encrypts it via the
+same Fernet schedule the worker uses to decrypt.
+ */
+export interface SetEnvRequestApi {
+    env: SetEnvRequestApiEnv
 }
 
 export type AgentNativeToolEntryApiSchema = { [key: string]: unknown }
@@ -155,4 +219,25 @@ export type AgentApplicationsRevisionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AgentApplicationsRevisionsFileRetrieveParams = {
+    /**
+     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
+     */
+    path: string
+}
+
+export type AgentApplicationsRevisionsFileUpdateParams = {
+    /**
+     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
+     */
+    path: string
+}
+
+export type AgentApplicationsRevisionsFileDestroyParams = {
+    /**
+     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
+     */
+    path: string
 }

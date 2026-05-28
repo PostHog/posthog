@@ -116,88 +116,57 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
 })
 
 /**
- * Mark a revision archived. If it was the live one, clear the
-application's live_revision pointer (the app effectively has no
-deployable version until another revision is promoted).
- */
-export const agentApplicationsRevisionsArchiveCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsArchiveCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsArchiveCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
-
-/**
  * Bulk-push the bundle. Body `{ files, mode: replace|merge }`.
  */
-export const agentApplicationsRevisionsBundleUpdateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsBundleUpdateBodyModeDefault = `replace`
 
-export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsBundleUpdateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
+    .object({
+        files: zod.record(zod.string(), zod.string()),
+        mode: zod
+            .enum(['replace', 'merge'])
+            .describe('\* `replace` - replace\n\* `merge` - merge')
+            .default(agentApplicationsRevisionsBundleUpdateBodyModeDefault),
+    })
+    .describe(
+        "Body shape for PUT \/revisions\/<id>\/bundle\/ — the bulk upload.\n\n`files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the\nexisting bundle before writing the new set; `'merge'` upserts."
+    )
 
 /**
  * Copy every file from `source_revision_id` into this revision.
  */
-export const agentApplicationsRevisionsCloneFromCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCloneFromCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_revision_id: zod.uuid(),
+    })
+    .describe(
+        'Body shape for POST \/revisions\/<id>\/clone_from\/ — copy every file\nfrom `source_revision_id` into this (draft) revision.'
+    )
 
 /**
  * Write one file by `?path=...`. Draft-only (janitor enforces).
  */
-export const agentApplicationsRevisionsFileUpdateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsFileUpdateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
-
-/**
- * Freeze the bundle: draft → ready, stamps sha256 on the row.
-The janitor computes the digest and updates the revision row in PG;
-Django re-reads the row before returning so the response reflects
-the persisted state.
- */
-export const agentApplicationsRevisionsFreezeCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsFreezeCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsFreezeCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
-
-/**
- * ready → live. Sets the parent application's live_revision.
- */
-export const agentApplicationsRevisionsPromoteCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsPromoteCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsPromoteCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string(),
+    })
+    .describe(
+        'Body shape for PUT \/revisions\/<id>\/file\/. `path` lives in the query\nstring (matches the janitor wire format); `content` is the new file body.'
+    )
 
 /**
  * Create a fresh draft revision under `application_id` and seed it
 from `source_revision_id`. Saves the MCP one round-trip vs the
 explicit create + clone_from sequence.
  */
-export const agentApplicationsRevisionsNewDraftCreateBodyBundleUriDefault = ``
-
-export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsNewDraftCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
-})
+export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod
+    .object({
+        application_id: zod.uuid(),
+        source_revision_id: zod.uuid(),
+    })
+    .describe(
+        'Body shape for POST \/revisions\/clone_from\/ — atomically create a new\ndraft revision under `application_id` and clone its initial bundle from\n`source_revision_id`. Convenience for the \"edit live\" flow so the MCP\ndoesn\'t have to do create-then-clone-from in two calls.'
+    )
 
 /**
  * Agent applications — the deployable unit of the platform.
@@ -255,15 +224,10 @@ text gets stored on AgentApplication.encrypted_env; the worker
 decrypts it at session start via the same Fernet schedule (see
 agent-shared/src/runtime/encryption.ts).
  */
-export const agentApplicationsSetEnvCreateBodyNameMax = 255
-
-export const agentApplicationsSetEnvCreateBodySlugMax = 63
-
-export const agentApplicationsSetEnvCreateBodyArchivedDefault = false
-
-export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(agentApplicationsSetEnvCreateBodyNameMax),
-    slug: zod.string().max(agentApplicationsSetEnvCreateBodySlugMax),
-    description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsSetEnvCreateBodyArchivedDefault),
-})
+export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
+    .object({
+        env: zod.record(zod.string(), zod.string()),
+    })
+    .describe(
+        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
+    )

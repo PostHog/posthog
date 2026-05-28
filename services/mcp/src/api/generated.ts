@@ -7585,6 +7585,14 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    /**
+     * Body shape for POST /revisions/<id>/clone_from/ — copy every file
+    from `source_revision_id` into this (draft) revision.
+     */
+    export interface CloneFromRequest {
+      source_revision_id: string;
+    }
+
     export interface DiffCluster {
       x: number;
       y: number;
@@ -21643,6 +21651,17 @@ export namespace Schemas {
       Full: 'full',
       Custom: 'custom',
     } as const;
+
+    /**
+     * Body shape for POST /revisions/clone_from/ — atomically create a new
+    draft revision under `application_id` and clone its initial bundle from
+    `source_revision_id`. Convenience for the "edit live" flow so the MCP
+    doesn't have to do create-then-clone-from in two calls.
+     */
+    export interface NewDraftRevisionRequest {
+      application_id: string;
+      source_revision_id: string;
+    }
 
     /**
      * * `table` - Table
@@ -35714,6 +35733,18 @@ export namespace Schemas {
       custom_tags?: SessionSummariesConfigCustomTags;
     }
 
+    export type SetEnvRequestEnv = {[key: string]: string};
+
+    /**
+     * Body shape for AgentApplicationViewSet.set_env.
+
+    `env` is a JSON object of string→string. The view encrypts it via the
+    same Fernet schedule the worker uses to decrypt.
+     */
+    export interface SetEnvRequest {
+      env: SetEnvRequestEnv;
+    }
+
     /**
      * * `trace` - trace
     * `debug` - debug
@@ -37792,6 +37823,39 @@ export namespace Schemas {
       products_in_use: string[];
       suggested_next_steps: _WelcomeSuggestedStep[];
       is_organization_first_user: boolean;
+    }
+
+    export type WriteBundleRequestFiles = {[key: string]: string};
+
+    /**
+     * * `replace` - replace
+    * `merge` - merge
+     */
+    export type WriteBundleRequestModeEnum = typeof WriteBundleRequestModeEnum[keyof typeof WriteBundleRequestModeEnum];
+
+
+    export const WriteBundleRequestModeEnum = {
+      Replace: 'replace',
+      Merge: 'merge',
+    } as const;
+
+    /**
+     * Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.
+
+    `files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the
+    existing bundle before writing the new set; `'merge'` upserts.
+     */
+    export interface WriteBundleRequest {
+      files: WriteBundleRequestFiles;
+      mode?: WriteBundleRequestModeEnum;
+    }
+
+    /**
+     * Body shape for PUT /revisions/<id>/file/. `path` lives in the query
+    string (matches the janitor wire format); `content` is the new file body.
+     */
+    export interface WriteFileRequest {
+      content: string;
     }
 
     export interface _CompareFilter {
@@ -43082,6 +43146,27 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type AgentApplicationsRevisionsFileRetrieveParams = {
+    /**
+     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
+     */
+    path: string;
+    };
+
+    export type AgentApplicationsRevisionsFileUpdateParams = {
+    /**
+     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
+     */
+    path: string;
+    };
+
+    export type AgentApplicationsRevisionsFileDestroyParams = {
+    /**
+     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
+     */
+    path: string;
     };
 
     export type AlertsListParams = {
