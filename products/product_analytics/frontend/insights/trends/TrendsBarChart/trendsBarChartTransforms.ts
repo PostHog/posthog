@@ -19,6 +19,9 @@ export interface TrendsBarResultLike {
     compare?: boolean
     compare_label?: string | null
     action?: { order?: number } | null
+    // Formula-mode results have a top-level `order` instead of `action.order` — it identifies
+    // which formula the row belongs to so breakdown rows of the same formula can share a band.
+    order?: number | null
     breakdown_value?: unknown
     filter?: unknown
 }
@@ -102,14 +105,21 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
-): { series: Series<M>[]; labels: string[] } {
+): { series: Series<M>[]; labels: string[]; displayLabels: string[] } {
     // Hidden results are dropped entirely — keeping them as `excluded` series would leave
     // a phantom band on the category axis with no bar.
     const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
-    // d3.scaleBand collapses duplicate domain entries — suffix compare rows so each gets its own band.
-    const labels = visible.map((r) => {
+    const displayLabels = visible.map((r) => {
         const base = r.label ?? ''
         return r.compare_label ? `${base} - ${r.compare_label}` : base
+    })
+    // d3.scaleBand dedupes its domain. Band key suffix = the series identity (`action.order`
+    // for normal series, top-level `order` for formula rows). Breakdowns of one series share
+    // an identity → same band → bars overlap by descending size in the same row. Different
+    // series with the same display label get different identities → distinct bands.
+    const labels = visible.map((r, i) => {
+        const seriesId = r.action?.order ?? r.order ?? 0
+        return `${displayLabels[i]}__${seriesId}`
     })
     const n = visible.length
     const series = visible.map((r, index) => {
@@ -120,5 +130,5 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
         }
         return buildMainTrendsBarSeries(r, index, opts, data)
     })
-    return { series, labels }
+    return { series, labels, displayLabels }
 }

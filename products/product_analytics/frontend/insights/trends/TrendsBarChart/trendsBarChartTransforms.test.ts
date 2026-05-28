@@ -72,14 +72,80 @@ describe('buildTrendsBarAggregatedSeries', () => {
         ...overrides,
     })
 
-    it('returns labels aligned with results, in the same order', () => {
+    it('returns display labels aligned with results, in the same order; band labels stay unique', () => {
         const results = [
             mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
             mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
             mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
         ]
-        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(labels).toEqual(['A', 'B', 'C'])
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(['A', 'B', 'C'])
+        expect(new Set(labels).size).toBe(labels.length)
+    })
+
+    it('splits same-label results into separate bands when they come from different series (no breakdown)', () => {
+        // Four trends series of the same event surface label="$pageview" each but have
+        // distinct action.order — they should not collapse onto one band.
+        const results = [
+            mkResult({ id: 'r0', label: '$pageview', action: { order: 0 }, aggregated_value: 10 }),
+            mkResult({ id: 'r1', label: '$pageview', action: { order: 1 }, aggregated_value: 20 }),
+            mkResult({ id: 'r2', label: '$pageview', action: { order: 2 }, aggregated_value: 30 }),
+            mkResult({ id: 'r3', label: '$pageview', action: { order: 3 }, aggregated_value: 40 }),
+        ]
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(['$pageview', '$pageview', '$pageview', '$pageview'])
+        expect(new Set(labels).size).toBe(4)
+    })
+
+    it('groups same-label breakdown rows of one series onto one band (overlap layout preserved)', () => {
+        // Formula+breakdown shape: each formula gets a top-level `order`, breakdown rows of
+        // the same formula share it. They should share a band so the existing overlap-on-top
+        // visual still works.
+        const results = [
+            mkResult({ id: 'r0', label: 'Binary Size', order: 0, breakdown_value: ['1.18.1'], aggregated_value: 355 }),
+            mkResult({ id: 'r1', label: 'Binary Size', order: 0, breakdown_value: ['1.18.0'], aggregated_value: 330 }),
+            mkResult({ id: 'r2', label: 'Binary Size', order: 0, breakdown_value: ['1.17.0'], aggregated_value: 320 }),
+            mkResult({
+                id: 'r3',
+                label: 'Embedded Assets',
+                order: 1,
+                breakdown_value: ['1.18.1'],
+                aggregated_value: 14,
+            }),
+            mkResult({
+                id: 'r4',
+                label: 'Embedded Assets',
+                order: 1,
+                breakdown_value: ['1.18.0'],
+                aggregated_value: 0,
+            }),
+            mkResult({
+                id: 'r5',
+                label: 'Runtime & Code',
+                order: 2,
+                breakdown_value: ['1.18.1'],
+                aggregated_value: 355,
+            }),
+            mkResult({
+                id: 'r6',
+                label: 'Runtime & Code',
+                order: 2,
+                breakdown_value: ['1.18.0'],
+                aggregated_value: 327,
+            }),
+        ]
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual([
+            'Binary Size',
+            'Binary Size',
+            'Binary Size',
+            'Embedded Assets',
+            'Embedded Assets',
+            'Runtime & Code',
+            'Runtime & Code',
+        ])
+        // 7 results, but only 3 distinct band slots — one per formula.
+        expect(new Set(labels).size).toBe(3)
     })
 
     it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
@@ -113,7 +179,7 @@ describe('buildTrendsBarAggregatedSeries', () => {
 
     it.each([
         {
-            name: 'suffixes labels with compare_label so compare-against-previous rows get distinct bands',
+            name: 'suffixes display labels with compare_label so compare-against-previous rows render distinctly',
             results: [
                 { id: 'a', label: 'Microsoft Edge', compare_label: 'current', aggregated_value: 100 },
                 { id: 'b', label: 'Microsoft Edge', compare_label: 'previous', aggregated_value: 80 },
@@ -122,7 +188,7 @@ describe('buildTrendsBarAggregatedSeries', () => {
             expected: ['Microsoft Edge - current', 'Microsoft Edge - previous', 'Safari - current'],
         },
         {
-            name: 'leaves labels unchanged when compare_label is absent',
+            name: 'leaves display labels unchanged when compare_label is absent',
             results: [
                 { id: 'a', label: 'Chrome', aggregated_value: 1 },
                 { id: 'b', label: 'Safari', aggregated_value: 2 },
@@ -130,9 +196,11 @@ describe('buildTrendsBarAggregatedSeries', () => {
             expected: ['Chrome', 'Safari'],
         },
     ])('$name', ({ results, expected }) => {
-        const { labels } = buildTrendsBarAggregatedSeries(results.map(mkResult), { getColor: () => RED })
-        expect(labels).toEqual(expected)
-        // No duplicates — every band gets a unique d3 domain key.
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results.map(mkResult), {
+            getColor: () => RED,
+        })
+        expect(displayLabels).toEqual(expected)
+        // Distinct display labels → distinct band keys after the series-id suffix.
         expect(new Set(labels).size).toBe(labels.length)
     })
 
@@ -142,11 +210,11 @@ describe('buildTrendsBarAggregatedSeries', () => {
             mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
             mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
         ]
-        const { series, labels } = buildTrendsBarAggregatedSeries(results, {
+        const { series, displayLabels } = buildTrendsBarAggregatedSeries(results, {
             getColor: () => RED,
             getHidden: (_r, i) => i === 1,
         })
-        expect(labels).toEqual(['A', 'C'])
+        expect(displayLabels).toEqual(['A', 'C'])
         expect(series).toHaveLength(2)
         expect(series[0].data).toEqual([1, 0])
         expect(series[1].data).toEqual([0, 3])

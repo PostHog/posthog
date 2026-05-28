@@ -113,7 +113,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
               )
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
-    const { series, labels } = useMemo(() => {
+    const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
@@ -126,7 +126,11 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             getHidden: getTrendsHidden,
             buildMeta: buildTrendsSeriesMeta,
         })
-        return { series: timeSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
+        return {
+            series: timeSeries,
+            labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+            displayLabels: undefined,
+        }
     }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
 
     const valueLabelFormatter = useCallback(
@@ -180,19 +184,41 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const aggregatedConfig: BarChartConfig = useMemo(
-        () => ({
+    const aggregatedConfig: BarChartConfig = useMemo(() => {
+        // Aggregated band keys are synthetic `${displayLabel}__${seriesId}` so multiple
+        // series with duplicate display labels don't collapse onto one band. Render the
+        // human label via the categorical-axis formatter, and skip repeats so band-shared
+        // breakdown rows don't draw the same text six times on top of itself.
+        let xTickFormatter: BarChartConfig['xTickFormatter']
+        if (displayLabels && labels) {
+            const firstIndexOf = new Map<string, number>()
+            labels.forEach((l, i) => {
+                if (!firstIndexOf.has(l)) {
+                    firstIndexOf.set(l, i)
+                }
+            })
+            xTickFormatter = (label: string, i: number) =>
+                firstIndexOf.get(label) === i ? (displayLabels[i] ?? null) : null
+        }
+        return {
             showGrid: true,
             tooltip: AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
             yTickFormatter: aggregatedYTickFormatter,
+            xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
-        }),
-        [yAxisScaleType, aggregatedYTickFormatter, trendsFilter?.xAxisLabel, trendsFilter?.yAxisLabel]
-    )
+        }
+    }, [
+        yAxisScaleType,
+        aggregatedYTickFormatter,
+        trendsFilter?.xAxisLabel,
+        trendsFilter?.yAxisLabel,
+        displayLabels,
+        labels,
+    ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
