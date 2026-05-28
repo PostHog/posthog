@@ -240,9 +240,9 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
 }
 
 # Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
-# the shadow leg now runs the cpp parser on ~1% of requests purely as a divergence canary. Bump if a fresh regression
+# the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
 # surfaces and tighter coverage is needed. Tests always sample 100%.
-_SHADOW_SAMPLE_RATE = 0.01
+_SHADOW_SAMPLE_RATE = 0.001
 
 
 def _shadow_sample_rate() -> float:
@@ -258,7 +258,7 @@ def _resolve_parser_mode(
 
     An absent modifier defaults to `RUST_PY_WITH_CPP_SHADOW`: rust-py is the
     primary (its result is always returned) and cpp runs as the shadow,
-    sampled per `_shadow_sample_rate` (100% in test, 1% in prod). The
+    sampled per `_shadow_sample_rate` (100% in test, 0.1% in prod). The
     divergence behavior differs by environment downstream
     (`_run_shadow_comparison`): TEST raises on any mismatch, prod only
     reports it (never failing the request).
