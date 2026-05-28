@@ -168,6 +168,8 @@ describe('slackIntegrationLogic — channel search by name', () => {
         }).toFinishAllListeners()
 
         // Search results are gone, only the initial page survives.
+        // The picker maps both empty input and 1-char input to this empty dispatch,
+        // so this also covers the backspace-to-1-char case.
         expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1', 'C2'])
     })
 })

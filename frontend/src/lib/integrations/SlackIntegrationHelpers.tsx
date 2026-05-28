@@ -150,9 +150,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         return
                     }
                     // Skip 1-char prefixes — they cost a full backend scan and return mostly noise.
-                    if (trimmed.length >= 2) {
-                        loadSlackChannelsBySearch(trimmed)
-                    }
+                    // For shorter input we still dispatch with an empty string so any in-flight
+                    // search is cancelled and stale results don't survive a backspace to 1 char.
+                    loadSlackChannelsBySearch(trimmed.length >= 2 ? trimmed : '')
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
                 onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
