@@ -18,6 +18,7 @@
  *     GET    /revisions/:id/bundle      bulk pull {files: {path: text}}
  *     PUT    /revisions/:id/bundle      bulk push {files, mode: replace|merge}
  *     POST   /revisions/:id/freeze      draft → frozen, returns sha256
+ *     POST   /revisions/:id/validate    pre-flight checks (entrypoint, tool ids, custom-tool files, skill paths)
  *     POST   /revisions/:id/clone_from  {source_revision_id, target_revision_id}
  *
  *   Catalog (proxied by Django):
@@ -37,6 +38,7 @@ import { BundleStore, RevisionStore, SessionQueue } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 import { SweepDeps, sweepOnce } from './sweep'
+import { validateRevisionBundle } from './validate-spec'
 
 export interface JanitorServerOpts {
     queue: SessionQueue
@@ -269,6 +271,19 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         // user-visible state change.
         await opts.revisions!.setRevisionState(req.params.id, 'ready', sha)
         res.json({ ok: true, state: 'ready', bundle_sha256: sha })
+    })
+
+    app.post('/revisions/:id/validate', async (req, res) => {
+        if (!needRevisionStore(res)) {
+            return
+        }
+        const rev = await opts.revisions!.getRevision(req.params.id)
+        if (!rev) {
+            res.status(404).json({ error: 'revision_not_found' })
+            return
+        }
+        const report = await validateRevisionBundle(rev, opts.bundles!)
+        res.json(report)
     })
 
     app.post('/revisions/:id/clone_from', async (req, res) => {

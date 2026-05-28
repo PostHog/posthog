@@ -42,9 +42,22 @@ export class RevisionResolver {
         return this.resolveBySlug(slug)
     }
 
-    async resolveBySlug(slug: string): Promise<ResolvedAgent | null> {
+    async resolveBySlug(slug: string, opts?: { revisionId?: string }): Promise<ResolvedAgent | null> {
         const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, slug)
-        if (!application || application.archived || !application.live_revision_id) {
+        if (!application || application.archived) {
+            return null
+        }
+        // Explicit revision_id override (used to invoke draft/ready revisions
+        // for testing). The revision must belong to this application — anything
+        // else is treated as a 404 so we don't leak revisions across apps.
+        if (opts?.revisionId) {
+            const override = await this.opts.revisions.getRevision(opts.revisionId)
+            if (!override || override.application_id !== application.id || override.state === 'archived') {
+                return null
+            }
+            return { application, revision: override }
+        }
+        if (!application.live_revision_id) {
             return null
         }
         const revision = await this.opts.revisions.getRevision(application.live_revision_id)

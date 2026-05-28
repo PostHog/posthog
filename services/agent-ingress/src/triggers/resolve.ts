@@ -9,9 +9,22 @@ import { Request } from 'express'
 import { ResolvedAgent, RevisionResolver } from '../routing/resolver'
 
 export async function resolveAgent(resolver: RevisionResolver, req: Request): Promise<ResolvedAgent | null> {
+    // Optional override that lets authoring flows invoke a specific revision
+    // (draft / ready) instead of whatever's currently live. Accepted as either
+    // a query param (?revision_id=...) or a header (x-agent-revision: ...).
+    const revQuery = typeof req.query?.revision_id === 'string' ? req.query.revision_id : null
+    const revHeader = req.headers['x-agent-revision']
+    const revisionId = revQuery || (typeof revHeader === 'string' ? revHeader : null) || undefined
+
     const slug = typeof req.params?.slug === 'string' ? req.params.slug : null
     if (slug) {
-        return resolver.resolveBySlug(slug)
+        return resolver.resolveBySlug(slug, { revisionId })
+    }
+    if (revisionId) {
+        // Domain-mode + revision-override is ambiguous: there's no slug in the
+        // path so we can't bound the override to a single application. Refuse
+        // rather than silently picking the wrong agent.
+        return null
     }
     return resolver.resolveFromHostAndPath(req.headers.host, req.originalUrl || req.url || req.path)
 }
