@@ -1,0 +1,65 @@
+from unittest.mock import patch
+
+from rest_framework.exceptions import PermissionDenied
+
+from posthog.test.base import BaseTest
+
+from posthog.rbac.user_access_control import UserAccessControl
+
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.widget_access import (
+    check_widget_tile_product_access,
+    get_widget_product_access_denied_message,
+    get_widget_product_access_error,
+)
+from products.dashboards.backend.widget_registry import get_widget_registry_entry
+
+
+class TestWidgetAccess(BaseTest):
+    def test_denied_message_for_known_product(self) -> None:
+        message = get_widget_product_access_denied_message("error_tracking")
+        self.assertEqual(message, "You do not have access to error tracking.")
+
+    def test_denied_message_falls_back_for_unknown_product(self) -> None:
+        message = get_widget_product_access_denied_message("future_product")
+        self.assertEqual(message, "You do not have access to future product.")
+
+    def test_registry_entry_without_product_access_allows(self) -> None:
+        entry = {
+            "validate_config": lambda config: config,
+            "query_fn": lambda team, config: {},
+            "required_scopes": [],
+        }
+
+        self.assertIsNone(get_widget_product_access_error(entry, UserAccessControl(self.user, self.team)))
+
+    def test_registry_entry_denies_without_product_access(self) -> None:
+        entry = get_widget_registry_entry("error_tracking_list")
+        assert entry is not None
+
+        user_access_control = UserAccessControl(self.user, self.team)
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(resource: str, required_level: str = "viewer") -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            user_access_control,
+            "check_access_level_for_resource",
+            side_effect=deny_error_tracking_only,
+        ):
+            self.assertEqual(
+                get_widget_product_access_error(entry, user_access_control),
+                "You do not have access to error tracking.",
+            )
+
+    def test_check_widget_tile_product_access_denies_unknown_widget_type(self) -> None:
+        widget = DashboardWidget(widget_type="not_a_real_widget_type", config={}, team_id=self.team.id)
+        user_access_control = UserAccessControl(self.user, self.team)
+
+        with self.assertRaises(PermissionDenied) as raised:
+            check_widget_tile_product_access(widget, user_access_control)
+
+        self.assertIn("Unknown widget type", str(raised.exception))
