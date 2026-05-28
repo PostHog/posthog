@@ -6441,6 +6441,7 @@ export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
     AI_ENGINEERING = 'AI engineering',
     BEHAVIOR = 'Behavior',
+    APP_MONITORING = 'App monitoring',
     FEATURES = 'Features',
     TOOLS = 'Tools',
     SCHEMA = 'Schema',
