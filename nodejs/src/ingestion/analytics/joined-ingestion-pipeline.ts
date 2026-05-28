@@ -12,10 +12,10 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import {
-    IngestionBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import { IngestionBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
@@ -168,7 +168,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -181,14 +180,16 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         hogTransformer,
-        personsStore,
         groupStore,
         groupId,
         topHog: topHogWrapper,
     }
 
     return newBatchingPipeline<TInput, void, TContext, IngestionBatchContext, TContext, OverflowOutput | AsyncOutput>(
-        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
+        (beforeBatch) =>
+            beforeBatch
+                .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                .pipe(createPersonsStoreBeforeBatchStep(personsStore)),
         (batch) =>
             batch
                 .messageAware((b) =>

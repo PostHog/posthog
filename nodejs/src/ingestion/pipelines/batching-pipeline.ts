@@ -18,7 +18,7 @@ export interface BeforeBatchInput<TInput, CInput> {
 
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
     elements: OkResultWithContext<TInput & CBatch, CInput>[]
-    batchContext: CBatch
+    batchContext: CBatch & { batchId: number }
 }
 
 export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = never> {
@@ -54,7 +54,7 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
 }
 
 interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
-    batchContext: CBatch
+    batchContext: CBatch & { batchId: number }
     messageIds: number[]
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>

@@ -36,7 +36,7 @@ describe('BatchingPipeline', () => {
     let afterBatchStep: jest.Mock
 
     beforeEach(() => {
-        beforeBatchStep = jest.fn(({ elements }) => Promise.resolve(ok({ elements, batchContext: {} })))
+        beforeBatchStep = jest.fn(({ elements, batchContext }) => Promise.resolve(ok({ elements, batchContext })))
         afterBatchStep = jest.fn((input) =>
             Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
         )
@@ -238,7 +238,8 @@ describe('BatchingPipeline', () => {
     })
 
     it('beforeBatch can add extra context to elements', async () => {
-        const collector = newBatchingPipeline<any, any, MsgCtx, string>(
+        type BatchStore = { batchStore: string }
+        const collector = newBatchingPipeline<any, any, MsgCtx, BatchStore>(
             (builder) =>
                 builder.pipe(({ elements, batchContext }) =>
                     Promise.resolve(
@@ -250,7 +251,7 @@ describe('BatchingPipeline', () => {
                                     batchStore: `store-for-batch-${batchContext.batchId}`,
                                 },
                             })),
-                            batchContext: `store-for-batch-${batchContext.batchId}`,
+                            batchContext: { ...batchContext, batchStore: `store-for-batch-${batchContext.batchId}` },
                         })
                     )
                 ),
@@ -280,11 +281,12 @@ describe('BatchingPipeline', () => {
         const collector = newBatchingPipeline<any, any, MsgCtx, Stores>(
             (builder) =>
                 builder.pipe(({ elements, batchContext: initBatchContext }) => {
-                    const batchContext: Stores =
+                    const stores: Stores =
                         initBatchContext.batchId === 0
                             ? { personsStore: 'persons-0', groupStore: 'groups-0' }
                             : { personsStore: 'persons-1', groupStore: 'groups-1' }
-                    capturedBefore.push(batchContext)
+                    const batchContext = { ...initBatchContext, ...stores }
+                    capturedBefore.push(stores)
                     return Promise.resolve(ok({ elements: elements as any, batchContext }))
                 }),
             (builder) => builder,
@@ -305,15 +307,17 @@ describe('BatchingPipeline', () => {
             { personsStore: 'persons-1', groupStore: 'groups-1' },
         ])
         expect(capturedAfter).toEqual([
-            { personsStore: 'persons-0', groupStore: 'groups-0' },
-            { personsStore: 'persons-1', groupStore: 'groups-1' },
+            expect.objectContaining({ personsStore: 'persons-0', groupStore: 'groups-0' }),
+            expect.objectContaining({ personsStore: 'persons-1', groupStore: 'groups-1' }),
         ])
     })
 
     describe('side effects', () => {
         it('collects before pipeline side effects in next() result', async () => {
             const sideEffect = Promise.resolve('before-effect')
-            beforeBatchStep.mockImplementation(({ elements }: any) => ok({ elements, batchContext: {} }, [sideEffect]))
+            beforeBatchStep.mockImplementation(({ elements, batchContext }: any) =>
+                ok({ elements, batchContext }, [sideEffect])
+            )
 
             const collector = createCollector()
             await collector.feed(makeBatch([1]))
@@ -341,8 +345,8 @@ describe('BatchingPipeline', () => {
             const beforeEffect = Promise.resolve('before')
             const afterEffect = Promise.resolve('after')
 
-            beforeBatchStep.mockImplementation(({ elements }: any) =>
-                ok({ elements, batchContext: {} }, [beforeEffect])
+            beforeBatchStep.mockImplementation(({ elements, batchContext }: any) =>
+                ok({ elements, batchContext }, [beforeEffect])
             )
             afterBatchStep.mockImplementation((input: any) =>
                 ok({ elements: input.elements, batchContext: input.batchContext }, [afterEffect])

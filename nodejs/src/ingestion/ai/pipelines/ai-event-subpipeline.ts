@@ -8,7 +8,7 @@ import { EventHeaders, Team } from '../../../types'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
@@ -33,7 +33,7 @@ export interface AiEventSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
-    batchId: number
+    personsStoreForBatch: PersonsStoreForBatch
 }
 
 export interface AiEventSubpipelineConfig {
@@ -44,7 +44,6 @@ export interface AiEventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     splitAiEventsConfig: SplitAiEventsStepConfig
     groupId: string
@@ -61,7 +60,6 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         teamManager,
         groupTypeManager,
         hogTransformer,
-        personsStore,
         groupStore,
         splitAiEventsConfig,
         groupId,
@@ -102,9 +100,9 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         )
         .pipe(createNormalizeEventStep())
         .pipe(createProcessAiEventStep())
-        .pipe(createProcessPersonlessStep(personsStore))
+        .pipe(createProcessPersonlessStep())
         .pipe(
-            topHog(createProcessPersonsStep(options, outputs, personsStore), [
+            topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,

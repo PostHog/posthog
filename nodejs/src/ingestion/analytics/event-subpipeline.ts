@@ -7,7 +7,7 @@ import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
@@ -30,7 +30,7 @@ export interface EventSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
-    batchId: number
+    personsStoreForBatch: PersonsStoreForBatch
 }
 
 export interface EventSubpipelineConfig {
@@ -39,7 +39,6 @@ export interface EventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     groupId: string
     topHog: TopHogWrapper
@@ -49,17 +48,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const {
-        options,
-        outputs,
-        teamManager,
-        groupTypeManager,
-        hogTransformer,
-        personsStore,
-        groupStore,
-        groupId,
-        topHog,
-    } = config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupStore, groupId, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -94,9 +83,9 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ])
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep(personsStore))
+        .pipe(createProcessPersonlessStep())
         .pipe(
-            topHog(createProcessPersonsStep(options, outputs, personsStore), [
+            topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,

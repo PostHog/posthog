@@ -12,20 +12,19 @@ export interface EventFiltersBatchContext {
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
 }
 
-export interface IngestionBatchContext extends EventFiltersBatchContext {
-    batchId: number
-}
-
 /**
  * BeforeBatch step that creates an EventFiltersBatchAppMetrics instance
  * and attaches it to the batch context and each element.
  */
 export function createEventFiltersBatchAppMetricsBeforeBatchStep<TInput, CInput>(
     outputs: IngestionOutputs<AppMetricsOutput>
-): BeforeBatchStep<TInput, CInput, IngestionBatchContext> {
+): BeforeBatchStep<TInput, CInput, EventFiltersBatchContext> {
     return function eventFiltersBatchAppMetricsBeforeBatchStep(input) {
         const eventFiltersBatchAppMetrics = new EventFiltersBatchAppMetrics(outputs)
-        const batchContext: IngestionBatchContext = { ...input.batchContext, eventFiltersBatchAppMetrics }
+        const batchContext: EventFiltersBatchContext & { batchId: number } = {
+            ...input.batchContext,
+            eventFiltersBatchAppMetrics,
+        }
 
         const elements = input.elements.map((element) => ({
             result: {

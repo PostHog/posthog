@@ -8,7 +8,7 @@ import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { EventFilterManager } from '../common/event-filters'
 import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
 import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
@@ -33,6 +33,7 @@ export interface PostTeamPreprocessingSubpipelineInput {
     event: PluginEvent
     team: Team
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
+    personsStoreForBatch: PersonsStoreForBatch
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
@@ -44,7 +45,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
-    personsStore: PersonsStore
     personsPrefetchEnabled: boolean
     hogTransformer: HogTransformerService
     cdpHogWatcherSampleRate: number
@@ -63,7 +63,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -95,9 +94,9 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs
-            .pipeBatch(prefetchPersonsStep(personsStore, personsPrefetchEnabled))
+            .pipeBatch(prefetchPersonsStep(personsPrefetchEnabled))
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
-            .pipeBatch(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled))
+            .pipeBatch(processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled))
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )

@@ -24,7 +24,7 @@ import {
 } from './person-merge-types'
 import { PersonMessage } from './person-message'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
-import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -211,16 +211,8 @@ export class PersonMergeService {
     ): Promise<PersonMergeResult> {
         this.context.updateIsIdentified = true
 
-        const otherPerson = await this.context.personStore.fetchForUpdate(
-            teamId,
-            otherPersonDistinctId,
-            this.context.batchId
-        )
-        const mergeIntoPerson = await this.context.personStore.fetchForUpdate(
-            teamId,
-            mergeIntoDistinctId,
-            this.context.batchId
-        )
+        const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
+        const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -265,12 +257,7 @@ export class PersonMergeService {
                 )
                 const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                const kafkaMessages = await tx.addDistinctId(
-                    existingPerson,
-                    distinctIdToAdd,
-                    distinctIdVersion,
-                    this.context.batchId
-                )
+                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
@@ -560,7 +547,7 @@ export class PersonMergeService {
     }
 
     private async moveDistinctIdsBasedOnMode(
-        tx: PersonsStoreTransaction,
+        tx: PersonsStoreTransactionForBatch,
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson
     ): Promise<PersonMessage[]> {
@@ -581,7 +568,7 @@ export class PersonMergeService {
     }
 
     private async moveDistinctIdsInBatches(
-        tx: PersonsStoreTransaction,
+        tx: PersonsStoreTransactionForBatch,
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson,
         batchSize: number
@@ -595,8 +582,7 @@ export class PersonMergeService {
                 currentSourcePerson,
                 currentTargetPerson,
                 this.context.distinctId,
-                batchSize,
-                this.context.batchId
+                batchSize
             )
 
             if (!distinctIdResult.success) {
@@ -626,7 +612,7 @@ export class PersonMergeService {
     }
 
     private async moveDistinctIdsWithLimit(
-        tx: PersonsStoreTransaction,
+        tx: PersonsStoreTransactionForBatch,
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson,
         limit: number | undefined
@@ -636,8 +622,7 @@ export class PersonMergeService {
             currentSourcePerson,
             currentTargetPerson,
             this.context.distinctId,
-            limit,
-            this.context.batchId
+            limit
         )
 
         if (!distinctIdResult.success) {
@@ -751,15 +736,9 @@ export class PersonMergeService {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: PersonsStoreTransaction
+        tx?: PersonsStoreTransactionForBatch
     ): Promise<void> {
-        const kafkaMessages = await (tx || this.context.personStore).addDistinctId(
-            person,
-            distinctId,
-            version,
-            undefined,
-            this.context.batchId
-        )
+        const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
         await this.context.produceMessages(kafkaMessages)
     }
 
@@ -781,11 +760,7 @@ export class PersonMergeService {
         this.context.personStore.removeDistinctIdFromCache(this.context.team.id, distinctId)
 
         // Fetch the refreshed person data using the new distinct ID
-        const refreshedPerson = await this.context.personStore.fetchForUpdate(
-            this.context.team.id,
-            distinctId,
-            this.context.batchId
-        )
+        const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)
 
         if (!refreshedPerson) {
             logger.info(`${personType} person no longer exists after refresh, skipping merge`, {

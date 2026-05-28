@@ -5,7 +5,6 @@ import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { IngestionWarningsOutput } from '../common/outputs'
@@ -43,7 +42,6 @@ export interface PerDistinctIdPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     groupId: string
     topHog: TopHogWrapper
@@ -77,7 +75,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         teamManager,
         groupTypeManager,
         hogTransformer,
-        personsStore,
         groupStore,
         groupId,
         topHog,
@@ -104,7 +101,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            personsStore,
                             groupStore,
                             splitAiEventsConfig,
                             groupId,
@@ -118,7 +114,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            personsStore,
                             groupStore,
                             groupId,
                             topHog,
