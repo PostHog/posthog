@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { ChartLegendLayout, Legend, TimeSeriesBarChart, legendItemsFromSeries } from 'lib/hog-charts'
+import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from 'lib/hog-charts'
 import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -191,34 +191,28 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const showAnnotations = !inSharedMode
     const annotationsDates = currentPeriodResult?.days ?? []
 
-    const chart = (
-        <TimeSeriesBarChart<TrendsSeriesMeta>
-            series={series}
-            labels={labels}
-            config={timeSeriesConfig}
-            theme={theme}
-            tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
-            className="BarGraph"
-            dataAttr="trend-lifecycle-graph"
-            onError={handleChartError}
-        >
-            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
-        </TimeSeriesBarChart>
-    )
-
-    if (!showLegend) {
-        return chart
-    }
-
-    const legendItems = legendItemsFromSeries(series, theme)
     return (
-        <ChartLegendLayout
-            legend={<Legend items={legendItems} dataAttr="trend-lifecycle-legend" />}
+        <ChartLegend
+            show={!!showLegend}
+            items={legendItemsFromSeries(series, theme)}
             position="top"
-            className="flex-1 min-h-0"
+            dataAttr="trend-lifecycle-legend"
         >
-            {chart}
-        </ChartLegendLayout>
+            <TimeSeriesBarChart<TrendsSeriesMeta>
+                series={series}
+                labels={labels}
+                config={timeSeriesConfig}
+                theme={theme}
+                tooltip={renderTooltip}
+                onPointClick={canHandleClick ? onPointClick : undefined}
+                className="BarGraph"
+                dataAttr="trend-lifecycle-graph"
+                onError={handleChartError}
+            >
+                {showAnnotations && (
+                    <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
+                )}
+            </TimeSeriesBarChart>
+        </ChartLegend>
     )
 }

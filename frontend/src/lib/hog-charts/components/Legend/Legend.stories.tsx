@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { DAYS, SERIES } from '../../charts/time-series-fixtures'
 import { TimeSeriesBarChart } from '../../charts/TimeSeriesBarChart/TimeSeriesBarChart'
 import { Stage, useReactiveTheme } from '../../story-helpers'
+import { ChartLegend } from './ChartLegend'
 import { ChartLegendLayout } from './ChartLegendLayout'
 import { Legend, type LegendItem } from './Legend'
 import { legendItemsFromSeries } from './legendItemsFromSeries'
@@ -91,3 +92,29 @@ export const LayoutTop: Story = { render: () => <ChartWithLegend position="top" 
 export const LayoutBottom: Story = { render: () => <ChartWithLegend position="bottom" /> }
 export const LayoutLeft: Story = { render: () => <ChartWithLegend position="left" /> }
 export const LayoutRight: Story = { render: () => <ChartWithLegend position="right" /> }
+
+function ChartLegendStory({
+    show,
+    position,
+}: {
+    show: boolean
+    position: 'top' | 'bottom' | 'left' | 'right'
+}): JSX.Element {
+    const theme = useReactiveTheme()
+    const items = useMemo(() => legendItemsFromSeries(SERIES, theme), [theme])
+    return (
+        <Stage width={520} height={320}>
+            <ChartLegend show={show} items={items} position={position}>
+                <TimeSeriesBarChart
+                    series={SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ yAxis: { showGrid: true } }}
+                />
+            </ChartLegend>
+        </Stage>
+    )
+}
+
+export const ChartLegendShown: Story = { render: () => <ChartLegendStory show position="top" /> }
+export const ChartLegendHidden: Story = { render: () => <ChartLegendStory show={false} position="top" /> }
