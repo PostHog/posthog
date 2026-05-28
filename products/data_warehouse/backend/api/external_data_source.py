@@ -1088,12 +1088,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
         )
 
-        # CDC: create slot + publication for PostHog-managed sources
-        cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
-            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
-            if cdc_result is not None:
-                return cdc_result
+        # CDC is Postgres-only today — fold the source-type check in here so every downstream
+        # `if cdc_enabled` block is safe without repeating it.
+        cdc_enabled = (
+            payload.get("cdc_enabled", False)
+            and source_type_model == ExternalDataSourceType.POSTGRES
+            and is_cdc_enabled_for_team(self.team)
+        )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
         if is_direct_postgres:
@@ -1125,11 +1126,35 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Schemas given do not exist in source"},
             )
 
+        # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_slot`
+        # would be skipped, leaving the source with no replication slot/publication.
+        if not cdc_enabled:
+            cdc_schemas_in_payload = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                }
+            )
+            if cdc_schemas_in_payload:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "CDC must be enabled on the source before selecting it as a sync type. "
+                            f"The following schemas requested CDC: {', '.join(cdc_schemas_in_payload)}."
+                        )
+                    },
+                )
+
         active_schemas: list[ExternalDataSchema] = []
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+        if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
             for schema in payload_schemas:
@@ -1159,6 +1184,37 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                             schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                             if schema_name is not None:
                                 pk_columns_by_table[schema_name] = primary_key_columns
+
+            # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_slot` doesn't
+            # create replication state on the source for a config we're about to reject.
+            tables_missing_pk = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                    and not pk_columns_by_table.get(schema["name"])
+                }
+            )
+            if tables_missing_pk:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "CDC requires a primary key on each table. "
+                            f"The following tables have no primary key: {', '.join(tables_missing_pk)}."
+                        )
+                    },
+                )
+
+        # Slot + publication setup runs after PK validation so we don't leave replication state
+        # on the source for a config we're about to refuse.
+        if cdc_enabled:
+            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
+            if cdc_result is not None:
+                return cdc_result
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:

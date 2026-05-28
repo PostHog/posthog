@@ -419,6 +419,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             cdc_table_mode = data.get("cdc_table_mode")
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
+
+            # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
+            # discovery already stored; refuse the switch when neither is set.
+            new_pk = data.get("primary_key_columns")
+            if new_pk:
+                payload["primary_key_columns"] = new_pk
+            elif not payload.get("primary_key_columns"):
+                raise ValidationError(
+                    f"CDC requires a primary key on table '{instance.name}'. "
+                    "Provide primary_key_columns or refresh schema discovery to pick one up."
+                )
+
             validated_data["sync_type_config"] = payload
         else:
             # For CDC schemas where sync_type isn't being changed, still allow cdc_table_mode updates
@@ -463,6 +475,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
+
+        # Catches a CDC schema being flipped on later when sync_type isn't changing — the
+        # sync_type branch above doesn't run, so PK presence isn't enforced there.
+        effective_sync_type = sync_type or instance.sync_type
+        if (
+            should_sync is True
+            and not instance.should_sync
+            and effective_sync_type == ExternalDataSchema.SyncType.CDC
+            and not instance.primary_key_columns
+        ):
+            raise ValidationError(
+                f"CDC requires a primary key on table '{instance.name}'. "
+                "Add a primary key on the source table and retry."
+            )
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
