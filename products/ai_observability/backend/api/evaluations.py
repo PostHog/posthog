@@ -113,6 +113,29 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
+class EvaluationConditionSerializer(serializers.Serializer):
+    """Validates the shape of each item inside the `conditions` JSONField.
+
+    Without this, the field was an unstructured JSON blob: callers could write any key (e.g.
+    `sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET
+    endpoint echoed it back — making the eval look configured while the dispatcher (which
+    reads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.
+    """
+
+    id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
+    rollout_percentage = serializers.FloatField(
+        default=100,
+        min_value=0,
+        max_value=100,
+        help_text="Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.",
+    )
+    properties = serializers.ListField(
+        child=serializers.DictField(),
+        default=list,
+        help_text="Property filters (event or person) that scope which generations match this condition set.",
+    )
+
+
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
@@ -123,6 +146,15 @@ class EvaluationSerializer(serializers.ModelSerializer):
     output_config = _OutputConfigField(
         required=False,
         help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+    )
+    conditions = EvaluationConditionSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Trigger conditions that filter which events are evaluated. OR between condition sets, "
+            "AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` "
+            "(0-100, defaults to 100) is the sampling field the dispatcher reads."
+        ),
     )
 
     class Meta:
@@ -156,9 +188,6 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
             },
             "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
-            "conditions": {
-                "help_text": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
-            },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
