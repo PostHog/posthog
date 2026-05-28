@@ -2,7 +2,7 @@ import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { EventIngestionRestrictionManagerScope } from '../../utils/event-ingestion-restrictions'
 import { TeamManager } from '../../utils/team-manager'
-import { EventFilterManager } from '../common/event-filters'
+import { EventFilterManagerScope } from '../common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '../common/ingestion-consumer'
 import { ProducerName } from '../common/outputs'
 import { Scope } from '../common/service-registry'
@@ -37,7 +37,7 @@ export function createClientWarningsConsumer(
                     staticDropEventTokens: container.staticDropEventTokens,
                 })
             )
-            .register('eventFilterManager', new EventFilterManager(container.postgres))
+            .register('eventFilterManager', new EventFilterManagerScope(container.postgres))
             .register(
                 'outputs',
                 new IngestionOutputsScope(() => createOutputsRegistry().build(container.producerRegistry, config))

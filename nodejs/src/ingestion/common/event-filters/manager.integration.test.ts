@@ -4,7 +4,7 @@ import { createOrganization, createTeam, insertRow, resetTestDatabase } from '..
 import { defaultConfig } from '../../../config/config'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { evaluateFilterTree } from './evaluate'
-import { EventFilterManager } from './manager'
+import { EventFilterManager, EventFilterManagerScope } from './manager'
 import { and, cond, not, or } from './test-helpers'
 
 async function insertFilter(
@@ -67,10 +67,8 @@ describe('EventFilterManager integration', () => {
     })
 
     async function createManagerAndWaitForLoad(): Promise<EventFilterManager> {
-        const manager = new EventFilterManager(postgres)
-        // Wait for the background refresher to complete its initial load
-        await new Promise((r) => setTimeout(r, 200))
-        return manager
+        const scope = new EventFilterManagerScope(postgres)
+        return (await scope.start()).value
     }
 
     it('loads a live filter from postgres and evaluates it', async () => {

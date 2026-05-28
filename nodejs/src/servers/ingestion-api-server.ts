@@ -32,7 +32,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { EventFilterManager } from '../ingestion/common/event-filters'
+import { EventFilterManagerScope } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
@@ -355,7 +355,7 @@ export class IngestionApiServer implements NodeServer {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
-            eventFilterManager: new EventFilterManager(this.postgres),
+            eventFilterManager: (await new EventFilterManagerScope(this.postgres).start()).value,
             eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
             promiseScheduler: this.promiseScheduler,

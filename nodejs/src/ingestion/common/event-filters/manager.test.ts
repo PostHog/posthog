@@ -1,9 +1,14 @@
-import { EventFilterManager } from './manager'
+import { EventFilterManager, EventFilterManagerScope } from './manager'
+
+async function buildManager(mockPostgres: { query: jest.Mock }): Promise<EventFilterManager> {
+    const scope = new EventFilterManagerScope(mockPostgres as any)
+    return (await scope.start()).value
+}
 
 describe('EventFilterManager', () => {
     const mockPostgres = {
         query: jest.fn(),
-    } as any
+    }
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -11,8 +16,7 @@ describe('EventFilterManager', () => {
 
     it('returns null for unknown team', async () => {
         mockPostgres.query.mockResolvedValue({ rows: [] })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
         expect(manager.getFilter(999)).toBeNull()
     })
 
@@ -30,8 +34,7 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
 
         const filter = manager.getFilter(1)
         expect(filter).not.toBeNull()
@@ -55,8 +58,7 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
 
         const filter = manager.getFilter(1)
         expect(filter).not.toBeNull()
@@ -74,8 +76,7 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
 
         expect(manager.getFilter(1)).toBeNull()
     })
@@ -102,8 +103,7 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
 
         expect(manager.getFilter(1)).toBeNull()
         expect(manager.getFilter(2)).not.toBeNull()
@@ -126,8 +126,7 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
 
         expect(manager.getFilter(1)).toBeNull()
     })
@@ -149,8 +148,7 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const manager = new EventFilterManager(mockPostgres)
-        await manager.start()
+        const manager = await buildManager(mockPostgres)
 
         expect(manager.getFilter(1)!.id).toBe('f1')
         expect(manager.getFilter(2)!.id).toBe('f2')

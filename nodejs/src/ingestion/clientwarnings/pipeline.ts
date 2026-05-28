@@ -34,7 +34,7 @@ export interface ClientWarningsPipelineConfig {
     // `start` and `stop` are stripped from the type — the pipeline only
     // needs their business methods.
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    eventFilterManager: Omit<EventFilterManager, 'start' | 'stop'>
+    eventFilterManager: EventFilterManager
     promiseScheduler: PromiseScheduler
 }
 

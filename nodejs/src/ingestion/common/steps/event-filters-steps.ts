@@ -3,7 +3,7 @@ import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { BeforeBatchStep } from '../../pipelines/batching-pipeline'
 import { PipelineResult, drop, ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
-import { EventFilterManagerHandle, evaluateFilterTree } from '../event-filters'
+import { EventFilterManager, evaluateFilterTree } from '../event-filters'
 import { EventFiltersBatchAppMetrics } from '../event-filters/batch-app-metrics'
 import { eventFiltersEventsEvaluated } from '../event-filters/metrics'
 import { AppMetricsOutput } from '../outputs'
@@ -55,7 +55,7 @@ export interface ApplyEventFiltersInput {
  * producing individual Kafka messages per event.
  */
 export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
-    manager: EventFilterManagerHandle
+    manager: EventFilterManager
 ): ProcessingStep<T, T> {
     return function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
         const filter = manager.getFilter(input.team.id)
