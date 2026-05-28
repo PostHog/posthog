@@ -133,6 +133,7 @@ def iterate_list_endpoint(
     path_suffix: str,
     *,
     endpoint_name: str,
+    timestamp_fields: tuple[str, ...] = ("created_at",),
     starting_after: str | None = None,
     on_cursor_advance: Callable[[str, str], None] | None = None,
 ) -> Iterator[dict[str, Any]]:
@@ -141,9 +142,11 @@ def iterate_list_endpoint(
     RevenueCat returns ``{"items": [...], "next_page": "/v2/path?starting_after=ID"}``.
     When ``next_page`` is null/absent, the list is exhausted.
 
-    Rows are normalized in flight: any ms-epoch ``created_at`` field is divided
-    by 1000 so it lands in the warehouse as a Unix-seconds int the partition
-    layer can interpret directly. See ``_ms_to_seconds`` for context.
+    Rows are normalized in flight: any ms-epoch field named in ``timestamp_fields``
+    is divided by 1000 so it lands in the warehouse as a Unix-seconds int the
+    partition layer can interpret directly. This must cover the endpoint's
+    partition key — which is ``created_at`` for most endpoints but ``first_seen_at``
+    for customers (the customer object has no ``created_at``). See ``_ms_to_seconds``.
 
     ``on_cursor_advance`` is invoked with the last item's id every time we finish
     yielding a page so callers (e.g. the resumable manager) can checkpoint. We
@@ -170,8 +173,9 @@ def iterate_list_endpoint(
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            if "created_at" in row:
-                row["created_at"] = _ms_to_seconds(row["created_at"])
+            for field in timestamp_fields:
+                if field in row:
+                    row[field] = _ms_to_seconds(row[field])
             yield row
             # `id` is the declared primary key for every RevenueCat list
             # endpoint (see settings.py). Access it directly so a malformed

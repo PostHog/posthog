@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
 from posthog.temporal.data_imports.sources.revenuecat.constants import (
+    CUSTOMER_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
     RESOURCE_TO_REVENUECAT_EVENT_TYPE,
 )
@@ -247,11 +248,11 @@ class TestRevenueCatSourcePipelineDispatch:
 
         assert response.name == "customers"
         assert response.primary_keys == ["id"]
-        # Datetime partitioning on `created_at` — `iterate_list_endpoint`
-        # normalizes RevenueCat's ms epoch field down to Unix seconds first.
+        # Customers partition by `first_seen_at` (they have no `created_at`) —
+        # `iterate_list_endpoint` normalizes that ms epoch field to Unix seconds.
         assert response.partition_mode == "datetime"
         assert response.partition_format == "week"
-        assert response.partition_keys == ["created_at"]
+        assert response.partition_keys == ["first_seen_at"]
 
         rows = list(cast(Iterable[dict[str, str]], response.items()))
         assert rows == [{"id": "cus_1"}, {"id": "cus_2"}]
@@ -261,6 +262,9 @@ class TestRevenueCatSourcePipelineDispatch:
         assert kwargs["project_id"] == "p"
         assert kwargs["path_suffix"] == "/customers"
         assert kwargs["endpoint_name"] == "customers"
+        # The partition field must be handed to the iterator so it gets
+        # normalized ms->seconds; for customers that's `first_seen_at`.
+        assert kwargs["timestamp_fields"] == ("first_seen_at",)
         assert kwargs["starting_after"] is None
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.source.api_client.iterate_list_endpoint")
@@ -315,9 +319,12 @@ class TestRevenueCatSourcePipelineDispatch:
         assert result is sentinel
         mock_webhook.assert_called_once_with(inputs)
 
-    def test_every_api_endpoint_partitions_by_created_at(self):
+    def test_every_api_endpoint_partitions_by_stable_timestamp(self):
+        # Customers have no `created_at`; they partition by `first_seen_at`. Every
+        # other endpoint partitions by `created_at`. Both are stable per row.
         for name, endpoint in REVENUECAT_API_ENDPOINTS.items():
-            assert endpoint.partition_keys == ["created_at"], name
+            expected = ["first_seen_at"] if name == CUSTOMER_RESOURCE_NAME else ["created_at"]
+            assert endpoint.partition_keys == expected, name
             assert endpoint.primary_keys == ["id"], name
 
 

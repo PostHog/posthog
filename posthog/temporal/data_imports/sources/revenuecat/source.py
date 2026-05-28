@@ -352,14 +352,15 @@ class RevenueCatSource(
                 project_id=config.project_id,
                 path_suffix=endpoint.path_suffix,
                 endpoint_name=inputs.schema_name,
+                timestamp_fields=tuple(endpoint.partition_keys),
                 starting_after=starting_after,
                 on_cursor_advance=on_cursor_advance,
             )
 
-        # Datetime partitioning on `created_at` — `iterate_list_endpoint`
-        # normalizes RevenueCat's ms-epoch field down to Unix seconds so the
-        # partition layer (which treats bare ints as seconds) produces sane
-        # bucket dates.
+        # Datetime partitioning on the endpoint's timestamp field (`created_at`,
+        # or `first_seen_at` for customers) — `iterate_list_endpoint` normalizes
+        # RevenueCat's ms-epoch value down to Unix seconds so the partition layer
+        # (which treats bare ints as seconds) produces sane bucket dates.
         return SourceResponse(
             items=items,
             primary_keys=endpoint.primary_keys,

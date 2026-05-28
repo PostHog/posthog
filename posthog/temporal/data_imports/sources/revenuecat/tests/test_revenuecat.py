@@ -237,6 +237,31 @@ class TestIterateListEndpoint:
 
         assert rows == [{"id": "cus_1"}]
 
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_normalizes_configured_timestamp_field(self, mock_session):
+        # The customer object has no `created_at` — it partitions by
+        # `first_seen_at`, so that's the field that must be normalized to seconds.
+        mock_session.return_value.get.return_value = _ok_json_response(
+            {
+                "items": [{"id": "cus_1", "first_seen_at": 1658399423658, "last_seen_at": 1700000000000}],
+                "next_page": None,
+            }
+        )
+
+        rows = list(
+            api_client.iterate_list_endpoint(
+                "sk_test",
+                project_id="proj_test",
+                path_suffix="/customers",
+                endpoint_name="customers",
+                timestamp_fields=("first_seen_at",),
+            )
+        )
+
+        # `first_seen_at` is normalized; `last_seen_at` (not the partition key) is
+        # left as the raw ms epoch.
+        assert rows == [{"id": "cus_1", "first_seen_at": 1658399423, "last_seen_at": 1700000000000}]
+
 
 class TestMsToSeconds:
     def test_converts_int_milliseconds_to_seconds(self):
