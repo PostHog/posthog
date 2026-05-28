@@ -58,6 +58,12 @@ export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
 // `system.accounts`), matching `resolve_visible_table_names()` on the backend.
 export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'system.accounts'
 
+// The data-warehouse-join API normalizes source_table_name via
+// `table.to_printed_hogql()` which, for system PostgresTables, returns the
+// unqualified name. Compare against both forms so we catch joins regardless
+// of which name the backend hands us.
+const ACCOUNTS_JOIN_SOURCE_TABLE_NAMES = new Set(['accounts', ACCOUNTS_ACCOUNTS_TABLE_NAME])
+
 export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | `accounts.${string}`
 
 export type AccountColumnOption = {
@@ -157,7 +163,12 @@ export function buildAccountColumnGroups(
     // not inside the source table's `fields`. Surface them as additional
     // first-class column groups so users don't have to drop to SQL.
     for (const join of warehouseJoins) {
-        if (join.source_table_name !== ACCOUNTS_ACCOUNTS_TABLE_NAME || !join.field_name || !join.joining_table_name) {
+        if (
+            !join.source_table_name ||
+            !ACCOUNTS_JOIN_SOURCE_TABLE_NAMES.has(join.source_table_name) ||
+            !join.field_name ||
+            !join.joining_table_name
+        ) {
             continue
         }
         const joinedTable = allTablesMap?.[join.joining_table_name]
