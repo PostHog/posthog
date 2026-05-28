@@ -60,11 +60,45 @@ describe('janitor HTTP', () => {
         expect(res.body.sessions[0]).toMatchObject({ turns: 1, state: 'running' })
     })
 
-    it('GET /sessions without application_id returns 400', async () => {
+    it('GET /sessions without application_id returns a structured 400', async () => {
         const { app } = mk()
         const res = await request(app).get('/sessions')
         expect(res.status).toBe(400)
-        expect(res.body.error).toBe('missing_application_id')
+        expect(res.body.error).toBe('invalid_request')
+        // The zod issues array points at the offending field so callers can
+        // surface useful messages instead of a generic "bad request".
+        const issues = res.body.issues as Array<{ path: string[]; message: string }>
+        expect(issues.some((i) => i.path[0] === 'application_id')).toBe(true)
+    })
+
+    it('GET /sessions with garbage state value returns 400 instead of crashing', async () => {
+        // Pre-zod, an unknown state silently passed through to the queue layer
+        // and could cause weird filter behavior. The schema rejects it now.
+        const { app } = mk()
+        const res = await request(app).get('/sessions').query({ application_id: 'app-1', state: 'banana' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
+    })
+
+    it('PUT /revisions/:id/bundle with null files returns 400 instead of crashing', async () => {
+        // Regression: pre-zod, `typeof null === 'object'` slipped through the
+        // shape check and the route would attempt `Object.entries(null)` and
+        // throw an unhandled rejection. The schema now rejects null up front.
+        const { app, revisionId } = await mkRevisionApp()
+        const res = await request(app).put(`/revisions/${revisionId}/bundle`).send({ files: null })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
+    })
+
+    it('PUT /revisions/:id/bundle with non-string file content returns 400', async () => {
+        // Pre-zod, `{ files: { a: 42 } }` passed the loose `typeof object`
+        // check and reached `bundles.write(..., 42)`, which then threw.
+        const { app, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/bundle`)
+            .send({ files: { 'agent.md': 42 } })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
     })
 
     it('GET /sessions supports state / revision_id / created_after filters', async () => {

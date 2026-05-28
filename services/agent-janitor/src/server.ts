@@ -31,13 +31,21 @@
  * Auth: a single shared-secret header (`x-internal-secret`). Django keeps the
  * team / scope checks on its side; this layer trusts the request once the
  * secret matches.
+ *
+ * Defensive shape: every async route is wrapped in `asyncHandler` so a
+ * rejected promise lands in the global `errorHandler` below instead of
+ * becoming an `unhandledRejection`. Bodies + query params are validated
+ * with zod at the edge — invalid input returns a structured 400, never a
+ * 500 / process crash. See [http-utils.ts](./http-utils.ts).
  */
 
 import express, { Express, NextFunction, Request, Response } from 'express'
+import { z } from 'zod'
 
 import {
     AgentSession,
     BundleStore,
+    createLogger,
     lastAssistantTextPreview,
     RevisionStore,
     SessionQueue,
@@ -45,8 +53,11 @@ import {
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
+import { asyncHandler, errorHandler } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
 import { validateRevisionBundle } from './validate-spec'
+
+const log = createLogger('agent-janitor.server')
 
 export interface JanitorServerOpts {
     queue: SessionQueue
@@ -56,6 +67,45 @@ export interface JanitorServerOpts {
     bundles?: BundleStore
     internalSecret?: string
 }
+
+const SessionStateSchema = z.enum(['queued', 'running', 'waiting', 'completed', 'failed'])
+
+const ListSessionsQuerySchema = z.object({
+    application_id: z.string().min(1, 'missing_application_id'),
+    limit: z.coerce.number().int().positive().max(1000).optional(),
+    offset: z.coerce.number().int().nonnegative().optional(),
+    // `state` can be ?state=completed or ?state=completed,failed
+    state: z
+        .string()
+        .optional()
+        .transform((s) => (s ? s.split(',').filter(Boolean) : undefined))
+        .pipe(z.array(SessionStateSchema).optional()),
+    revision_id: z.string().optional(),
+    created_after: z.string().optional(),
+    created_before: z.string().optional(),
+})
+
+const GetSessionQuerySchema = z.object({
+    last_n: z.coerce.number().int().nonnegative().optional(),
+})
+
+const FilePathQuerySchema = z.object({
+    path: z.string().min(1, 'missing_path'),
+})
+
+const FileUpdateBodySchema = z.object({
+    content: z.string(),
+})
+
+const BundleFilesSchema = z.record(z.string(), z.string())
+const BundlePutBodySchema = z.object({
+    files: BundleFilesSchema,
+    mode: z.enum(['replace', 'merge']).default('replace'),
+})
+
+const CloneFromBodySchema = z.object({
+    source_revision_id: z.string().min(1, 'missing_source_revision_id'),
+})
 
 export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const app = express()
@@ -83,68 +133,56 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
 
     /* ───────────────────────────── sessions ───────────────────────────── */
 
-    app.get('/sessions', async (req, res) => {
-        const applicationId = typeof req.query.application_id === 'string' ? req.query.application_id : ''
-        if (!applicationId) {
-            res.status(400).json({ error: 'missing_application_id' })
-            return
-        }
-        const intArg = (raw: unknown): number | undefined => {
-            if (raw === undefined) {
-                return undefined
-            }
-            const n = parseInt(String(raw), 10)
-            return Number.isFinite(n) ? n : undefined
-        }
-        // `state` can be ?state=completed or ?state=completed,failed
-        const stateRaw = req.query.state
-        const states =
-            typeof stateRaw === 'string' ? (stateRaw.split(',').filter(Boolean) as AgentSession['state'][]) : undefined
-        const sessions = await opts.queue.listByApplication(applicationId, {
-            limit: intArg(req.query.limit),
-            offset: intArg(req.query.offset),
-            states,
-            revisionId: typeof req.query.revision_id === 'string' ? req.query.revision_id : undefined,
-            createdAfter: typeof req.query.created_after === 'string' ? req.query.created_after : undefined,
-            createdBefore: typeof req.query.created_before === 'string' ? req.query.created_before : undefined,
+    app.get(
+        '/sessions',
+        asyncHandler(async (req, res) => {
+            const q = ListSessionsQuerySchema.parse(req.query)
+            const sessions = await opts.queue.listByApplication(q.application_id, {
+                limit: q.limit,
+                offset: q.offset,
+                states: q.state as AgentSession['state'][] | undefined,
+                revisionId: q.revision_id,
+                createdAfter: q.created_after,
+                createdBefore: q.created_before,
+            })
+            // Conversation can be large; strip it from the list view but derive a
+            // preview + usage_total so a single tool call still tells you what the
+            // agent said and how much it cost.
+            const summaries = sessions.map((s) => ({
+                id: s.id,
+                application_id: s.application_id,
+                revision_id: s.revision_id,
+                state: s.state,
+                external_key: s.external_key,
+                principal: s.principal,
+                turns: s.conversation.length,
+                preview: lastAssistantTextPreview(s.conversation),
+                usage_total: totalConversationUsage(s.conversation),
+                retry_count: s.retry_count,
+                created_at: s.created_at,
+                updated_at: s.updated_at,
+            }))
+            res.json({ sessions: summaries })
         })
-        // Conversation can be large; strip it from the list view but derive a
-        // preview + usage_total so a single tool call still tells you what the
-        // agent said and how much it cost.
-        const summaries = sessions.map((s) => ({
-            id: s.id,
-            application_id: s.application_id,
-            revision_id: s.revision_id,
-            state: s.state,
-            external_key: s.external_key,
-            principal: s.principal,
-            turns: s.conversation.length,
-            preview: lastAssistantTextPreview(s.conversation),
-            usage_total: totalConversationUsage(s.conversation),
-            retry_count: s.retry_count,
-            created_at: s.created_at,
-            updated_at: s.updated_at,
-        }))
-        res.json({ sessions: summaries })
-    })
+    )
 
-    app.get('/sessions/:id', async (req, res) => {
-        const s = await opts.queue.get(req.params.id)
-        if (!s) {
-            res.status(404).json({ error: 'not_found' })
-            return
-        }
-        // Optional ?last_n=<int> returns just the tail of the conversation —
-        // useful for huge sessions where the caller only cares about the most
-        // recent turns. usage_total is always computed over the full
-        // conversation so cost reporting stays accurate.
-        const lastNRaw = req.query.last_n
-        if (typeof lastNRaw === 'string' && lastNRaw.length > 0) {
-            const lastN = parseInt(lastNRaw, 10)
-            if (Number.isFinite(lastN) && lastN >= 0 && lastN < s.conversation.length) {
+    app.get(
+        '/sessions/:id',
+        asyncHandler(async (req, res) => {
+            const q = GetSessionQuerySchema.parse(req.query)
+            const s = await opts.queue.get(req.params.id)
+            if (!s) {
+                res.status(404).json({ error: 'not_found' })
+                return
+            }
+            // Optional ?last_n=<int> returns just the tail of the conversation —
+            // useful for huge sessions where the caller only cares about the most
+            // recent turns. usage_total is always computed over the full
+            // conversation so cost reporting stays accurate.
+            if (q.last_n !== undefined && q.last_n < s.conversation.length) {
                 const trimmed: AgentSession = {
                     ...s,
-                    conversation: s.conversation.slice(-lastN),
+                    conversation: s.conversation.slice(-q.last_n),
                 }
                 res.json({
                     ...trimmed,
@@ -154,22 +192,28 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 })
                 return
             }
-        }
-        res.json({ ...s, usage_total: totalConversationUsage(s.conversation), conversation_trimmed: false })
-    })
-    app.post('/sessions/:id/cancel', async (req, res) => {
-        const s = await opts.queue.get(req.params.id)
-        if (!s) {
-            res.status(404).json({ error: 'not_found' })
-            return
-        }
-        await opts.queue.update(req.params.id, { state: 'failed' })
-        res.json({ ok: true })
-    })
-    app.post('/sweep', async (_req, res) => {
-        const result = await sweepOnce(opts.sweep)
-        res.json(result)
-    })
+            res.json({ ...s, usage_total: totalConversationUsage(s.conversation), conversation_trimmed: false })
+        })
+    )
+    app.post(
+        '/sessions/:id/cancel',
+        asyncHandler(async (req, res) => {
+            const s = await opts.queue.get(req.params.id)
+            if (!s) {
+                res.status(404).json({ error: 'not_found' })
+                return
+            }
+            await opts.queue.update(req.params.id, { state: 'failed' })
+            res.json({ ok: true })
+        })
+    )
+    app.post(
+        '/sweep',
+        asyncHandler(async (_req, res) => {
+            const result = await sweepOnce(opts.sweep)
+            res.json(result)
+        })
+    )
 
     /* ───────────────────────────── catalog ───────────────────────────── */
 
@@ -206,181 +250,186 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         return { rev }
     }
 
-    app.get('/revisions/:id/manifest', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const rev = await opts.revisions!.getRevision(req.params.id)
-        if (!rev) {
-            res.status(404).json({ error: 'revision_not_found' })
-            return
-        }
-        const entries = await opts.bundles!.list(req.params.id)
-        res.json({
-            revision_id: req.params.id,
-            state: rev.state,
-            bundle_sha256: rev.bundle_sha256,
-            files: entries,
-        })
-    })
-
-    app.get('/revisions/:id/file', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const path = String(req.query.path ?? '')
-        if (!path) {
-            res.status(400).json({ error: 'missing_path' })
-            return
-        }
-        if (!(await opts.bundles!.exists(req.params.id, path))) {
-            res.status(404).json({ error: 'file_not_found' })
-            return
-        }
-        const text = await opts.bundles!.readText(req.params.id, path)
-        res.json({ path, content: text })
-    })
-
-    app.put('/revisions/:id/file', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const path = String(req.query.path ?? '')
-        const content = (req.body as { content?: string } | undefined)?.content
-        if (!path || typeof content !== 'string') {
-            res.status(400).json({ error: 'missing_path_or_content' })
-            return
-        }
-        const ok = await requireDraft(res, req.params.id)
-        if (!ok) {
-            return
-        }
-        await opts.bundles!.write(req.params.id, path, content)
-        res.json({ ok: true, path, bytes: Buffer.byteLength(content, 'utf8') })
-    })
-
-    app.delete('/revisions/:id/file', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const path = String(req.query.path ?? '')
-        if (!path) {
-            res.status(400).json({ error: 'missing_path' })
-            return
-        }
-        const ok = await requireDraft(res, req.params.id)
-        if (!ok) {
-            return
-        }
-        await opts.bundles!.delete(req.params.id, path)
-        res.json({ ok: true, path })
-    })
-
-    app.get('/revisions/:id/bundle', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const rev = await opts.revisions!.getRevision(req.params.id)
-        if (!rev) {
-            res.status(404).json({ error: 'revision_not_found' })
-            return
-        }
-        const entries = await opts.bundles!.list(req.params.id)
-        const files: Record<string, string> = {}
-        for (const e of entries) {
-            files[e.path] = await opts.bundles!.readText(req.params.id, e.path)
-        }
-        res.json({
-            revision_id: req.params.id,
-            state: rev.state,
-            bundle_sha256: rev.bundle_sha256,
-            files,
-        })
-    })
-
-    app.put('/revisions/:id/bundle', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const body = req.body as { files?: Record<string, string>; mode?: 'replace' | 'merge' }
-        if (!body?.files || typeof body.files !== 'object') {
-            res.status(400).json({ error: 'missing_files' })
-            return
-        }
-        const mode = body.mode ?? 'replace'
-        if (mode !== 'replace' && mode !== 'merge') {
-            res.status(400).json({ error: 'invalid_mode' })
-            return
-        }
-        const ok = await requireDraft(res, req.params.id)
-        if (!ok) {
-            return
-        }
-        if (mode === 'replace') {
-            // Wipe everything before writing the new set. Keeps the bundle
-            // in lockstep with what the caller declared.
-            const existing = await opts.bundles!.list(req.params.id)
-            for (const e of existing) {
-                await opts.bundles!.delete(req.params.id, e.path)
+    app.get(
+        '/revisions/:id/manifest',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
             }
-        }
-        for (const [p, content] of Object.entries(body.files)) {
-            await opts.bundles!.write(req.params.id, p, content)
-        }
-        const files = await opts.bundles!.list(req.params.id)
-        res.json({ ok: true, mode, files })
-    })
+            const rev = await opts.revisions!.getRevision(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const entries = await opts.bundles!.list(req.params.id)
+            res.json({
+                revision_id: req.params.id,
+                state: rev.state,
+                bundle_sha256: rev.bundle_sha256,
+                files: entries,
+            })
+        })
+    )
 
-    app.post('/revisions/:id/freeze', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const ok = await requireDraft(res, req.params.id)
-        if (!ok) {
-            return
-        }
-        const sha = await opts.bundles!.freeze(req.params.id)
-        // Stamp the sha + flip the row to `ready` so the runner can pick it
-        // up via `setLiveRevision` later. Two writes; the second is the
-        // user-visible state change.
-        await opts.revisions!.setRevisionState(req.params.id, 'ready', sha)
-        res.json({ ok: true, state: 'ready', bundle_sha256: sha })
-    })
+    app.get(
+        '/revisions/:id/file',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const { path } = FilePathQuerySchema.parse(req.query)
+            if (!(await opts.bundles!.exists(req.params.id, path))) {
+                res.status(404).json({ error: 'file_not_found' })
+                return
+            }
+            const text = await opts.bundles!.readText(req.params.id, path)
+            res.json({ path, content: text })
+        })
+    )
 
-    app.post('/revisions/:id/validate', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const rev = await opts.revisions!.getRevision(req.params.id)
-        if (!rev) {
-            res.status(404).json({ error: 'revision_not_found' })
-            return
-        }
-        const report = await validateRevisionBundle(rev, opts.bundles!)
-        res.json(report)
-    })
+    app.put(
+        '/revisions/:id/file',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const { path } = FilePathQuerySchema.parse(req.query)
+            const { content } = FileUpdateBodySchema.parse(req.body)
+            const ok = await requireDraft(res, req.params.id)
+            if (!ok) {
+                return
+            }
+            await opts.bundles!.write(req.params.id, path, content)
+            res.json({ ok: true, path, bytes: Buffer.byteLength(content, 'utf8') })
+        })
+    )
 
-    app.post('/revisions/:id/clone_from', async (req, res) => {
-        if (!needRevisionStore(res)) {
-            return
-        }
-        const body = req.body as { source_revision_id?: string }
-        const sourceId = body?.source_revision_id
-        if (!sourceId) {
-            res.status(400).json({ error: 'missing_source_revision_id' })
-            return
-        }
-        const ok = await requireDraft(res, req.params.id)
-        if (!ok) {
-            return
-        }
-        const src = await opts.bundles!.list(sourceId)
-        for (const entry of src) {
-            await opts.bundles!.copy(sourceId, entry.path, req.params.id, entry.path)
-        }
-        const files = await opts.bundles!.list(req.params.id)
-        res.json({ ok: true, source_revision_id: sourceId, files })
-    })
+    app.delete(
+        '/revisions/:id/file',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const { path } = FilePathQuerySchema.parse(req.query)
+            const ok = await requireDraft(res, req.params.id)
+            if (!ok) {
+                return
+            }
+            await opts.bundles!.delete(req.params.id, path)
+            res.json({ ok: true, path })
+        })
+    )
+
+    app.get(
+        '/revisions/:id/bundle',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const rev = await opts.revisions!.getRevision(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const entries = await opts.bundles!.list(req.params.id)
+            const files: Record<string, string> = {}
+            for (const e of entries) {
+                files[e.path] = await opts.bundles!.readText(req.params.id, e.path)
+            }
+            res.json({
+                revision_id: req.params.id,
+                state: rev.state,
+                bundle_sha256: rev.bundle_sha256,
+                files,
+            })
+        })
+    )
+
+    app.put(
+        '/revisions/:id/bundle',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const { files, mode } = BundlePutBodySchema.parse(req.body)
+            const ok = await requireDraft(res, req.params.id)
+            if (!ok) {
+                return
+            }
+            if (mode === 'replace') {
+                // Wipe everything before writing the new set. Keeps the bundle
+                // in lockstep with what the caller declared.
+                const existing = await opts.bundles!.list(req.params.id)
+                for (const e of existing) {
+                    await opts.bundles!.delete(req.params.id, e.path)
+                }
+            }
+            for (const [p, content] of Object.entries(files)) {
+                await opts.bundles!.write(req.params.id, p, content)
+            }
+            const listed = await opts.bundles!.list(req.params.id)
+            res.json({ ok: true, mode, files: listed })
+        })
+    )
+
+    app.post(
+        '/revisions/:id/freeze',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const ok = await requireDraft(res, req.params.id)
+            if (!ok) {
+                return
+            }
+            const sha = await opts.bundles!.freeze(req.params.id)
+            // Stamp the sha + flip the row to `ready` so the runner can pick it
+            // up via `setLiveRevision` later. Two writes; the second is the
+            // user-visible state change.
+            await opts.revisions!.setRevisionState(req.params.id, 'ready', sha)
+            res.json({ ok: true, state: 'ready', bundle_sha256: sha })
+        })
+    )
+
+    app.post(
+        '/revisions/:id/validate',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const rev = await opts.revisions!.getRevision(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const report = await validateRevisionBundle(rev, opts.bundles!)
+            res.json(report)
+        })
+    )
+
+    app.post(
+        '/revisions/:id/clone_from',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const { source_revision_id: sourceId } = CloneFromBodySchema.parse(req.body)
+            const ok = await requireDraft(res, req.params.id)
+            if (!ok) {
+                return
+            }
+            const src = await opts.bundles!.list(sourceId)
+            for (const entry of src) {
+                await opts.bundles!.copy(sourceId, entry.path, req.params.id, entry.path)
+            }
+            const files = await opts.bundles!.list(req.params.id)
+            res.json({ ok: true, source_revision_id: sourceId, files })
+        })
+    )
+
+    // Last in the chain. Catches anything the route handlers threw (via
+    // asyncHandler), translates ZodError → 400, everything else → 500.
+    app.use(errorHandler(log))
 
     return app
 }

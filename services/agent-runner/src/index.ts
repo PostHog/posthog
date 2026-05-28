@@ -24,6 +24,7 @@ import {
     createLogger,
     EncryptedFields,
     FsBundleStore,
+    installProcessHandlers,
     NoopSessionEventBus,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -43,6 +44,7 @@ import { Worker } from './workers/worker'
 const log = createLogger('agent-runner')
 
 async function main(): Promise<void> {
+    installProcessHandlers(log)
     const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
     const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
     // Default to a user-writable dir so dev / local CI work without root.

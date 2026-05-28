@@ -17,6 +17,7 @@ const { Pool } = pg
 
 import {
     createLogger,
+    installProcessHandlers,
     MemorySessionEventBus,
     PgIdentityStore,
     PgRevisionStore,
@@ -30,6 +31,7 @@ import { buildApp } from './routing/server'
 const log = createLogger('agent-ingress')
 
 async function main(): Promise<void> {
+    installProcessHandlers(log)
     const port = parseInt(process.env.PORT ?? '8080', 10)
     const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
     const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'

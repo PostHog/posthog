@@ -18,7 +18,14 @@ import { mkdir } from 'node:fs/promises'
 import pg from 'pg'
 const { Pool } = pg
 
-import { createLogger, FsBundleStore, PgRevisionStore, PgSessionQueue, SCHEMA_SQL } from '@posthog/agent-shared'
+import {
+    createLogger,
+    FsBundleStore,
+    installProcessHandlers,
+    PgRevisionStore,
+    PgSessionQueue,
+    SCHEMA_SQL,
+} from '@posthog/agent-shared'
 
 import { buildJanitorApp } from './server'
 import { sweepOnce } from './sweep'
@@ -26,6 +33,7 @@ import { sweepOnce } from './sweep'
 const log = createLogger('agent-janitor')
 
 async function main(): Promise<void> {
+    installProcessHandlers(log)
     const port = parseInt(process.env.PORT ?? '8082', 10)
     const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
     const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
