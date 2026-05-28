@@ -436,6 +436,9 @@ def resolve_slack_user(
         if get_instance_region() == "DEV":
             # Dev region override for testing on any workspace (for Slack review team)
             slack_email = "twixes3d+slacktest@gmail.com"
+        if settings.DEBUG:
+            # When running locally - match the local user
+            slack_email = "test@posthog.com"
 
         # Trust model: Slack signature validation proves the payload is authentic.
         # The email comes from Slack's `users.info` API via `users:read.email` scope, not from
