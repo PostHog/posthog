@@ -53,10 +53,10 @@ def _make_runner(
     runner = MagicMock(spec=WebAnalyticsQueryRunner)
     runner.query = query
     runner.team = team
-    # The real `precompute_filters_hash` is an Optional[str] cached_property; `spec` doesn't
+    # The real `filters_eligibility_hash` is an Optional[str] cached_property; `spec` doesn't
     # propagate the annotation so MagicMock would return a Mock object which fails
     # the QueryTags pydantic validation in `tag_queries`. Pin a stable test value.
-    runner.precompute_filters_hash = "test_precompute_filters_hash"
+    runner.filters_eligibility_hash = "test_filters_eligibility_hash"
     cast(MagicMock, runner.query_strategy).return_value = query_strategy
     cast(MagicMock, runner.clickhouse_query_type).return_value = (
         f"{query_strategy}_query" if query_strategy is not None else None
@@ -344,12 +344,14 @@ class TestWebAnalyticsMetrics(TestCase):
     ):
         """Every web analytics query runner must land the same shape in
         `system.query_log.log_comment` via `tag_queries` — `product`,
-        `feature`, `query`, `precompute_filters_hash`, and `breakdown_by` (when the
-        query has a `breakdownBy`). Drift here breaks downstream
-        `query_log`-based analysis (cache-tier queries, q/key
-        computation, per-tile cost slicing)."""
+        `feature`, `query`, and `breakdown_by` (when the query has a
+        `breakdownBy`). Drift here breaks downstream `query_log`-based
+        analysis (per-strategy latency, per-tile cost slicing).
+
+        `filters_eligibility_hash` is **not** in this payload — it stays on
+        the structlog contextvar only, see
+        `test_filters_eligibility_hash_not_in_query_tags`."""
         runner = _make_runner(query_kind=query_kind, breakdown=breakdown)
-        runner.precompute_filters_hash = "expected_hash_for_this_query"
         # The real `WebQueryNode.model_dump(mode="json")` returns a dict; the
         # MagicMock-backed `query` returns another Mock by default, which
         # bypasses the dict-shape assertion below.
@@ -363,7 +365,6 @@ class TestWebAnalyticsMetrics(TestCase):
 
         assert get_query_tag_value("product") == Product.WEB_ANALYTICS
         assert get_query_tag_value("feature") == Feature.QUERY
-        assert get_query_tag_value("precompute_filters_hash") == "expected_hash_for_this_query"
         # `query` is the dumped query payload — a dict with at least `kind`.
         query_tag = get_query_tag_value("query")
         assert isinstance(query_tag, dict) and query_tag.get("kind") == query_kind
