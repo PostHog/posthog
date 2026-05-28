@@ -236,8 +236,8 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     failed = 0
     for query in queries:
         kind = str(query.get("kind"))
-        breakdown = query.get("breakdownBy")
-        label = f"{kind}:{breakdown}" if breakdown else kind
+        breakdown_value = query.get("breakdownBy")
+        label = f"{kind}:{breakdown_value}" if breakdown_value else kind
         try:
             # Tag BEFORE constructing the runner. `tag_queries` writes to
             # a contextvar; any I/O the runner does at construction time
