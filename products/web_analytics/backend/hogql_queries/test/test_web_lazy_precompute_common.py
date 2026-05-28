@@ -13,6 +13,7 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_filters_hash
@@ -191,3 +192,27 @@ class TestFiltersHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
                 pass
 
         assert "filters_hash" not in get_contextvars()
+
+    def test_query_tags_and_contextvar_carry_same_filters_hash(self) -> None:
+        """The same value must land in three places per request:
+        `runner.filters_hash`, `structlog.contextvars`, and the ClickHouse
+        query-log tags (`get_query_tag_value`). If they diverge a downstream
+        join would silently produce wrong results."""
+        runner = self._runner()
+        expected = runner.filters_hash
+        assert expected is not None
+
+        captured_contextvar: dict = {}
+        captured_query_tag: dict = {}
+        original = AnalyticsQueryRunner.calculate
+
+        def spy(self_):
+            captured_contextvar["filters_hash"] = get_contextvars().get("filters_hash")
+            captured_query_tag["filters_hash"] = get_query_tag_value("filters_hash")
+            return original(self_)
+
+        with mock.patch.object(AnalyticsQueryRunner, "calculate", spy):
+            runner.calculate()
+
+        assert captured_contextvar["filters_hash"] == expected
+        assert captured_query_tag["filters_hash"] == expected
