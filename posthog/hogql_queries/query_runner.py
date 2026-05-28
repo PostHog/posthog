@@ -1876,11 +1876,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         ``Database.create_for`` using the full ``check_access_level_for_object``
         precedence chain. Skipped without user since fail-closed Database.create_for
         produces the right behavior without needing a cache-key contribution.
+
+        Only ``QueryRunnerWithHogQLContext`` subclasses have a ``database``
+        attribute, so non-HogQL runners always return None.
         """
-        if self.user is None or self.database is None:
+        if self.user is None:
+            return None
+        database = getattr(self, "database", None)
+        if database is None:
             return None
 
-        blocked = self.database._denied_resource_ids_by_scope
+        blocked = database._denied_resource_ids_by_scope
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items()) if ids}

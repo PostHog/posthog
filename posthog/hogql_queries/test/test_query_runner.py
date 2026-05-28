@@ -44,6 +44,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     QueryRunner,
+    QueryRunnerWithHogQLContext,
     get_query_runner,
     shared_insights_execution_mode,
 )
@@ -325,6 +326,63 @@ class TestQueryRunner(BaseTest):
 
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
+
+    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
+    def test_cache_key_differs_when_warehouse_grants_change(self):
+        """Warehouse table / view deny set is merged into the cache fingerprint.
+
+        Warehouse ACL uses Database._denied_resource_ids_by_scope (populated by
+        the new filter methods in Database.create_for). The fingerprint must
+        include it so warehouse grant changes invalidate cached results.
+        """
+        from posthog.models import OrganizationMembership
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        # Only QueryRunnerWithHogQLContext subclasses have a `database` attribute;
+        # build one inline so we don't need to depend on a `base=` parameter on the
+        # `setup_test_query_runner_class` helper.
+        class TestHogQLRunner(QueryRunnerWithHogQLContext):
+            query: TheTestQuery
+            cached_response: TheTestCachedBasicQueryResponse
+
+            def _calculate(self):
+                return TheTestBasicQueryResponse(results=[])
+
+            def _refresh_frequency(self) -> timedelta:
+                return timedelta(minutes=4)
+
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
+                return False
+
+            def to_query(self):
+                return self.query
+
+        baseline_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+        baseline_key = baseline_runner.get_cache_key()
+        assert "restricted_objects" not in baseline_runner.get_cache_payload()
+
+        # Simulate the result of the warehouse filter methods having populated the deny set.
+        restricted_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+        restricted_runner.database._denied_resource_ids_by_scope["warehouse_table"] = {
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        }
+        restricted_runner.database._denied_resource_ids_by_scope["warehouse_view"] = {
+            "33333333-3333-3333-3333-333333333333",
+        }
+        restricted_payload = restricted_runner.get_cache_payload()
+
+        assert restricted_payload["restricted_objects"]["warehouse_table"] == [
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        ]
+        assert restricted_payload["restricted_objects"]["warehouse_view"] == [
+            "33333333-3333-3333-3333-333333333333",
+        ]
+        assert restricted_runner.get_cache_key() != baseline_key
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
