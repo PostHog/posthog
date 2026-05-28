@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
+from django.db import OperationalError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -796,6 +797,31 @@ class OAuthTokenView(TokenView):
                 },
                 status=400,
             )
+        except OperationalError as e:
+            # PgBouncer kills queries that wait too long for a backend connection with
+            # `query_wait_timeout`. Django's related-field descriptor then raises a
+            # bare KeyError because the FK cache was never populated, surfacing as an
+            # unhandled 500. Translate transient pool pressure into RFC 6749
+            # `temporarily_unavailable` (HTTP 503 + Retry-After) so OAuth clients
+            # back off and retry instead of treating the refresh as permanently failed.
+            if "query_wait_timeout" not in str(e):
+                raise
+            logger.warning(
+                "oauth_token_db_pool_pressure",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+                error=str(e),
+            )
+            response = JsonResponse(
+                {
+                    "error": "temporarily_unavailable",
+                    "error_description": "The authorization server is temporarily unable to handle the request. Please retry.",
+                },
+                status=503,
+            )
+            response["Retry-After"] = "1"
+            return response
 
         logger.info(
             "oauth_token_response",
