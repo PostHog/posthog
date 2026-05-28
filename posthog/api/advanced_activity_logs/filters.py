@@ -200,8 +200,13 @@ class AdvancedActivityLogFilterManager:
 
         # Always go through __iregex so partial values (e.g. `192.168.1`) match no rows
         # instead of triggering Django's GenericIPAddressField validation on __in lookups.
+        exact_values = [v for v in ip_filters if "*" not in v]
+        wildcard_values = [v for v in ip_filters if "*" in v]
+
         q = Q()
-        for value in ip_filters:
+        if exact_values:
+            q |= Q(ip_address__in=exact_values)
+        for value in wildcard_values:
             regex = "^" + "".join(".*" if c == "*" else re.escape(c) for c in value) + "$"
             q |= Q(ip_address__iregex=regex)
         return queryset.filter(q)
