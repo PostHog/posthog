@@ -65,6 +65,18 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            // Emitted by the `null_safe_comparisons=True` bytecode wrapper that every cohort
+            // numeric-comparison leaf compiles through (posthog/hogql/compiler/bytecode.py),
+            // so it is on the critical path for behavioral-cohort evaluation in Rust.
+            // Matches the Python reference (`args[0] is None`) and TS (`null || undefined`):
+            // the Rust VM has a single `Null` literal (a missing global also resolves to it).
+            "isNull",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "isNull")?;
+                Ok(HogLiteral::Boolean(matches!(args[0].deref(&vm.heap)?, HogLiteral::Null)).into())
+            }),
+        ),
+        (
             "values",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "values")?;

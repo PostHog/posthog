@@ -1,6 +1,7 @@
 RUST_HOGVM_STL = [
     "toString",
     "typeof",
+    "isNull",
     "values",
     "length",
     "arrayPushBack",
