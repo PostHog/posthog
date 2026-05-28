@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
                     model_name="dashboardtile",
                     name="widget",
                     field=models.ForeignKey(
+                        db_index=False,
                         null=True,
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="dashboard_tiles",
