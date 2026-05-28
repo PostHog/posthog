@@ -1,0 +1,162 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { HogFlow, HogFlowAction } from './hogflows/types'
+import { workflowLogic } from './workflowLogic'
+
+const WORKFLOW_ID = 'wf-email-validation-1'
+const EMAIL_NODE_ID = 'email_node'
+
+const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'function_email' }> => ({
+    id: EMAIL_NODE_ID,
+    type: 'function_email',
+    name: 'Send email',
+    description: '',
+    created_at: 0,
+    updated_at: 0,
+    config: {
+        template_id: 'template-email',
+        inputs: {
+            email: {
+                value: {
+                    to: { email: 'recipient@example.com' },
+                    from: fromValue,
+                    subject: 'Hello',
+                    html: '<p>Hello</p>',
+                    text: 'Hello',
+                },
+                templating: 'liquid',
+            },
+        },
+    },
+})
+
+const makeWorkflow = (fromValue: any): HogFlow => ({
+    id: WORKFLOW_ID,
+    name: 'Email validation test',
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { type: 'event', filters: {} },
+        },
+        makeEmailAction(fromValue),
+        {
+            id: 'exit_node',
+            type: 'exit',
+            name: 'Exit',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { reason: 'Default exit' },
+        },
+    ],
+    edges: [
+        { from: 'trigger_node', to: EMAIL_NODE_ID, type: 'continue' },
+        { from: EMAIL_NODE_ID, to: 'exit_node', type: 'continue' },
+    ],
+    conversion: { window_minutes: null, filters: [] },
+    exit_condition: 'exit_only_at_end',
+    version: 1,
+    status: 'draft',
+    team_id: 1,
+    trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
+    created_at: '2026-05-01T00:00:00.000Z',
+    updated_at: '2026-05-01T00:00:00.000Z',
+})
+
+// Never-resolving templates response keeps `hogFunctionTemplatesByIdLoading` true so the
+// function-action validation branch is skipped and the email-specific block in
+// `actionValidationErrorsById` is the only one that runs. That is the editor state we
+// care about — before the template fetch completes the user can already see (or miss)
+// inline errors on the step.
+const hangingTemplatesEndpoint = (): Promise<unknown> => new Promise(() => {})
+
+describe('workflowLogic email step "from" validation', () => {
+    let logic: ReturnType<typeof workflowLogic.build>
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    it('flags the step as invalid when "from" has an email but no integrationId (no sender picked)', async () => {
+        // The Zod schema for runtime email parameters
+        // (`CyclotronInvocationQueueParametersEmailSchema`) requires `from.integrationId`.
+        // The editor must reject this configuration before activation, even when a
+        // default/templated `from.email` is present.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result).not.toBeNull()
+        expect(result?.valid).toBe(false)
+        expect(result?.errors.email).toBe('Choose who to send this email from')
+    })
+
+    it('flags the step as invalid when "from" is completely missing', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(undefined),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.errors.email).toContain('Choose who to send this email from')
+    })
+
+    it('does not flag a "from" error when an integration sender has been picked', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
+                    email: 'sender@example.com',
+                    integrationId: 42,
+                }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        // No email-block errors at all — every other required field (to, subject, html) is set.
+        expect(result?.errors.email).toBeUndefined()
+        expect(result?.valid).toBe(true)
+    })
+
+    it('propagates the step error into workflowHasActionErrors', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        expect(logic.values.workflowHasActionErrors).toBe(true)
+    })
+})
