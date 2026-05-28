@@ -1473,11 +1473,24 @@ def devbox_status(workspace: str | None) -> None:
         _print_connection_info(name)
 
 
-@click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
+@click.command(name="devbox:forward", help="Forward a devbox port to localhost")
 @workspace_argument
-@click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace: str | None, port: int) -> None:
-    """Forward the PostHog UI port to localhost."""
+@click.option("--port", default=8010, type=int, help="Local port to bind on the laptop")
+@click.option(
+    "--remote",
+    default=8010,
+    type=int,
+    help="Remote port on the devbox (default 8010, the PostHog UI / OAuth port)",
+)
+def devbox_forward(workspace: str | None, port: int, remote: int) -> None:
+    """Forward a port from the devbox to localhost.
+
+    Defaults forward the PostHog UI on 8010 -- the most common case, and the
+    port the MCP server's OAuth metadata advertises, so the laptop browser can
+    reach ``/oauth/authorize`` during MCP auth. Use ``--remote`` to forward any
+    other devbox port (e.g. ``--port 8787 --remote 8787`` to address the MCP
+    server itself from a laptop-side Claude).
+    """
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     if not _local_port_is_available(port):
@@ -1486,11 +1499,12 @@ def devbox_forward(workspace: str | None, port: int) -> None:
             f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
         )
 
-    click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
-    click.echo(f"PostHog UI at http://localhost:{port}")
+    click.echo(f"Forwarding {name}:{remote} -> localhost:{port}")
+    if remote == 8010:
+        click.echo(f"PostHog UI at http://localhost:{port}")
     click.echo("Ctrl+C to stop")
     click.echo()
-    port_forward_replace(name, port, 8010)
+    port_forward_replace(name, port, remote)
 
 
 def _gib(nbytes: int) -> str:

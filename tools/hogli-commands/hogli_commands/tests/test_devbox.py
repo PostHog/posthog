@@ -1447,6 +1447,30 @@ class TestDevboxCommands:
         assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
         assert captured == {"name": "devbox-test-user", "local_port": 8010, "remote_port": 8010}
 
+    def test_devbox_forward_uses_remote_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # --remote unblocks tunneling non-8010 services (e.g. the MCP server on 8787)
+        # without having to bake a default into every dev's SSH config.
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "port_forward_replace",
+            lambda name, local_port, remote_port: captured.update(
+                {"name": name, "local_port": local_port, "remote_port": remote_port}
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:forward", "--port", "8787", "--remote", "8787"])
+
+        assert result.exit_code == 0
+        assert "Forwarding devbox-test-user:8787 -> localhost:8787" in result.output
+        # The "PostHog UI" line should only print for the default UI tunnel, not for arbitrary ports.
+        assert "PostHog UI" not in result.output
+        assert captured == {"name": "devbox-test-user", "local_port": 8787, "remote_port": 8787}
+
     def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))

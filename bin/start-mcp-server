@@ -16,22 +16,14 @@ else
         cp .dev.vars.example .dev.vars
     fi
 
-    # SITE_URL on devboxes points at the public per-workspace subdomain; rewrite
-    # the three PostHog-pointing keys so MCP's OAuth metadata advertises a host
-    # browsers can actually reach. Runs every start (not just first creation) so
-    # .dev.vars stays in sync when the workspace subdomain changes.
-    loopback_re='^https?://(localhost|127\.0\.0\.1)([:/]|$)'
-    if [ -n "${SITE_URL:-}" ] && ! [[ "${SITE_URL}" =~ $loopback_re ]]; then
-        tmp=$(mktemp)
-        grep -Ev '^(POSTHOG_API_BASE_URL|POSTHOG_MCP_APPS_ANALYTICS_BASE_URL|POSTHOG_ANALYTICS_HOST)=' .dev.vars > "$tmp" || true
-        mv "$tmp" .dev.vars
-        # Leading \n guards against the prior file missing a trailing newline.
-        printf '\n%s\n%s\n%s\n' \
-            "POSTHOG_API_BASE_URL=${SITE_URL}" \
-            "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${SITE_URL}" \
-            "POSTHOG_ANALYTICS_HOST=${SITE_URL}" \
-            >> .dev.vars
-    fi
-
+    # POSTHOG_API_BASE_URL is left at localhost on devboxes too: it's the only
+    # host that satisfies both OAuth legs at once. The metadata advertised at
+    # /.well-known/oauth-protected-resource is fetched unauthenticated by the
+    # MCP client and must return JSON, while the /oauth/authorize URL handed
+    # to the browser must be reachable from the laptop. The Coder per-workspace
+    # subdomain fails the first leg (its auth proxy 303s machine requests to
+    # an HTML login page, breaking JSON discovery), so we keep localhost and
+    # rely on SSH LocalForward (wired in by hogli devbox setup) to tunnel
+    # laptop localhost:8010 to the devbox.
     exec pnpm run dev
 fi
