@@ -133,7 +133,10 @@ test.describe('Billing Limits', () => {
                 billingContent.custom_limits_usd = { product_analytics: 100 }
                 return billingContent
             },
-            patchResponse: (billingContent) => billingContent,
+            patchResponse: (billingContent) => {
+                billingContent.custom_limits_usd = {}
+                return billingContent
+            },
         })
 
         await page.goto('/organization/billing')
@@ -142,5 +145,7 @@ test.describe('Billing Limits', () => {
         await expect(page.locator('[data-attr="billing-limit-set-product_analytics"]')).toBeVisible()
         await page.locator('text=Edit limit').click()
         await page.locator('[data-attr="remove-billing-limit-product_analytics"]').click()
+
+        await expect(page.locator('[data-attr="billing-limit-not-set-product_analytics"]')).toBeVisible()
     })
 })
