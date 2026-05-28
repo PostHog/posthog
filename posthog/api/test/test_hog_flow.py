@@ -1437,6 +1437,36 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400
 
+    @parameterized.expand(
+        [
+            ("draft", {"draft"}),
+            ("active", {"active"}),
+            ("archived", {"archived"}),
+            (None, {"draft", "active", "archived"}),
+        ]
+    )
+    def test_list_filters_by_status(self, filter_status, expected_keys):
+        flows = {
+            "draft": self._create_flow(name="Draft flow", flow_status="draft"),
+            "active": self._create_flow(name="Active flow", flow_status="active"),
+            "archived": self._create_flow(name="To archive", flow_status="draft"),
+        }
+        self._archive_flow(flows["archived"])
+
+        url = f"/api/projects/{self.team.id}/hog_flows/"
+        if filter_status is not None:
+            url = f"{url}?status={filter_status}"
+
+        response = self.client.get(url)
+        assert response.status_code == 200, response.json()
+        returned_ids = {r["id"] for r in response.json()["results"]}
+        expected_ids = {flows[key] for key in expected_keys}
+        assert returned_ids == expected_ids
+
+    def test_list_rejects_unknown_status(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/?status=banana")
+        assert response.status_code == 400
+
     def test_bulk_delete_does_not_leak_between_teams(self):
         another_org = Organization.objects.create(name="other org")
         another_team = Team.objects.create(organization=another_org)

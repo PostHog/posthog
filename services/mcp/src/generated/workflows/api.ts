@@ -22,6 +22,10 @@ export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    status: zod
+        .enum(['active', 'archived', 'draft'])
+        .optional()
+        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 

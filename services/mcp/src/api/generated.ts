@@ -39227,8 +39227,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsListStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsListStatus = typeof EnvironmentsHogFlowsListStatus[keyof typeof EnvironmentsHogFlowsListStatus];
+
+
+    export const EnvironmentsHogFlowsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFlowsLogsRetrieveParams = {
     /**
@@ -39398,8 +39413,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsSchedulesListStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
+
+
+    export const EnvironmentsHogFlowsSchedulesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFlowsSchedulesCreateParams = {
     created_at?: string;
@@ -39413,8 +39443,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
+
+
+    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
@@ -44558,8 +44603,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsListStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
+
+
+    export const HogFlowsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFlowsLogsRetrieveParams = {
     /**
@@ -44729,8 +44789,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesListStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
+
+
+    export const HogFlowsSchedulesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFlowsSchedulesCreateParams = {
     created_at?: string;
@@ -44744,8 +44819,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesCreateStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
+
+
+    export const HogFlowsSchedulesCreateStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFunctionTemplatesListParams = {
     /**

@@ -430,7 +430,7 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        fields = ["id", "created_by", "created_at", "updated_at"]
+        fields = ["id", "created_by", "created_at", "updated_at", "status"]
 
 
 @extend_schema(tags=["workflows"])

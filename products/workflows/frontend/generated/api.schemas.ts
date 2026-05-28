@@ -505,8 +505,22 @@ export type HogFlowsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * * `draft` - Draft
+     * `active` - Active
+     * `archived` - Archived
+     */
+    status?: HogFlowsListStatus
     updated_at?: string
 }
+
+export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
+
+export const HogFlowsListStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
+} as const
 
 export type HogFlowsLogsRetrieveParams = {
     /**
@@ -676,8 +690,22 @@ export type HogFlowsSchedulesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * * `draft` - Draft
+     * `active` - Active
+     * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesListStatus
     updated_at?: string
 }
+
+export type HogFlowsSchedulesListStatus = (typeof HogFlowsSchedulesListStatus)[keyof typeof HogFlowsSchedulesListStatus]
+
+export const HogFlowsSchedulesListStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
+} as const
 
 export type HogFlowsSchedulesCreateParams = {
     created_at?: string
@@ -691,5 +719,20 @@ export type HogFlowsSchedulesCreateParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * * `draft` - Draft
+     * `active` - Active
+     * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesCreateStatus
     updated_at?: string
 }
+
+export type HogFlowsSchedulesCreateStatus =
+    (typeof HogFlowsSchedulesCreateStatus)[keyof typeof HogFlowsSchedulesCreateStatus]
+
+export const HogFlowsSchedulesCreateStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
+} as const
