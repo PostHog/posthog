@@ -49,6 +49,14 @@ export type KeyedRateLimit = {
 }
 
 export interface KeyedRateLimiter {
+    /**
+     * Rate-limit a batch of requests.
+     *
+     * Contract: the resolved array is a 1:1 positional mapping to `requests` —
+     * same length, exactly one decision per input request, in input order.
+     * Callers (e.g. `createKeyedRateLimiterStep`) correlate results by index, so
+     * implementations must not deduplicate, group, or reorder the returned array.
+     */
     rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]>
 }
 

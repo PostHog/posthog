@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { KeyedRateLimit, KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
 
 const guardOutcomeCounter = new Counter({
@@ -26,22 +26,6 @@ export interface PerIssueGuardedRateLimiterConfig {
     bucketTtlSeconds: number
     /** When false, throw if the Redis pipeline returns null instead of fail-open allowing all. Default: true. */
     failOpen?: boolean
-}
-
-type GuardedPipeline = RedisClientPipeline & {
-    checkGuardedRateLimit: (
-        cooldownKey: string,
-        counterKey: string,
-        bucketKey: string,
-        now: number,
-        cost: number,
-        bucketSize: number,
-        refillRate: number,
-        bucketExpiry: number,
-        threshold: number,
-        windowTtl: number,
-        cooldownTtl: number
-    ) => GuardedPipeline
 }
 
 const buildPrefixes = (name: string): { bucket: string; counter: string; cooldown: string } => {
@@ -133,7 +117,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                     }
                     const teamId = teamIds[i]
                     const now = req.now ?? Math.round(Date.now() / 1000)
-                    ;(pipeline as GuardedPipeline).checkGuardedRateLimit(
+                    pipeline.checkGuardedRateLimit(
                         this.cooldownKey(teamId),
                         this.counterKey(teamId, now),
                         `${this.prefixes.bucket}/${req.id}`,

@@ -9,15 +9,29 @@ import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
 import { defineLuaTokenBucketV2 } from './redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from './redis-token-bucket-v3.lua'
 
-type WithCheckRateLimit<TV2, TV3> = {
+type WithCheckRateLimit<TV2, TV3, TGuarded> = {
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
     checkRateLimitV3: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV3
+    checkGuardedRateLimit: (
+        cooldownKey: string,
+        counterKey: string,
+        bucketKey: string,
+        now: number,
+        cost: number,
+        poolMax: number,
+        fillRate: number,
+        expiry: number,
+        threshold: number,
+        windowTtl: number,
+        cooldownTtl: number
+    ) => TGuarded
 }
 
-export type RedisClientPipeline = Pipeline & WithCheckRateLimit<[number, number], [number, number]>
+export type RedisClientPipeline = Pipeline &
+    WithCheckRateLimit<[number, number], [number, number], [number, number, number]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<[number, number]>, Promise<[number, number]>> & {
+    WithCheckRateLimit<Promise<[number, number]>, Promise<[number, number]>, Promise<[number, number, number]>> & {
         pipeline: () => RedisClientPipeline
     }
 
