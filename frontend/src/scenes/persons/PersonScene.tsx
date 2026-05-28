@@ -37,10 +37,19 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
+import {
+    ActivityScope,
+    FilterLogicalOperator,
+    PersonType,
+    PersonsTabType,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
+import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
@@ -368,6 +377,37 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                     />
                                 </div>
                             </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.LOGS,
+                        label: <span data-attr="persons-logs-tab">Logs</span>,
+                        content: (
+                            <LogsViewer
+                                id={`person-${person.uuid ?? person.id}`}
+                                initialFilters={{
+                                    filterGroup: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        key:
+                                                            currentTeam?.logs_distinct_id_attribute_key ||
+                                                            'distinct_id',
+                                                        type: PropertyFilterType.LogAttribute,
+                                                        operator: PropertyOperator.Exact,
+                                                        value: person.distinct_ids,
+                                                    } as any,
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                }}
+                                showFullScreenButton={false}
+                                showSavedViewsButton={false}
+                            />
                         ),
                     },
                     {
