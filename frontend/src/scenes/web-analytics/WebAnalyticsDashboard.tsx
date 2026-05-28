@@ -60,6 +60,7 @@ import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
+import { WebAnalyticsAISummaryBanner } from './WebAnalyticsAISummaryBanner'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -644,6 +645,14 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
     }
 }
 
+const AnalyticsTabBanners = (): JSX.Element | null => {
+    const { productTab } = useValues(webAnalyticsLogic)
+    if (productTab !== ProductTab.ANALYTICS) {
+        return null
+    }
+    return <WebAnalyticsAISummaryBanner />
+}
+
 const MainContent = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
 
@@ -790,6 +799,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <Filters tabs={<></>} />
 
                         <WebAnalyticsHealthCheck />
+                        <AnalyticsTabBanners />
                         <MainContent />
                     </>
                 </SceneContent>

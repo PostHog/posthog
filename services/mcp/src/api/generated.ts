@@ -32,6 +32,173 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Optional conversion goal — either ActionConversionGoal ({actionId}) or CustomEventConversionGoal ({customEventName}).
+     * @nullable
+     */
+    export type AISummaryFilterSpecConversionGoal = {
+      /** ID of the action used as conversion goal. */
+      actionId?: number;
+      /** Custom event name used as conversion goal. */
+      customEventName?: string;
+      [key: string]: unknown;
+     } | null;
+
+    /**
+     * * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `gte` - gte
+    * `lte` - lte
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set
+    * `is_date_exact` - is_date_exact
+    * `is_date_after` - is_date_after
+    * `is_date_before` - is_date_before
+    * `in` - in
+    * `not_in` - not_in
+     */
+    export type PropertyItemOperatorEnum = typeof PropertyItemOperatorEnum[keyof typeof PropertyItemOperatorEnum];
+
+
+    export const PropertyItemOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Lt: 'lt',
+      Gte: 'gte',
+      Lte: 'lte',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      IsDateExact: 'is_date_exact',
+      IsDateAfter: 'is_date_after',
+      IsDateBefore: 'is_date_before',
+      In: 'in',
+      NotIn: 'not_in',
+    } as const;
+
+    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
+
+
+    export const BlankEnum = {
+      '': '',
+    } as const;
+
+    /**
+     * * `event` - event
+    * `event_metadata` - event_metadata
+    * `feature` - feature
+    * `person` - person
+    * `cohort` - cohort
+    * `element` - element
+    * `static-cohort` - static-cohort
+    * `dynamic-cohort` - dynamic-cohort
+    * `precalculated-cohort` - precalculated-cohort
+    * `group` - group
+    * `recording` - recording
+    * `log_entry` - log_entry
+    * `behavioral` - behavioral
+    * `session` - session
+    * `hogql` - hogql
+    * `data_warehouse` - data_warehouse
+    * `data_warehouse_person_property` - data_warehouse_person_property
+    * `error_tracking_issue` - error_tracking_issue
+    * `log` - log
+    * `log_attribute` - log_attribute
+    * `log_resource_attribute` - log_resource_attribute
+    * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+    * `revenue_analytics` - revenue_analytics
+    * `flag` - flag
+    * `workflow_variable` - workflow_variable
+     */
+    export type PropertyFilterTypeEnum = typeof PropertyFilterTypeEnum[keyof typeof PropertyFilterTypeEnum];
+
+
+    export const PropertyFilterTypeEnum = {
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Feature: 'feature',
+      Person: 'person',
+      Cohort: 'cohort',
+      Element: 'element',
+      StaticCohort: 'static-cohort',
+      DynamicCohort: 'dynamic-cohort',
+      PrecalculatedCohort: 'precalculated-cohort',
+      Group: 'group',
+      Recording: 'recording',
+      LogEntry: 'log_entry',
+      Behavioral: 'behavioral',
+      Session: 'session',
+      Hogql: 'hogql',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      ErrorTrackingIssue: 'error_tracking_issue',
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+      RevenueAnalytics: 'revenue_analytics',
+      Flag: 'flag',
+      WorkflowVariable: 'workflow_variable',
+    } as const;
+
+    export const PropertyItemType = {...PropertyFilterTypeEnum,...BlankEnum,} as const
+    export interface PropertyItem {
+      /** Key of the property you're filtering on. For example `email` or `$current_url` */
+      key: string;
+      /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
+      value: string | number | boolean | (string | number)[];
+      operator?: PropertyItemOperatorEnum | BlankEnum | null;
+      type?: typeof PropertyItemType[keyof typeof PropertyItemType];
+    }
+
+    export interface AISummaryFilterSpec {
+      /** Start of the analysis window. Accepts a relative spec like '-7d' or an ISO date like '2026-01-01'. */
+      date_from: string;
+      /**
+         * End of the analysis window. Accepts the same formats as date_from, or null for an open-ended range up to now.
+         * @nullable
+         */
+      date_to?: string | null;
+      /** When true, include period-over-period change for each metric against the prior equal-length period. */
+      compare?: boolean;
+      /** Property filters applied to all underlying queries. */
+      properties?: PropertyItem[];
+      /**
+         * Optional conversion goal — either ActionConversionGoal ({actionId}) or CustomEventConversionGoal ({customEventName}).
+         * @nullable
+         */
+      conversion_goal?: AISummaryFilterSpecConversionGoal;
+      /** Whether to exclude internal/test-account events from the analysis. */
+      filter_test_accounts?: boolean;
+      /** When true, apply the team's path-cleaning rules before bucketing by page path. */
+      do_path_cleaning?: boolean;
+    }
+
+    export interface AISummaryResponse {
+      /** LLM-generated plain-text summary, up to ~150 words. */
+      summary_text: string;
+      /** When the summary was generated. */
+      created_at: string;
+      /** LLM model identifier used to generate this summary. */
+      model_id: string;
+      /** True when this summary was reused from the cache; false when freshly generated. */
+      cached: boolean;
+    }
+
+    /**
      * * `read_write` - read_write
     * `read` - read
     * `none` - none
@@ -145,13 +312,6 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
-    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
-
-
-    export const BlankEnum = {
-      '': '',
-    } as const;
-
     /**
      * @nullable
      */
@@ -199,68 +359,6 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
     }
-
-    /**
-     * * `event` - event
-    * `event_metadata` - event_metadata
-    * `feature` - feature
-    * `person` - person
-    * `cohort` - cohort
-    * `element` - element
-    * `static-cohort` - static-cohort
-    * `dynamic-cohort` - dynamic-cohort
-    * `precalculated-cohort` - precalculated-cohort
-    * `group` - group
-    * `recording` - recording
-    * `log_entry` - log_entry
-    * `behavioral` - behavioral
-    * `session` - session
-    * `hogql` - hogql
-    * `data_warehouse` - data_warehouse
-    * `data_warehouse_person_property` - data_warehouse_person_property
-    * `error_tracking_issue` - error_tracking_issue
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-    * `revenue_analytics` - revenue_analytics
-    * `flag` - flag
-    * `workflow_variable` - workflow_variable
-     */
-    export type PropertyFilterTypeEnum = typeof PropertyFilterTypeEnum[keyof typeof PropertyFilterTypeEnum];
-
-
-    export const PropertyFilterTypeEnum = {
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Feature: 'feature',
-      Person: 'person',
-      Cohort: 'cohort',
-      Element: 'element',
-      StaticCohort: 'static-cohort',
-      DynamicCohort: 'dynamic-cohort',
-      PrecalculatedCohort: 'precalculated-cohort',
-      Group: 'group',
-      Recording: 'recording',
-      LogEntry: 'log_entry',
-      Behavioral: 'behavioral',
-      Session: 'session',
-      Hogql: 'hogql',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-      ErrorTrackingIssue: 'error_tracking_issue',
-      Log: 'log',
-      LogAttribute: 'log_attribute',
-      LogResourceAttribute: 'log_resource_attribute',
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-      RevenueAnalytics: 'revenue_analytics',
-      Flag: 'flag',
-      WorkflowVariable: 'workflow_variable',
-    } as const;
 
     /**
      * * `exact` - exact
@@ -14344,58 +14442,6 @@ export namespace Schemas {
       impact?: ErrorTrackingImpact;
       /** Optional compact occurrence sparkline. */
       sparkline?: number[];
-    }
-
-    /**
-     * * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `lt` - lt
-    * `gte` - gte
-    * `lte` - lte
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set
-    * `is_date_exact` - is_date_exact
-    * `is_date_after` - is_date_after
-    * `is_date_before` - is_date_before
-    * `in` - in
-    * `not_in` - not_in
-     */
-    export type PropertyItemOperatorEnum = typeof PropertyItemOperatorEnum[keyof typeof PropertyItemOperatorEnum];
-
-
-    export const PropertyItemOperatorEnum = {
-      Exact: 'exact',
-      IsNot: 'is_not',
-      Icontains: 'icontains',
-      NotIcontains: 'not_icontains',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-      Gt: 'gt',
-      Lt: 'lt',
-      Gte: 'gte',
-      Lte: 'lte',
-      IsSet: 'is_set',
-      IsNotSet: 'is_not_set',
-      IsDateExact: 'is_date_exact',
-      IsDateAfter: 'is_date_after',
-      IsDateBefore: 'is_date_before',
-      In: 'in',
-      NotIn: 'not_in',
-    } as const;
-
-    export const PropertyItemType = {...PropertyFilterTypeEnum,...BlankEnum,} as const
-    export interface PropertyItem {
-      /** Key of the property you're filtering on. For example `email` or `$current_url` */
-      key: string;
-      /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-      value: string | number | boolean | (string | number)[];
-      operator?: PropertyItemOperatorEnum | BlankEnum | null;
-      type?: typeof PropertyItemType[keyof typeof PropertyItemType];
     }
 
     /**
@@ -41778,6 +41824,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WebAnalyticsAiSummaryParams = {
+    /**
+     * When true, only return a cached summary if one is fresh (HTTP 204 on a miss) and never invoke the LLM. Used by the dashboard to hydrate a cached summary without incurring cost.
+     */
+    check?: boolean;
     };
 
     export type WebAnalyticsWeeklyDigestParams = {

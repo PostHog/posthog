@@ -3,7 +3,9 @@ from urllib.parse import urlparse
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -275,3 +277,91 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         dashboard_url = response.json()["dashboard_url"]
         assert f"/project/{self.team.id}/web" in dashboard_url
         assert "utm_source=" in dashboard_url
+
+
+_SUMMARY_PATH = "products.web_analytics.backend.api.api.generate_web_analytics_summary"
+
+
+class TestWebAnalyticsAISummaryAPI(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "/api/environments/{team_id}/web_analytics/ai_summary/"
+
+    def setUp(self):
+        super().setUp()
+        # Summaries are cached in Redis/Django cache by team + filter spec — isolate cache state per test.
+        cache.clear()
+
+    def _url(self, team_id=None, check=False):
+        url = self.ENDPOINT.format(team_id=team_id or self.team.id)
+        return f"{url}?check=true" if check else url
+
+    def _post(self, check=False, team_id=None, **kwargs):
+        return self.client.post(self._url(team_id=team_id, check=check), {"date_from": "-7d"}, format="json", **kwargs)
+
+    def test_check_returns_204_when_no_cached_summary(self):
+        with patch(_SUMMARY_PATH) as mock_generate:
+            response = self._post(check=True)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_generate.assert_not_called()
+
+    def test_generate_returns_summary_and_caches_it(self):
+        with patch(_SUMMARY_PATH, return_value="**Visitors:** up 25%") as mock_generate:
+            first = self._post()
+            assert first.status_code == status.HTTP_200_OK
+            body = first.json()
+            assert body["summary_text"] == "**Visitors:** up 25%"
+            assert body["cached"] is False
+            assert body["model_id"]
+            assert mock_generate.call_count == 1
+
+            # Repeated generate hits the cache without invoking the LLM again.
+            second = self._post()
+            assert second.status_code == status.HTTP_200_OK
+            assert second.json()["cached"] is True
+            assert mock_generate.call_count == 1
+
+            # check=true now returns the cached summary.
+            peek = self._post(check=True)
+            assert peek.status_code == status.HTTP_200_OK
+            assert peek.json()["cached"] is True
+            assert mock_generate.call_count == 1
+
+    def test_generate_failure_returns_502(self):
+        with patch(_SUMMARY_PATH, side_effect=Exception("llm down")):
+            response = self._post()
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_cannot_summarize_other_teams_data(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        with patch(_SUMMARY_PATH, return_value="leaked"):
+            response = self._post(team_id=other_team.id, check=True)
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    def test_unauthenticated_request_rejected(self):
+        self.client.logout()
+
+        response = self._post(check=True)
+
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            (["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            (["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            (["web_analytics:write"], status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_personal_api_key_requires_write_scope(self, scopes, expected_status):
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        with patch(_SUMMARY_PATH):
+            response = self.client.post(
+                self._url(check=True), {"date_from": "-7d"}, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key}"
+            )
+
+        assert response.status_code == expected_status

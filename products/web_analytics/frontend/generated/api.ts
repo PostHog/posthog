@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AISummaryFilterSpecApi,
+    AISummaryResponseApi,
     HeatmapScreenshotResponseApi,
     HeatmapsListParams,
     PaginatedHeatmapScreenshotResponseListApi,
@@ -17,6 +19,7 @@ import type {
     PatchedHeatmapScreenshotResponseApi,
     PatchedWebAnalyticsFilterPresetApi,
     SavedListParams,
+    WebAnalyticsAiSummaryParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
     WebAnalyticsWeeklyDigestParams,
@@ -39,6 +42,40 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getWebAnalyticsAiSummaryUrl = (projectId: string, params?: WebAnalyticsAiSummaryParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/web_analytics/ai_summary/?${stringifiedParams}`
+        : `/api/environments/${projectId}/web_analytics/ai_summary/`
+}
+
+/**
+ * Returns an AI summary of the team's web analytics for the supplied filter spec. If a fresh summary is cached it is returned as-is. Otherwise, when check=true the call returns HTTP 204 without invoking the LLM; when check is omitted/false the LLM is invoked, the result is cached, and returned. The generate path is rate-limited per user.
+ * @summary Generate AI summary of web analytics
+ */
+export const webAnalyticsAiSummary = async (
+    projectId: string,
+    aISummaryFilterSpecApi: AISummaryFilterSpecApi,
+    params?: WebAnalyticsAiSummaryParams,
+    options?: RequestInit
+): Promise<AISummaryResponseApi | void> => {
+    return apiMutator<AISummaryResponseApi | void>(getWebAnalyticsAiSummaryUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aISummaryFilterSpecApi),
+    })
+}
 
 export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
     const normalizedParams = new URLSearchParams()

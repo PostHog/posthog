@@ -13,15 +13,20 @@ from posthog.models.utils import uuid7
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.weekly_digest import (
     _format_duration,
+    _goals_from_spec,
+    _overview_from_spec,
+    _spec_for_days,
+    _top_pages_from_spec,
+    _top_sources_from_spec,
     auto_select_project_for_user,
     build_team_digest,
-    get_goals_for_team,
-    get_overview_for_team,
-    get_top_pages,
-    get_top_sources,
 )
 
 QUERY_TIMESTAMP = "2025-01-29"
+
+
+def _default_spec():
+    return _spec_for_days(7, True)
 
 
 def _create_pageview(
@@ -115,7 +120,7 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
                 _create_pageview(self.team, distinct_id="user_1", session_id=session_id, timestamp="2025-01-25")
             flush_persons_and_events()
 
-            result = get_overview_for_team(self.team)
+            result = _overview_from_spec(self.team, _default_spec())
 
         assert "visitors" in result
         assert result["visitors"]["current"] > 0
@@ -127,7 +132,7 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
 
     def test_returns_zero_values_for_team_with_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):
-            result = get_overview_for_team(self.team)
+            result = _overview_from_spec(self.team, _default_spec())
 
         assert result == {
             "visitors": {"current": 0, "previous": None, "change": None},
@@ -175,7 +180,7 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            result = get_top_pages(self.team)
+            result = _top_pages_from_spec(self.team, _default_spec())
 
         assert len(result) >= 2
         assert result[0]["visitors"] >= result[-1]["visitors"]
@@ -197,13 +202,13 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
                 )
             flush_persons_and_events()
 
-            result = get_top_pages(self.team, limit=2)
+            result = _top_pages_from_spec(self.team, _default_spec(), limit=2)
 
         assert len(result) <= 2
 
     def test_returns_empty_for_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):
-            result = get_top_pages(self.team)
+            result = _top_pages_from_spec(self.team, _default_spec())
         assert result == []
 
 
@@ -222,7 +227,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            result = get_top_sources(self.team)
+            result = _top_sources_from_spec(self.team, _default_spec())
 
         sources = [r["name"] for r in result]
         assert sources == ["google.com"]
@@ -243,20 +248,20 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            result = get_top_sources(self.team)
+            result = _top_sources_from_spec(self.team, _default_spec())
 
         assert all(r["name"] != "" for r in result)
 
     def test_returns_empty_for_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):
-            result = get_top_sources(self.team)
+            result = _top_sources_from_spec(self.team, _default_spec())
         assert result == []
 
 
 class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
     def test_returns_empty_when_no_actions(self):
         with freeze_time(QUERY_TIMESTAMP):
-            result = get_goals_for_team(self.team)
+            result = _goals_from_spec(self.team, _default_spec())
         assert result == []
 
     def test_returns_goals_with_conversions(self):
@@ -279,7 +284,7 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            result = get_goals_for_team(self.team)
+            result = _goals_from_spec(self.team, _default_spec())
 
         assert len(result) >= 1
         goal = next(g for g in result if g["name"] == "Signed Up")
