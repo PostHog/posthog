@@ -25,11 +25,12 @@ jobs:
     check:
         name: Both ci-backend files updated together
         runs-on: ubuntu-latest
-        timeout-minutes: 2
+        # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
+        # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
+        # — we only need to diff two SHAs.
+        timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0
             - name: Compare PR diff scope
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
