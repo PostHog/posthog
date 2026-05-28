@@ -510,7 +510,8 @@ class TestMidChunkLimitFallback:
             _mock_response(200, {"data": [{"ad_id": "2"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             batches = list(
                 _iter_time_range_pagination(
                     self.URL,
@@ -524,12 +525,18 @@ class TestMidChunkLimitFallback:
         assert batches == [[{"ad_id": "1"}], [{"ad_id": "2"}]]
 
         # Initial request used the default 500 limit.
-        first_params = mock_get.call_args_list[0].kwargs["params"]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["limit"] == 500
         # Second request (the timeout one) used limit=500 on the cursor URL.
-        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        assert (
+            mock_get.return_value.get.call_args_list[1].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        )
         # Retry uses the SAME cursor with limit reduced to the next rung (100).
-        assert mock_get.call_args_list[2].args[0] == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=100"
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=100"
+        )
 
         # The mid-chunk save (before the cursor request) recorded chunk_limit=None
         # because the limit hadn't been shrunk yet at save time.
@@ -555,7 +562,8 @@ class TestMidChunkLimitFallback:
         manager = _build_manager(can_resume=True, state=state)
         responses = [_mock_response(200, {"data": [{"ad_id": "x"}], "paging": {}})]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, state, manager
@@ -563,7 +571,7 @@ class TestMidChunkLimitFallback:
             )
 
         # The resumed cursor was reissued with the persisted limit (50), not the default 500.
-        assert mock_get.call_args_list[0].args[0] == saved_cursor + "&limit=50"
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_cursor + "&limit=50"
 
     def test_resume_honors_chunk_limit_for_initial_chunk_request(self) -> None:
         # When resume state has chunk_limit but no chunk_next_url, the fresh
@@ -578,14 +586,15 @@ class TestMidChunkLimitFallback:
         manager = _build_manager(can_resume=True, state=state)
         responses = [_mock_response(200, {"data": [{"ad_id": "y"}], "paging": {}})]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, state, manager
                 )
             )
 
-        sent_params = mock_get.call_args_list[0].kwargs["params"]
+        sent_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert sent_params["limit"] == 100
 
     def test_exhausting_limit_ladder_raises(self) -> None:
@@ -604,7 +613,8 @@ class TestMidChunkLimitFallback:
             *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
         ]
 
-        with mock.patch("requests.get", side_effect=responses):
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             gen = _iter_time_range_pagination(
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
@@ -626,7 +636,8 @@ class TestMidChunkLimitFallback:
             _mock_response(401, {"error": {"message": "Invalid OAuth access token", "code": 190}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             gen = _iter_time_range_pagination(
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
@@ -635,7 +646,7 @@ class TestMidChunkLimitFallback:
                 list(gen)
 
         # Exactly two requests: initial + the failed cursor. No retry happened.
-        assert mock_get.call_count == 2
+        assert mock_get.return_value.get.call_count == 2
 
 
 class TestNonRetryableErrors:
