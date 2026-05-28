@@ -38,5 +38,15 @@ For the consolidated, sequenced view of how these plans relate, see
       (specific principals + scope grants); elevation surfaces in Slack,
       chat UI, webhook; activity-log integration.
 
-All bullets have plans. New bullets land here as freeform reminders; move
-them into their own plan file (and out of this list) once the design lands.
+New bullets land here as freeform reminders; move them into their own plan
+file (and out of this list) once the design lands.
+
+- [ ] **Cron trigger scheduler.** The `TriggerSchema` in
+      `services/agent-shared/src/spec/spec.ts` already has a `cron` variant,
+      but nothing schedules them. Needed for
+      [`self-healing-agents.md`](self-healing-agents.md) v3 (the periodic
+      introspection pass) and for any "weekly digest"-style agent. Think
+      about: where the scheduler runs (janitor? new service?), cron
+      evaluation cadence, drift/catch-up semantics on outage, how the
+      synthetic "wake" pending_input is shaped, dedup so a missed tick
+      doesn't fire twice on recovery.
