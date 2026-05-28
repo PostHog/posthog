@@ -160,7 +160,15 @@ const DJANGO_SEGMENTS = {
         exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/'],
     },
     CorePOE: {
-        include: ['posthog/clickhouse/', 'posthog/queries/', 'posthog/api/test/test_insight', 'posthog/api/test/dashboards/test_dashboard.py', 'ee/clickhouse/'],
+        // Keep in sync with the person-on-events pytest targets in
+        // ci-backend.yml's "Run Core tests" step.
+        include: [
+            'posthog/clickhouse/',
+            'posthog/queries/',
+            'products/product_analytics/backend/api/test/',
+            'posthog/api/test/dashboards/test_dashboard.py',
+            'ee/clickhouse/',
+        ],
         exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/', 'posthog/hogql_queries/', 'posthog/hogql/'],
     },
     Temporal: {

@@ -4,6 +4,7 @@
 # dependencies = [
 #     "pytest>=7.0.0",
 #     "pytest-split>=0.8.0",
+#     "defusedxml>=0.7.1",
 # ]
 # ///
 """
@@ -23,10 +24,12 @@ import json
 import logging
 import argparse
 import subprocess
-import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+
+import defusedxml.ElementTree as ET
+from defusedxml.ElementTree import ParseError
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +106,11 @@ class JUnitShard:
     @staticmethod
     def _find_first_test(xml_path: Path) -> dict | None:
         """Extract the first testcase from a JUnit XML file."""
-        tree = ET.parse(xml_path)
+        try:
+            tree = ET.parse(xml_path)
+        except ParseError as e:
+            logger.warning("  Could not parse JUnit XML %s: %s", xml_path, e)
+            return None
         for tc in tree.getroot().iter("testcase"):
             classname = tc.get("classname", "")
             name = tc.get("name", "")
@@ -232,21 +239,34 @@ class MigrationTaxCorrector:
         )
 
     def _find_carriers_from_junit(self) -> dict[str, float]:
-        """Identify carriers from JUnit first-test-per-shard data."""
+        """Identify carriers from JUnit first-test-per-shard data.
+
+        JUnit XMLs are produced with `-o junit_duration_report=call`, so the
+        `time` attribute reflects only call time, not Django setup/migration.
+        Use JUnit only to identify the first test per shard, then check the
+        merged .test_durations value for that test to decide if it's actually
+        a carrier (carriers absorb setup time into their recorded duration).
+        """
         carriers = {}
         for junit_shard in self.junit_shards:
             test_id = junit_shard.first_test_id
-            duration = junit_shard.first_test_duration
-
-            if duration < CARRIER_THRESHOLD_SECONDS:
-                continue
 
             matched_key = self._match_duration_key(test_id)
-            if matched_key:
-                carriers[matched_key] = duration
-                logger.debug("  Carrier (JUnit): %s (%.0fs) from %s", matched_key[:60], duration, junit_shard.name)
-            else:
-                logger.warning("  Could not match carrier %s to durations", test_id[:60])
+            if not matched_key:
+                logger.warning("  Could not match first test %s to durations", test_id[:60])
+                continue
+
+            recorded_duration = self.durations.get(matched_key, 0.0)
+            if recorded_duration < CARRIER_THRESHOLD_SECONDS:
+                continue
+
+            carriers[matched_key] = recorded_duration
+            logger.debug(
+                "  Carrier (JUnit): %s recorded=%.0fs from %s",
+                matched_key[:60],
+                recorded_duration,
+                junit_shard.name,
+            )
 
         return carriers
 
@@ -284,19 +304,29 @@ class MigrationTaxCorrector:
         return carriers
 
     def _match_duration_key(self, junit_test_id: str) -> str | None:
-        """Find the matching key in durations for a JUnit test ID."""
+        """Find the matching key in durations for a JUnit test ID.
+
+        Prefers exact match. Falls back to suffix match on the `::class::test`
+        tail — anchored, so a JUnit id of `test_create` cannot pick up
+        `test_create_user`. JUnit IDs and pytest node IDs sometimes differ
+        only in file-path prefix (e.g. relative vs absolute), so suffix is
+        the right comparison.
+        """
         if junit_test_id in self.durations:
             return junit_test_id
 
-        # Fuzzy match: extract test name and class, search durations
         parts = junit_test_id.split("::")
-        if len(parts) >= 2:
-            test_name = parts[-1]
-            class_name = parts[-2] if len(parts) >= 3 else ""
-            for key in self.durations:
-                if test_name in key and (not class_name or class_name in key):
-                    return key
+        if len(parts) < 2:
+            return None
 
+        suffix = "::" + "::".join(parts[-2:]) if len(parts) >= 3 else "::" + parts[-1]
+        matches = [k for k in self.durations if k.endswith(suffix)]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            logger.warning(
+                "  Ambiguous suffix match for %s — %d candidates, skipping", junit_test_id[:60], len(matches)
+            )
         return None
 
     @staticmethod
