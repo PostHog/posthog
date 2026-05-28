@@ -20,6 +20,9 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
+from posthog.temporal.data_imports.sources.common.sql import (
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+)
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 from products.data_warehouse.backend.data_load.service import (
@@ -39,7 +42,6 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_or_create_webhook_hog_function,
 )
 from products.data_warehouse.backend.postgres_helpers import (
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_postgres_source_location,
     reproject_direct_postgres_table,
 )

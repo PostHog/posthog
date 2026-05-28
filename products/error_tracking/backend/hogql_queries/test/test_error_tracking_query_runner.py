@@ -123,8 +123,10 @@ class ErrorTrackingQueryRunnerTestsMixin:
     def setUpClass(cls) -> None:
         from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
-        if ("$exception_issue_id", "properties") not in get_materialized_columns("events"):
-            materialize("events", "$exception_issue_id", is_nullable=True)
+        materialized_columns = get_materialized_columns("events")
+        for property_name in ("$exception_issue_id", "$exception_types", "$exception_values"):
+            if (property_name, "properties") not in materialized_columns:
+                materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
         super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
 
     def setUp(self):

@@ -109,6 +109,10 @@ export interface ChartProps<Meta = unknown> {
      *  whisker min/max samples so the y-tick column fits the real value range, not just the
      *  medians it draws on `series.data`. */
     valueRangeSeries?: Series[]
+    /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
+     *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
+     *  Chart-type adapters provide this; consumers do not. */
+    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
 export function Chart<Meta = unknown>({
@@ -128,6 +132,7 @@ export function Chart<Meta = unknown>({
     resolvePositionValue,
     labelToCoord,
     valueRangeSeries,
+    wrapClickData,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -199,6 +204,7 @@ export function Chart<Meta = unknown>({
         resolvePositionValue,
         interactionAxis,
         labelToCoord,
+        wrapClickData,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
