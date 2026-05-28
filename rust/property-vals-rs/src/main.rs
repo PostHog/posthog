@@ -66,8 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
-    let collapser_handle = manager.register(
-        "collapser-worker",
+    let merger_handle = manager.register(
+        "merger-worker",
         ComponentOptions::new()
             .with_graceful_shutdown(Duration::from_secs(30))
             .with_liveness_deadline(Duration::from_secs(60))
@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_topic = %config.groups_kafka_consumer_topic,
         groups_consumer_group = %config.groups_kafka_consumer_group,
         intermediate_topic = %config.intermediate_topic,
-        collapser_consumer_group = %config.collapser_consumer_group,
+        merger_consumer_group = %config.merger_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
         "config loaded"
@@ -119,17 +119,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // Collapser — consumes the intermediate topic and merges the per-pod
+    // Merger — consumes the intermediate topic and merges the per-pod
     // emissions the events/groups workers produced for the same tuple, then
     // forwards to the final output topic that ClickHouse reads.
-    let mut collapser_consumer_config = config.consumer.clone();
-    collapser_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
-    collapser_consumer_config.kafka_consumer_group = config.collapser_consumer_group.clone();
-    let collapser_consumer =
-        SingleTopicConsumer::new(config.kafka.clone(), collapser_consumer_config)?;
-    let collapser_producer = AggregatedProducer::new(
+    let mut merger_consumer_config = config.consumer.clone();
+    merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
+    merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
+    let merger_consumer =
+        SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
+    let merger_producer = AggregatedProducer::new(
         &config.kafka,
-        collapser_handle.clone(),
+        merger_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
     )
@@ -168,21 +168,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
         false,
     ));
-    // Collapser bypasses the team filter: every record on the intermediate
+    // Merger bypasses the team filter: every record on the intermediate
     // topic already passed the events/groups workers' filter, and re-applying
     // would silently drop partial aggregates if rollout_percentage shrinks
     // between deploys, breaking sum-conservation.
     tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
         shared_config.clone(),
-        collapser_consumer,
-        collapser_producer,
-        collapser_handle.clone(),
+        merger_consumer,
+        merger_producer,
+        merger_handle.clone(),
         |m: &PropertyValueMessage| extract_tuple(m),
         true,
     ));
     drop(events_handle);
     drop(groups_handle);
-    drop(collapser_handle);
+    drop(merger_handle);
 
     let app = Router::new()
         .route("/", get(index))
