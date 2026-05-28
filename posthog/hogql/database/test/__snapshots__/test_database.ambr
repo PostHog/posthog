@@ -2349,6 +2349,16 @@
       },
       "system.accounts": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "external_id": {
                   "chain": null,
                   "fields": null,
@@ -2462,6 +2472,82 @@
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_tagged_items": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tag_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tag_id",
+                  "id": null,
+                  "name": "tag_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_tagged_items",
+          "name": "system._account_tagged_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_resource_notebooks": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "notebook_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "notebook_id",
+                  "id": null,
+                  "name": "notebook_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_resource_notebooks",
+          "name": "system._account_resource_notebooks",
           "row_count": null,
           "type": "system"
       },
@@ -6297,6 +6383,26 @@
       },
       "system.review_queue_items": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "queue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "queue_id",
+                  "id": null,
+                  "name": "queue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "trace_id": {
                   "chain": null,
                   "fields": null,
@@ -6365,6 +6471,16 @@
       },
       "system.review_queues": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "name": {
                   "chain": null,
                   "fields": null,
@@ -6433,6 +6549,16 @@
       },
       "system.score_definitions": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "name": {
                   "chain": null,
                   "fields": null,
@@ -6472,6 +6598,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "current_version_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_version_id",
+                  "id": null,
+                  "name": "current_version_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by_id": {
                   "chain": null,
@@ -7535,6 +7671,34 @@
           "row_count": null,
           "type": "system"
       },
+      "system.tags": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.tags",
+          "name": "system.tags",
+          "row_count": null,
+          "type": "system"
+      },
       "system.tasks": {
           "fields": {
               "id": {
@@ -7763,6 +7927,46 @@
       },
       "system.trace_review_scores": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "review_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "review_id",
+                  "id": null,
+                  "name": "review_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "definition_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_id",
+                  "id": null,
+                  "name": "definition_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "definition_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_version",
+                  "id": null,
+                  "name": "definition_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "definition_version_number": {
                   "chain": null,
                   "fields": null,
@@ -7851,6 +8055,16 @@
       },
       "system.trace_reviews": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "trace_id": {
                   "chain": null,
                   "fields": null,
@@ -9858,6 +10072,16 @@
       },
       "system.accounts": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "external_id": {
                   "chain": null,
                   "fields": null,
@@ -9971,6 +10195,82 @@
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_tagged_items": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tag_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tag_id",
+                  "id": null,
+                  "name": "tag_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_tagged_items",
+          "name": "system._account_tagged_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_resource_notebooks": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "notebook_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "notebook_id",
+                  "id": null,
+                  "name": "notebook_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_resource_notebooks",
+          "name": "system._account_resource_notebooks",
           "row_count": null,
           "type": "system"
       },
@@ -13806,6 +14106,26 @@
       },
       "system.review_queue_items": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "queue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "queue_id",
+                  "id": null,
+                  "name": "queue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "trace_id": {
                   "chain": null,
                   "fields": null,
@@ -13874,6 +14194,16 @@
       },
       "system.review_queues": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "name": {
                   "chain": null,
                   "fields": null,
@@ -13942,6 +14272,16 @@
       },
       "system.score_definitions": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "name": {
                   "chain": null,
                   "fields": null,
@@ -13981,6 +14321,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "current_version_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_version_id",
+                  "id": null,
+                  "name": "current_version_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by_id": {
                   "chain": null,
@@ -15044,6 +15394,34 @@
           "row_count": null,
           "type": "system"
       },
+      "system.tags": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.tags",
+          "name": "system.tags",
+          "row_count": null,
+          "type": "system"
+      },
       "system.tasks": {
           "fields": {
               "id": {
@@ -15272,6 +15650,46 @@
       },
       "system.trace_review_scores": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "review_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "review_id",
+                  "id": null,
+                  "name": "review_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "definition_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_id",
+                  "id": null,
+                  "name": "definition_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "definition_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_version",
+                  "id": null,
+                  "name": "definition_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "definition_version_number": {
                   "chain": null,
                   "fields": null,
@@ -15360,6 +15778,16 @@
       },
       "system.trace_reviews": {
           "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "trace_id": {
                   "chain": null,
                   "fields": null,

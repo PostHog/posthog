@@ -53,6 +53,7 @@ from posthog.hogql.database.models import (
     Table,
     TableNode,
     UnknownDatabaseField,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
@@ -1828,6 +1829,15 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, StringDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UUIDDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,
