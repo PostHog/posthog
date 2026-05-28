@@ -1241,6 +1241,24 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
 
+            // With a single series, a per-series displayType override (set via the side
+            // panel) makes the main chart-type dropdown disagree with what's rendered —
+            // e.g. dropdown says "Line chart" but the series renders as bars. When the
+            // user switches the main chart type, reset the lone series back to 'auto'
+            // so the main type wins. Skip multi-series, where per-series overrides are
+            // intentional (combo charts).
+            const ySeries =
+                values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            if (ySeries.length === 1) {
+                const [series] = ySeries
+                const currentDisplayType = series.settings.display?.displayType
+                if (currentDisplayType && currentDisplayType !== 'auto') {
+                    actions.updateSeries(series.name, {
+                        display: { displayType: 'auto' },
+                    })
+                }
+            }
+
             if (
                 [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
                 shouldUseFirstNumericColumnAsContinuousChartXAxis(

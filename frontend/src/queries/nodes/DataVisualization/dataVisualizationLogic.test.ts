@@ -315,6 +315,38 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('resets a single series displayType override when switching the main chart type', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['version', 'total'],
+            types: [
+                ['version', 'String'],
+                ['total', 'Float64'],
+            ],
+            results: [
+                ['1.2.3', 1.0],
+                ['1.2.4', 2.0],
+            ],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsBar)
+        logic.actions.updateSeries('total', { display: { displayType: 'bar' } })
+
+        await expectLogic(logic).toMatchValues({
+            selectedYAxis: [
+                expect.objectContaining({ settings: expect.objectContaining({ display: { displayType: 'bar' } }) }),
+            ],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            effectiveVisualizationType: ChartDisplayType.ActionsLineGraph,
+            selectedYAxis: [
+                expect.objectContaining({ settings: expect.objectContaining({ display: { displayType: 'auto' } }) }),
+            ],
+        })
+    })
+
     it('respects explicit line chart display even when auto would choose heatmap', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
