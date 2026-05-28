@@ -215,7 +215,8 @@ TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
 def _is_internal_debug_team(team_id: int | None) -> bool:
-    """True only for PostHog Inc's US-prod team."""
+    if settings.DEBUG and not settings.TEST:
+        return team_id == 1
     return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
