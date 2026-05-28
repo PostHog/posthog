@@ -23,7 +23,7 @@ from products.slack_app.backend.slack_thread import (
     ack_emoji_for,
     stale_ack_emojis_for,
 )
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionUnavailableError,
@@ -168,6 +168,18 @@ class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
+    # Event that dispatched the workflow
+    slack_event_id: str | None = None
+
+
+def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
+    """Construct the dispatch workflow id from webhook inputs."""
+    event = inputs.event
+    if inputs.slack_event_id:
+        suffix = inputs.slack_event_id
+    else:
+        suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
+    return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 
 @dataclass
@@ -1109,6 +1121,19 @@ def create_posthog_code_task_for_repo_activity(
                     "mentioning_slack_user_id": slack_user_id,
                 },
             )
+            # Track the workflow to link Temporal jobs to Slack threads
+            try:
+                TaskRun.update_state_atomic(
+                    task_run.id,
+                    updates={"slack_mention_workflow_id": derive_mention_workflow_id(inputs)},
+                )
+            except Exception:
+                logger.exception(
+                    "posthog_code_persist_mention_workflow_id_failed",
+                    task_run_id=str(task_run.id),
+                    channel=channel,
+                    thread_ts=thread_ts,
+                )
 
     # 3. Now start the workflow
     if task and task_run:
@@ -1378,6 +1403,7 @@ def _resume_task_with_new_run(
     extra_state["pending_user_message"] = initial_prompt_override
     if user_message_ts:
         extra_state["pending_user_message_ts"] = user_message_ts
+    extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
         new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)

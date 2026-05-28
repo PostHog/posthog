@@ -38,6 +38,7 @@ from posthog.temporal.ai.posthog_code_slack_interactivity import (
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackMentionWorkflowInputs,
+    derive_mention_workflow_id,
 )
 from posthog.temporal.ai.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
@@ -1321,9 +1322,11 @@ def _start_posthog_code_workflow(
     slack_team_id: str,
     event: dict,
     event_id: str | None,
+    workflow_id: str | None = None,
 ) -> None:
-    fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
-    workflow_id = f"{id_prefix}-{slack_team_id}:{fallback}"
+    if workflow_id is None:
+        fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
+        workflow_id = f"{id_prefix}-{slack_team_id}:{fallback}"
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
@@ -1441,17 +1444,22 @@ def _start_command_workflow(
 def _start_mention_workflow(event: dict, integration: Integration, slack_team_id: str, event_id: str | None) -> str:
     if _resolve_pending_repo_picker_from_followup(event, integration):
         return ROUTE_HANDLED_LOCALLY
+    workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
+        event=event,
+        integration_id=integration.id,
+        slack_team_id=slack_team_id,
+        slack_event_id=event_id,
+    )
+    # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
+    # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
         PostHogCodeSlackMentionWorkflow,
-        PostHogCodeSlackMentionWorkflowInputs(
-            event=event,
-            integration_id=integration.id,
-            slack_team_id=slack_team_id,
-        ),
+        workflow_inputs,
         id_prefix="posthog-code-mention",
         slack_team_id=slack_team_id,
         event=event,
         event_id=event_id,
+        workflow_id=derive_mention_workflow_id(workflow_inputs),
     )
     return ROUTE_HANDLED_LOCALLY
 
