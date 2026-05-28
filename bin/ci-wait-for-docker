@@ -287,7 +287,7 @@ run_wait() {
     else
         wait_services=("${default_services[@]}" "$@")
     fi
-    local initial_timeout="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
+    local initial_timeout="${WAIT_FOR_DOCKER_TIMEOUT:-420}"
     local current_timeout="$initial_timeout"
     local attempt=0
     local missing=()
