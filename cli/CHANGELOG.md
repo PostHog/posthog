@@ -2,7 +2,7 @@
 
 # 0.7.14
 
-- feat: read `POSTHOG_CLI_HOST`, `POSTHOG_CLI_API_KEY`, and `POSTHOG_CLI_PROJECT_ID` (and their legacy aliases) from `./.env.local` and `./.env` when not set in the process environment. Credentials are resolved atomically from a single source (process env → `.env.local` → `.env`), so `POSTHOG_CLI_HOST` from one file cannot redirect a key supplied by another.
+- feat: add `--env-file <PATH>` to load `POSTHOG_CLI_HOST`, `POSTHOG_CLI_API_KEY`, and `POSTHOG_CLI_PROJECT_ID` (and their legacy aliases) from a dotenv-style file when not set in the process environment. Credentials are resolved atomically from a single source (process env first, then the file), so `POSTHOG_CLI_HOST` from the file cannot redirect a key supplied by the process env.
 
 # 0.7.13
 

@@ -3,7 +3,7 @@ use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
 use reqwest::Url;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
@@ -61,16 +61,22 @@ impl CredentialProvider for HomeDirProvider {
     }
 }
 
-/// Reads credentials atomically from a single source. The first source that supplies both
-/// `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (or their legacy aliases) wins; `host`
-/// is optional and is only read from that same source. Order: process env → `.env.local` → `.env`.
-pub struct EnvVarProvider;
+/// Reads credentials atomically from a single source. Tries the process env first; if the
+/// required variables aren't there and an explicit `--env-file` path was supplied, tries that
+/// file next. `host` is optional and is only read from the same source that supplied the rest.
+pub struct EnvVarProvider {
+    pub env_file: Option<PathBuf>,
+}
 
-fn load_dotenv(path: &Path) -> HashMap<String, String> {
-    let Ok(iter) = dotenvy::from_path_iter(path) else {
-        return HashMap::new();
-    };
-    iter.flatten().collect()
+fn load_dotenv(path: &Path) -> Result<HashMap<String, String>, Error> {
+    let iter = dotenvy::from_path_iter(path)
+        .with_context(|| format!("While trying to read env file {}", path.display()))?;
+    let mut map = HashMap::new();
+    for entry in iter {
+        let (k, v) = entry.with_context(|| format!("While parsing env file {}", path.display()))?;
+        map.insert(k, v);
+    }
+    Ok(map)
 }
 
 fn try_source<F: Fn(&str) -> Option<String>>(lookup: F) -> Option<Token> {
@@ -89,17 +95,20 @@ impl CredentialProvider for EnvVarProvider {
         if let Some(t) = try_source(|n| std::env::var(n).ok()) {
             return Ok(t);
         }
-        let local = load_dotenv(Path::new(".env.local"));
-        if let Some(t) = try_source(|n| local.get(n).cloned()) {
-            return Ok(t);
-        }
-        let dotenv = load_dotenv(Path::new(".env"));
-        if let Some(t) = try_source(|n| dotenv.get(n).cloned()) {
-            return Ok(t);
+        if let Some(path) = &self.env_file {
+            let file = load_dotenv(path)?;
+            if let Some(t) = try_source(|n| file.get(n).cloned()) {
+                return Ok(t);
+            }
+            anyhow::bail!(
+                "Couldn't find POSTHOG_CLI_API_KEY (or POSTHOG_CLI_TOKEN) and \
+                 POSTHOG_CLI_PROJECT_ID (or POSTHOG_CLI_ENV_ID) in process env or {}",
+                path.display()
+            )
         }
         anyhow::bail!(
             "Couldn't find POSTHOG_CLI_API_KEY (or POSTHOG_CLI_TOKEN) and \
-             POSTHOG_CLI_PROJECT_ID (or POSTHOG_CLI_ENV_ID) in process env, .env.local, or .env"
+             POSTHOG_CLI_PROJECT_ID (or POSTHOG_CLI_ENV_ID) in process env"
         )
     }
 
@@ -150,12 +159,12 @@ pub fn env_id_validator(env_id: &str) -> Result<Validation, CustomUserError> {
     Ok(Validation::Valid)
 }
 
-pub fn get_token() -> Result<Token, Error> {
-    let env = EnvVarProvider;
+pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
+    let env = EnvVarProvider { env_file };
     let env_err = match env.get_credentials() {
         Ok(token) => {
             info!(
-                "Using token from environment or dotenv file, for environment {}",
+                "Using token from environment or --env-file, for environment {}",
                 token.env_id
             );
             return Ok(token);
@@ -185,6 +194,7 @@ pub fn get_token() -> Result<Token, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     fn lookup<'a>(map: &'a HashMap<&'a str, &'a str>) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| map.get(k).map(|v| v.to_string())
@@ -255,5 +265,21 @@ mod tests {
         let mut map = HashMap::new();
         map.insert("POSTHOG_CLI_HOST", "https://attacker.example");
         assert!(try_source(lookup(&map)).is_none());
+    }
+
+    #[test]
+    fn load_dotenv_parses_file() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "POSTHOG_CLI_API_KEY=phx_from_file").unwrap();
+        writeln!(f, "POSTHOG_CLI_PROJECT_ID=99").unwrap();
+        let map = load_dotenv(f.path()).unwrap();
+        assert_eq!(map.get("POSTHOG_CLI_API_KEY").unwrap(), "phx_from_file");
+        assert_eq!(map.get("POSTHOG_CLI_PROJECT_ID").unwrap(), "99");
+    }
+
+    #[test]
+    fn load_dotenv_errors_when_missing() {
+        let err = load_dotenv(Path::new("/definitely/not/a/real/path/.env")).unwrap_err();
+        assert!(err.to_string().contains("env file"));
     }
 }
