@@ -76,6 +76,9 @@ tools:
     visual-review-runs-add-snapshots-create:
         operation: visual_review_runs_add_snapshots_create
         enabled: false
+    visual-review-runs-agent-review-create:
+        operation: visual_review_runs_agent_review_create
+        enabled: false
     visual-review-runs-approve-create:
         operation: visual_review_runs_approve_create
         enabled: true
