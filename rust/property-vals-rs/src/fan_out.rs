@@ -414,18 +414,9 @@ mod tests {
         assert!(extract_tuple(&empty_value).is_empty());
     }
 
-    /// Stage-1's wire format (producer.rs::Outgoing) must round-trip into
-    /// `PropertyValueMessage` so stage 2 can deserialize what stage 1 produced.
     #[test]
     fn property_value_message_round_trips_producer_wire_format() {
-        #[derive(serde::Serialize)]
-        struct Outgoing<'a> {
-            team_id: i64,
-            property_type: PropertyType,
-            property_key: &'a str,
-            property_value: &'a str,
-            property_count: u64,
-        }
+        use crate::producer::Outgoing;
         for (pt, expected) in [
             (PropertyType::Event, "event"),
             (PropertyType::Person, "person"),

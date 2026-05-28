@@ -62,11 +62,7 @@ impl PropertyType {
 
 impl Serialize for PropertyType {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            PropertyType::Event => serializer.serialize_str("event"),
-            PropertyType::Person => serializer.serialize_str("person"),
-            PropertyType::Group(n) => serializer.serialize_str(&format!("group_{n}")),
-        }
+        serializer.serialize_str(&self.as_kafka_key_segment())
     }
 }
 

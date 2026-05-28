@@ -13,12 +13,12 @@ use tracing::warn;
 use crate::types::{PropertyType, TupleKey};
 
 #[derive(serde::Serialize)]
-struct Outgoing<'a> {
-    team_id: i64,
-    property_type: PropertyType,
-    property_key: &'a str,
-    property_value: &'a str,
-    property_count: u64,
+pub(crate) struct Outgoing<'a> {
+    pub team_id: i64,
+    pub property_type: PropertyType,
+    pub property_key: &'a str,
+    pub property_value: &'a str,
+    pub property_count: u64,
 }
 
 #[derive(Debug, Error)]

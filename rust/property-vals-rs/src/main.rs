@@ -118,8 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut merger_consumer_config = config.consumer.clone();
     merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
     merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
-    let merger_consumer =
-        SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
+    let merger_consumer = SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
     let merger_producer = AggregatedProducer::new(
         &config.kafka,
         merger_handle.clone(),
