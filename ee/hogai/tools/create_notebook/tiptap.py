@@ -1,4 +1,5 @@
 import re
+import html
 import json
 from collections.abc import Sequence
 from typing import Any
@@ -8,6 +9,11 @@ from pydantic import BaseModel
 from posthog.schema import MarkdownBlock, SessionReplayBlock
 
 from ee.hogai.artifacts.types import VisualizationRefBlock
+
+ANALYSIS_BLOCK_PATTERN = re.compile(
+    r"(?ims)^[ \t]*<(python|hogql|ducksql|duckdb|query)\b([^>]*)>\n?(.*?)\n?</\1>[ \t]*$"
+)
+ATTRIBUTE_PATTERN = re.compile(r"""([A-Za-z_][\w:-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)""")
 
 
 def blocks_to_tiptap_doc(
@@ -105,8 +111,25 @@ def markdown_to_tiptap_nodes(text: str) -> list[dict]:
     - Bullet lists (- or *)
     - Ordered lists (1.)
     - Code blocks (triple backtick)
+    - Analysis blocks: <python>, <hogql>, <ducksql>, and <query>
     - Inline: **bold**, *italic*, `code`, [text](url)
     """
+    if not text or not text.strip():
+        return []
+
+    nodes: list[dict] = []
+    last_end = 0
+    for match in ANALYSIS_BLOCK_PATTERN.finditer(text):
+        nodes.extend(_markdown_to_tiptap_nodes(text[last_end : match.start()]))
+        analysis_node = _analysis_block_to_tiptap_node(match.group(1), match.group(2), match.group(3))
+        if analysis_node:
+            nodes.append(analysis_node)
+        last_end = match.end()
+    nodes.extend(_markdown_to_tiptap_nodes(text[last_end:]))
+    return nodes
+
+
+def _markdown_to_tiptap_nodes(text: str) -> list[dict]:
     if not text or not text.strip():
         return []
 
@@ -198,6 +221,49 @@ def markdown_to_tiptap_nodes(text: str) -> list[dict]:
             nodes.append(_paragraph(inline))
 
     return nodes
+
+
+def _parse_block_attributes(raw_attrs: str) -> dict[str, str]:
+    attrs: dict[str, str] = {}
+    for match in ATTRIBUTE_PATTERN.finditer(raw_attrs):
+        raw_value = match.group(2)
+        value = raw_value[1:-1] if raw_value[:1] in {'"', "'"} and raw_value[-1:] == raw_value[:1] else raw_value
+        attrs[match.group(1).replace("-", "_").lower()] = html.unescape(value)
+    return attrs
+
+
+def _analysis_block_to_tiptap_node(tag: str, raw_attrs: str, raw_body: str) -> dict | None:
+    attrs = _parse_block_attributes(raw_attrs)
+    body = html.unescape(raw_body.strip("\n"))
+    title = attrs.get("title")
+
+    if tag == "python":
+        node_attrs: dict[str, Any] = {"code": body, "__init": {"showSettings": True}}
+        if title:
+            node_attrs["title"] = title
+        return {"type": "ph-python", "attrs": node_attrs}
+
+    if tag in {"hogql", "ducksql", "duckdb"}:
+        default_variable = "hogql_df" if tag == "hogql" else "duck_df"
+        node_attrs = {
+            "code": body,
+            "returnVariable": attrs.get("return_variable") or attrs.get("returnvariable") or default_variable,
+            "__init": {"showSettings": True},
+        }
+        if title:
+            node_attrs["title"] = title
+        return {"type": "ph-hogql-sql" if tag == "hogql" else "ph-duck-sql", "attrs": node_attrs}
+
+    if tag == "query":
+        try:
+            query = json.loads(body)
+        except ValueError:
+            return _paragraph([{"type": "text", "text": "[Invalid query JSON]"}])
+        if not isinstance(query, dict):
+            return _paragraph([{"type": "text", "text": "[Invalid query JSON]"}])
+        return {"type": "ph-query", "attrs": {"query": query, "title": title}}
+
+    return None
 
 
 def _is_special_line(line: str) -> bool:
@@ -305,7 +371,8 @@ def tiptap_doc_to_text(doc: dict | None) -> str:
     Convert a tiptap document dict to a simplified markdown-like text.
 
     Handles standard tiptap nodes (heading, paragraph, bulletList, orderedList,
-    codeBlock) as well as PostHog-specific nodes (ph-query, ph-recording).
+    codeBlock) as well as PostHog-specific nodes (ph-query, ph-python, SQL nodes,
+    ph-recording).
     """
     if not doc or not isinstance(doc, dict):
         return ""
@@ -385,6 +452,15 @@ def _tiptap_node_to_text(node: Any) -> str:
         parts.append("</insight>")
         return "\n".join(parts)
 
+    if node_type == "ph-python":
+        return _format_code_node("python", attrs)
+
+    if node_type == "ph-hogql-sql":
+        return _format_code_node("hogql", attrs)
+
+    if node_type == "ph-duck-sql":
+        return _format_code_node("ducksql", attrs)
+
     if node_type == "ph-recording":
         session_id = attrs.get("id", "unknown")
         return f'<session_replay id="{session_id}" />'
@@ -394,6 +470,19 @@ def _tiptap_node_to_text(node: Any) -> str:
     if children:
         return _tiptap_inline_to_text(children)
     return ""
+
+
+def _format_code_node(tag: str, attrs: dict) -> str:
+    title = attrs.get("title")
+    return_variable = attrs.get("returnVariable")
+    code = attrs.get("code", "")
+    attr_parts = []
+    if isinstance(title, str) and title:
+        attr_parts.append(f'title="{title}"')
+    if isinstance(return_variable, str) and return_variable and tag in {"hogql", "ducksql"}:
+        attr_parts.append(f'return_variable="{return_variable}"')
+    attrs_text = f" {' '.join(attr_parts)}" if attr_parts else ""
+    return f"<{tag}{attrs_text}>\n{code}\n</{tag}>"
 
 
 def _tiptap_list_item_to_text(item: Any) -> str:

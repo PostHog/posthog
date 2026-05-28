@@ -20,7 +20,7 @@ const ContentFormatSchema = z
     .enum(['markdown', 'plain_text'])
     .optional()
     .describe(
-        'How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.'
+        'How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.'
     )
 
 const InsertContentFields = {
@@ -114,6 +114,20 @@ const InsertBetweenEditSchema = z
     })
     .describe('Insert content between two top-level notebook blocks identified by exact text anchors.')
 
+const ReplaceBlockEditSchema = z
+    .object({
+        type: z.literal('replace_block'),
+        anchor: z.string().min(1).describe('Exact plain-text anchor. Replaces the top-level block containing it.'),
+        ...InsertContentFields,
+        occurrence: z
+            .number()
+            .int()
+            .min(1)
+            .default(1)
+            .describe('Which matching anchor to use when the same text appears more than once.'),
+    })
+    .describe('Replace a whole top-level notebook block identified by exact text.')
+
 const ReplaceTextEditSchema = z
     .object({
         type: z.literal('replace_text'),
@@ -133,6 +147,7 @@ const NotebookEditSchema = z.object({
                 InsertAfterEditSchema,
                 InsertBeforeEditSchema,
                 InsertBetweenEditSchema,
+                ReplaceBlockEditSchema,
                 ReplaceTextEditSchema,
             ])
         )
@@ -150,12 +165,12 @@ const NotebookEditSchema = z.object({
 
 type Params = z.infer<typeof NotebookEditSchema>
 type NotebookEdit = Params['edits'][number]
-type ProseMirrorNode = z.infer<typeof ProseMirrorNodeSchema> & {
+export type ProseMirrorNode = z.infer<typeof ProseMirrorNodeSchema> & {
     content?: ProseMirrorNode[]
     marks?: unknown[]
     text?: string
 }
-type ProseMirrorDoc = Record<string, unknown> & { type: 'doc'; content: ProseMirrorNode[] }
+export type ProseMirrorDoc = Record<string, unknown> & { type: 'doc'; content: ProseMirrorNode[] }
 type ReplaceStep = {
     stepType: 'replace'
     from: number
@@ -179,6 +194,8 @@ type NotebookEditResult = Schemas.Notebook & { applied_edits: number }
 
 const MAX_TEXT_REPLACEMENTS = 100
 const LEAF_NODE_TYPES = new Set(['hardBreak', 'horizontalRule'])
+const ANALYSIS_BLOCK_PATTERN = /^[ \t]*<(python|hogql|ducksql|duckdb|query)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>[ \t]*$/gim
+const ATTRIBUTE_PATTERN = /([A-Za-z_][\w:-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)/g
 
 function cloneJson<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T
@@ -232,6 +249,23 @@ function textContent(node: ProseMirrorNode | ProseMirrorDoc): string {
         return typeof node.text === 'string' ? node.text : ''
     }
 
+    const attrs = isRecord(node.attrs) ? node.attrs : {}
+    if (node.type === 'ph-python') {
+        return codeNodeText('python', attrs)
+    }
+    if (node.type === 'ph-hogql-sql') {
+        return codeNodeText('hogql', attrs)
+    }
+    if (node.type === 'ph-duck-sql') {
+        return codeNodeText('ducksql', attrs)
+    }
+    if (node.type === 'ph-query') {
+        return queryNodeText(attrs)
+    }
+    if (node.type === 'ph-recording') {
+        return typeof attrs.id === 'string' ? `<session_replay id="${escapeAttribute(attrs.id)}" />` : ''
+    }
+
     if (!Array.isArray(node.content)) {
         return ''
     }
@@ -243,7 +277,32 @@ function textContent(node: ProseMirrorNode | ProseMirrorDoc): string {
     return childText.join('')
 }
 
-function documentTextContent(doc: ProseMirrorDoc): string {
+function escapeAttribute(value: string): string {
+    return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function codeNodeText(tag: 'python' | 'hogql' | 'ducksql', attrs: Record<string, unknown>): string {
+    const attrParts: string[] = []
+    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
+        attrParts.push(`title="${escapeAttribute(attrs.title)}"`)
+    }
+    if (tag !== 'python' && typeof attrs.returnVariable === 'string' && attrs.returnVariable.length > 0) {
+        attrParts.push(`return_variable="${escapeAttribute(attrs.returnVariable)}"`)
+    }
+
+    const code = typeof attrs.code === 'string' ? attrs.code : ''
+    const attrText = attrParts.length > 0 ? ` ${attrParts.join(' ')}` : ''
+    return `<${tag}${attrText}>\n${code}\n</${tag}>`
+}
+
+function queryNodeText(attrs: Record<string, unknown>): string {
+    const attrText =
+        typeof attrs.title === 'string' && attrs.title.length > 0 ? ` title="${escapeAttribute(attrs.title)}"` : ''
+    const query = isRecord(attrs.query) ? attrs.query : {}
+    return `<query${attrText}>\n${JSON.stringify(query)}\n</query>`
+}
+
+export function documentTextContent(doc: ProseMirrorDoc): string {
     return doc.content
         .map(textContent)
         .filter((text) => text.length > 0)
@@ -315,7 +374,94 @@ function plainTextToNodes(content: string): ProseMirrorNode[] {
         .map(paragraphNode)
 }
 
-function markdownToNodes(content: string): ProseMirrorNode[] {
+function decodeHtml(value: string): string {
+    return value
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+}
+
+function parseBlockAttributes(rawAttrs: string): Record<string, string> {
+    const attrs: Record<string, string> = {}
+    for (const match of rawAttrs.matchAll(ATTRIBUTE_PATTERN)) {
+        const key = match[1]?.replace(/-/g, '_').toLowerCase()
+        const rawValue = match[2]
+        if (!key || rawValue === undefined) {
+            continue
+        }
+        const value =
+            (rawValue.startsWith('"') && rawValue.endsWith('"')) || (rawValue.startsWith("'") && rawValue.endsWith("'"))
+                ? rawValue.slice(1, -1)
+                : rawValue
+        attrs[key] = decodeHtml(value)
+    }
+    return attrs
+}
+
+function analysisBlockToNode(tag: string, rawAttrs: string, rawBody: string): ProseMirrorNode {
+    const attrs = parseBlockAttributes(rawAttrs)
+    const body = decodeHtml(rawBody.replace(/^\n|\n$/g, ''))
+    const title = attrs.title
+
+    if (tag === 'python') {
+        return {
+            type: 'ph-python',
+            attrs: {
+                code: body,
+                ...(title ? { title } : {}),
+                __init: { showSettings: true },
+            },
+        }
+    }
+
+    if (tag === 'hogql' || tag === 'ducksql' || tag === 'duckdb') {
+        const isHogql = tag === 'hogql'
+        return {
+            type: isHogql ? 'ph-hogql-sql' : 'ph-duck-sql',
+            attrs: {
+                code: body,
+                returnVariable: attrs.return_variable ?? attrs.returnvariable ?? (isHogql ? 'hogql_df' : 'duck_df'),
+                ...(title ? { title } : {}),
+                __init: { showSettings: true },
+            },
+        }
+    }
+
+    if (tag === 'query') {
+        try {
+            const query = JSON.parse(body) as unknown
+            if (isRecord(query)) {
+                return { type: 'ph-query', attrs: { query, title } }
+            }
+        } catch {
+            // Fall through to a visible placeholder.
+        }
+        return paragraphNode('[Invalid query JSON]')
+    }
+
+    return paragraphNode(`[Unsupported notebook block: ${tag}]`)
+}
+
+export function markdownToNodes(content: string): ProseMirrorNode[] {
+    const nodes: ProseMirrorNode[] = []
+    let lastEnd = 0
+    for (const match of content.matchAll(ANALYSIS_BLOCK_PATTERN)) {
+        nodes.push(...markdownToBasicNodes(content.slice(lastEnd, match.index)))
+        const tag = match[1]
+        const rawAttrs = match[2]
+        const rawBody = match[3]
+        if (tag && rawAttrs !== undefined && rawBody !== undefined) {
+            nodes.push(analysisBlockToNode(tag.toLowerCase(), rawAttrs, rawBody))
+        }
+        lastEnd = (match.index ?? 0) + match[0].length
+    }
+    nodes.push(...markdownToBasicNodes(content.slice(lastEnd)))
+    return nodes
+}
+
+function markdownToBasicNodes(content: string): ProseMirrorNode[] {
     const lines = content.replace(/\r\n/g, '\n').trim().split('\n')
     const nodes: ProseMirrorNode[] = []
     let paragraphLines: string[] = []
@@ -430,6 +576,14 @@ function contentToNodes(content: string, contentFormat: 'markdown' | 'plain_text
         throw new Error('Notebook edit content must include non-empty text.')
     }
     return nodes
+}
+
+export function buildNotebookDocFromMarkdown(content: string): ProseMirrorDoc {
+    const nodes = markdownToNodes(content)
+    return {
+        type: 'doc',
+        content: nodes.length > 0 ? nodes : [{ type: 'paragraph' }],
+    }
 }
 
 function resolveInsertNodes(
@@ -575,6 +729,24 @@ function applyInsertBetweenEdit(
     return replaceStep(position, position, insertedNodes)
 }
 
+function applyReplaceBlockEdit(
+    doc: ProseMirrorDoc,
+    anchor: string,
+    occurrence: number,
+    nodes: ProseMirrorNode[]
+): ReplaceStep {
+    const index = findTopLevelAnchorIndex(doc, anchor, occurrence)
+    if (index === null) {
+        throw new Error(`Could not find text "${anchor}" in the notebook.`)
+    }
+
+    const from = topLevelPositionBefore(doc, index)
+    const to = topLevelPositionAfter(doc, index)
+    const insertedNodes = cloneNodes(nodes)
+    doc.content.splice(index, 1, ...insertedNodes)
+    return replaceStep(from, to, insertedNodes)
+}
+
 function findTextMatch(
     node: ProseMirrorNode | ProseMirrorDoc,
     find: string,
@@ -713,6 +885,8 @@ function applyNotebookEdit(doc: ProseMirrorDoc, edit: NotebookEdit): ReplaceStep
                     resolveInsertNodes(edit.type, edit)
                 ),
             ]
+        case 'replace_block':
+            return [applyReplaceBlockEdit(doc, edit.anchor, edit.occurrence ?? 1, resolveInsertNodes(edit.type, edit))]
         case 'replace_text':
             return applyReplaceTextEdit(doc, edit.find, edit.replace, edit.all_occurrences ?? false)
     }

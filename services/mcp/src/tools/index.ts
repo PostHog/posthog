@@ -14,6 +14,7 @@ import queryInsight from './insights/query'
 // AI observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Notebooks (edit tools are hand-written — generated CRUD lives in generated/notebooks.ts)
+import createNotebookFromMarkdown from './notebooks/createFromMarkdown'
 import editNotebook from './notebooks/edit'
 import notebookEdit from './notebooks/editByReplacement'
 // Organizations
@@ -81,6 +82,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Notebooks
     'notebook-edit': notebookEdit,
+    'notebooks-create-from-markdown': createNotebookFromMarkdown,
 
     // Search
     'entity-search': entitySearch,

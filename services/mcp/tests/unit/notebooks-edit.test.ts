@@ -45,6 +45,29 @@ function codeBlock(text: string): ProseMirrorTestNode {
     return { type: 'codeBlock', content: [{ type: 'text', text }] }
 }
 
+function hogqlNode(code: string, returnVariable: string = 'hogql_df', title?: string): ProseMirrorTestNode {
+    return {
+        type: 'ph-hogql-sql',
+        attrs: {
+            code,
+            returnVariable,
+            ...(title ? { title } : {}),
+            __init: { showSettings: true },
+        },
+    }
+}
+
+function pythonNode(code: string, title?: string): ProseMirrorTestNode {
+    return {
+        type: 'ph-python',
+        attrs: {
+            code,
+            ...(title ? { title } : {}),
+            __init: { showSettings: true },
+        },
+    }
+}
+
 function doc(...content: ProseMirrorTestNode[]): Record<string, unknown> {
     return { type: 'doc', content }
 }
@@ -166,6 +189,67 @@ describe('notebooks-edit', () => {
                             headingWithLevel(1, 'Added section'),
                             bulletList('First item', 'Second item'),
                             codeBlock('select 1'),
+                        ],
+                    },
+                },
+            ],
+        })
+    })
+
+    it('turns analysis Markdown blocks into executable notebook nodes', async () => {
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(paragraph('Intro')),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 4,
+                title: 'Notebook',
+                content: doc(
+                    paragraph('Intro'),
+                    hogqlNode('SELECT event, count() FROM events GROUP BY event', 'events_df', 'Recent events'),
+                    pythonNode('print(events_df.head())', 'Summarize')
+                ),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [
+                {
+                    type: 'append',
+                    content:
+                        '<hogql title="Recent events" return_variable="events_df">\nSELECT event, count() FROM events GROUP BY event\n</hogql>\n\n<python title="Summarize">\nprint(events_df.head())\n</python>',
+                    content_format: 'markdown',
+                },
+            ],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 3,
+            text_content:
+                'Intro\n<hogql title="Recent events" return_variable="events_df">\nSELECT event, count() FROM events GROUP BY event\n</hogql>\n<python title="Summarize">\nprint(events_df.head())\n</python>',
+            content: doc(
+                paragraph('Intro'),
+                hogqlNode('SELECT event, count() FROM events GROUP BY event', 'events_df', 'Recent events'),
+                pythonNode('print(events_df.head())', 'Summarize')
+            ),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 7,
+                    to: 7,
+                    slice: {
+                        content: [
+                            hogqlNode('SELECT event, count() FROM events GROUP BY event', 'events_df', 'Recent events'),
+                            pythonNode('print(events_df.head())', 'Summarize'),
                         ],
                     },
                 },
@@ -454,6 +538,104 @@ describe('notebooks-edit', () => {
                     from: 20,
                     to: 20,
                     slice: { content: [paragraph('Inserted')] },
+                },
+            ],
+        })
+    })
+
+    it('replaces a whole top-level block using an exact text anchor', async () => {
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(paragraph('Keep this'), paragraph('replace this block'), paragraph('Keep that')),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(paragraph('Keep this'), hogqlNode('SELECT 1'), paragraph('Keep that')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [
+                {
+                    type: 'replace_block',
+                    anchor: 'replace this block',
+                    occurrence: 1,
+                    content: '<hogql>\nSELECT 1\n</hogql>',
+                    content_format: 'markdown',
+                },
+            ],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            content: doc(paragraph('Keep this'), hogqlNode('SELECT 1'), paragraph('Keep that')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 11,
+                    to: 31,
+                    slice: { content: [hogqlNode('SELECT 1')] },
+                },
+            ],
+        })
+    })
+
+    it('replaces an existing executable analysis cell by title anchor', async () => {
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(
+                    hogqlNode('SELECT * FROM events LIMIT 10', 'events_df', 'Recent events'),
+                    paragraph('Keep')
+                ),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(pythonNode('print(events_df.head())', 'Summarize'), paragraph('Keep')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [
+                {
+                    type: 'replace_block',
+                    anchor: 'Recent events',
+                    occurrence: 1,
+                    content: '<python title="Summarize">\nprint(events_df.head())\n</python>',
+                    content_format: 'markdown',
+                },
+            ],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            text_content: '<python title="Summarize">\nprint(events_df.head())\n</python>\nKeep',
+            content: doc(pythonNode('print(events_df.head())', 'Summarize'), paragraph('Keep')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 0,
+                    to: 1,
+                    slice: { content: [pythonNode('print(events_df.head())', 'Summarize')] },
                 },
             ],
         })

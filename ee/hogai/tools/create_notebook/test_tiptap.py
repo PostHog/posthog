@@ -174,6 +174,42 @@ class TestMarkdownToTiptapNodes(SimpleTestCase):
         assert nodes[2]["type"] == "bulletList"
         assert nodes[3]["type"] == "codeBlock"
 
+    def test_analysis_blocks(self):
+        md = """# Analysis
+
+<hogql title="Recent events" return_variable="events_df">
+SELECT event, count() FROM events GROUP BY event
+</hogql>
+
+<python title="Summarize">
+print(events_df.head())
+</python>
+
+<ducksql title="Top events" return_variable="top_events">
+SELECT * FROM events_df LIMIT 5
+</ducksql>
+
+<query title="Active users">
+{"kind":"InsightVizNode","source":{"kind":"TrendsQuery"}}
+</query>
+"""
+        nodes = markdown_to_tiptap_nodes(md)
+
+        assert [node["type"] for node in nodes] == [
+            "heading",
+            "ph-hogql-sql",
+            "ph-python",
+            "ph-duck-sql",
+            "ph-query",
+        ]
+        assert nodes[1]["attrs"]["title"] == "Recent events"
+        assert nodes[1]["attrs"]["returnVariable"] == "events_df"
+        assert nodes[1]["attrs"]["code"] == "SELECT event, count() FROM events GROUP BY event"
+        assert nodes[2]["attrs"]["title"] == "Summarize"
+        assert nodes[2]["attrs"]["code"] == "print(events_df.head())"
+        assert nodes[3]["attrs"]["returnVariable"] == "top_events"
+        assert nodes[4]["attrs"]["query"] == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+
 
 class TestBlocksToTiptapDoc(SimpleTestCase):
     def test_empty_blocks_with_title(self):
@@ -330,6 +366,33 @@ class TestTiptapDocToText(SimpleTestCase):
                     "content": [{"type": "ph-recording", "attrs": {"id": "sess-abc"}}],
                 },
                 '<session_replay id="sess-abc" />',
+            ),
+            (
+                "ph_python",
+                {
+                    "type": "doc",
+                    "content": [
+                        {"type": "ph-python", "attrs": {"title": "Summarize", "code": "print(events_df.head())"}}
+                    ],
+                },
+                '<python title="Summarize">\nprint(events_df.head())\n</python>',
+            ),
+            (
+                "ph_hogql_sql",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-hogql-sql",
+                            "attrs": {
+                                "title": "Recent events",
+                                "returnVariable": "events_df",
+                                "code": "SELECT * FROM events LIMIT 10",
+                            },
+                        }
+                    ],
+                },
+                '<hogql title="Recent events" return_variable="events_df">\nSELECT * FROM events LIMIT 10\n</hogql>',
             ),
             (
                 "inline_bold",

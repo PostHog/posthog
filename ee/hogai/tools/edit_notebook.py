@@ -18,7 +18,7 @@ from ee.hogai.artifacts.types import VisualizationRefBlock
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
-from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, markdown_to_tiptap_nodes
+from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, markdown_to_tiptap_nodes, tiptap_doc_to_text
 from ee.models.assistant import AgentArtifact
 
 EDIT_NOTEBOOK_PROMPT = """
@@ -38,6 +38,13 @@ This tool applies anchored edits to the latest notebook content through the same
 
 # Inserting insights
 Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
+
+# Inserting analysis cells
+Markdown `content` also supports executable notebook cells:
+- `<hogql title="..." return_variable="events_df">SELECT ...</hogql>` for HogQL SQL cells.
+- `<ducksql title="..." return_variable="summary_df">SELECT ...</ducksql>` for DuckDB SQL cells.
+- `<python title="...">print(events_df)</python>` for Python cells.
+- `<query title="...">{...query JSON...}</query>` for inline query visualization nodes.
 
 Example:
 {
@@ -73,12 +80,16 @@ class InsertContentArgs(BaseModel):
         default=None,
         description=(
             "Text or simple Markdown to insert. Supports <insight>artifact_id</insight> tags for visualization "
-            "artifacts. Provide either content or nodes, not both."
+            "artifacts and <hogql>, <ducksql>, <python>, and <query> blocks for executable analysis cells. "
+            "Provide either content or nodes, not both."
         ),
     )
     content_format: Literal["markdown", "plain_text"] = Field(
         default="markdown",
-        description="How to turn content into notebook blocks. Markdown supports headings, lists, code, and insight tags.",
+        description=(
+            "How to turn content into notebook blocks. Markdown supports headings, lists, code, insight tags, "
+            "and executable analysis cell tags."
+        ),
     )
     nodes: list[ProseMirrorNode] | None = Field(
         default=None,
@@ -224,6 +235,10 @@ def text_content(node: ProseMirrorNode | ProseMirrorDoc) -> str:
     if node.get("type") == "text":
         text = node.get("text")
         return text if isinstance(text, str) else ""
+
+    node_type = node.get("type")
+    if isinstance(node_type, str) and node_type.startswith("ph-"):
+        return tiptap_doc_to_text({"type": "doc", "content": [node]})
 
     content = node.get("content")
     if not isinstance(content, list):

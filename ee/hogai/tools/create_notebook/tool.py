@@ -30,13 +30,23 @@ You must use EXACTLY ONE of these parameters:
 # When creating notebook content:
 1. Use markdown headings to structure sections (# for main headings, ## for subsections)
 2. Reference existing visualization artifacts using <insight>insight_id</insight> tags
-3. Include explanatory text around insights to provide context
-4. Use bullet points and numbered lists for clarity
-5. Include code blocks with triple backticks if showing HogQL or other code
+3. Use executable analysis blocks when the notebook should contain runnable cells:
+   - `<hogql title="..." return_variable="events_df">SELECT ...</hogql>` for HogQL SQL cells
+   - `<ducksql title="..." return_variable="summary_df">SELECT ...</ducksql>` for DuckDB SQL cells
+   - `<python title="...">print(events_df)</python>` for Python cells
+   - `<query title="...">{...query JSON...}</query>` for inline query visualization nodes
+4. Include explanatory text around insights and cells to provide context
+5. Use bullet points and numbered lists for clarity
+6. Use fenced code blocks only for code examples that should not be runnable notebook cells
 
 # How to use the <insight>insight_id</insight> tag:
 You can use the <insight>insight_id</insight> tag to reference existing visualization insights.
 Use the list_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
+
+# Complex analysis workflow:
+Before writing analysis cells, inspect live values with read_data, execute_sql, or create_insight as needed.
+Then create the notebook with multiple markdown, visualization, SQL, and Python nodes. If follow-up analysis changes are needed,
+use edit_notebook to add or replace the relevant cells in the saved notebook.
 
 # Best practices:
 The document should be structured as a series of sections, each with a heading and a body.

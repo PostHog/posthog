@@ -480,14 +480,29 @@
             "readOnlyHint": true
         }
     },
+    "notebooks-create-from-markdown": {
+        "description": "Create a notebook from agent-friendly markdown. Use this instead of notebooks-create when writing a new multi-node analysis. Content supports normal markdown plus executable analysis blocks: <hogql title=\"...\" return_variable=\"events_df\">SELECT ...</hogql>, <ducksql title=\"...\" return_variable=\"summary_df\">SELECT ...</ducksql>, <python title=\"...\">print(events_df)</python>, and <query title=\"...\">{...query JSON...}</query>. Use execute-sql or query-run first when you need to inspect live values before deciding which nodes to create.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create a notebook from markdown with analysis nodes.",
+        "title": "Create notebook from markdown",
+        "required_scopes": ["notebook:write"],
+        "system_prompt_hint": "For new multi-node analyses, use notebooks-create-from-markdown with markdown plus <hogql>, <ducksql>, <python>, and <query> blocks; inspect values first with execute-sql/query-run when needed.",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-edit": {
-        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this instead of notebooks-partial-update when changing notebook content. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors, then call notebooks-edit. For normal text, pass content and content_format instead of raw nodes, for example: {\"type\":\"insert_between\",\"after\":\"Current paragraph\",\"before\":\"Next paragraph\",\"content\":\"New paragraph\",\"content_format\":\"plain_text\"}. Use raw nodes only for advanced ProseMirror widgets. Supports append, insert_after, insert_before, insert_after_heading, insert_between, and replace_text. The tool retrieves the latest notebook, turns the edit operations into ProseMirror replace steps, submits them through the same collab/version endpoint used by the frontend, and retries by recomputing the edits if another person or agent edits first.",
+        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this instead of notebooks-partial-update when changing notebook content. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors, then call notebooks-edit. For normal text, pass content and content_format instead of raw nodes, for example: {\"type\":\"insert_between\",\"after\":\"Current paragraph\",\"before\":\"Next paragraph\",\"content\":\"New paragraph\",\"content_format\":\"plain_text\"}. Markdown content also supports executable analysis blocks: <hogql>, <ducksql>, <python>, and <query>. Use raw nodes only for advanced ProseMirror widgets. Supports append, insert_after, insert_before, insert_after_heading, insert_between, replace_block, and replace_text. The tool retrieves the latest notebook, turns the edit operations into ProseMirror replace steps, submits them through the same collab/version endpoint used by the frontend, and retries by recomputing the edits if another person or agent edits first.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit notebook content through the collaboration save path.",
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
-        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, choose exact text anchors, then call notebooks-edit with append/insert_after/insert_before/insert_between/replace_text.",
+        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, choose exact text anchors, then call notebooks-edit with append/insert_after/insert_before/insert_between/replace_block/replace_text. Use markdown <hogql>, <ducksql>, <python>, and <query> blocks for analysis nodes.",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

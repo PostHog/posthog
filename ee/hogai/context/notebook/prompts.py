@@ -16,6 +16,8 @@ The user has provided the following notebooks:
 
 When the user asks you to change one of these saved notebooks, use `edit_notebook` with exact anchors from the notebook
 content. Do not use `create_notebook` to make a copy unless the user explicitly asks for a new notebook.
+For complex analyses, inspect values with available data tools first, then use `edit_notebook` to insert markdown plus
+analysis cells using `<hogql>`, `<ducksql>`, `<python>`, or `<query>` blocks.
 
 Notebook SQL editor nodes are represented as query definitions with `kind = "DataVisualizationNode"` and
 `source.kind = "HogQLQuery"`. In those nodes, `source.query` is the SQL text and `source.filters` stores date,

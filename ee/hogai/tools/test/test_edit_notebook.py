@@ -17,6 +17,18 @@ def _paragraph(text: str) -> dict:
     return {"type": "paragraph", "content": [{"type": "text", "text": text}]}
 
 
+def _hogql_node(code: str, title: str = "Recent events", return_variable: str = "events_df") -> dict:
+    return {
+        "type": "ph-hogql-sql",
+        "attrs": {
+            "code": code,
+            "returnVariable": return_variable,
+            "title": title,
+            "__init": {"showSettings": True},
+        },
+    }
+
+
 def test_build_edit_plan_replace_text_updates_document_content():
     plan = build_edit_plan(
         {"type": "doc", "content": [_paragraph("replace this text")]},
@@ -29,6 +41,91 @@ def test_build_edit_plan_replace_text_updates_document_content():
         {"stepType": "replace", "from": 9, "to": 13, "slice": {"content": [{"type": "text", "text": "that"}]}}
     ]
     assert plan.text_content == "replace that text"
+
+
+def test_build_edit_plan_inserts_analysis_cells_from_markdown():
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_paragraph("Start here")]},
+        [
+            EditNotebookToolArgs.model_validate(
+                {
+                    "edits": [
+                        {
+                            "type": "insert_after",
+                            "anchor": "Start here",
+                            "content": '<hogql title="Recent events" return_variable="events_df">\nSELECT * FROM events LIMIT 10\n</hogql>',
+                        }
+                    ]
+                }
+            ).edits[0]
+        ],
+        {},
+    )
+
+    assert plan.content["content"][1] == {
+        "type": "ph-hogql-sql",
+        "attrs": {
+            "code": "SELECT * FROM events LIMIT 10",
+            "returnVariable": "events_df",
+            "title": "Recent events",
+            "__init": {"showSettings": True},
+        },
+    }
+    assert (
+        plan.text_content
+        == 'Start here\n<hogql title="Recent events" return_variable="events_df">\nSELECT * FROM events LIMIT 10\n</hogql>'
+    )
+
+
+def test_build_edit_plan_replaces_existing_analysis_cell_by_title():
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_hogql_node("SELECT * FROM events LIMIT 10")]},
+        [
+            EditNotebookToolArgs.model_validate(
+                {
+                    "edits": [
+                        {
+                            "type": "replace_block",
+                            "anchor": "Recent events",
+                            "content": '<python title="Summarize">\nprint(events_df.head())\n</python>',
+                        }
+                    ]
+                }
+            ).edits[0]
+        ],
+        {},
+    )
+
+    assert plan.content["content"] == [
+        {
+            "type": "ph-python",
+            "attrs": {
+                "code": "print(events_df.head())",
+                "title": "Summarize",
+                "__init": {"showSettings": True},
+            },
+        }
+    ]
+    assert plan.steps == [
+        {
+            "stepType": "replace",
+            "from": 0,
+            "to": 1,
+            "slice": {
+                "content": [
+                    {
+                        "type": "ph-python",
+                        "attrs": {
+                            "code": "print(events_df.head())",
+                            "title": "Summarize",
+                            "__init": {"showSettings": True},
+                        },
+                    }
+                ]
+            },
+        }
+    ]
+    assert plan.text_content == '<python title="Summarize">\nprint(events_df.head())\n</python>'
 
 
 class TestEditNotebookTool(BaseTest):

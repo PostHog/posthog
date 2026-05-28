@@ -14,7 +14,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -52,7 +52,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -107,7 +107,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -157,7 +157,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -226,7 +226,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Use markdown for headings, lists, fenced code blocks, and paragraphs. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -253,6 +253,56 @@
                             }
                         },
                         "required": ["type", "after", "before"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Replace a whole top-level notebook block identified by exact text.",
+                        "properties": {
+                            "anchor": {
+                                "description": "Exact plain-text anchor. Replaces the top-level block containing it.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content": {
+                                "description": "Preferred input for agents: the text or simple Markdown to insert. Provide either content or nodes, not both.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "content_format": {
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "enum": ["markdown", "plain_text"],
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+                                "items": {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "type": {
+                                            "description": "The ProseMirror node type, for example paragraph, heading, or ph-query.",
+                                            "minLength": 1,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "occurrence": {
+                                "default": 1,
+                                "description": "Which matching anchor to use when the same text appears more than once.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
+                            },
+                            "type": {
+                                "const": "replace_block",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type", "anchor"],
                         "type": "object"
                     },
                     {
