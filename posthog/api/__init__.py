@@ -244,19 +244,33 @@ def register_grandfathered_environment_nested_viewset(
     prefix: str, viewset: type[viewsets.GenericViewSet], basename: str, parents_query_lookups: list[str]
 ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
     """
-    Register the environment-specific viewset under both /environments/:team_id/ (correct endpoint)
-    and /projects/:team_id/ (legacy, but supported for backward compatibility endpoint).
-    DO NOT USE ON ANY NEW ENDPOINT YOU'RE ADDING!
+    Register a team-nested viewset under both /api/projects/:team_id/ (canonical)
+    and /api/environments/:team_id/ (backward-compat alias).
+
+    Background: PostHog briefly split projects and environments as separate
+    concepts then rolled the split back. /api/projects/ is the canonical path;
+    /api/environments/ is preserved only for clients that integrated against it
+    during the split (SDKs, customer integrations) and is auto-marked
+    `deprecated: true` in the generated OpenAPI schema by the postprocess hook
+    in posthog.api.documentation whenever a matching /api/projects/ route exists.
+
+    DO NOT USE FOR NEW ENDPOINTS. New team-nested endpoints should register
+    directly under projects_router. This helper exists to preserve the dual-route
+    surface for endpoints that were already exposed both ways before the rollback.
+
+    Returns (environment_nested, project_nested) — note that despite the names,
+    the project_nested route is the canonical one; the environment_nested route
+    is the deprecated alias.
     """
     if parents_query_lookups[0] != "team_id":
-        raise ValueError("Only endpoints with team_id as the first parent query lookup can be environment-nested")
+        raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
     if not basename.startswith("environment_"):
-        raise ValueError("Only endpoints with a basename starting with `environment_` can be environment-nested")
+        raise ValueError("Only endpoints with a basename starting with `environment_` can use this helper")
     environment_nested = environments_router.register(prefix, viewset, basename, parents_query_lookups)
-    legacy_project_nested = projects_router.register(
+    project_nested = projects_router.register(
         prefix, viewset, basename.replace("environment_", "project_"), parents_query_lookups
     )
-    return environment_nested, legacy_project_nested
+    return environment_nested, project_nested
 
 
 environment_plugins_configs_router, legacy_project_plugins_configs_router = (
