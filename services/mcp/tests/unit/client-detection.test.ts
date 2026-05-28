@@ -149,14 +149,27 @@ describe('isVibeCodingClient', () => {
 
 describe('MCPClientProfile', () => {
     describe('isCodingAgent()', () => {
-        it.each([['claude-code'], ['Codex CLI'], ['cline'], ['zed-editor'], ['GitHub Copilot Chat']])(
-            'returns true for %s',
-            (clientName) => {
-                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
-            }
-        )
+        it.each([
+            ['claude-code'],
+            ['Claude Code'],
+            ['claude-code-cli'],
+            ['claude-code/1.2.3'],
+            ['cline'],
+            ['cline-bot'],
+            ['continue'],
+            ['codex'],
+            ['Codex CLI'],
+            ['windsurf'],
+            ['zed'],
+            ['zed-editor'],
+            ['aider'],
+            ['github.copilot'],
+            ['GitHub Copilot Chat'],
+        ])('returns true for %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
+        })
 
-        it.each([['Claude Desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
+        it.each([['Claude Desktop'], ['claude-desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
             'returns false for %s',
             (clientName) => {
                 expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(false)

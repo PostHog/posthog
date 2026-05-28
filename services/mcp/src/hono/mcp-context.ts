@@ -1,30 +1,34 @@
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
 
-export type MCPClientContext = Pick<
+export interface MCPClientContext extends Pick<
     RequestProperties,
     'mcpClientName' | 'mcpClientVersion' | 'mcpProtocolVersion' | 'mcpConsumer' | 'mcpVendorClient'
->
+> {}
 
-export type MCPRequestContext = MCPClientContext &
-    Pick<
-        RequestProperties,
-        | 'sessionId'
-        | 'organizationId'
-        | 'projectId'
-        | 'readOnly'
-        | 'viaSseRedirect'
-        | 'requestStartTime'
-        | 'clientUserAgent'
-        | 'transport'
-        | 'mcpSessionId'
-        | 'mcpConversationId'
-        | 'region'
-    > & {
-        mode?: McpMode | undefined
-    }
+export interface MCPRequestContext
+    extends
+        MCPClientContext,
+        Pick<
+            RequestProperties,
+            | 'sessionId'
+            | 'organizationId'
+            | 'projectId'
+            | 'readOnly'
+            | 'viaSseRedirect'
+            | 'requestStartTime'
+            | 'clientUserAgent'
+            | 'transport'
+            | 'mcpSessionId'
+            | 'mcpConversationId'
+            | 'region'
+        > {
+    mode?: McpMode | undefined
+}
 
-export type MCPSessionContext = MCPClientContext
+// Identical shape to MCPClientContext but tracked separately to mark values
+// pinned to the MCP session id rather than the live request.
+export interface MCPSessionContext extends MCPClientContext {}
 
 export function buildMCPRequestContext(props: RequestProperties): MCPRequestContext {
     return {
