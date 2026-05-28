@@ -1,12 +1,12 @@
 """
 SDK Doctor health assessment.
 
-Ports the outdatedness detection logic from frontend/src/scenes/onboarding/sdks/sdkDoctorLogic.tsx
-so the backend can return a pre-digested health report for MCP / agent consumption.
+The single source of truth for SDK outdatedness detection. Consumed by:
+  - the `sdk_outdated` Temporal health check (alerts / HealthIssue rows),
+  - the SDK Doctor report endpoint (posthog/api/sdk_doctor.py), which the SDK Doctor UI and the
+    SDK Doctor MCP tool both read.
 
-Keep constants and thresholds in sync with the frontend's DEVICE_CONTEXT_CONFIG,
-SIGNIFICANT_TRAFFIC_THRESHOLD_*, GRACE_PERIOD_DAYS, SINGLE_VERSION_GRACE_PERIOD_DAYS,
-and SDK_FRESHNESS_GRACE_PERIOD_DAYS.
+The frontend renders these pre-computed values directly and no longer duplicates the thresholds.
 """
 
 from dataclasses import dataclass, field
@@ -71,7 +71,7 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-elixir": "Elixir",
 }
 
-# --- Thresholds (mirrored from sdkDoctorLogic.tsx) -------------------------
+# --- Thresholds ------------------------------------------------------------
 
 # Age-based outdatedness thresholds in weeks (desktop=4mo, mobile=6mo)
 AGE_THRESHOLD_DESKTOP_WEEKS = 16
@@ -330,17 +330,15 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
     return humanize.naturaltime(current - release)
 
 
-# --- UI-parity string/URL builders -----------------------------------------
+# --- UI-facing string/URL builders -----------------------------------------
 #
-# These mirror the copy and link construction in
-# frontend/src/scenes/onboarding/sdks/SdkDoctorComponents.tsx and
-# frontend/src/scenes/onboarding/sdks/SdkDoctorScene.tsx.
-# Keep these in sync when UI copy or the Activity/SQL URL shape changes.
+# The SDK Doctor UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
+# from the report endpoint, so this is the single place the copy and Activity/SQL links are built.
 
 
 def _build_status_reason(is_outdated: bool, is_current_or_newer: bool, released_ago: Optional[str]) -> str:
     """
-    Per-version tooltip text mirroring the three badge states in SdkDoctorComponents.tsx:149-196.
+    Per-version tooltip text for the three badge states (Outdated / Current / Recent) the SDK Doctor UI shows.
 
     - Outdated (danger): "Released {ago}. Upgrade recommended." or "Upgrade recommended"
     - Current (success): "You have the latest available. Click 'Releases ↗' above to check for any since."
@@ -368,7 +366,7 @@ def _is_safe_for_interpolation(value: str) -> bool:
 
 def _build_sql_query(sdk_type: str, version: str) -> str:
     """
-    Matches queryForSdkVersion() in SdkDoctorComponents.tsx.
+    SQL drill-in for an SDK version, rendered as-is by the SDK Doctor UI and MCP tool.
 
     Returns an empty string when either `sdk_type` or `version` fails validation —
     the skill instructs agents to surface the unexpected empty value rather than retry
@@ -390,7 +388,7 @@ def _build_sql_query(sdk_type: str, version: str) -> str:
 
 def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: str) -> str:
     """
-    Matches activityPageUrlForSdkVersion() in SdkDoctorComponents.tsx.
+    Activity > Explore drill-in URL for an SDK version, rendered as-is by the SDK Doctor UI and MCP tool.
 
     Returns a relative path (no host) including /project/<id>/ prefix so MCP agents
     can combine it with the user's known PostHog host (e.g. us.posthog.com).

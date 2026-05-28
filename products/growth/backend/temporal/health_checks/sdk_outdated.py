@@ -1,5 +1,6 @@
 import json
 from collections import defaultdict
+from typing import Any
 
 import structlog
 
@@ -18,7 +19,14 @@ from products.growth.backend.constants import (
     github_sdk_versions_key,
     team_sdk_versions_key,
 )
-from products.growth.backend.sdk_health import _is_safe_for_interpolation
+from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
+
+# Issue severity follows the SDK Doctor assessment severity: a single outdated SDK is a warning,
+# but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
+_SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
+    "danger": HealthIssue.Severity.CRITICAL,
+    "warning": HealthIssue.Severity.WARNING,
+}
 
 logger = structlog.get_logger(__name__)
 
@@ -91,12 +99,11 @@ class SdkOutdatedCheck(HealthCheck):
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         sdk_name = issue.payload.get("sdk_name", "an SDK")
         latest = issue.payload.get("latest_version") or "the latest version"
-        usage = issue.payload.get("usage") or []
-        # `lib_version` originates from the $lib_version event property — attacker
+        # `current_version` originates from the $lib_version event property — attacker
         # controllable via project token. Gate it through the same allowlist used
         # by SDK Doctor before interpolating into a string we forward to alert
         # destinations (Slack, email, webhooks).
-        raw_current = usage[0].get("lib_version") if usage else None
+        raw_current = issue.payload.get("current_version")
         current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
         summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
         return AlertContent(
@@ -132,37 +139,80 @@ class SdkOutdatedCheck(HealthCheck):
 
         _cache_team_sdk_data({tid: dict(sdk_data) for tid, sdk_data in team_sdk_data.items()})
 
+        # Run the same outdatedness heuristics the SDK Doctor UI shows (grace periods, device
+        # thresholds, traffic-share rules, team-level severity escalation) so alerts match the UI
+        # instead of firing on every non-latest version.
         issues: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
         for team_id, sdk_data in team_sdk_data.items():
-            for lib_name, entries in sdk_data.items():
-                if lib_name not in github_data or not entries:
-                    continue
-                sdk_github_data = github_data[lib_name]
-                latest_version = sdk_github_data["latestVersion"]
-                release_dates = sdk_github_data.get("releaseDates", {})
-
-                current_version = entries[0].get("lib_version")
-
-                if current_version and current_version != latest_version:
-                    issues[team_id].append(
-                        HealthCheckResult(
-                            severity=HealthIssue.Severity.WARNING,
-                            payload={
-                                "sdk_name": lib_name,
-                                "latest_version": latest_version,
-                                "usage": [
-                                    {
-                                        "lib_version": entry["lib_version"],
-                                        "count": entry.get("count", 0),
-                                        "max_timestamp": entry["max_timestamp"],
-                                        "release_date": release_dates.get(entry["lib_version"]),
-                                        "is_latest": entry["lib_version"] == latest_version,
-                                    }
-                                    for entry in entries
-                                ],
-                            },
-                            hash_keys=["sdk_name"],
-                        )
-                    )
+            combined = _build_combined_data(sdk_data, github_data)
+            if not combined:
+                continue
+            report = compute_sdk_health(combined, project_id=team_id)
+            for assessment in report.sdks:
+                if assessment.needs_updating:
+                    issues[team_id].append(_build_health_result(assessment))
 
         return issues
+
+
+def _build_combined_data(
+    sdk_data: dict[str, list[SdkVersionEntry]],
+    github_data: dict[str, dict],
+) -> dict[str, dict[str, Any]]:
+    """Shape per-team SDK usage into the structure compute_sdk_health expects."""
+    combined: dict[str, dict[str, Any]] = {}
+    for lib_name, entries in sdk_data.items():
+        if lib_name not in github_data or not entries:
+            continue
+        sdk_github_data = github_data[lib_name]
+        latest_version = sdk_github_data["latestVersion"]
+        release_dates = sdk_github_data.get("releaseDates", {})
+        combined[lib_name] = {
+            "latest_version": latest_version,
+            "usage": [
+                {
+                    "lib_version": entry["lib_version"],
+                    "count": entry.get("count", 0),
+                    "max_timestamp": entry["max_timestamp"],
+                    "release_date": release_dates.get(entry["lib_version"]),
+                    "is_latest": entry["lib_version"] == latest_version,
+                }
+                for entry in entries
+            ],
+        }
+    return combined
+
+
+def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
+    """Build a HealthCheckResult from a computed SDK assessment.
+
+    The payload carries everything both the alert (render_alert) and the unified Health scene's
+    per-version table (SdkOutdatedRenderer) need, so neither has to recompute or re-query.
+    """
+    severity = _SEVERITY_BY_ASSESSMENT.get(assessment.severity, HealthIssue.Severity.WARNING)
+    primary = assessment.releases[0] if assessment.releases else None
+    return HealthCheckResult(
+        severity=severity,
+        payload={
+            "sdk_name": assessment.lib,
+            "latest_version": assessment.latest_version,
+            "current_version": primary.version if primary else None,
+            "reason": assessment.reason,
+            "banners": assessment.banners,
+            "is_outdated": assessment.is_outdated,
+            "is_old": assessment.is_old,
+            "usage": [
+                {
+                    "lib_version": release.version,
+                    "count": release.count,
+                    "max_timestamp": release.max_timestamp,
+                    "release_date": release.release_date,
+                    "is_latest": release.version == assessment.latest_version,
+                    "is_outdated": release.is_outdated,
+                    "status_reason": release.status_reason,
+                }
+                for release in assessment.releases
+            ],
+        },
+        hash_keys=["sdk_name"],
+    )
