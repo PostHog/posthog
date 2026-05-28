@@ -1454,6 +1454,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'General',
         settings: [
             {
+                id: 'organization-admin-notice',
+                title: null,
+                component: (
+                    <p className="text-sm text-secondary">
+                        You must be an organization admin or owner to change these settings.
+                    </p>
+                ),
+            },
+            {
                 id: 'organization-display-name',
                 title: 'Name & logo',
                 description:
