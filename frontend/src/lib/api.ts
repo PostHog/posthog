@@ -739,6 +739,10 @@ export class ApiRequest {
         return this.metrics(projectId).addPathComponent('has_metrics')
     }
 
+    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('query')
+    }
+
     // # Tracing
     public tracingSpans(): ApiRequest {
         return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
@@ -2800,6 +2804,20 @@ const api = {
                 .metricsHasMetrics()
                 .get()
                 .then((response) => Boolean(response.hasMetrics))
+        },
+        async query({
+            query,
+            signal,
+        }: {
+            query: {
+                metricName: string
+                aggregation: 'sum' | 'avg' | 'count' | 'p95'
+                dateFrom: string
+                dateTo?: string
+            }
+            signal?: AbortSignal
+        }): Promise<{ results: { time: string; value: number }[] }> {
+            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
         },
     },
 
