@@ -25,12 +25,6 @@ def _preview(content: str | None) -> str:
 def gather_context_events(
     team: Team, date_from: datetime, date_to: datetime, limit: int = MAX_CONTEXT_EVENTS
 ) -> list[dict[str, Any]]:
-    """Collect a small ranked list of project events within the digest window for the AI summary prompt.
-
-    Events are purely additive context; on any internal failure this returns an empty list so summary
-    generation can still proceed. Sourced from manual annotations — the lowest-risk, highest-signal
-    timeline markers.
-    """
     try:
         rows = Annotation.objects.filter(
             team_id=team.pk,

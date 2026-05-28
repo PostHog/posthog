@@ -1,12 +1,13 @@
 import json
 import hashlib
 from datetime import datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 
-import structlog
 from langchain_core.messages import HumanMessage
+from langchain_core.outputs import ChatGeneration
 
 from posthog.schema import DateRange
 
@@ -17,9 +18,6 @@ from posthog.utils import relative_date_parse
 from products.web_analytics.backend.weekly_digest import DigestFilterSpec
 
 from ee.hogai.llm import MaxChatAnthropic
-
-logger = structlog.get_logger(__name__)
-
 
 MODEL_ID = "claude-haiku-4-5"
 LIVE_RANGE_TTL = timedelta(hours=1)
@@ -42,8 +40,6 @@ def _normalize_spec(spec: DigestFilterSpec) -> dict:
 
 
 def compute_cache_key(spec: DigestFilterSpec, *, team: Team) -> tuple[str, dict]:
-    # The key is built from the raw (unresolved) spec — relative tokens like '-7d' stay as-is so the
-    # key is stable over time and freshness is governed solely by the TTL, not by a wall-clock hour.
     normalized = _normalize_spec(spec)
     payload = json.dumps(normalized, sort_keys=True, default=str)
     digest = hashlib.sha256(payload.encode()).hexdigest()
@@ -61,7 +57,6 @@ def _range_contains_now(date_range: DateRange, *, team: Team, now: datetime) -> 
 
 
 def cache_ttl_for(spec: DigestFilterSpec, *, team: Team, now: datetime | None = None) -> timedelta:
-    # Live ranges (ending at/after now) churn, so expire quickly; closed past ranges are stable.
     now = now or datetime.now(ZoneInfo(team.timezone))
     return LIVE_RANGE_TTL if _range_contains_now(spec.date_range, team=team, now=now) else PAST_RANGE_TTL
 
@@ -158,6 +153,6 @@ def generate_web_analytics_summary(*, team: Team, normalized_spec: dict, digest:
         posthog_properties={"ai_product": "web_analytics", "ai_feature": "dashboard-summary"},
     )
     result = llm.generate([[HumanMessage(content=prompt)]])
-    message = result.generations[0][0].message  # type: ignore[union-attr]
+    message = cast(ChatGeneration, result.generations[0][0]).message
     content = message.content if isinstance(message.content, str) else "".join(str(c) for c in message.content)
     return content.strip()

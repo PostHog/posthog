@@ -287,7 +287,6 @@ class TestWebAnalyticsAISummaryAPI(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        # Summaries are cached in Redis/Django cache by team + filter spec — isolate cache state per test.
         cache.clear()
 
     def _url(self, team_id=None, check=False):
@@ -314,13 +313,11 @@ class TestWebAnalyticsAISummaryAPI(ClickhouseTestMixin, APIBaseTest):
             assert body["model_id"]
             assert mock_generate.call_count == 1
 
-            # Repeated generate hits the cache without invoking the LLM again.
             second = self._post()
             assert second.status_code == status.HTTP_200_OK
             assert second.json()["cached"] is True
             assert mock_generate.call_count == 1
 
-            # check=true now returns the cached summary.
             peek = self._post(check=True)
             assert peek.status_code == status.HTTP_200_OK
             assert peek.json()["cached"] is True

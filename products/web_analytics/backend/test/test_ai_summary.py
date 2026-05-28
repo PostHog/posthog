@@ -84,8 +84,6 @@ class TestComputeCacheKey(APIBaseTest):
         assert key_a == key_b
 
     def test_key_does_not_rotate_over_time(self):
-        # Regression: the key must not embed the current wall-clock, or a summary cached at one hour
-        # would never be found at the next, defeating the TTL.
         with freeze_time("2026-05-28 11:55:00"):
             key_early, _ = compute_cache_key(_spec(), team=self.team)
         with freeze_time("2026-05-28 12:05:00"):

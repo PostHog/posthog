@@ -45,7 +45,6 @@ export const webAnalyticsAISummaryLogic = kea<webAnalyticsAISummaryLogicType>([
                 generateSummarySuccess: (_, { summary }) => summary,
             },
         ],
-        // Only the LLM-invoking generate path drives the visible loading state; the cache check is silent.
         summaryLoading: [
             false,
             {
@@ -103,7 +102,6 @@ export const webAnalyticsAISummaryLogic = kea<webAnalyticsAISummaryLogicType>([
     }),
     listeners(({ values, actions }) => ({
         loadCachedSummary: async (_, breakpoint) => {
-            // Debounce: filterSpec changes can fire in rapid bursts as the user adjusts filters.
             await breakpoint(300)
             if (!values.currentProjectId) {
                 return
@@ -114,11 +112,9 @@ export const webAnalyticsAISummaryLogic = kea<webAnalyticsAISummaryLogicType>([
                     check: true,
                 })
             } catch {
-                // A failed silent cache check must not disrupt the dashboard — leave the current summary in place.
                 return
             }
             breakpoint()
-            // Cache hit → show it; miss (HTTP 204 → void) → clear so the banner reflects the current filters.
             actions.setSummary(result?.summary_text ? result : null)
         },
         generateSummary: async () => {
@@ -133,8 +129,9 @@ export const webAnalyticsAISummaryLogic = kea<webAnalyticsAISummaryLogicType>([
                 } else {
                     actions.generateSummaryFailure('Failed to generate summary')
                 }
-            } catch (error: any) {
-                actions.generateSummaryFailure(error?.detail || error?.message || 'Failed to generate summary')
+            } catch (error) {
+                const { detail, message } = (error ?? {}) as { detail?: string; message?: string }
+                actions.generateSummaryFailure(detail || message || 'Failed to generate summary')
             }
         },
     })),
