@@ -18,7 +18,6 @@ futures = { workspace = true }
 metrics = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = "0.1"
 tonic = { workspace = true }

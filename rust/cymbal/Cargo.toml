@@ -49,7 +49,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tower.workspace = true
 tiktoken-rs.workspace = true
 tonic = { workspace = true }
-prost = { workspace = true }
 
 
 [dev-dependencies]
