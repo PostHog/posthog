@@ -70,6 +70,12 @@ pub const FLAG_RATE_LIMIT_CHECK_TIME_MS: &str = "flags_rate_limit_check_ms";
 // raw body). Pathological large bodies are the suspected outlier driver.
 pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
 
+// Counter of FLAGS_LOG_BODIES_TEAMS refresh attempts. Labeled by
+// `result="success"|"failure"`. Emit absence-of-success alerts on this
+// (e.g., `rate(flags_body_log_refresh_total{result="success"}[10m]) == 0`)
+// to detect a stuck cache while DB or parse errors keep firing.
+pub const FLAG_BODY_LOG_REFRESH_TOTAL: &str = "flags_body_log_refresh_total";
+
 // Permit-acquisition wait time on the tower `ConcurrencyLimitLayer`.
 // Populated by Phase F; emitted only when populated. No `team_id` label
 // because permit wait is a property of pod-level load, not of any one team.
@@ -292,6 +298,18 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
+
+// Counter for /flags requests classified as bot traffic. Fires regardless
+// of whether the request was actually short-circuited, so dashboards can
+// plot the "would-have-rejected" rate during the log-only rollout phase
+// alongside the actual enforce-mode reject rate.
+// Labels: `bot_category` (google, ai, seo, uptime, social, headless,
+// crawler, other), `bot_source` (user_agent, ip), and
+// `mode` (`log_only` — classified but not blocked; `enforced` — classified
+// and short-circuited). No `team_id` because classification fires before
+// token extraction; per-team analysis lives in the canonical log line via
+// Loki.
+pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";

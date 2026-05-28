@@ -35,6 +35,9 @@ from posthog.constants import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
+    RetentionBaseQueryVariantComparisonMixin,
+)
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import Cohort
@@ -78,7 +81,17 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
         i += 1
 
 
-class TestRetention(ClickhouseTestMixin, APIBaseTest):
+class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest):
+    retention_base_query_variant_comparison_excluded_tests = {
+        "test_month_interval_with_person_on_events_v2",
+        "test_week_interval",
+        "test_retention_event_action",
+        "test_retention_with_user_properties_via_action",
+        "test_timezones",
+        "test_retention_aggregation_sum",
+        "test_retention_aggregation_different_events_ignores_start_event_property_value",
+    }
+
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
@@ -99,28 +112,36 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = RetentionQueryRunner(team=self.team, query=query)
-        return runner.calculate().model_dump()["results"]
+
+        def calculate(query_for_variant):
+            runner = RetentionQueryRunner(team=self.team, query=query_for_variant)
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def run_actors_query(self, interval, query, select=None, search=None, breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = ActorsQueryRunner(
-            team=self.team,
-            query={
-                "search": search,
-                "select": ["person", "appearances", *(select or [])],
-                "orderBy": ["length(appearances) DESC", "actor_id"],
-                "source": {
-                    "kind": "InsightActorsQuery",
-                    "interval": interval,
-                    "source": query,
-                    "breakdown": breakdown,
+
+        def calculate(query_for_variant):
+            runner = ActorsQueryRunner(
+                team=self.team,
+                query={
+                    "search": search,
+                    "select": ["person", "appearances", *(select or [])],
+                    "orderBy": ["length(appearances) DESC", "actor_id"],
+                    "source": {
+                        "kind": "InsightActorsQuery",
+                        "interval": interval,
+                        "source": query_for_variant,
+                        "breakdown": breakdown,
+                    },
                 },
-            },
-        )
-        return runner.calculate().model_dump()["results"]
+            )
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -5446,31 +5467,48 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("properties", sql)
 
 
-class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
+class TestClickhouseRetentionGroupAggregation(
+    RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest
+):
+    retention_base_query_variant_comparison_excluded_tests = {
+        "test_groups_aggregating",
+        "test_groups_aggregating_person_on_events",
+        "test_limit_is_context_aware",
+        "test_retention_24h_window_calculation",
+    }
+
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
-        return runner.calculate().model_dump()["results"]
+
+        def calculate(query_for_variant):
+            runner = RetentionQueryRunner(team=self.team, query=query_for_variant, limit_context=limit_context)
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def run_actors_query(self, interval, query, select=None, actor="person", breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = ActorsQueryRunner(
-            team=self.team,
-            query={
-                "select": [actor, "appearances", *(select or [])],
-                "orderBy": ["length(appearances) DESC", "actor_id"],
-                "source": {
-                    "kind": "InsightActorsQuery",
-                    "interval": interval,
-                    "source": query,
-                    "breakdown": breakdown,
+
+        def calculate(query_for_variant):
+            runner = ActorsQueryRunner(
+                team=self.team,
+                query={
+                    "select": [actor, "appearances", *(select or [])],
+                    "orderBy": ["length(appearances) DESC", "actor_id"],
+                    "source": {
+                        "kind": "InsightActorsQuery",
+                        "interval": interval,
+                        "source": query_for_variant,
+                        "breakdown": breakdown,
+                    },
                 },
-            },
-        )
-        return runner.calculate().model_dump()["results"]
+            )
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def _create_groups_and_events(self):
         create_group_type_mapping_without_created_at(

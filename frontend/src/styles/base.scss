@@ -667,8 +667,9 @@
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
     --z-scene-layout-content-panel: 770;
     --z-scene-layout-content-panel-under: 769;
-    --z-layout-panel: 760;
-    --z-layout-panel-under: 759;
+    --z-layout-panel: 761;
+    --z-layout-panel-under: 760;
+    --z-layout-panel-over-nav: 759; // mobile dim sitting above the nav (756), below the panel (761)
     --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
     --z-layout-navbar-under: 755;
@@ -1991,22 +1992,6 @@
     /* stylelint-disable-next-line order/order */
     .animate-fade-in {
         animation: fade-in 0.4s ease-out forwards;
-    }
-
-    /* Overlay fade in/out transitions */
-    .overlay-fade {
-        opacity: 1;
-        transition: opacity 0.2s ease-out;
-
-        /* Exit animation - opacity controlled by utility class */
-        &.opacity-0 {
-            opacity: 0;
-        }
-
-        /* Entry animation - fade in from 0 */
-        @starting-style {
-            opacity: 0;
-        }
     }
 
     /* stylelint-disable-next-line keyframes-name-pattern */

@@ -3,6 +3,10 @@ export interface RoleBasedMessage {
     content: string | { type: string; content: string } | MultiModalContentItem[]
 }
 
+export interface StringContentObject {
+    content: string
+}
+
 export interface OpenAIToolCall {
     type: string
     id?: string

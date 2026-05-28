@@ -368,11 +368,12 @@ async def create_wa_weekly_digest_schedule(client: Client):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Weekly at Monday 9 AM UTC",
-                    hour=[ScheduleRange(start=9, end=9)],
-                    day_of_week=[ScheduleRange(start=1, end=1)],
+                    comment="Weekly at Thursday 5 PM PT",
+                    hour=[ScheduleRange(start=17, end=17)],
+                    day_of_week=[ScheduleRange(start=4, end=4)],
                 )
-            ]
+            ],
+            time_zone_name="America/Los_Angeles",
         ),
     )
 

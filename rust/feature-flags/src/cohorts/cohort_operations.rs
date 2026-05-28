@@ -513,6 +513,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     },
                     PropertyFilter {
                         key: "age".to_string(),
@@ -522,6 +523,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     },
                 ],
             }],
