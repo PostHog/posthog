@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 25 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -526,6 +526,31 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
+
+Closes the anonymous-draft-invoke gap: the public ingress URL refuses
+non-live invokes that don't carry the `x-agent-preview-secret` header;
+this proxy attaches it after authenticating the Django caller. See
+docs/agent-platform/plans/draft-preview-auth.md.
+
+URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
+Auth: standard PAT / session — `agent_application:read` scope.
+ */
+export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    rest: zod.string().describe('Ingress sub-path under the agent slug. One of: `run`, `send`, `cancel`, `listen`.'),
+})
+
+export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.object({
+    revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
 })
 
 /**

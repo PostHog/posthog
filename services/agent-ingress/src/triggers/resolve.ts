@@ -6,7 +6,7 @@
 
 import { Request, Response } from 'express'
 
-import { AmbiguousRevisionError, ResolvedAgent, RevisionResolver } from '../routing/resolver'
+import { AmbiguousRevisionError, MissingPreviewSecretError, ResolvedAgent, RevisionResolver } from '../routing/resolver'
 
 /**
  * Resolve the agent for a request, writing a 400 to `res` and returning null
@@ -30,10 +30,16 @@ export async function resolveAgent(
     const revHeader = req.headers['x-agent-revision']
     const revisionId = revQuery || (typeof revHeader === 'string' ? revHeader : null) || undefined
 
+    // Short-lived JWT that Django mints per preview-proxy hop. The resolver
+    // verifies it on non-live resolutions. Live calls don't need it. See
+    // docs/agent-platform/plans/draft-preview-auth.md.
+    const previewHeader = req.headers['x-agent-preview-token']
+    const providedToken = typeof previewHeader === 'string' ? previewHeader : undefined
+
     const slug = typeof req.params?.slug === 'string' ? req.params.slug : null
     try {
         if (slug) {
-            return await resolver.resolveBySlug(slug, { revisionId })
+            return await resolver.resolveBySlug(slug, { revisionId, providedToken })
         }
         if (revisionId) {
             // Domain-mode + revision-override is ambiguous: there's no slug in the
@@ -50,6 +56,14 @@ export async function resolveAgent(
                 application_id: err.applicationId,
                 candidates: err.candidates,
                 detail: 'Multiple revisions match this prefix; re-issue with a longer prefix or pass ?revision_id.',
+            })
+            return null
+        }
+        if (err instanceof MissingPreviewSecretError) {
+            res.status(401).json({
+                error: 'preview_token_required',
+                reason: err.reason,
+                detail: 'Non-live revision invokes must come through the Django preview-proxy. Use POST /api/projects/<team>/agent_applications/<app>/preview-proxy/...',
             })
             return null
         }

@@ -49,6 +49,12 @@ async function main(): Promise<void> {
         bus = redis
     }
 
+    // AGENT_PREVIEW_SECRET gates non-live revision invokes through the Django
+    // preview-proxy. Defaults to INTERNAL_SECRET (the same shared secret
+    // Django uses for janitor calls) so v0 doesn't need new env wiring.
+    // Unset → the gate is bypassed and the warning logs surface the gap.
+    // See docs/agent-platform/plans/draft-preview-auth.md.
+    const previewSecret = process.env.AGENT_PREVIEW_SECRET || process.env.INTERNAL_SECRET || undefined
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),
         queue: new PgSessionQueue(agentDb),
@@ -59,6 +65,7 @@ async function main(): Promise<void> {
         domainSuffix: process.env.DOMAIN_SUFFIX,
         pathPrefix: process.env.PATH_PREFIX ?? '/agents',
         slackSigningSecret: process.env.SLACK_SIGNING_SECRET,
+        previewSecret,
     })
     app.listen(port, () => {
         log.info({ port, bus: bus.constructor.name }, 'listening')

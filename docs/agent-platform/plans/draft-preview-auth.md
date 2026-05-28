@@ -39,9 +39,10 @@ the preview URL. We rejected it because:
   every outstanding preview URL — same hazard as rotating
   `SECRET_KEY`, but the URLs sit in customer Slack threads forever.
 
-Instead, Django proxies. The ingress already has `INTERNAL_SECRET`
-that Django sends to the janitor on every bundle proxy call —
-re-use the same trust boundary for draft invokes:
+Instead, Django proxies. Django mints a **short-lived HS256 JWT bound
+to the (application, revision) being invoked** and attaches it as
+`x-agent-preview-token` when forwarding to the ingress. The signing
+secret never leaves the Django ↔ ingress server-server boundary.
 
 ```text
    MCP / UI / teammate
@@ -51,15 +52,18 @@ re-use the same trust boundary for draft invokes:
           ▼
         Django proxy
           │
+          │  mints JWT{ aud, app, rev, exp=60s, sub=user-id }
           │  POST  /agents/<slug>/run?revision_id=<uuid>
-          │  x-agent-preview-secret: $INTERNAL_SECRET
+          │  x-agent-preview-token: <jwt>
           ▼
-        Ingress  ─►  verify header for non-live  →  enqueue
+        Ingress  ─►  verify HS256 sig + aud + exp + app+rev claims  →  enqueue
 ```
 
 The secret never leaves the Django ↔ ingress server-server boundary.
 LLMs / browsers / Slack URLs only ever see PostHog's normal Django
-URLs and PostHog's normal auth flow.
+URLs and PostHog's normal auth flow. A captured proxy → ingress
+request expires within 60s and can't be replayed against any other
+(app, rev) pair.
 
 ## 3. The Django proxy endpoint
 
@@ -87,13 +91,12 @@ Routes:
   "production traffic" and "preview traffic" in metrics and logs.
 - Forward to `INGRESS_URL/agents/<slug>/<rest>?revision_id=<uuid>`,
   attaching:
-  - `x-agent-preview-secret: $INTERNAL_SECRET` (the marker the
-    ingress trusts)
+  - `x-agent-preview-token: <jwt>` — short-lived HS256 token,
+    `aud=posthog:agent_preview`, claims `{ app, rev, sub=user-id,
+exp=now+60s }`. The ingress verifies signature + claim-binding.
   - the request body, headers (minus `Host`, `Authorization`,
     `Cookie` — those identify the _Django_ caller, not the agent's
-    caller)
-  - a `x-agent-preview-issuer` header capturing the resolved
-    Django user id, for activity-log attribution
+    caller).
 
 The response streams back to the original caller. `StreamingHttpResponse`
 handles SSE (`listen`) cleanly under granian / ASGI; chunked
@@ -103,42 +106,29 @@ propagates to the upstream call via `requests.get(stream=True)` plus
 
 ## 4. The ingress gate
 
-```typescript
-async resolveBySlug(
-    rawSlug: string,
-    opts?: { revisionId?: string }
-): Promise<ResolvedAgent | null> {
-    const resolved = /* existing resolution logic */
-    if (!resolved) {
-        return null
-    }
-    if (resolved.revision.id !== resolved.application.live_revision_id) {
-        // Non-live invoke — require the preview-secret header.
-        if (!this.opts.previewSecret) {
-            // Misconfigured deployment.
-            return null
-        }
-        const provided = req.headers['x-agent-preview-secret']
-        if (!provided || !timingSafeEqual(provided, this.opts.previewSecret)) {
-            throw new MissingPreviewSecretError()
-        }
-    }
-    return resolved
-}
-```
+On any non-live resolution the resolver verifies the JWT:
 
-(The actual API plumbs the header into `resolveAgent()` since the
-resolver doesn't have `req`. Same shape as the existing
-ambiguous-revision check — throw, error-middleware translates to
-401.)
+1. Header `x-agent-preview-token` must be present.
+2. `jose.jwtVerify(token, secret, { audience, algorithms: ['HS256'] })`
+   — bad signature, wrong audience, or expired token all throw.
+3. `payload.app === resolved.application.id` — token must be bound
+   to the application being invoked.
+4. `payload.rev === resolved.revision.id` — token must be bound to
+   the specific revision being invoked.
 
-The `previewSecret` value comes from `AGENT_PREVIEW_SECRET` env on
-the ingress, matching `AGENT_PREVIEW_SECRET` on the Django side.
-For v0 we reuse the already-existing `INTERNAL_SECRET` value (the
-janitor secret) since the trust boundary is identical — Django ↔
-node services. Document this as the convention; split into a
-distinct secret only if a use case demands rotation independent of
-the janitor relationship.
+Any check fails → `MissingPreviewSecretError` with a `reason` tag.
+The trigger-side helper catches the error and returns a 401 with the
+reason in the body, so debugging a misconfigured proxy is concrete:
+`{ "error": "preview_token_required", "reason": "token_verify_failed: ..." }`.
+
+The shared secret comes from `AGENT_PREVIEW_SECRET` env on both the
+ingress and the Django side. Distinct from Django's `SECRET_KEY` —
+the ingress shouldn't be trusted with Django's master key. v0 falls
+back to `AGENT_JANITOR_SECRET` (which Django already shares with the
+janitor) to keep dev setup simple.
+
+The `previewSecret` value being unset (dev / harness path) bypasses
+the gate entirely. Production wires it.
 
 ## 5. What about Slack / webhook drafts?
 

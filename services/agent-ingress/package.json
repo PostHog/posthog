@@ -21,6 +21,7 @@
     "dependencies": {
         "@posthog/agent-shared": "workspace:*",
         "express": "^4.21.1",
+        "jose": "^6.2.3",
         "pg": "^8.6.0",
         "tsx": "^4.7.0",
         "zod": "^4.3.6"

@@ -8,6 +8,8 @@ import {
     AgentApplicationsListQueryParams,
     AgentApplicationsPartialUpdateBody,
     AgentApplicationsPartialUpdateParams,
+    AgentApplicationsPreviewProxyParams,
+    AgentApplicationsPreviewProxyQueryParams,
     AgentApplicationsRetrieveParams,
     AgentApplicationsRevisionsArchiveCreateParams,
     AgentApplicationsRevisionsBundleRetrieveParams,
@@ -538,6 +540,29 @@ const agentApplicationsRevisionsValidateCreate = (): ToolBase<
     },
 })
 
+const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true }).extend(
+    AgentApplicationsPreviewProxyQueryParams.shape
+)
+
+const agentApplicationsPreviewProxy = (): ToolBase<
+    typeof AgentApplicationsPreviewProxySchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-preview-proxy',
+    schema: AgentApplicationsPreviewProxySchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewProxySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview-proxy/${encodeURIComponent(String(params.rest))}/`,
+            query: {
+                revision_id: params.revision_id,
+            },
+        })
+        return result
+    },
+})
+
 const AgentApplicationsSessionsListSchema = AgentApplicationsSessionsListParams.omit({ project_id: true }).extend(
     AgentApplicationsSessionsListQueryParams.shape
 )
@@ -655,6 +680,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-promote-create': agentApplicationsRevisionsPromoteCreate,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
     'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
+    'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
     'agent-applications-set-env-create': agentApplicationsSetEnvCreate,

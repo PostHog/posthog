@@ -12,6 +12,8 @@ import type {
     AgentApplicationApi,
     AgentApplicationSessionsListResponseApi,
     AgentApplicationsListParams,
+    AgentApplicationsPreviewProxyGetParams,
+    AgentApplicationsPreviewProxyParams,
     AgentApplicationsRevisionsFileDestroyParams,
     AgentApplicationsRevisionsFileRetrieveParams,
     AgentApplicationsRevisionsFileUpdateParams,
@@ -813,6 +815,88 @@ export const agentApplicationsDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getAgentApplicationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsPreviewProxyGetUrl = (
+    projectId: string,
+    id: string,
+    rest: string,
+    params: AgentApplicationsPreviewProxyGetParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/`
+}
+
+/**
+ * GET passthrough for the preview-proxy — used for `/listen` SSE.
+ */
+export const agentApplicationsPreviewProxyGet = async (
+    projectId: string,
+    id: string,
+    rest: string,
+    params: AgentApplicationsPreviewProxyGetParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsPreviewProxyGetUrl(projectId, id, rest, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsPreviewProxyUrl = (
+    projectId: string,
+    id: string,
+    rest: string,
+    params: AgentApplicationsPreviewProxyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/`
+}
+
+/**
+ * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
+
+Closes the anonymous-draft-invoke gap: the public ingress URL refuses
+non-live invokes that don't carry the `x-agent-preview-secret` header;
+this proxy attaches it after authenticating the Django caller. See
+docs/agent-platform/plans/draft-preview-auth.md.
+
+URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
+Auth: standard PAT / session — `agent_application:read` scope.
+ */
+export const agentApplicationsPreviewProxy = async (
+    projectId: string,
+    id: string,
+    rest: string,
+    params: AgentApplicationsPreviewProxyParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsPreviewProxyUrl(projectId, id, rest, params), {
+        ...options,
+        method: 'POST',
     })
 }
 

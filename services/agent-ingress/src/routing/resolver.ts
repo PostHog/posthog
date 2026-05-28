@@ -6,7 +6,16 @@
  *   - "path"  : resolve by path prefix (`/agents/<slug>/...`)
  */
 
+import { jwtVerify } from 'jose'
+
 import { AgentApplication, AgentRevision, RevisionStore } from '@posthog/agent-shared'
+
+/**
+ * JWT audience that Django mints on preview-proxy hops. The ingress only
+ * accepts tokens carrying this audience — so a JWT minted for some other
+ * PostHog feature (export rendering, livestream, …) can't be replayed here.
+ */
+const PREVIEW_TOKEN_AUDIENCE = 'posthog:agent_preview'
 
 export type RoutingMode = 'domain' | 'path'
 
@@ -32,6 +41,20 @@ export class AmbiguousRevisionError extends Error {
     }
 }
 
+/**
+ * Thrown when a non-live revision is invoked without a valid preview JWT.
+ * Django mints the token on each proxy call (short-lived, bound to the
+ * (application, revision) it's invoking). Captured tokens expire in seconds
+ * and can't be replayed against a different draft. See
+ * `docs/agent-platform/plans/draft-preview-auth.md`.
+ */
+export class MissingPreviewSecretError extends Error {
+    constructor(readonly reason: string = 'missing_or_invalid_preview_token') {
+        super(`non-live revision invoke requires a valid preview token (${reason})`)
+        this.name = 'MissingPreviewSecretError'
+    }
+}
+
 export interface ResolverOpts {
     revisions: RevisionStore
     mode: RoutingMode
@@ -41,6 +64,15 @@ export interface ResolverOpts {
     pathPrefix?: string
     /** Team that owns all routed agents in this deployment. v1 = single tenant. */
     teamId: number
+    /**
+     * HMAC secret shared with Django. Django mints a short-lived JWT (aud =
+     * `posthog:agent_preview`, claims `{ app, rev }`) and sends it as
+     * `x-agent-preview-token` on every preview-proxy hop; the resolver
+     * verifies signature + exp + claim-binding on non-live resolutions.
+     * Leave undefined to bypass the gate (dev / harness path); production
+     * wires `AGENT_PREVIEW_SECRET`.
+     */
+    previewSecret?: string
 }
 
 export class RevisionResolver {
@@ -59,15 +91,27 @@ export class RevisionResolver {
         return this.resolveBySlug(slug)
     }
 
-    async resolveBySlug(rawSlug: string, opts?: { revisionId?: string }): Promise<ResolvedAgent | null> {
+    async resolveBySlug(
+        rawSlug: string,
+        opts?: { revisionId?: string; providedToken?: string }
+    ): Promise<ResolvedAgent | null> {
+        const resolved = await this.resolveBySlugInner(rawSlug, opts?.revisionId)
+        if (!resolved) {
+            return null
+        }
+        await this.assertPreviewGate(resolved, opts?.providedToken)
+        return resolved
+    }
+
+    private async resolveBySlugInner(rawSlug: string, revisionId?: string): Promise<ResolvedAgent | null> {
         // Explicit ?revision_id=<uuid> wins over everything. Look up the
         // verbatim slug + verify ownership.
-        if (opts?.revisionId) {
+        if (revisionId) {
             const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, rawSlug)
             if (!application || application.archived) {
                 return null
             }
-            return this.resolveWithExplicitRevision(application, opts.revisionId)
+            return this.resolveWithExplicitRevision(application, revisionId)
         }
 
         // Try `<slug>-<8..32 hex>` first. The prefix must be ≥ 8 hex chars to
@@ -116,6 +160,44 @@ export class RevisionResolver {
             return null
         }
         return { application, revision: override }
+    }
+
+    /**
+     * Refuse non-live invokes unless the request carries a valid preview JWT
+     * signed with the shared secret. Token must (a) verify against the HMAC,
+     * (b) carry the `posthog:agent_preview` audience, (c) not be expired, and
+     * (d) carry `app` + `rev` claims that match the resolved revision. The
+     * check is bypassed when `previewSecret` isn't configured (dev / harness
+     * path).
+     */
+    private async assertPreviewGate(resolved: ResolvedAgent, providedToken: string | undefined): Promise<void> {
+        if (!this.opts.previewSecret) {
+            return
+        }
+        if (resolved.revision.id === resolved.application.live_revision_id) {
+            return
+        }
+        if (!providedToken) {
+            throw new MissingPreviewSecretError('missing_token')
+        }
+        const keyBytes = new TextEncoder().encode(this.opts.previewSecret)
+        let payload: Record<string, unknown>
+        try {
+            const verified = await jwtVerify(providedToken, keyBytes, {
+                audience: PREVIEW_TOKEN_AUDIENCE,
+                algorithms: ['HS256'],
+            })
+            payload = verified.payload as Record<string, unknown>
+        } catch (e) {
+            // jose throws on bad signature / expired / wrong audience.
+            throw new MissingPreviewSecretError(`token_verify_failed: ${(e as Error).message}`)
+        }
+        if (payload.app !== resolved.application.id) {
+            throw new MissingPreviewSecretError('app_claim_mismatch')
+        }
+        if (payload.rev !== resolved.revision.id) {
+            throw new MissingPreviewSecretError('rev_claim_mismatch')
+        }
     }
 
     extractSlugFromHost(host: string): string | null {

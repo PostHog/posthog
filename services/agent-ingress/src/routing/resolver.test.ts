@@ -1,7 +1,7 @@
 import { AgentSpecSchema, MemoryRevisionStore } from '@posthog/agent-shared'
 import { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 
-import { AmbiguousRevisionError, RevisionResolver } from './resolver'
+import { AmbiguousRevisionError, MissingPreviewSecretError, RevisionResolver } from './resolver'
 
 async function seedApp(
     store: MemoryRevisionStore,
@@ -215,6 +215,171 @@ describe('RevisionResolver', () => {
             const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
             // Falls through to verbatim slug, which has no live_revision → null.
             expect(await resolver.resolveBySlug('with-archived-019e6f25')).toBeNull()
+        })
+    })
+
+    describe('preview-token gate (non-live revision invokes)', () => {
+        const SECRET = 'matching-shared-secret'
+
+        async function seedAppAndDraft(
+            store: MemoryRevisionStore,
+            slug: string
+        ): Promise<{ app: AgentApplication; draft: AgentRevision }> {
+            const app = await store.createApplication({ team_id: 1, slug, name: slug, description: '' })
+            const live = await store.createRevision({
+                application_id: app.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 's3://x/',
+                spec: AgentSpecSchema.parse({ model: 'x' }),
+            })
+            await store.setRevisionState(live.id, 'live')
+            await store.setLiveRevision(app.id, live.id)
+            const draft = await store.createRevision({
+                application_id: app.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 's3://x/',
+                spec: AgentSpecSchema.parse({ model: 'x' }),
+            })
+            return { app, draft }
+        }
+
+        async function mintToken(
+            secret: string,
+            claims: { app: string; rev: string; ttlSec?: number; audience?: string }
+        ): Promise<string> {
+            const { SignJWT } = await import('jose')
+            const keyBytes = new TextEncoder().encode(secret)
+            return new SignJWT({ app: claims.app, rev: claims.rev })
+                .setProtectedHeader({ alg: 'HS256' })
+                .setIssuedAt()
+                .setAudience(claims.audience ?? 'posthog:agent_preview')
+                .setExpirationTime(`${claims.ttlSec ?? 60}s`)
+                .sign(keyBytes)
+        }
+
+        it('lets live invokes through without a token even when one is configured', async () => {
+            const store = new MemoryRevisionStore()
+            await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            const out = await resolver.resolveBySlug('gated')
+            expect(out!.revision.state).toBe('live')
+        })
+
+        it('refuses a draft override without any token', async () => {
+            const store = new MemoryRevisionStore()
+            const { draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            await expect(resolver.resolveBySlug('gated', { revisionId: draft.id })).rejects.toBeInstanceOf(
+                MissingPreviewSecretError
+            )
+        })
+
+        it('refuses a token signed with the wrong secret', async () => {
+            const store = new MemoryRevisionStore()
+            const { app, draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            const badToken = await mintToken('different-secret', { app: app.id, rev: draft.id })
+            await expect(
+                resolver.resolveBySlug('gated', { revisionId: draft.id, providedToken: badToken })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token whose `app` claim points at a different application', async () => {
+            const store = new MemoryRevisionStore()
+            const { draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            const otherAppToken = await mintToken(SECRET, { app: 'app-other', rev: draft.id })
+            await expect(
+                resolver.resolveBySlug('gated', { revisionId: draft.id, providedToken: otherAppToken })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token whose `rev` claim points at a different revision', async () => {
+            const store = new MemoryRevisionStore()
+            const { app, draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            const otherRevToken = await mintToken(SECRET, { app: app.id, rev: 'some-other-rev' })
+            await expect(
+                resolver.resolveBySlug('gated', { revisionId: draft.id, providedToken: otherRevToken })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token with the wrong audience', async () => {
+            const store = new MemoryRevisionStore()
+            const { app, draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            const wrongAud = await mintToken(SECRET, { app: app.id, rev: draft.id, audience: 'posthog:unsubscribe' })
+            await expect(
+                resolver.resolveBySlug('gated', { revisionId: draft.id, providedToken: wrongAud })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('admits a draft override with a valid bound token', async () => {
+            const store = new MemoryRevisionStore()
+            const { app, draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: SECRET,
+            })
+            const goodToken = await mintToken(SECRET, { app: app.id, rev: draft.id })
+            const out = await resolver.resolveBySlug('gated', { revisionId: draft.id, providedToken: goodToken })
+            expect(out!.revision.id).toBe(draft.id)
+            expect(out!.revision.state).toBe('draft')
+        })
+
+        it('bypasses the gate when previewSecret is unset (dev / harness path)', async () => {
+            const store = new MemoryRevisionStore()
+            const { draft } = await seedAppAndDraft(store, 'gated')
+            const resolver = new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                // previewSecret omitted
+            })
+            const out = await resolver.resolveBySlug('gated', { revisionId: draft.id })
+            expect(out!.revision.id).toBe(draft.id)
         })
     })
 })

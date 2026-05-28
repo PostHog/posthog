@@ -18,15 +18,21 @@ janitor_client.py for the wire protocol.
 
 from __future__ import annotations
 
+import os
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.db.models import QuerySet
+from django.http import StreamingHttpResponse
 from django.utils import timezone
 
+import jwt as pyjwt
+import requests
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import (
@@ -41,6 +47,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.jwt import PosthogJwtAudience
 
 from .janitor_client import JanitorClient, JanitorClientError, default_client
 from .models import AgentApplication, AgentRevision
@@ -112,7 +119,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "agent_application"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "set_env"]
-    scope_object_read_actions = ["list", "retrieve", "sessions_list", "sessions_retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "sessions_list", "sessions_retrieve", "preview_proxy"]
     serializer_class = AgentApplicationSerializer
     queryset = AgentApplication.objects.all()
 
@@ -155,6 +162,148 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application.encrypted_env = json.dumps(env_map)
         application.save(update_fields=["encrypted_env", "updated_at"])
         return Response({"ok": True})
+
+    # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
+    # this an allowlist (vs an arbitrary passthrough) gives us a single place
+    # to audit what's reachable through the authoring-side trust boundary.
+    # `webhook/<path>` and `slack/events` aren't included — those triggers
+    # need stable public URLs and don't fit a Django-mediated preview.
+    _PREVIEW_PROXY_ALLOWED_PATHS = frozenset({"run", "send", "cancel", "listen"})
+
+    _PREVIEW_PROXY_PARAMETERS = [
+        OpenApiParameter(
+            "rest",
+            OpenApiTypes.STR,
+            OpenApiParameter.PATH,
+            required=True,
+            description="Ingress sub-path under the agent slug. One of: `run`, `send`, `cancel`, `listen`.",
+        ),
+        OpenApiParameter(
+            "revision_id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            required=True,
+            description="Target draft revision. Must belong to this application and not be live.",
+        ),
+    ]
+
+    @extend_schema(
+        operation_id="agent_applications_preview_proxy",
+        parameters=_PREVIEW_PROXY_PARAMETERS,
+        request=None,
+    )
+    @action(detail=True, methods=["post"], url_path=r"preview-proxy/(?P<rest>[^/]+)")
+    def preview_proxy(self, request: Request, rest: str = "", **kwargs) -> StreamingHttpResponse | Response:
+        """Authoring-side proxy for invoking a *draft* (or any non-live) revision.
+
+        Closes the anonymous-draft-invoke gap: the public ingress URL refuses
+        non-live invokes that don't carry the `x-agent-preview-secret` header;
+        this proxy attaches it after authenticating the Django caller. See
+        docs/agent-platform/plans/draft-preview-auth.md.
+
+        URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
+        Auth: standard PAT / session — `agent_application:read` scope.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+
+        if rest not in self._PREVIEW_PROXY_ALLOWED_PATHS:
+            raise ValidationError(
+                f"preview-proxy path '{rest}' is not allowed. Allowed: {sorted(self._PREVIEW_PROXY_ALLOWED_PATHS)}."
+            )
+
+        revision_id = request.query_params.get("revision_id")
+        if not revision_id:
+            raise ValidationError("revision_id query parameter is required for preview-proxy")
+        revision = AgentRevision.objects.filter(application=application, pk=revision_id).first()
+        if not revision:
+            raise NotFound("Revision not found in this application")
+        if application.live_revision_id == revision.id:
+            raise ValidationError(
+                "preview-proxy is for non-live revisions only; invoke the live revision via its public ingress URL"
+            )
+
+        ingress_base = os.environ.get("AGENT_INGRESS_URL", "http://localhost:3030").rstrip("/")
+        # Hand-build the query string so we forward the caller's existing
+        # params alongside the revision_id pin.
+        forwarded_query = {k: v for k, v in request.query_params.items() if k != "revision_id"}
+        forwarded_query["revision_id"] = str(revision.id)
+        upstream_url = f"{ingress_base}/agents/{application.slug}/{rest}?{urlencode(forwarded_query)}"
+
+        # Header set kept tight — caller's Authorization / Cookie / Host
+        # identify the *Django* caller, not the agent's caller. Don't leak.
+        skip_headers = {"host", "authorization", "cookie", "content-length"}
+        forwarded_headers: dict[str, str] = {k: v for k, v in request.headers.items() if k.lower() not in skip_headers}
+        # Mint a short-lived HS256 JWT bound to (app, rev). The ingress
+        # verifies signature + exp + audience + claim-binding. Captured
+        # tokens expire in seconds AND can't be replayed against a different
+        # draft. AGENT_PREVIEW_SECRET must match the ingress's value.
+        preview_secret = os.environ.get("AGENT_PREVIEW_SECRET") or os.environ.get("AGENT_JANITOR_SECRET", "")
+        if preview_secret:
+            payload: dict[str, Any] = {
+                "app": str(application.id),
+                "rev": str(revision.id),
+                "aud": PosthogJwtAudience.AGENT_PREVIEW.value,
+                "exp": datetime.now(tz=UTC) + timedelta(seconds=60),
+            }
+            if request.user and request.user.is_authenticated:
+                payload["sub"] = f"user:{request.user.id}"
+            forwarded_headers["x-agent-preview-token"] = pyjwt.encode(payload, preview_secret, algorithm="HS256")
+
+        # DRF's parser already consumed request.body via request.data — we
+        # re-serialize the parsed payload so requests can ship a fresh body.
+        # Cheaper than re-reading the raw stream (which the parser exhausted).
+        body_bytes: bytes | None = None
+        if request.method in ("POST", "PUT", "PATCH"):
+            body_bytes = json.dumps(request.data).encode("utf-8") if request.data else b""
+            forwarded_headers["content-type"] = "application/json"
+        try:
+            upstream = requests.request(
+                method=request.method,
+                url=upstream_url,
+                headers=forwarded_headers,
+                data=body_bytes,
+                stream=True,
+                timeout=30.0,
+            )
+        except requests.RequestException as e:
+            logger.exception("preview-proxy upstream call failed")
+            raise APIException(detail=f"preview-proxy upstream unreachable: {e}") from e
+
+        def _stream() -> Iterator[bytes]:
+            try:
+                # iter_content with no decoding keeps SSE chunks intact.
+                for chunk in upstream.iter_content(chunk_size=None):
+                    if chunk:
+                        yield chunk
+            finally:
+                upstream.close()
+
+        resp = StreamingHttpResponse(
+            _stream(),
+            status=upstream.status_code,
+            content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+        )
+        # Forward upstream response headers verbatim minus connection-control
+        # ones that Django handles itself.
+        skip_resp = {"content-length", "transfer-encoding", "connection", "content-type"}
+        for k, v in upstream.headers.items():
+            if k.lower() not in skip_resp:
+                resp[k] = v
+        return resp
+
+    # Same proxy, GET counterpart. Used for SSE (`listen`). Same body, just a
+    # different verb so drf-spectacular emits a distinct operation_id.
+    @extend_schema(
+        operation_id="agent_applications_preview_proxy_get",
+        parameters=_PREVIEW_PROXY_PARAMETERS,
+        request=None,
+    )
+    @preview_proxy.mapping.get
+    def preview_proxy_get(self, request: Request, rest: str = "", **kwargs) -> StreamingHttpResponse | Response:
+        """GET passthrough for the preview-proxy — used for `/listen` SSE."""
+        return self.preview_proxy(request, rest=rest, **kwargs)
 
     _SESSION_USAGE_TOTAL_FIELDS = {
         "tokens_in": drf_serializers.IntegerField(),
