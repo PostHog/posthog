@@ -243,8 +243,9 @@ judge infrastructure, and lands a draft for human review.
   `$agent_application_id` + `$agent_revision_id`. This is the
   single biggest pre-D.2 piece of work. **Promoted to its own plan
   ([`platform-llm-analytics.md`](platform-llm-analytics.md)); v0
-  (runner emits to dedicated `agent_ai_events` Kafka topic) ✅
-  shipped; v1 (forwarder consumer + free-flag billing logic) pending.**
+  (runner captures via standard PostHog ingestion / posthog-node) ✅
+  shipped; v1 (signed `$ai_origin` marker for billing exclusion of
+  platform-internal runs) pending.**
 
 ## E. Human surfaces — **Ben**
 
@@ -331,8 +332,8 @@ Assuming no parallelism, a reasonable order:
 5. **D.2 §11 v0** — wire LLM analytics emission from the runner.
    _Promoted to its own plan
    ([`platform-llm-analytics.md`](platform-llm-analytics.md)); v0
-   runner-side emitter ✅ shipped — next ask is the v1 forwarder
-   consumer + free-flag logic._
+   runner-side capture ✅ shipped — next ask is the v1 signed-origin
+   marker + billing-side verifier._
 6. **C.1** — sandboxed inference. `repo-readonly` first, then
    `repo-write`, then `repo-pr`. Each tier expands trust and depends
    on the prior layers' enforcement.

@@ -1,74 +1,40 @@
 /**
  * AnalyticsSink — the runner's LLM-analytics out-bound. One `$ai_generation`
- * per pi-ai call, one `$ai_span` per tool dispatch, written to a dedicated
- * Kafka topic the agent platform owns:
+ * per pi-ai call, one `$ai_span` per tool dispatch, captured through the
+ * standard PostHog ingestion path:
  *
- *   runner ─Kafka─▶ topic: agent_ai_events ─consumer─▶ (future) clickhouse_ai_events_json (CH)
+ *   runner ──posthog-node──▶ /capture ──ingestion──▶ clickhouse_ai_events_json ──▶ ai_events (CH)
  *
- * We do NOT (yet) write directly into the canonical `clickhouse_ai_events_json`
- * topic the rest of PostHog uses for `$ai_*` events. The dedicated topic gives
- * us a place to add custom logic between emit and ingestion — see
- * [`platform-llm-analytics.md`] (the "free" flag is the first such logic).
+ * Hitting `/capture` (rather than producing into a dedicated Kafka topic)
+ * means agent traffic shows up in LLM Analytics with zero new
+ * infrastructure — same path the llm-gateway uses for its own observability
+ * events.
  *
- * Pattern mirrors [`log-sink.ts`](./log-sink.ts):
+ * Sinks:
  *   - InMemoryAnalyticsSink (tests + local dev assertions)
- *   - NoopAnalyticsSink (dev/local without a Kafka broker)
- *   - KafkaAnalyticsSink (prod) — same node-rdkafka HighLevelProducer wrap.
+ *   - NoopAnalyticsSink (dev/local without a PostHog destination)
+ *   - CaptureAnalyticsSink (prod) — thin wrapper over posthog-node.
  *
- * The internal `AnalyticsEvent` shape is the typed/structured one used in
- * tests. The Kafka writer translates it to the standard ClickHouse event wire
- * format (`uuid / event / properties / timestamp / team_id / distinct_id`) so
- * the future forwarder can ship rows straight into the canonical topic.
+ * Future "platform-originated == free billing" handling: every event carries
+ * `$ai_origin: 'agent_platform_runner'`. The plan is to extend that into a
+ * **signed marker** (HMAC over event fields with a platform secret) so a
+ * downstream billing filter can verify the marker before excluding the event
+ * from billable usage — a plain property is forgeable by anyone with the
+ * project key. See `platform-llm-analytics.md` §"Future signed origin
+ * marker". Not implemented yet; the unsigned marker is the placeholder.
  */
 
-import type { HighLevelProducer, LibrdKafkaError, Metadata, ProducerGlobalConfig } from 'node-rdkafka'
-import { hostname } from 'node:os'
-import { v4 as uuidv4 } from 'uuid'
+import type { PostHog } from 'posthog-node'
 
 import { createLogger } from './logger'
 
 /**
- * Marker stamped on every event the runner produces. Future "free" /
- * platform-not-billable handling looks for this property and rewrites
- * billing meters accordingly. See `platform-llm-analytics.md` §"Future free
- * flag".
+ * Marker stamped on every event the runner produces. Future signed variant
+ * (see module docstring) will replace this with `$ai_origin_signature` —
+ * the unsigned form here is a forgeable placeholder, fine for observability
+ * but not for billing decisions until the signing work lands.
  */
 export const PLATFORM_ORIGIN = 'agent_platform_runner'
-
-/**
- * Default Kafka topic. Intentionally distinct from the canonical
- * `clickhouse_ai_events_json` so a per-platform consumer can intercept the
- * stream (add platform-origin tags, decide billable / free, rewrite for
- * special routing). Override at construction time when the consumer exists.
- */
-export const DEFAULT_ANALYTICS_TOPIC = 'agent_ai_events'
-
-/**
- * Compose a stable `distinct_id` for analytics emission. When the session
- * has a known principal (`pat`, `slack`, `internal`, …) we use
- * `<kind>:<id>` so Insights / LLM Analytics can slice per-user. For
- * anonymous public-agent sessions we fall back to `agent:<application_id>`
- * so events still bucket cleanly per agent.
- */
-export function analyticsDistinctId(session: {
-    application_id: string
-    principal: { kind: string; id?: string } | null
-}): string {
-    if (session.principal && session.principal.id) {
-        return `${session.principal.kind}:${session.principal.id}`
-    }
-    return `agent:${session.application_id}`
-}
-
-/** Stable span id for a model generation. Used as parent for tool spans in the same turn. */
-export function generationSpanId(sessionId: string, turn: number): string {
-    return `${sessionId}:gen:${turn}`
-}
-
-/** Stable span id for a tool dispatch. Pairs to its parent generation via `parent_span_id`. */
-export function toolSpanId(sessionId: string, turn: number, toolCallId: string): string {
-    return `${sessionId}:tool:${turn}:${toolCallId}`
-}
 
 /* -------------------------------------------------------------------------- */
 /* Event shape — what the runner emits                                        */
@@ -140,79 +106,44 @@ export interface AnalyticsSink {
 }
 
 /* -------------------------------------------------------------------------- */
-/* In-memory + noop sinks (tests, local dev)                                  */
-/* -------------------------------------------------------------------------- */
-
-export class InMemoryAnalyticsSink implements AnalyticsSink {
-    public readonly events: AnalyticsEvent[] = []
-
-    async write(events: AnalyticsEvent[]): Promise<void> {
-        this.events.push(...events)
-    }
-
-    /** Return events filtered by session. Most tests want this. */
-    forSession(sessionId: string): AnalyticsEvent[] {
-        return this.events.filter((e) => e.session_id === sessionId)
-    }
-
-    /** Convenience splits — easier than asserting on `kind` discriminator inline. */
-    generations(sessionId?: string): AnalyticsGenerationEvent[] {
-        const filtered = sessionId ? this.forSession(sessionId) : this.events
-        return filtered.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
-    }
-
-    spans(sessionId?: string): AnalyticsSpanEvent[] {
-        const filtered = sessionId ? this.forSession(sessionId) : this.events
-        return filtered.filter((e): e is AnalyticsSpanEvent => e.kind === 'span')
-    }
-
-    clear(): void {
-        this.events.length = 0
-    }
-}
-
-export class NoopAnalyticsSink implements AnalyticsSink {
-    async write(_events: AnalyticsEvent[]): Promise<void> {
-        // intentionally empty
-    }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Wire format — what the future consumer will read                           */
+/* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Standard ClickHouse event wire row. The future `agent_ai_events`-topic
- * consumer reads this directly, optionally tags / rewrites, then forwards
- * into `clickhouse_ai_events_json` for the canonical `ai_events` materialized
- * view. Field names and types match
- * `posthog/models/ai_events/sql.py:KAFKA_AI_EVENTS_TABLE_BASE_SQL`.
+ * Compose a stable `distinct_id` for analytics emission. When the session
+ * has a known principal (`pat`, `slack`, `internal`, …) we use
+ * `<kind>:<id>` so Insights / LLM Analytics can slice per-user. For
+ * anonymous public-agent sessions we fall back to `agent:<application_id>`
+ * so events still bucket cleanly per agent.
  */
-export interface AnalyticsWireEvent {
-    uuid: string
-    event: '$ai_generation' | '$ai_span'
-    /** JSON-encoded property bag. Heavy fields ($ai_input, $ai_output_choices, …) are stored as raw JSON. */
-    properties: string
-    timestamp: string
-    team_id: number
-    distinct_id: string
-    /** Always empty for AI events — kept to match the ClickHouse Kafka engine schema. */
-    elements_chain: string
-    created_at: string
-    person_id: string
-    person_properties: string
-    person_created_at: string
-    /** Matches the Enum8 in ClickHouse — `propertyless` (1) lets the consumer skip person-store lookups. */
-    person_mode: 'full' | 'propertyless' | 'force_upgrade'
+export function analyticsDistinctId(session: {
+    application_id: string
+    principal: { kind: string; id?: string } | null
+}): string {
+    if (session.principal && session.principal.id) {
+        return `${session.principal.kind}:${session.principal.id}`
+    }
+    return `agent:${session.application_id}`
+}
+
+/** Stable span id for a model generation. Used as parent for tool spans in the same turn. */
+export function generationSpanId(sessionId: string, turn: number): string {
+    return `${sessionId}:gen:${turn}`
+}
+
+/** Stable span id for a tool dispatch. Pairs to its parent generation via `parent_span_id`. */
+export function toolSpanId(sessionId: string, turn: number, toolCallId: string): string {
+    return `${sessionId}:tool:${turn}:${toolCallId}`
 }
 
 /**
- * Build the property bag from a typed `AnalyticsEvent`. Property names match
- * the schema the existing `ai_events` MV is keyed on
+ * Build the `$ai_*` property bag PostHog's LLM Analytics surface keys on.
+ * Names match the existing `ai_events` MV schema
  * (`posthog/models/ai_events/sql.py:HEAVY_AI_PROPERTIES`) and what the
- * `llm-gateway` PostHogCallback emits.
+ * `llm-gateway` PostHogCallback emits. Exposed for tests + the future
+ * signed-origin work.
  */
-function buildProperties(event: AnalyticsEvent): Record<string, unknown> {
+export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, unknown> {
     const base: Record<string, unknown> = {
         $ai_trace_id: event.session_id,
         $ai_span_id: event.span_id,
@@ -220,10 +151,15 @@ function buildProperties(event: AnalyticsEvent): Record<string, unknown> {
         $agent_revision_id: event.revision_id,
         $agent_session_id: event.session_id,
         $agent_turn: event.turn,
-        // Marker for the future "free" flag — the platform-origin consumer
-        // looks for this property and rewrites billing meters accordingly.
-        // Do NOT remove without coordinating with the billing consumer.
+        // Marker for the future "platform-originated = free" billing filter.
+        // Today this is an unsigned property — forgeable by anyone with the
+        // project key. The intended evolution is a signed variant
+        // (`$ai_origin_signature`) so the billing filter can verify before
+        // excluding from billable usage. See module docstring + plan.
         $ai_origin: PLATFORM_ORIGIN,
+        // team_id is stamped explicitly so a per-team filter / billing rollup
+        // doesn't need to resolve through the project-key→team mapping.
+        team_id: event.team_id,
     }
     if (event.parent_span_id) {
         base.$ai_parent_id = event.parent_span_id
@@ -267,40 +203,61 @@ function buildProperties(event: AnalyticsEvent): Record<string, unknown> {
     return base
 }
 
-export function toAnalyticsWire(event: AnalyticsEvent): AnalyticsWireEvent {
-    return {
-        uuid: uuidv4(),
-        event: event.kind === 'generation' ? '$ai_generation' : '$ai_span',
-        properties: JSON.stringify(buildProperties(event)),
-        timestamp: event.ts,
-        team_id: event.team_id,
-        distinct_id: event.distinct_id,
-        elements_chain: '',
-        created_at: event.ts,
-        person_id: '00000000-0000-0000-0000-000000000000',
-        person_properties: '{}',
-        person_created_at: event.ts,
-        // The runner never resolves the person — let the downstream consumer
-        // either fill it in or ingest propertyless rows for `agent:<app>`-style
-        // distinct ids that don't correspond to real PostHog persons.
-        person_mode: 'propertyless',
+export function eventNameFor(event: AnalyticsEvent): '$ai_generation' | '$ai_span' {
+    return event.kind === 'generation' ? '$ai_generation' : '$ai_span'
+}
+
+/* -------------------------------------------------------------------------- */
+/* In-memory + noop sinks (tests, local dev)                                  */
+/* -------------------------------------------------------------------------- */
+
+export class InMemoryAnalyticsSink implements AnalyticsSink {
+    public readonly events: AnalyticsEvent[] = []
+
+    async write(events: AnalyticsEvent[]): Promise<void> {
+        this.events.push(...events)
+    }
+
+    /** Return events filtered by session. Most tests want this. */
+    forSession(sessionId: string): AnalyticsEvent[] {
+        return this.events.filter((e) => e.session_id === sessionId)
+    }
+
+    /** Convenience splits — easier than asserting on `kind` discriminator inline. */
+    generations(sessionId?: string): AnalyticsGenerationEvent[] {
+        const filtered = sessionId ? this.forSession(sessionId) : this.events
+        return filtered.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
+    }
+
+    spans(sessionId?: string): AnalyticsSpanEvent[] {
+        const filtered = sessionId ? this.forSession(sessionId) : this.events
+        return filtered.filter((e): e is AnalyticsSpanEvent => e.kind === 'span')
+    }
+
+    clear(): void {
+        this.events.length = 0
+    }
+}
+
+export class NoopAnalyticsSink implements AnalyticsSink {
+    async write(_events: AnalyticsEvent[]): Promise<void> {
+        // intentionally empty
     }
 }
 
 /* -------------------------------------------------------------------------- */
-/* Kafka sink — production path. Ports services/agent-shared/runtime/log-sink */
+/* Capture sink — production path. Goes through standard PostHog ingestion.   */
 /* -------------------------------------------------------------------------- */
 
-export interface KafkaAnalyticsSinkOptions {
-    /** Comma-separated brokers, e.g. `kafka:9092`. */
-    brokers: string
-    /** Defaults to `DEFAULT_ANALYTICS_TOPIC` (`agent_ai_events`). */
-    topic?: string
-    /** Optional rdkafka overrides; merged over the defaults. */
-    config?: Partial<ProducerGlobalConfig>
-    /** Optional name for log lines / metrics labels. Defaults to topic. */
-    name?: string
-    /** Optional logger for connection / failure events. Defaults to the agent-shared pino. */
+export interface CaptureAnalyticsSinkOptions {
+    /** PostHog project API key. Same kind of key `posthog-node` takes. */
+    apiKey: string
+    /** Defaults to `https://us.posthog.com`. Set this to your region or self-hosted URL. */
+    host?: string
+    /** Optional batching tuning; defaults match `posthog-node`'s out-of-box behaviour. */
+    flushAt?: number
+    flushInterval?: number
+    /** Optional logger for capture failures. Defaults to the agent-shared pino. */
     logger?: {
         info: (msg: string, meta?: unknown) => void
         warn: (msg: string, meta?: unknown) => void
@@ -308,35 +265,28 @@ export interface KafkaAnalyticsSinkOptions {
     }
 }
 
-const DEFAULT_PRODUCER_CONFIG: ProducerGlobalConfig = {
-    'client.id': hostname(),
-    'linger.ms': 20,
-    'batch.size': 8 * 1024 * 1024,
-    'queue.buffering.max.messages': 100_000,
-    'compression.codec': 'snappy',
-    'metadata.max.age.ms': 30_000,
-    'socket.timeout.ms': 30_000,
-}
-
 /**
- * Production Kafka writer. Same lifecycle + lazy-load semantics as
- * `KafkaLogSink`: dynamic node-rdkafka import on first `connect()` so dev /
- * test paths don't pay the native-module cost.
+ * Production capture sink. One `posthog-node` PostHog client per runner
+ * process; events batch + flush via the SDK. `shutdown()` drains the
+ * pending buffer — wire it into the runner's SIGTERM handler so events
+ * don't get dropped on rolling deploys.
+ *
+ * `posthog-node` is loaded dynamically the first time `connect()` is called
+ * so test code paths that never construct a CaptureAnalyticsSink (Noop / in
+ * memory) don't pay the import cost.
  */
-export class KafkaAnalyticsSink implements AnalyticsSink {
-    private readonly opts: KafkaAnalyticsSinkOptions
-    private readonly log: NonNullable<KafkaAnalyticsSinkOptions['logger']>
-    private producer: HighLevelProducer | null = null
-    private connected = false
+export class CaptureAnalyticsSink implements AnalyticsSink {
+    private readonly opts: CaptureAnalyticsSinkOptions
+    private readonly log: NonNullable<CaptureAnalyticsSinkOptions['logger']>
+    private client: PostHog | null = null
     private connectPromise: Promise<void> | null = null
-    private disposed = false
 
-    constructor(opts: KafkaAnalyticsSinkOptions) {
+    constructor(opts: CaptureAnalyticsSinkOptions) {
         this.opts = opts
         if (opts.logger) {
             this.log = opts.logger
         } else {
-            const pino = createLogger('kafka-analytics', { topic: opts.topic ?? DEFAULT_ANALYTICS_TOPIC })
+            const pino = createLogger('analytics-capture')
             this.log = {
                 info: (m, meta) => pino.info(meta ?? {}, m),
                 warn: (m, meta) => pino.warn(meta ?? {}, m),
@@ -346,7 +296,7 @@ export class KafkaAnalyticsSink implements AnalyticsSink {
     }
 
     async connect(): Promise<void> {
-        if (this.connected) {
+        if (this.client) {
             return
         }
         if (!this.connectPromise) {
@@ -356,85 +306,50 @@ export class KafkaAnalyticsSink implements AnalyticsSink {
     }
 
     private async doConnect(): Promise<void> {
-        const rdkafka = await import('node-rdkafka')
-        const merged: ProducerGlobalConfig = {
-            ...DEFAULT_PRODUCER_CONFIG,
-            'metadata.broker.list': this.opts.brokers,
-            ...this.opts.config,
-            dr_cb: false,
-        }
-        const producer = new rdkafka.HighLevelProducer(merged)
-        producer.on('event.error', (err: LibrdKafkaError) =>
-            this.log.error('rdkafka error', { name: this.opts.name ?? this.opts.topic, error: String(err) })
-        )
-        await new Promise<void>((resolve, reject) => {
-            producer.connect(undefined, (err: LibrdKafkaError, data: Metadata) => {
-                if (err) {
-                    reject(err)
-                    return
-                }
-                this.log.info('kafka analytics producer connected', {
-                    name: this.opts.name ?? this.opts.topic,
-                    topic: this.opts.topic ?? DEFAULT_ANALYTICS_TOPIC,
-                    brokers: (data as { brokers?: unknown })?.brokers,
-                })
-                resolve()
-            })
+        const mod = await import('posthog-node')
+        const PostHogCtor = mod.PostHog
+        this.client = new PostHogCtor(this.opts.apiKey, {
+            host: this.opts.host,
+            flushAt: this.opts.flushAt ?? 20,
+            flushInterval: this.opts.flushInterval ?? 10_000,
         })
-        this.producer = producer
-        this.connected = true
+        this.log.info('capture analytics sink connected', { host: this.opts.host ?? 'default' })
     }
 
     async write(events: AnalyticsEvent[]): Promise<void> {
-        if (this.disposed) {
-            return
-        }
-        if (!this.connected || !this.producer) {
+        if (!this.client) {
             this.log.warn('dropping analytics events (not connected)', { count: events.length })
             return
         }
-        const topic = this.opts.topic ?? DEFAULT_ANALYTICS_TOPIC
         for (const event of events) {
-            const wire = toAnalyticsWire(event)
-            const value = Buffer.from(safeClickhouseString(JSON.stringify(wire)))
             try {
-                this.producer.produce(topic, null, value, null, Date.now(), noopDeliveryCallback)
+                this.client.capture({
+                    distinctId: event.distinct_id,
+                    event: eventNameFor(event),
+                    properties: buildAnalyticsProperties(event),
+                    groups: { project: String(event.team_id) },
+                    timestamp: new Date(event.ts),
+                })
             } catch (err) {
-                this.log.error('produce failed', { topic, error: String(err) })
+                this.log.error('capture failed', { event: eventNameFor(event), error: String(err) })
             }
         }
     }
 
-    async disconnect(): Promise<void> {
-        this.disposed = true
-        if (!this.connected || !this.producer) {
+    /**
+     * Drains the SDK's pending buffer + shuts down. Production wires this
+     * into the SIGTERM handler so a rolling deploy doesn't drop the last
+     * batch.
+     */
+    async shutdown(): Promise<void> {
+        if (!this.client) {
             return
         }
-        const producer = this.producer
-        await new Promise<void>((resolve) =>
-            producer.flush(5_000, () => {
-                resolve()
-            })
-        )
-        await new Promise<void>((resolve) =>
-            producer.disconnect(() => {
-                resolve()
-            })
-        )
-        this.connected = false
-        this.producer = null
+        try {
+            await this.client.shutdown()
+        } catch (err) {
+            this.log.error('capture shutdown failed', { error: String(err) })
+        }
+        this.client = null
     }
-}
-
-/** HighLevelProducer requires a delivery callback; we ignore it (fire-and-forget). */
-function noopDeliveryCallback(): void {
-    /* intentionally empty */
-}
-
-/** Same surrogate escape as `log-sink.ts`; ClickHouse's JSON parser rejects lone Unicode surrogates. */
-function safeClickhouseString(str: string): string {
-    return str.replace(/[\ud800-\udfff]/gu, (match) => {
-        const res = JSON.stringify(match)
-        return res.slice(1, res.length - 1) + `\\`
-    })
 }

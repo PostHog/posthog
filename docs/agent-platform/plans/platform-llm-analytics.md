@@ -1,13 +1,13 @@
 # Design — platform LLM analytics emission
 
-**Status:** v0 (runner emits to dedicated Kafka topic) ✅ shipped; v1 (consumer + free-flag billing logic) not yet built. **Owner:** ben.
+**Status:** v0 (runner captures via standard PostHog ingestion) ✅ shipped; v1 (signed origin marker for billing exclusion) not yet built. **Owner:** ben.
 
 This is `self-healing-agents.md` §3.1 broken out into its own plan
 because the emitter is shipping ahead of the rest of self-healing —
 the moment agents start invoking models in production we want every
 turn captured in LLM Analytics.
 
-We chose to emit directly from the runner rather than rely on PostHog's
+We emit directly from the runner rather than rely on PostHog's
 llm-gateway. The gateway already emits `$ai_generation` events (see
 [`services/llm-gateway/src/llm_gateway/callbacks/posthog.py`](../../../services/llm-gateway/src/llm_gateway/callbacks/posthog.py))
 but it covers only the gateway code path — agents going direct to
@@ -35,28 +35,29 @@ fleet-level questions:
    the runner not emitting, our own product doesn't surface our own
    agent traffic.
 
-## 2. Why a dedicated Kafka topic
+## 2. Why standard /capture, not a dedicated topic
 
-Two options for landing events:
+The first iteration of this plan wrote to a dedicated Kafka topic
+(`agent_ai_events`) with a future consumer that would forward into
+the canonical pipeline with a "free" billing flag attached. That was
+over-engineering: the dedicated topic adds infrastructure (a new
+consumer to build + run) for a benefit that's achievable as a
+property marker at billing time.
 
-- **(A) Write straight into `clickhouse_ai_events_json`.** Existing
-  topic, fed by PostHog's standard ingestion pipeline. Zero new infra.
-- **(B) Write into a dedicated `agent_ai_events` topic with a future
-  consumer that forwards into `clickhouse_ai_events_json`.** Lets us
-  add custom logic between emit and forward without coupling to
-  ingestion semantics.
+The shipped design uses **standard PostHog ingestion**:
 
-We chose **B**. The reason is the **future free-flag work** (§5):
-events the platform generates internally must not bill customers for
-PostHog's own LLM use. The cleanest place to mark "this run was
-platform-internal, don't count it for billing" is the forwarder
-consumer — it can tag, drop, or rewrite as the billing model
-evolves without touching the runner or the canonical topic.
+```text
+runner ──posthog-node──▶ /capture ──ingestion──▶ clickhouse_ai_events_json ──▶ ai_events (CH)
+```
 
-This mirrors the `log_entries` pattern
-([`log-sink.ts`](../../../services/agent-shared/src/runtime/log-sink.ts)):
-runner owns its dedicated producer, downstream owns the forward path,
-no shared topic with the rest of PostHog ingestion.
+Same path the llm-gateway uses (`posthoganalytics.capture()` →
+`/capture`). Events show up in LLM Analytics with zero new infra.
+
+The trade-off: emission becomes one network call per turn instead of
+one Kafka produce. `posthog-node` batches by default (`flushAt: 20`,
+`flushInterval: 10s`), so the actual HTTP traffic is far lower than
+event count. We wire `client.shutdown()` into the runner's clean exit
+so the final batch drains before pods recycle.
 
 ## 3. Event shape
 
@@ -83,25 +84,26 @@ right after `pi.invoke()` returns (or throws). Properties:
 | `$ai_stop_reason`                                                                    | `result.stopReason`                                                                                             |
 | `$ai_is_error` / `$ai_error`                                                         | Set on the throw branch                                                                                         |
 | `$agent_application_id` / `$agent_revision_id` / `$agent_session_id` / `$agent_turn` | Constant per-session / per-turn                                                                                 |
-| `$ai_origin: 'agent_platform_runner'`                                                | The free-flag marker — see §5                                                                                   |
+| `team_id`                                                                            | `session.team_id` — stamped explicitly for cheap per-team rollups                                               |
+| `$ai_origin: 'agent_platform_runner'`                                                | The future signed-origin marker — see §5                                                                        |
 
 ### 3.2 `$ai_span` — one per tool dispatch
 
 Emitted in [`dispatch-one.ts`](../../../services/agent-runner/src/loop/dispatch-one.ts).
 Chains to the generation that emitted the toolCall via `$ai_parent_id`.
 
-| Property                     | Source                                                                |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `$ai_trace_id`               | `session.id`                                                          |
-| `$ai_span_id`                | `<session>:tool:<turn>:<tool_call_id>`                                |
-| `$ai_parent_id`              | Generation's `span_id`                                                |
-| `$ai_span_name`              | Tool id (internal — not the provider-safe form)                       |
-| `$ai_tool_call_id`           | pi-ai's `ToolCall.id`                                                 |
-| `$ai_input_state`            | `call.arguments` (after nonce substitution — never plaintext secrets) |
-| `$ai_output_state`           | Tool result, truncated upstream by dispatcher                         |
-| `$ai_latency`                | Tool execution wall-clock, seconds                                    |
-| `$ai_is_error` / `$ai_error` | From `dispatchTool` outcome                                           |
-| `$agent_*` / `$ai_origin`    | Same as `$ai_generation`                                              |
+| Property                              | Source                                                                |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| `$ai_trace_id`                        | `session.id`                                                          |
+| `$ai_span_id`                         | `<session>:tool:<turn>:<tool_call_id>`                                |
+| `$ai_parent_id`                       | Generation's `span_id`                                                |
+| `$ai_span_name`                       | Tool id (internal — not the provider-safe form)                       |
+| `$ai_tool_call_id`                    | pi-ai's `ToolCall.id`                                                 |
+| `$ai_input_state`                     | `call.arguments` (after nonce substitution — never plaintext secrets) |
+| `$ai_output_state`                    | Tool result, truncated upstream by dispatcher                         |
+| `$ai_latency`                         | Tool execution wall-clock, seconds                                    |
+| `$ai_is_error` / `$ai_error`          | From `dispatchTool` outcome                                           |
+| `$agent_*` / `team_id` / `$ai_origin` | Same as `$ai_generation`                                              |
 
 ## 4. distinct_id strategy
 
@@ -115,71 +117,69 @@ This matches `llm-gateway`'s `resolve_distinct_id(auth_user, end_user_id)`
 contract and lets the LLM Analytics surface slice both per-user and
 per-agent without joining session metadata.
 
-## 5. Future free flag — `$ai_origin: 'agent_platform_runner'`
+## 5. Future signed origin marker
 
-Every emitted event carries `$ai_origin: 'agent_platform_runner'`. The
-property name is intentionally generic so the future consumer can use
-it as a routing key: "events with this origin came from the platform
-runner itself, decide billable vs not based on agent ownership / who
-triggered the session."
+Today every event carries `$ai_origin: 'agent_platform_runner'`. The
+billing intent is "platform-internal LLM use shouldn't bill customers
+for PostHog's own runs" — events with that marker should be excluded
+from billable usage at meter time.
 
-**Why this is not yet implemented:**
+**The current unsigned marker is forgeable.** Anyone with the
+destination project's PostHog API key can capture
+`{event: '$ai_generation', properties: {$ai_origin:
+'agent_platform_runner', $ai_total_cost_usd: -10000}}` and shift their
+billing. That's fine while we don't actually use the marker for billing
+decisions; it stops being fine the moment we do.
 
-- The billing model for platform-internal LLM use isn't decided.
-- The forwarder consumer that would honour the flag doesn't exist yet
-  — events sit in `agent_ai_events` and aren't forwarded into
-  `clickhouse_ai_events_json` until v1.
-- We need a few weeks of real traffic in the dedicated topic to know
-  what shape the rewrite needs (drop entirely vs rewrite team_id vs
-  add a `$ai_free` boolean property the ingestion pipeline respects).
+**The intended evolution** is a **signed origin marker**:
 
-**What the future work has to do:**
+1. The runner holds a platform-internal HMAC secret (deploy via the
+   same channel as `AGENT_PREVIEW_SECRET`).
+2. On each emission, compute
+   `$ai_origin_signature = HMAC_SHA256(secret, canonical_form(event))`
+   where `canonical_form` covers the billing-relevant fields
+   (`team_id`, `$ai_total_cost_usd`, `$ai_total_tokens`, `$ai_trace_id`,
+   `timestamp`).
+3. The billing meter verifies `$ai_origin === PLATFORM_ORIGIN && signature
+matches` before excluding the event. Forgeries fail signature
+   verification and are billed normally.
+4. Rotation is handled the same way as `AGENT_PREVIEW_SECRET`: the
+   verifier accepts a small set of recent secrets during overlap, the
+   emitter signs with the current one.
 
-1. Build a consumer that reads `agent_ai_events` and:
-   - Forwards rows where `$ai_origin === 'agent_platform_runner'` AND
-     the originating session belongs to a customer's own agent into
-     `clickhouse_ai_events_json`.
-   - For platform-originated events tied to PostHog's _internal_
-     agents (e.g. the self-healing pass, the concierge, future
-     authoring agents): either drop, rewrite the team_id to PostHog's
-     own, or attach a `$ai_free: true` property the billing meters
-     respect.
-2. The decision tree above belongs in the consumer, not the emitter —
-   the runner shouldn't know whether a session is "free" or "billable".
-   Source-of-truth lives at billing time.
-3. Removing or renaming `$ai_origin` requires coordinating with that
-   consumer; flagged inline in
-   [`analytics-sink.ts`](../../../services/agent-shared/src/runtime/analytics-sink.ts)
-   via the `PLATFORM_ORIGIN` constant.
+**Why not implement it now:** the billing meter that would honour
+the signature doesn't exist yet, and the canonical-form spec needs to
+stay in lockstep with whatever the verifier reads from ClickHouse. We
+ship the unsigned marker as the placeholder so the property is
+present from day one; the signing extension is purely additive
+(`$ai_origin_signature` slot is reserved).
 
 ## 6. Rollout
 
-**v0 — runner emits to dedicated topic.** ✅ shipped.
+**v0 — runner captures via standard ingestion.** ✅ shipped.
 
-- `AnalyticsSink` interface + `InMemory` / `Noop` / `Kafka` impls in
+- `AnalyticsSink` interface + `InMemory` / `Noop` / `Capture` impls in
   agent-shared, mirroring `LogSink`.
 - `$ai_generation` emission in `run-turn.ts` (success + throw paths).
 - `$ai_span` emission in `dispatch-one.ts`.
-- `KafkaAnalyticsSink` produces wire-shaped rows
-  (`uuid / event / properties / timestamp / team_id / distinct_id / …`)
-  matching the ClickHouse `ai_events` Kafka engine schema, ready for
-  the future consumer to forward.
-- Config knobs: `KAFKA_HOSTS` + `AGENT_ANALYTICS_TOPIC`. Unset →
-  `NoopAnalyticsSink` (dev / harness).
+- `CaptureAnalyticsSink` wraps `posthog-node`, lazy-imports on first
+  `connect()`, drains on `shutdown()`.
+- Config knobs: `POSTHOG_ANALYTICS_API_KEY` + `POSTHOG_ANALYTICS_HOST`.
+  Unset → `NoopAnalyticsSink` (dev / harness).
+- `$ai_origin: 'agent_platform_runner'` stamped on every event as the
+  placeholder for the future signed-origin work.
 
-**v1 — forwarder consumer + free-flag billing logic.** Not yet built.
+**v1 — signed origin marker + billing-side verifier.** Not yet built.
 
-- See §5. Owner / timeline TBD.
-- Until then events accumulate in `agent_ai_events` but don't reach
-  `clickhouse_ai_events_json` — the LLM Analytics surface stays dark
-  for agent traffic.
+- See §5. Owner / timeline TBD. Depends on the billing meter knowing
+  to look for `$ai_origin_signature`.
 
 **v2 — backfill from `agent_session.conversation`.** Optional.
 
-- Sessions that ran in v0 (before the forwarder existed) have all the
-  information needed to reconstruct events from `conversation` +
-  `usage_total`. A one-shot janitor endpoint could emit historical
-  events into the topic once the consumer is alive.
+- Sessions that ran in v0 (or in environments without an API key)
+  have all the information needed to reconstruct events from
+  `conversation` + `usage_total`. A one-shot janitor endpoint could
+  capture historical events.
 
 ## 7. Dependencies + what this enables
 
@@ -198,6 +198,6 @@ triggered the session."
 
 - LLM Analytics surface lighting up for agent traffic.
 - `self-healing-agents.md` §3 — the introspection loop reads
-  `ai_events`, which only exists once the forwarder lands.
+  `ai_events`, which now contains real rows from agent sessions.
 - Per-agent / per-tool latency + cost rollups in dashboards
   (`agent_session_daily_summary` views in self-healing §3.2).

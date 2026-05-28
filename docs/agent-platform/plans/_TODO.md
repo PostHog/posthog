@@ -64,11 +64,13 @@ file (and out of this list) once the design lands.
 
 - [x] ~~**Platform LLM analytics emission**~~ — see
       [`platform-llm-analytics.md`](platform-llm-analytics.md). Runner
-      emits `$ai_generation` per pi-ai call + `$ai_span` per tool
-      dispatch to a dedicated `agent_ai_events` Kafka topic. v0
-      (emitter) shipped; v1 (forwarder consumer + free-flag billing
-      logic) tracked in the plan §5. Marker:
-      `$ai_origin: 'agent_platform_runner'` on every event.
+      captures `$ai_generation` per pi-ai call + `$ai_span` per tool
+      dispatch through standard PostHog ingestion (posthog-node
+      `/capture`). v0 shipped; v1 (signed `$ai_origin` marker for
+      billing-side exclusion of platform-internal runs) tracked in
+      the plan §5. Every event carries the unsigned placeholder
+      `$ai_origin: 'agent_platform_runner'` so the property slot
+      exists from day one.
 
 - [x] ~~**Typed config loader for env vars**~~ — see
       [`typed-config-loader.md`](typed-config-loader.md). One zod

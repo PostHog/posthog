@@ -1,9 +1,10 @@
 import {
     analyticsDistinctId,
+    buildAnalyticsProperties,
+    eventNameFor,
     generationSpanId,
     InMemoryAnalyticsSink,
     PLATFORM_ORIGIN,
-    toAnalyticsWire,
     toolSpanId,
     type AnalyticsGenerationEvent,
     type AnalyticsSpanEvent,
@@ -87,61 +88,62 @@ describe('span id helpers', () => {
     })
 })
 
-describe('toAnalyticsWire — generation', () => {
-    it('produces a ClickHouse-event-shaped wire row with $ai_* properties', () => {
-        const wire = toAnalyticsWire(makeGeneration())
-        expect(wire.event).toBe('$ai_generation')
-        expect(wire.distinct_id).toBe('agent:app-uuid')
-        expect(wire.team_id).toBe(1)
-        // The wire `properties` is JSON-encoded; round-trip and check shape.
-        const props = JSON.parse(wire.properties) as Record<string, unknown>
+describe('eventNameFor', () => {
+    it('maps generation → $ai_generation', () => {
+        expect(eventNameFor(makeGeneration())).toBe('$ai_generation')
+    })
+
+    it('maps span → $ai_span', () => {
+        expect(eventNameFor(makeSpan())).toBe('$ai_span')
+    })
+})
+
+describe('buildAnalyticsProperties — generation', () => {
+    it('includes the $ai_* property bag PostHog LLM Analytics keys on', () => {
+        const props = buildAnalyticsProperties(makeGeneration())
         expect(props.$ai_model).toBe('claude-haiku-4-5')
         expect(props.$ai_provider).toBe('anthropic')
         expect(props.$ai_input_tokens).toBe(10)
         expect(props.$ai_output_tokens).toBe(5)
-        // Latency is recorded as seconds (matches the $ai_latency CH column).
+        // Latency is reported as seconds (matches the $ai_latency CH column).
         expect(props.$ai_latency).toBe(1.234)
         expect(props.$ai_total_cost_usd).toBe(0.0007)
         expect(props.$ai_trace_id).toBe('sess-uuid')
         expect(props.$ai_span_id).toBe('sess-uuid:gen:1')
         expect(props.$agent_application_id).toBe('app-uuid')
         expect(props.$agent_revision_id).toBe('rev-uuid')
-        // Platform-origin marker — the future "free" billing flag keys on this.
-        // Removing or renaming this property will desync the consumer.
+        // Platform-origin marker — the future signed-origin billing filter
+        // keys on this property. Removing or renaming desyncs that filter.
         expect(props.$ai_origin).toBe(PLATFORM_ORIGIN)
-        // Default `person_mode: 'propertyless'` lets the consumer skip person-store lookups.
-        expect(wire.person_mode).toBe('propertyless')
+        // team_id is stamped explicitly so per-team rollups don't need to
+        // resolve through the project-key → team mapping.
+        expect(props.team_id).toBe(1)
     })
 
     it('omits cost when not provided (gateway path)', () => {
-        const wire = toAnalyticsWire(makeGeneration({ cost_usd: undefined }))
-        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        const props = buildAnalyticsProperties(makeGeneration({ cost_usd: undefined }))
         expect(props.$ai_total_cost_usd).toBeUndefined()
     })
 
     it('sets $ai_is_error + $ai_error on failed calls', () => {
-        const wire = toAnalyticsWire(
+        const props = buildAnalyticsProperties(
             makeGeneration({ is_error: true, error: 'rate_limit', output: null, stop_reason: undefined })
         )
-        const props = JSON.parse(wire.properties) as Record<string, unknown>
         expect(props.$ai_is_error).toBe(true)
         expect(props.$ai_error).toBe('rate_limit')
         expect(props.$ai_stop_reason).toBeUndefined()
     })
 
     it('includes Anthropic prompt-cache token splits when present', () => {
-        const wire = toAnalyticsWire(makeGeneration({ cache_read_tokens: 7, cache_write_tokens: 3 }))
-        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        const props = buildAnalyticsProperties(makeGeneration({ cache_read_tokens: 7, cache_write_tokens: 3 }))
         expect(props.$ai_cache_read_input_tokens).toBe(7)
         expect(props.$ai_cache_creation_input_tokens).toBe(3)
     })
 })
 
-describe('toAnalyticsWire — span', () => {
-    it('produces $ai_span events with parent + tool metadata', () => {
-        const wire = toAnalyticsWire(makeSpan())
-        expect(wire.event).toBe('$ai_span')
-        const props = JSON.parse(wire.properties) as Record<string, unknown>
+describe('buildAnalyticsProperties — span', () => {
+    it('records span name + tool args + parent linkage', () => {
+        const props = buildAnalyticsProperties(makeSpan())
         expect(props.$ai_span_name).toBe('@posthog/query')
         expect(props.$ai_tool_call_id).toBe('tc_xyz')
         expect(props.$ai_parent_id).toBe('sess-uuid:gen:1')
@@ -150,8 +152,7 @@ describe('toAnalyticsWire — span', () => {
     })
 
     it('records error spans on tool failures', () => {
-        const wire = toAnalyticsWire(makeSpan({ is_error: true, error: 'tool_not_found', output: null }))
-        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        const props = buildAnalyticsProperties(makeSpan({ is_error: true, error: 'tool_not_found', output: null }))
         expect(props.$ai_is_error).toBe(true)
         expect(props.$ai_error).toBe('tool_not_found')
     })

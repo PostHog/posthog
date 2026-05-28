@@ -33,18 +33,17 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     anthropicApiKey: z.string().optional().describe('Anthropic API key. Second-priority for pi-ai default apiKey.'),
     openaiApiKey: z.string().optional().describe('OpenAI API key. Third-priority for pi-ai default apiKey.'),
     modelApiKey: z.string().optional().describe('Catch-all model API key. Last-priority for pi-ai default apiKey.'),
-    kafkaBrokers: z
+    posthogAnalyticsApiKey: z
         .string()
         .optional()
         .describe(
-            'Comma-separated Kafka brokers for the LLM analytics sink (writes to the agent_ai_events topic). Unset → NoopAnalyticsSink (dev / harness).'
+            'PostHog project API key for the LLM analytics sink. Captures `$ai_generation` + `$ai_span` via standard /capture. Unset → NoopAnalyticsSink (dev / harness).'
         ),
-    analyticsTopic: z
+    posthogAnalyticsHost: z
         .string()
+        .url()
         .optional()
-        .describe(
-            'Override for the LLM analytics Kafka topic. Defaults to `agent_ai_events`; only override when running against a non-default consumer.'
-        ),
+        .describe('PostHog capture host for the analytics sink. Defaults to `https://us.posthog.com` when unset.'),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -57,8 +56,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     ANTHROPIC_API_KEY: 'anthropicApiKey',
     OPENAI_API_KEY: 'openaiApiKey',
     MODEL_API_KEY: 'modelApiKey',
-    KAFKA_HOSTS: 'kafkaBrokers',
-    AGENT_ANALYTICS_TOPIC: 'analyticsTopic',
+    POSTHOG_ANALYTICS_API_KEY: 'posthogAnalyticsApiKey',
+    POSTHOG_ANALYTICS_HOST: 'posthogAnalyticsHost',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

@@ -22,11 +22,11 @@ const { Pool } = pg
 
 import {
     AnalyticsSink,
+    CaptureAnalyticsSink,
     createLogger,
     EncryptedFields,
     FsBundleStore,
     installProcessHandlers,
-    KafkaAnalyticsSink,
     NoopAnalyticsSink,
     NoopSessionEventBus,
     PgRevisionStore,
@@ -82,19 +82,20 @@ async function main(): Promise<void> {
         bus = redis
     }
 
-    // LLM analytics sink. Writes `$ai_generation` + `$ai_span` to the
-    // dedicated `agent_ai_events` Kafka topic. A future consumer forwards
-    // these into the canonical `clickhouse_ai_events_json` topic with the
-    // platform-origin / "free" billing flag attached — see
-    // docs/agent-platform/plans/platform-llm-analytics.md.
+    // LLM analytics sink. Captures `$ai_generation` per pi-ai call and
+    // `$ai_span` per tool dispatch via PostHog's standard ingestion path
+    // (posthog-node /capture) — events land directly in `ai_events` with
+    // no new infra. Every event carries `$ai_origin: 'agent_platform_runner'`
+    // as the marker the future signed-origin billing filter will key on.
+    // See docs/agent-platform/plans/platform-llm-analytics.md.
     let analytics: AnalyticsSink = new NoopAnalyticsSink()
-    if (config.kafkaBrokers) {
-        const kafka = new KafkaAnalyticsSink({
-            brokers: config.kafkaBrokers,
-            topic: config.analyticsTopic,
+    if (config.posthogAnalyticsApiKey) {
+        const capture = new CaptureAnalyticsSink({
+            apiKey: config.posthogAnalyticsApiKey,
+            host: config.posthogAnalyticsHost,
         })
-        await kafka.connect()
-        analytics = kafka
+        await capture.connect()
+        analytics = capture
     }
 
     const worker = new Worker({
@@ -141,6 +142,11 @@ async function main(): Promise<void> {
         'starting worker loop'
     )
     await worker.loop()
+    // Drain the analytics buffer BEFORE closing pools so the final batch of
+    // `$ai_*` events lands in PostHog even on a rolling deploy.
+    if (analytics instanceof CaptureAnalyticsSink) {
+        await analytics.shutdown()
+    }
     await Promise.all([posthogDb.end(), agentDb.end()])
     log.info({}, 'stopped cleanly')
 }
