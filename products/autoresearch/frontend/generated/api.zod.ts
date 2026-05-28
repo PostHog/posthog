@@ -122,6 +122,92 @@ export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
+ * @summary Open a training run
+ */
+export const autoresearchTrainingRunsCreateBodyIterationBudgetMax = 500
+
+export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        iteration_budget: zod
+            .number()
+            .min(1)
+            .max(autoresearchTrainingRunsCreateBodyIterationBudgetMax)
+            .optional()
+            .describe("Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted."),
+    })
+    .describe('Input for opening an agent-driven training run.')
+
+/**
+ * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * @summary Complete a training run
+ */
+export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        best_iteration_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.'
+            ),
+        model_explanation: zod
+            .looseObject({})
+            .optional()
+            .describe('Global feature importance \/ directionality bundle for the champion model card.'),
+    })
+    .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
+
+/**
+ * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * @summary Record a training iteration
+ */
+export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin = 0
+
+export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
+export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
+
+export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        iteration_number: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin)
+            .describe(
+                'Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).'
+            ),
+        recipe_snapshot: zod
+            .looseObject({})
+            .describe(
+                'Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.'
+            ),
+        model_spec: zod
+            .looseObject({})
+            .describe('model_class (must be allowlisted) and model_params tried this iteration.'),
+        status: zod
+            .enum(['kept', 'discarded', 'crashed'])
+            .describe('\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed')
+            .describe(
+                "'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.\n\n\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed"
+            ),
+        train_score: zod.number().nullish().describe('Training-set AUC for this iteration.'),
+        holdout_score: zod
+            .number()
+            .nullish()
+            .describe('Held-out AUC for this iteration. Used to pick the champion at completion.'),
+        agent_description: zod
+            .string()
+            .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
+            .describe("Agent's plain-English rationale for this iteration."),
+        agent_confidence: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax)
+            .nullish()
+            .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
+    })
+    .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
+
+/**
  * Manage autoresearch prediction pipelines.
 
 A pipeline defines a target event, population, and horizon. The autoresearch
@@ -554,6 +640,121 @@ export const AutoresearchTrainCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Validate predictions against realized outcomes for all matured prediction dates. A prediction date is matured when today >= prediction_date + horizon_days. Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. Already-validated dates are skipped. In production this is triggered by the daily Temporal validation workflow after inference runs.
+ * @summary Run online validation
+ */
+export const autoresearchValidateOnlineCreateBodyNameMax = 255
+
+export const autoresearchValidateOnlineCreateBodyTargetEventMax = 255
+
+export const autoresearchValidateOnlineCreateBodyHorizonDaysMin = -2147483648
+export const autoresearchValidateOnlineCreateBodyHorizonDaysMax = 2147483647
+
+export const autoresearchValidateOnlineCreateBodyCadenceDaysMin = -2147483648
+export const autoresearchValidateOnlineCreateBodyCadenceDaysMax = 2147483647
+
+export const autoresearchValidateOnlineCreateBodyIterationBudgetMin = -2147483648
+export const autoresearchValidateOnlineCreateBodyIterationBudgetMax = 2147483647
+
+export const autoresearchValidateOnlineCreateBodyPlateauIterationsMin = -2147483648
+export const autoresearchValidateOnlineCreateBodyPlateauIterationsMax = 2147483647
+
+export const autoresearchValidateOnlineCreateBodyOutputPersonPropertyMax = 255
+
+export const AutoresearchValidateOnlineCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(autoresearchValidateOnlineCreateBodyNameMax).describe('Display name for the pipeline.'),
+    description: zod.string().optional().describe('Optional free-text description.'),
+    target_event: zod
+        .string()
+        .max(autoresearchValidateOnlineCreateBodyTargetEventMax)
+        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
+    target_definition: zod
+        .looseObject({})
+        .describe('Full target definition including event filters and positive-label conditions.'),
+    horizon_days: zod
+        .number()
+        .min(autoresearchValidateOnlineCreateBodyHorizonDaysMin)
+        .max(autoresearchValidateOnlineCreateBodyHorizonDaysMax)
+        .optional()
+        .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
+    prediction_mode: zod
+        .enum(['adoption', 'continuation'])
+        .describe('\* `adoption` - Adoption\n\* `continuation` - Continuation')
+        .optional()
+        .describe(
+            "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n\* `adoption` - Adoption\n\* `continuation` - Continuation"
+        ),
+    training_population: zod
+        .looseObject({})
+        .describe('Population used for training. Defines which users can appear as training examples.'),
+    inference_population: zod
+        .looseObject({})
+        .describe('Population scored daily. Typically broader than the training population.'),
+    cadence_days: zod
+        .number()
+        .min(autoresearchValidateOnlineCreateBodyCadenceDaysMin)
+        .max(autoresearchValidateOnlineCreateBodyCadenceDaysMax)
+        .optional()
+        .describe('Re-score the inference population every N days.'),
+    iteration_budget: zod
+        .number()
+        .min(autoresearchValidateOnlineCreateBodyIterationBudgetMin)
+        .max(autoresearchValidateOnlineCreateBodyIterationBudgetMax)
+        .optional()
+        .describe('Total training iterations allowed for the autoresearch loop.'),
+    success_auc: zod
+        .number()
+        .nullish()
+        .describe('Target AUC threshold. Training stops early if this score is reached.'),
+    plateau_iterations: zod
+        .number()
+        .min(autoresearchValidateOnlineCreateBodyPlateauIterationsMin)
+        .max(autoresearchValidateOnlineCreateBodyPlateauIterationsMax)
+        .optional()
+        .describe('Stop training if no AUC improvement is seen in this many consecutive iterations.'),
+    output_person_property: zod
+        .string()
+        .max(autoresearchValidateOnlineCreateBodyOutputPersonPropertyMax)
+        .optional()
+        .describe("Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'."),
+})
+
+/**
+ * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
+ * @summary Resolve a template
+ */
+export const autoresearchResolveTemplateCreateBodyHorizonDaysMax = 365
+
+export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object({
+    template_key: zod
+        .enum([
+            'likely_active_soon',
+            'at_risk_of_inactivity',
+            'return_after_first_use',
+            'feature_adoption',
+            'repeat_key_behavior',
+        ])
+        .describe(
+            '\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
+        )
+        .describe(
+            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
+        ),
+    target_event: zod
+        .string()
+        .optional()
+        .describe(
+            "Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event."
+        ),
+    horizon_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchResolveTemplateCreateBodyHorizonDaysMax)
+        .optional()
+        .describe("Override the template's default prediction horizon in days."),
+})
+
+/**
  * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Warnings with severity='error' must be resolved before creation can proceed. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
@@ -574,10 +775,10 @@ export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Predict whether the target event occurs within this many days.'),
     prediction_mode: zod
         .enum(['adoption', 'continuation'])
-        .describe('\* `adoption` - adoption\n\* `continuation` - continuation')
+        .describe('\* `adoption` - Adoption\n\* `continuation` - Continuation')
         .default(autoresearchValidateCreateBodyPredictionModeDefault)
         .describe(
-            "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n\* `adoption` - adoption\n\* `continuation` - continuation"
+            "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n\* `adoption` - Adoption\n\* `continuation` - Continuation"
         ),
     training_population: zod
         .unknown()

@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AutoresearchIterationApi,
     AutoresearchListParams,
     AutoresearchModelApi,
     AutoresearchModelsListParams,
@@ -18,15 +19,22 @@ import type {
     AutoresearchRunsListParams,
     AutoresearchSuggestionApi,
     AutoresearchSuggestionsListParams,
+    AutoresearchTemplatesListParams,
     AutoresearchTrainingRunApi,
     AutoresearchTrainingRunsListParams,
+    CompleteTrainingRunApi,
     CreateSuggestionApi,
+    OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
     PaginatedAutoresearchRunListApi,
     PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
+    PaginatedTemplateInfoListApi,
     PatchedAutoresearchPipelineCreateApi,
+    RecordIterationApi,
+    ResolveTemplateRequestApi,
+    ResolvedTemplateApi,
     StartTrainingRequestApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
@@ -325,7 +333,11 @@ export const getAutoresearchTrainingRunsListUrl = (
 }
 
 /**
- * List and retrieve training runs for a pipeline.
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+
+The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+training run directly — recording each iteration as it completes rather than via a single
+terminal sandbox output. Recipe validation and champion promotion stay server-side.
  */
 export const autoresearchTrainingRunsList = async (
     projectId: string,
@@ -342,12 +354,38 @@ export const autoresearchTrainingRunsList = async (
     )
 }
 
+export const getAutoresearchTrainingRunsCreateUrl = (projectId: string, pipelineId: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/`
+}
+
+/**
+ * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
+ * @summary Open a training run
+ */
+export const autoresearchTrainingRunsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    openTrainingRunApi?: OpenTrainingRunApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsCreateUrl(projectId, pipelineId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(openTrainingRunApi),
+    })
+}
+
 export const getAutoresearchTrainingRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
     return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/`
 }
 
 /**
- * List and retrieve training runs for a pipeline.
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+
+The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+training run directly — recording each iteration as it completes rather than via a single
+terminal sandbox output. Recipe validation and champion promotion stay server-side.
  */
 export const autoresearchTrainingRunsRetrieve = async (
     projectId: string,
@@ -359,6 +397,58 @@ export const autoresearchTrainingRunsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/complete/`
+}
+
+/**
+ * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * @summary Complete a training run
+ */
+export const autoresearchTrainingRunsCompleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    completeTrainingRunApi?: CompleteTrainingRunApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(
+        getAutoresearchTrainingRunsCompleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(completeTrainingRunApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsIterationsCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/iterations/`
+}
+
+/**
+ * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * @summary Record a training iteration
+ */
+export const autoresearchTrainingRunsIterationsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    recordIterationApi: RecordIterationApi,
+    options?: RequestInit
+): Promise<AutoresearchIterationApi> => {
+    return apiMutator<AutoresearchIterationApi>(
+        getAutoresearchTrainingRunsIterationsCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recordIterationApi),
+        }
+    )
 }
 
 export const getAutoresearchRetrieveUrl = (projectId: string, id: string) => {
@@ -555,6 +645,80 @@ export const autoresearchTrainCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(startTrainingRequestApi),
+    })
+}
+
+export const getAutoresearchValidateOnlineCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/validate-online/`
+}
+
+/**
+ * Validate predictions against realized outcomes for all matured prediction dates. A prediction date is matured when today >= prediction_date + horizon_days. Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. Already-validated dates are skipped. In production this is triggered by the daily Temporal validation workflow after inference runs.
+ * @summary Run online validation
+ */
+export const autoresearchValidateOnlineCreate = async (
+    projectId: string,
+    id: string,
+    autoresearchPipelineApi: NonReadonly<AutoresearchPipelineApi>,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchRunListApi> => {
+    return apiMutator<PaginatedAutoresearchRunListApi>(getAutoresearchValidateOnlineCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(autoresearchPipelineApi),
+    })
+}
+
+export const getAutoresearchResolveTemplateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/resolve-template/`
+}
+
+/**
+ * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
+ * @summary Resolve a template
+ */
+export const autoresearchResolveTemplateCreate = async (
+    projectId: string,
+    resolveTemplateRequestApi: ResolveTemplateRequestApi,
+    options?: RequestInit
+): Promise<ResolvedTemplateApi> => {
+    return apiMutator<ResolvedTemplateApi>(getAutoresearchResolveTemplateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resolveTemplateRequestApi),
+    })
+}
+
+export const getAutoresearchTemplatesListUrl = (projectId: string, params?: AutoresearchTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/templates/`
+}
+
+/**
+ * Return all built-in autoresearch prediction templates. Each entry describes what the template predicts, its default horizon and prediction mode, and whether it requires you to supply a target_event. After choosing a template, call autoresearch-resolve-template-create to get a fully resolved pipeline config ready to pass to autoresearch-create.
+ * @summary List available templates
+ */
+export const autoresearchTemplatesList = async (
+    projectId: string,
+    params?: AutoresearchTemplatesListParams,
+    options?: RequestInit
+): Promise<PaginatedTemplateInfoListApi> => {
+    return apiMutator<PaginatedTemplateInfoListApi>(getAutoresearchTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -4573,6 +4573,51 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `kept` - Kept
+    * `discarded` - Discarded
+    * `crashed` - Crashed
+     */
+    export type AutoresearchIterationStatusEnum = typeof AutoresearchIterationStatusEnum[keyof typeof AutoresearchIterationStatusEnum];
+
+
+    export const AutoresearchIterationStatusEnum = {
+      Kept: 'kept',
+      Discarded: 'discarded',
+      Crashed: 'crashed',
+    } as const;
+
+    export interface AutoresearchIteration {
+      readonly id: string;
+      pipeline: string;
+      training_run: string;
+      /** @nullable */
+      parent_iteration?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** @maxLength 64 */
+      recipe_hash: string;
+      /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
+      recipe_snapshot: unknown;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: unknown;
+      /** @nullable */
+      train_score?: number | null;
+      /** @nullable */
+      holdout_score?: number | null;
+      status: AutoresearchIterationStatusEnum;
+      agent_description?: string;
+      /**
+         * Agent's self-assessed confidence 0–1
+         * @nullable
+         */
+      agent_confidence?: number | null;
+      readonly created_at: string;
+    }
+
+    /**
      * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
      */
     export type AutoresearchModelModelRecipe = { [key: string]: unknown };
@@ -8477,6 +8522,24 @@ export namespace Schemas {
     export interface CompareItem {
       label: string;
       value: string;
+    }
+
+    /**
+     * Global feature importance / directionality bundle for the champion model card.
+     */
+    export type CompleteTrainingRunModelExplanation = { [key: string]: unknown };
+
+    /**
+     * Input for finalizing a training run. The backend selects/promotes the champion.
+     */
+    export interface CompleteTrainingRun {
+      /**
+         * Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.
+         * @nullable
+         */
+      best_iteration_id?: string | null;
+      /** Global feature importance / directionality bundle for the champion model card. */
+      model_explanation?: CompleteTrainingRunModelExplanation;
     }
 
     export interface ComposeTicket {
@@ -22451,6 +22514,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Input for opening an agent-driven training run.
+     */
+    export interface OpenTrainingRun {
+      /**
+         * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
+    /**
      * * `latest` - latest
     * `earliest` - earliest
      */
@@ -26008,6 +26083,37 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TeamBasic[];
+    }
+
+    export interface TemplateInfo {
+      /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create. */
+      key: string;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts and who it is for. */
+      description: string;
+      /** 'adoption': predict first-time occurrence. 'continuation': predict repeat occurrence.
+
+      * `adoption` - Adoption
+      * `continuation` - Continuation */
+      prediction_mode: AutoresearchPredictionModeEnum;
+      /** Default prediction horizon in days. Can be overridden when resolving. */
+      default_horizon_days: number;
+      /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
+      requires_user_event: boolean;
+      /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
+      requires_activity_resolution: boolean;
+      /** Usage guidance and implementation notes. */
+      notes: string;
+    }
+
+    export interface PaginatedTemplateInfoList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TemplateInfo[];
     }
 
     export interface ThresholdWithAlert {
@@ -35790,6 +35896,70 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
+     */
+    export type RecordIterationRecipeSnapshot = { [key: string]: unknown };
+
+    /**
+     * model_class (must be allowlisted) and model_params tried this iteration.
+     */
+    export type RecordIterationModelSpec = { [key: string]: unknown };
+
+    /**
+     * * `kept` - kept
+    * `discarded` - discarded
+    * `crashed` - crashed
+     */
+    export type RecordIterationStatusEnum = typeof RecordIterationStatusEnum[keyof typeof RecordIterationStatusEnum];
+
+
+    export const RecordIterationStatusEnum = {
+      Kept: 'kept',
+      Discarded: 'discarded',
+      Crashed: 'crashed',
+    } as const;
+
+    /**
+     * Input for recording one training iteration. Validated against the recipe allowlist.
+     */
+    export interface RecordIteration {
+      /**
+         * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
+         * @minimum 0
+         */
+      iteration_number: number;
+      /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
+      recipe_snapshot: RecordIterationRecipeSnapshot;
+      /** model_class (must be allowlisted) and model_params tried this iteration. */
+      model_spec: RecordIterationModelSpec;
+      /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
+
+      * `kept` - kept
+      * `discarded` - discarded
+      * `crashed` - crashed */
+      status: RecordIterationStatusEnum;
+      /**
+         * Training-set AUC for this iteration.
+         * @nullable
+         */
+      train_score?: number | null;
+      /**
+         * Held-out AUC for this iteration. Used to pick the champion at completion.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /** Agent's plain-English rationale for this iteration. */
+      agent_description?: string;
+      /**
+         * Agent's self-assessed confidence (0–1) that this iteration helps.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      agent_confidence?: number | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
          * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -35843,6 +36013,88 @@ export namespace Schemas {
     export interface ResetPasswordResponse {
       username: string;
       password: string;
+    }
+
+    /**
+     * * `likely_active_soon` - likely_active_soon
+    * `at_risk_of_inactivity` - at_risk_of_inactivity
+    * `return_after_first_use` - return_after_first_use
+    * `feature_adoption` - feature_adoption
+    * `repeat_key_behavior` - repeat_key_behavior
+     */
+    export type TemplateKeyEnum = typeof TemplateKeyEnum[keyof typeof TemplateKeyEnum];
+
+
+    export const TemplateKeyEnum = {
+      LikelyActiveSoon: 'likely_active_soon',
+      AtRiskOfInactivity: 'at_risk_of_inactivity',
+      ReturnAfterFirstUse: 'return_after_first_use',
+      FeatureAdoption: 'feature_adoption',
+      RepeatKeyBehavior: 'repeat_key_behavior',
+    } as const;
+
+    export interface ResolveTemplateRequest {
+      /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+
+      * `likely_active_soon` - likely_active_soon
+      * `at_risk_of_inactivity` - at_risk_of_inactivity
+      * `return_after_first_use` - return_after_first_use
+      * `feature_adoption` - feature_adoption
+      * `repeat_key_behavior` - repeat_key_behavior */
+      template_key: TemplateKeyEnum;
+      /** Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event. */
+      target_event?: string;
+      /**
+         * Override the template's default prediction horizon in days.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+    }
+
+    /**
+     * Resolved training population filter. Pass as 'training_population' to autoresearch-create.
+     */
+    export type ResolvedTemplateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create.
+     */
+    export type ResolvedTemplateInferencePopulation = { [key: string]: unknown };
+
+    export interface ResolvedTemplate {
+      /** The template key that was resolved. */
+      template_key: string;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts. */
+      description: string;
+      /** Suggested pipeline name. Pass as 'name' to autoresearch-create. */
+      suggested_name: string;
+      /** Resolved target event. Pass as 'target_event' to autoresearch-create. For activity-based templates this is the auto-resolved activity event (or your override). */
+      target_event: string;
+      /**
+         * Activity event found in your event schema, populated only for templates that auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'). Null for templates where you supply target_event directly.
+         * @nullable
+         */
+      resolved_activity_event: string | null;
+      /** Other viable activity events found in your schema. If the resolved event is not the right signal, re-resolve with one of these as target_event. */
+      activity_event_alternatives: string[];
+      /** 'adoption': first-time occurrence. 'continuation': repeat occurrence.
+
+      * `adoption` - Adoption
+      * `continuation` - Continuation */
+      prediction_mode: AutoresearchPredictionModeEnum;
+      /** Resolved prediction horizon in days. */
+      horizon_days: number;
+      /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
+      training_population: ResolvedTemplateTrainingPopulation;
+      /** Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create. */
+      inference_population: ResolvedTemplateInferencePopulation;
+      /** Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create. */
+      output_person_property: string;
+      /** Usage notes and guidance for interpreting this resolved config. */
+      notes: string;
     }
 
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
@@ -38251,18 +38503,6 @@ export namespace Schemas {
       all_utm_events: UtmEvent[];
     }
 
-    /**
-     * * `adoption` - adoption
-    * `continuation` - continuation
-     */
-    export type ValidatePipelineRequestPredictionModeEnum = typeof ValidatePipelineRequestPredictionModeEnum[keyof typeof ValidatePipelineRequestPredictionModeEnum];
-
-
-    export const ValidatePipelineRequestPredictionModeEnum = {
-      Adoption: 'adoption',
-      Continuation: 'continuation',
-    } as const;
-
     export interface ValidatePipelineRequest {
       /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. */
       target_event: string;
@@ -38274,9 +38514,9 @@ export namespace Schemas {
       horizon_days?: number;
       /** 'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.
 
-      * `adoption` - adoption
-      * `continuation` - continuation */
-      prediction_mode?: ValidatePipelineRequestPredictionModeEnum;
+      * `adoption` - Adoption
+      * `continuation` - Continuation */
+      prediction_mode?: AutoresearchPredictionModeEnum;
       /** Population filter for training examples. Use {} for all identified users. */
       training_population?: unknown;
       /** Population filter for daily scoring. Defaults to training_population if not provided. */
@@ -43839,6 +44079,17 @@ export namespace Schemas {
     };
 
     export type AutoresearchTrainingRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AutoresearchTemplatesListParams = {
     /**
      * Number of results to return per page.
      */

@@ -142,6 +142,31 @@ tools:
         description: >
             Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. Use
             autoresearch-resume-create to restart.
+    autoresearch-resolve-template-create:
+        operation: autoresearch_resolve_template_create
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve a template
+        description: >
+            Resolve a template key and optional overrides into a ready-to-use pipeline config. For activity-based
+            templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is
+            auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then
+            re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and
+            'repeat_key_behavior', supply target_event (required). After resolving: (1) call
+            autoresearch-validate-create with the resolved target_event, prediction_mode, training_population, and
+            inference_population to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with
+            the resolved fields as-is.
+        exclude_params:
+            - resolved_activity_event
+            - activity_event_alternatives
+            - display_name
+            - description
+            - notes
     autoresearch-resume-create:
         operation: autoresearch_resume_create
         enabled: true
@@ -228,26 +253,23 @@ tools:
             idempotent: false
         title: Submit a suggestion
         description: >
-            Inject a free-text hypothesis or direction into a running pipeline for the sandbox agent to consider.
-            The agent reads queued suggestions at the start of each training batch and decides whether to translate
-            the suggestion into a concrete iteration ('acted_on'), apply it as a search constraint ('picked_up'),
-            or reject it with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this
-            before autonomous iterations; 'consider' (default) is advisory. Check 'agent_response' after the next
-            training run to see how the suggestion was interpreted. Examples: 'try a gradient boosting model',
-            'remove recency features — I suspect leakage', 'the target event has a 7-day spike on Mondays, account
-            for day-of-week'. Suggestions survive pipeline pauses and are included in the next training batch when
-            the pipeline resumes.
+            Inject a free-text hypothesis or direction into a running pipeline for the sandbox agent to consider. The
+            agent reads queued suggestions at the start of each training batch and decides whether to translate the
+            suggestion into a concrete iteration ('acted_on'), apply it as a search constraint ('picked_up'), or reject
+            it with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before
+            autonomous iterations; 'consider' (default) is advisory. Check 'agent_response' after the next training run
+            to see how the suggestion was interpreted. Examples: 'try a gradient boosting model', 'remove recency
+            features — I suspect leakage', 'the target event has a 7-day spike on Mondays, account for day-of-week'.
+            Suggestions survive pipeline pauses and are included in the next training batch when the pipeline resumes.
         exclude_params:
             - source
             - status
             - agent_response
             - created_by
             - linked_iteration_ids
-
     autoresearch-suggestions-list:
         operation: autoresearch_suggestions_list
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -257,9 +279,10 @@ tools:
         list: true
         title: List suggestions
         description: >
-            List steering suggestions for a pipeline, ordered most recent first. Each entry shows the prompt,
-            priority, status (queued/picked_up/acted_on/dismissed), and the agent's response when available.
-            Use 'linked_iteration_ids' to trace which iterations were spawned from a suggestion.
+            List steering suggestions for a pipeline, ordered most recent first. Each entry shows the prompt, priority,
+            status (queued/picked_up/acted_on/dismissed), and the agent's response when available. Use
+            'linked_iteration_ids' to trace which iterations were spawned from a suggestion.
+        mcp_version: 1
         response:
             include:
                 - id
@@ -271,11 +294,9 @@ tools:
                 - agent_response
                 - linked_iteration_ids
                 - created_at
-
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -283,8 +304,38 @@ tools:
             destructive: false
             idempotent: true
         title: Get suggestion
-        description: >
+        description: |
             Get full details for a specific suggestion including its status and agent_response.
+        mcp_version: 1
+    autoresearch-templates-list:
+        operation: autoresearch_templates_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List available templates
+        description: >
+            List all built-in autoresearch prediction templates. Each entry includes the template key, display name,
+            description, default horizon, prediction mode, and whether you need to supply a target_event. Templates:
+            'likely_active_soon' (best universal starter — predicts next-7d activity), 'at_risk_of_inactivity' (predicts
+            14d inactivity risk), 'return_after_first_use' (predicts new-user return within 7d), 'feature_adoption'
+            (predicts first use of your chosen event within 14d — requires target_event), 'repeat_key_behavior'
+            (predicts repeat use of your chosen event within 7d — requires target_event). After picking a template, call
+            autoresearch-resolve-template-create to get a resolved pipeline config.
+        response:
+            include:
+                - key
+                - display_name
+                - description
+                - prediction_mode
+                - default_horizon_days
+                - requires_user_event
+                - requires_activity_resolution
+                - notes
     autoresearch-train-create:
         operation: autoresearch_train_create
         enabled: true
@@ -300,6 +351,59 @@ tools:
             synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training run object with
             status, iteration_count, and best_holdout_score. After training completes, call autoresearch-score-create to
             run inference and emit prediction events. You can optionally override the iteration_budget for this run.
+    autoresearch-training-runs-create:
+        operation: autoresearch_training_runs_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        mcp_version: 2
+        title: Open a training run
+        description: >
+            Open a new training run for a pipeline and return its id. An agent (your own, the in-house sandbox,
+            or a scheduled job) then records iterations against this run with
+            autoresearch-training-runs-iterations-create and finalizes it with
+            autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally override the
+            iteration_budget for this run.
+    autoresearch-training-runs-iterations-create:
+        operation: autoresearch_training_runs_iterations_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Record a training iteration
+        description: >
+            Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same
+            number updates that iteration in place. The recipe is validated server-side: model_class in
+            model_spec must be in the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a
+            read-only SELECT keyed on person_id. Use status='kept' if the iteration improved on the best score,
+            'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose
+            the champion.
+    autoresearch-training-runs-complete-create:
+        operation: autoresearch_training_runs_complete_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Complete a training run
+        description: >
+            Finalize a training run. The backend selects the best iteration (highest holdout_score, or the
+            best_iteration_id you name), decides champion vs challenger via the promotion ladder (cold-start
+            preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot
+            set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to
+            see the resulting champion/challenger. Optionally pass model_explanation (top features and
+            directionality) for the model card.
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list
         enabled: true
@@ -333,82 +437,6 @@ tools:
     autoresearch-update:
         operation: autoresearch_update
         enabled: false
-    autoresearch-templates-list:
-        operation: autoresearch_templates_list
-        enabled: true
-        scopes:
-            - autoresearch:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List available templates
-        description: >
-            List all built-in autoresearch prediction templates. Each entry includes the template key,
-            display name, description, default horizon, prediction mode, and whether you need to supply
-            a target_event. Templates: 'likely_active_soon' (best universal starter — predicts next-7d
-            activity), 'at_risk_of_inactivity' (predicts 14d inactivity risk), 'return_after_first_use'
-            (predicts new-user return within 7d), 'feature_adoption' (predicts first use of your chosen
-            event within 14d — requires target_event), 'repeat_key_behavior' (predicts repeat use of your
-            chosen event within 7d — requires target_event). After picking a template, call
-            autoresearch-resolve-template-create to get a resolved pipeline config.
-        response:
-            include:
-                - key
-                - display_name
-                - description
-                - prediction_mode
-                - default_horizon_days
-                - requires_user_event
-                - requires_activity_resolution
-                - notes
-    autoresearch-resolve-template-create:
-        operation: autoresearch_resolve_template_create
-        enabled: true
-        scopes:
-            - autoresearch:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Resolve a template
-        description: >
-            Resolve a template key and optional overrides into a ready-to-use pipeline config. For
-            activity-based templates ('likely_active_soon', 'at_risk_of_inactivity',
-            'return_after_first_use'), the target_event is auto-resolved from your event schema —
-            review resolved_activity_event and activity_event_alternatives, then re-resolve with a
-            target_event override if the chosen event is wrong. For 'feature_adoption' and
-            'repeat_key_behavior', supply target_event (required). After resolving: (1) call
-            autoresearch-validate-create with the resolved target_event, prediction_mode,
-            training_population, and inference_population to check volume and warnings; (2) if
-            can_proceed is true, call autoresearch-create with the resolved fields as-is.
-        exclude_params:
-            - resolved_activity_event
-            - activity_event_alternatives
-            - display_name
-            - description
-            - notes
-    autoresearch-validate-online-create:
-        operation: autoresearch_validate_online_create
-        enabled: true
-        scopes:
-            - autoresearch:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Run online validation
-        description: >
-            Validate predictions against realized outcomes for all matured prediction dates. A prediction date
-            is matured when today >= prediction_date + horizon_days — meaning the outcome window has closed
-            and ground-truth labels can be fetched. Computes per-model realized AUC, Brier score, expected
-            calibration error (ECE), and lift@10/20. Updates the model's realized_score and calibration_error
-            in Postgres, and clears the is_preliminary flag after the first successful validation cycle.
-            Already-validated dates are skipped automatically. Returns one run object per prediction date
-            processed; an empty list means no dates have matured yet. In production this is triggered by the
-            daily Temporal validation workflow after inference runs. Call autoresearch-models-list after this
-            to see updated realized_score values on champion/challenger models.
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true
@@ -426,3 +454,22 @@ tools:
             noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples),
             or extreme_imbalance (base rate below 0.001). Use 'adoption' mode for predicting first-time events; use
             'continuation' for repeat events. Always validate before creating.
+    autoresearch-validate-online-create:
+        operation: autoresearch_validate_online_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run online validation
+        description: >
+            Validate predictions against realized outcomes for all matured prediction dates. A prediction date is
+            matured when today >= prediction_date + horizon_days — meaning the outcome window has closed and
+            ground-truth labels can be fetched. Computes per-model realized AUC, Brier score, expected calibration error
+            (ECE), and lift@10/20. Updates the model's realized_score and calibration_error in Postgres, and clears the
+            is_preliminary flag after the first successful validation cycle. Already-validated dates are skipped
+            automatically. Returns one run object per prediction date processed; an empty list means no dates have
+            matured yet. In production this is triggered by the daily Temporal validation workflow after inference runs.
+            Call autoresearch-models-list after this to see updated realized_score values on champion/challenger models.

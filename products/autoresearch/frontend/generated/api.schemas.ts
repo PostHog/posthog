@@ -615,6 +615,145 @@ export interface PaginatedAutoresearchTrainingRunListApi {
 }
 
 /**
+ * Input for opening an agent-driven training run.
+ */
+export interface OpenTrainingRunApi {
+    /**
+     * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+     * @minimum 1
+     * @maximum 500
+     */
+    iteration_budget?: number
+}
+
+/**
+ * Global feature importance / directionality bundle for the champion model card.
+ */
+export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
+
+/**
+ * Input for finalizing a training run. The backend selects/promotes the champion.
+ */
+export interface CompleteTrainingRunApi {
+    /**
+     * Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.
+     * @nullable
+     */
+    best_iteration_id?: string | null
+    /** Global feature importance / directionality bundle for the champion model card. */
+    model_explanation?: CompleteTrainingRunApiModelExplanation
+}
+
+/**
+ * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
+ */
+export type RecordIterationApiRecipeSnapshot = { [key: string]: unknown }
+
+/**
+ * model_class (must be allowlisted) and model_params tried this iteration.
+ */
+export type RecordIterationApiModelSpec = { [key: string]: unknown }
+
+/**
+ * * `kept` - kept
+ * `discarded` - discarded
+ * `crashed` - crashed
+ */
+export type RecordIterationStatusEnumApi =
+    (typeof RecordIterationStatusEnumApi)[keyof typeof RecordIterationStatusEnumApi]
+
+export const RecordIterationStatusEnumApi = {
+    Kept: 'kept',
+    Discarded: 'discarded',
+    Crashed: 'crashed',
+} as const
+
+/**
+ * Input for recording one training iteration. Validated against the recipe allowlist.
+ */
+export interface RecordIterationApi {
+    /**
+     * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
+     * @minimum 0
+     */
+    iteration_number: number
+    /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
+    recipe_snapshot: RecordIterationApiRecipeSnapshot
+    /** model_class (must be allowlisted) and model_params tried this iteration. */
+    model_spec: RecordIterationApiModelSpec
+    /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
+
+  * `kept` - kept
+  * `discarded` - discarded
+  * `crashed` - crashed */
+    status: RecordIterationStatusEnumApi
+    /**
+     * Training-set AUC for this iteration.
+     * @nullable
+     */
+    train_score?: number | null
+    /**
+     * Held-out AUC for this iteration. Used to pick the champion at completion.
+     * @nullable
+     */
+    holdout_score?: number | null
+    /** Agent's plain-English rationale for this iteration. */
+    agent_description?: string
+    /**
+     * Agent's self-assessed confidence (0–1) that this iteration helps.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    agent_confidence?: number | null
+}
+
+/**
+ * * `kept` - Kept
+ * `discarded` - Discarded
+ * `crashed` - Crashed
+ */
+export type AutoresearchIterationStatusEnumApi =
+    (typeof AutoresearchIterationStatusEnumApi)[keyof typeof AutoresearchIterationStatusEnumApi]
+
+export const AutoresearchIterationStatusEnumApi = {
+    Kept: 'kept',
+    Discarded: 'discarded',
+    Crashed: 'crashed',
+} as const
+
+export interface AutoresearchIterationApi {
+    readonly id: string
+    pipeline: string
+    training_run: string
+    /** @nullable */
+    parent_iteration?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** @maxLength 64 */
+    recipe_hash: string
+    /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
+    recipe_snapshot: unknown
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: unknown
+    /** @nullable */
+    train_score?: number | null
+    /** @nullable */
+    holdout_score?: number | null
+    status: AutoresearchIterationStatusEnumApi
+    agent_description?: string
+    /**
+     * Agent's self-assessed confidence 0–1
+     * @nullable
+     */
+    agent_confidence?: number | null
+    readonly created_at: string
+}
+
+/**
  * Full target definition. Can be left empty to use target_event alone.
  */
 export type PatchedAutoresearchPipelineCreateApiTargetDefinition = { [key: string]: unknown }
@@ -699,16 +838,116 @@ export interface StartTrainingRequestApi {
 }
 
 /**
- * * `adoption` - adoption
- * `continuation` - continuation
+ * * `likely_active_soon` - likely_active_soon
+ * `at_risk_of_inactivity` - at_risk_of_inactivity
+ * `return_after_first_use` - return_after_first_use
+ * `feature_adoption` - feature_adoption
+ * `repeat_key_behavior` - repeat_key_behavior
  */
-export type ValidatePipelineRequestPredictionModeEnumApi =
-    (typeof ValidatePipelineRequestPredictionModeEnumApi)[keyof typeof ValidatePipelineRequestPredictionModeEnumApi]
+export type TemplateKeyEnumApi = (typeof TemplateKeyEnumApi)[keyof typeof TemplateKeyEnumApi]
 
-export const ValidatePipelineRequestPredictionModeEnumApi = {
-    Adoption: 'adoption',
-    Continuation: 'continuation',
+export const TemplateKeyEnumApi = {
+    LikelyActiveSoon: 'likely_active_soon',
+    AtRiskOfInactivity: 'at_risk_of_inactivity',
+    ReturnAfterFirstUse: 'return_after_first_use',
+    FeatureAdoption: 'feature_adoption',
+    RepeatKeyBehavior: 'repeat_key_behavior',
 } as const
+
+export interface ResolveTemplateRequestApi {
+    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+
+  * `likely_active_soon` - likely_active_soon
+  * `at_risk_of_inactivity` - at_risk_of_inactivity
+  * `return_after_first_use` - return_after_first_use
+  * `feature_adoption` - feature_adoption
+  * `repeat_key_behavior` - repeat_key_behavior */
+    template_key: TemplateKeyEnumApi
+    /** Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event. */
+    target_event?: string
+    /**
+     * Override the template's default prediction horizon in days.
+     * @minimum 1
+     * @maximum 365
+     */
+    horizon_days?: number
+}
+
+/**
+ * Resolved training population filter. Pass as 'training_population' to autoresearch-create.
+ */
+export type ResolvedTemplateApiTrainingPopulation = { [key: string]: unknown }
+
+/**
+ * Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create.
+ */
+export type ResolvedTemplateApiInferencePopulation = { [key: string]: unknown }
+
+export interface ResolvedTemplateApi {
+    /** The template key that was resolved. */
+    template_key: string
+    /** Human-readable template name. */
+    display_name: string
+    /** What this template predicts. */
+    description: string
+    /** Suggested pipeline name. Pass as 'name' to autoresearch-create. */
+    suggested_name: string
+    /** Resolved target event. Pass as 'target_event' to autoresearch-create. For activity-based templates this is the auto-resolved activity event (or your override). */
+    target_event: string
+    /**
+     * Activity event found in your event schema, populated only for templates that auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'). Null for templates where you supply target_event directly.
+     * @nullable
+     */
+    resolved_activity_event: string | null
+    /** Other viable activity events found in your schema. If the resolved event is not the right signal, re-resolve with one of these as target_event. */
+    activity_event_alternatives: string[]
+    /** 'adoption': first-time occurrence. 'continuation': repeat occurrence.
+
+  * `adoption` - Adoption
+  * `continuation` - Continuation */
+    prediction_mode: AutoresearchPredictionModeEnumApi
+    /** Resolved prediction horizon in days. */
+    horizon_days: number
+    /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
+    training_population: ResolvedTemplateApiTrainingPopulation
+    /** Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create. */
+    inference_population: ResolvedTemplateApiInferencePopulation
+    /** Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create. */
+    output_person_property: string
+    /** Usage notes and guidance for interpreting this resolved config. */
+    notes: string
+}
+
+export interface TemplateInfoApi {
+    /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create. */
+    key: string
+    /** Human-readable template name. */
+    display_name: string
+    /** What this template predicts and who it is for. */
+    description: string
+    /** 'adoption': predict first-time occurrence. 'continuation': predict repeat occurrence.
+
+  * `adoption` - Adoption
+  * `continuation` - Continuation */
+    prediction_mode: AutoresearchPredictionModeEnumApi
+    /** Default prediction horizon in days. Can be overridden when resolving. */
+    default_horizon_days: number
+    /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
+    requires_user_event: boolean
+    /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
+    requires_activity_resolution: boolean
+    /** Usage guidance and implementation notes. */
+    notes: string
+}
+
+export interface PaginatedTemplateInfoListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TemplateInfoApi[]
+}
 
 export interface ValidatePipelineRequestApi {
     /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. */
@@ -721,9 +960,9 @@ export interface ValidatePipelineRequestApi {
     horizon_days?: number
     /** 'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.
 
-  * `adoption` - adoption
-  * `continuation` - continuation */
-    prediction_mode?: ValidatePipelineRequestPredictionModeEnumApi
+  * `adoption` - Adoption
+  * `continuation` - Continuation */
+    prediction_mode?: AutoresearchPredictionModeEnumApi
     /** Population filter for training examples. Use {} for all identified users. */
     training_population?: unknown
     /** Population filter for daily scoring. Defaults to training_population if not provided. */
@@ -841,6 +1080,17 @@ export type AutoresearchSuggestionsListParams = {
 }
 
 export type AutoresearchTrainingRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchTemplatesListParams = {
     /**
      * Number of results to return per page.
      */

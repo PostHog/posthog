@@ -410,7 +410,7 @@ class ValidatePipelineRequestSerializer(serializers.Serializer):
         help_text="Predict whether the target event occurs within this many days.",
     )
     prediction_mode = serializers.ChoiceField(
-        choices=["adoption", "continuation"],
+        choices=AutoresearchPipeline.PredictionMode.choices,
         default="adoption",
         help_text="'adoption': predict first-time occurrence for users who haven't done it yet. "
         "'continuation': predict repeat occurrence for users who have already done it.",
@@ -655,7 +655,7 @@ class TemplateInfoSerializer(serializers.Serializer):
     display_name = serializers.CharField(help_text="Human-readable template name.")
     description = serializers.CharField(help_text="What this template predicts and who it is for.")
     prediction_mode = serializers.ChoiceField(
-        choices=["adoption", "continuation"],
+        choices=AutoresearchPipeline.PredictionMode.choices,
         help_text="'adoption': predict first-time occurrence. 'continuation': predict repeat occurrence.",
     )
     default_horizon_days = serializers.IntegerField(
@@ -755,7 +755,7 @@ class ResolvedTemplateSerializer(serializers.Serializer):
         ),
     )
     prediction_mode = serializers.ChoiceField(
-        choices=["adoption", "continuation"],
+        choices=AutoresearchPipeline.PredictionMode.choices,
         help_text="'adoption': first-time occurrence. 'continuation': repeat occurrence.",
     )
     horizon_days = serializers.IntegerField(help_text="Resolved prediction horizon in days.")
