@@ -11,6 +11,8 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.models import Organization, Team
@@ -25,6 +27,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
@@ -124,6 +127,7 @@ class TestCreateObservationActivity:
         )
 
         assert result.was_created is True
+        assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.status == ObservationStatus.PENDING
         assert observation.workflow_id == "wf-xyz"
@@ -156,6 +160,7 @@ class TestCreateObservationActivity:
         scanner.scanner_config = {"prompt": "completely different prompt"}
         scanner.save()
 
+        assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["scanner_config"] == original_config
 
@@ -174,7 +179,9 @@ class TestCreateObservationActivity:
             )
         )
 
-        assert result == CreateObservationOutput(observation_id=existing.id, was_created=False)
+        assert result == CreateObservationOutput(
+            observation_id=existing.id, was_created=False, scanner_type=ScannerType.MONITOR
+        )
         # The original row wasn't touched.
         existing.refresh_from_db()
         assert existing.workflow_id != "wf-second"
@@ -257,6 +264,32 @@ class TestCreateObservationActivity:
         )
         assert result.was_created is True
 
+    def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
+        ) as mock_snapshot:
+            mock_snapshot.return_value = QuotaSnapshot(
+                monthly_quota=1,
+                usage_this_month=1,
+                period_start=dt.datetime.now(dt.UTC),
+                period_end=dt.datetime.now(dt.UTC),
+            )
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-quota",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-quota",
+                )
+            )
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
+
 
 @pytest.mark.django_db(transaction=True)
 class TestObservationStateActivities:
@@ -280,7 +313,9 @@ class TestObservationStateActivities:
         observation.save(update_fields=["status", "started_at"])
 
         mark_observation_failed_activity(
-            MarkObservationFailedInputs(observation_id=observation.id, error_reason="bad output")
+            MarkObservationFailedInputs(
+                observation_id=observation.id, error_reason="bad output", scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
@@ -293,7 +328,11 @@ class TestObservationStateActivities:
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
 
         mark_observation_ineligible_activity(
-            MarkObservationIneligibleInputs(observation_id=observation.id, error_reason="too_short:only 5s long")
+            MarkObservationIneligibleInputs(
+                observation_id=observation.id,
+                error_reason="too_short:only 5s long",
+                scanner_type=ScannerType.MONITOR,
+            )
         )
 
         observation.refresh_from_db()
@@ -316,7 +355,9 @@ class TestObservationStateActivities:
 
         mark_observation_running_activity(MarkObservationRunningInputs(observation_id=observation.id))
         mark_observation_failed_activity(
-            MarkObservationFailedInputs(observation_id=observation.id, error_reason="late failure")
+            MarkObservationFailedInputs(
+                observation_id=observation.id, error_reason="late failure", scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
@@ -342,7 +383,9 @@ class TestObservationStateActivities:
         result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9))
 
         mark_observation_succeeded_activity(
-            MarkObservationSucceededInputs(observation_id=observation.id, scanner_result=result)
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
@@ -359,13 +402,243 @@ class TestObservationStateActivities:
         result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.9))
 
         mark_observation_succeeded_activity(
-            MarkObservationSucceededInputs(observation_id=observation.id, scanner_result=result)
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
         assert observation.status == ObservationStatus.FAILED
         assert observation.completed_at is not None
         assert observation.scanner_result == {}  # not overwritten
+
+
+def _counter_value(metric_name: str, **labels: str) -> float:
+    return REGISTRY.get_sample_value(metric_name, labels) or 0.0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestObservationStateMetricsAndLogs:
+    def test_mark_succeeded_increments_observations_counter_and_logs(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8))
+        before = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
+
+        with capture_logs() as logs:
+            mark_observation_succeeded_activity(
+                MarkObservationSucceededInputs(
+                    observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+                )
+            )
+
+        after = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
+        assert after == before + 1
+        events = [r for r in logs if r.get("event") == "replay_vision.observation.succeeded"]
+        assert len(events) == 1
+        assert events[0]["scanner_type"] == "monitor"
+        assert events[0]["observation_id"] == str(observation.id)
+
+    def test_mark_failed_increments_observations_and_failure_kinds(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before_obs = _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor")
+        before_kind = _counter_value(
+            "replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor"
+        )
+
+        with capture_logs() as logs:
+            mark_observation_failed_activity(
+                MarkObservationFailedInputs(
+                    observation_id=observation.id,
+                    error_reason="provider_rejected:Gemini said no",
+                    scanner_type=ScannerType.MONITOR,
+                )
+            )
+
+        assert _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor") == (
+            before_obs + 1
+        )
+        assert _counter_value(
+            "replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor"
+        ) == (before_kind + 1)
+        events = [r for r in logs if r.get("event") == "replay_vision.observation.failed"]
+        assert len(events) == 1
+        assert events[0]["kind"] == "provider_rejected"
+        assert events[0]["scanner_type"] == "monitor"
+
+    def test_mark_failed_with_unparseable_error_reason_labels_kind_unknown(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before = _counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor")
+
+        mark_observation_failed_activity(
+            MarkObservationFailedInputs(
+                observation_id=observation.id,
+                error_reason="no colon here",
+                scanner_type=ScannerType.MONITOR,
+            )
+        )
+
+        assert _counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor") == (
+            before + 1
+        )
+
+    def test_mark_ineligible_increments_observations_and_ineligible_kinds(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before_obs = _counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor")
+        before_kind = _counter_value("replay_vision_ineligible_kinds_total", kind="too_short")
+
+        with capture_logs() as logs:
+            mark_observation_ineligible_activity(
+                MarkObservationIneligibleInputs(
+                    observation_id=observation.id,
+                    error_reason="too_short:only 5s long",
+                    scanner_type=ScannerType.MONITOR,
+                )
+            )
+
+        assert _counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor") == (
+            before_obs + 1
+        )
+        assert _counter_value("replay_vision_ineligible_kinds_total", kind="too_short") == before_kind + 1
+        events = [r for r in logs if r.get("event") == "replay_vision.observation.ineligible"]
+        assert len(events) == 1
+        assert events[0]["kind"] == "too_short"
+
+    def test_activity_duration_histogram_records_success_observation(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8))
+        labels = {"activity": "mark_observation_succeeded_activity", "status": "succeeded"}
+        before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
+
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
+
+    @pytest.mark.parametrize(
+        "error_reason, expected_kind",
+        [
+            ("provider_rejected:bad video", "provider_rejected"),
+            ("internal_error:", "internal_error"),  # empty message still parses kind
+            ("not a kind:something", "unknown"),  # leading text isn't an enum value
+            ("no colon here", "unknown"),
+            (":message", "unknown"),  # leading colon
+            ("", "unknown"),
+            ("provider_rejected:has:more:colons", "provider_rejected"),  # only first colon splits
+        ],
+    )
+    def test_failure_kind_parser_validates_against_enum(self, error_reason: str, expected_kind: str) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before = _counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor")
+
+        mark_observation_failed_activity(
+            MarkObservationFailedInputs(
+                observation_id=observation.id, error_reason=error_reason, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        assert _counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor") == (
+            before + 1
+        )
+
+    @pytest.mark.parametrize(
+        "observation_status, metric_status, log_event, run_activity",
+        [
+            (
+                ObservationStatus.FAILED,
+                "failed",
+                "replay_vision.observation.failed",
+                lambda obs_id: mark_observation_failed_activity(
+                    MarkObservationFailedInputs(
+                        observation_id=obs_id,
+                        error_reason="internal_error:late retry",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+            (
+                ObservationStatus.INELIGIBLE,
+                "ineligible",
+                "replay_vision.observation.ineligible",
+                lambda obs_id: mark_observation_ineligible_activity(
+                    MarkObservationIneligibleInputs(
+                        observation_id=obs_id,
+                        error_reason="too_short:late retry",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+            (
+                ObservationStatus.SUCCEEDED,
+                "succeeded",
+                "replay_vision.observation.succeeded",
+                lambda obs_id: mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=obs_id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.8)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+        ],
+        ids=["failed", "ineligible", "succeeded"],
+    )
+    def test_no_counter_or_log_when_update_affects_zero_rows(
+        self,
+        observation_status: ObservationStatus,
+        metric_status: str,
+        log_event: str,
+        run_activity,
+    ) -> None:
+        # Idempotent retry against an already-terminal row must not double-count or re-log.
+        scanner = _make_scanner()
+        observation = _make_observation(
+            scanner, status=observation_status, completed_at=timezone.now(), error_reason="original"
+        )
+        before_obs = _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+
+        with capture_logs() as logs:
+            run_activity(observation.id)
+
+        assert (
+            _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+            == before_obs
+        )
+        assert [r for r in logs if r.get("event") == log_event] == []
+
+    def test_activity_duration_histogram_records_failure_observation(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.PENDING)
+        labels = {"activity": "mark_observation_succeeded_activity", "status": "failed"}
+        before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.ReplayObservation.objects",
+            new_callable=MagicMock,
+        ) as mock_objects:
+            mock_objects.filter.return_value.update.side_effect = RuntimeError("db blew up")
+            with pytest.raises(RuntimeError):
+                mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=observation.id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                )
+
+        assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -986,7 +1259,9 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1024,7 +1299,9 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     fetch_error = ApplicationError("no events", non_retryable=True)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
         },
         activity_errors={fetch_session_events_activity: fetch_error},
@@ -1050,7 +1327,9 @@ async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_f
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1077,7 +1356,9 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1102,7 +1383,9 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
 async def test_apply_scanner_workflow_exits_when_create_returns_was_created_false() -> None:
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=False, scanner_type=ScannerType.MONITOR
+            ),
         },
     )
 
@@ -1116,7 +1399,9 @@ async def test_apply_scanner_workflow_exits_when_create_returns_was_created_fals
 async def test_apply_scanner_workflow_propagates_workflow_id_to_create() -> None:
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=False, scanner_type=ScannerType.MONITOR
+            ),
         },
     )
     inputs = _build_inputs(
@@ -1298,7 +1583,9 @@ async def test_apply_scanner_workflow_dispatches_indexer_side_effect() -> None:
     model_output = _indexer_output()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1328,7 +1615,9 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
     model_output = _classifier_output()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1356,7 +1645,9 @@ async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
     model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1378,7 +1669,9 @@ async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> 
     side_effect_error = ApplicationError("embedding kafka down", non_retryable=True)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"

@@ -29,6 +29,8 @@ export type State = {
     mcpClientName: string | undefined
     mcpClientVersion: string | undefined
     mcpProtocolVersion: string | undefined
+    mcpConsumer: string | undefined
+    mcpVendorClient: string | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &

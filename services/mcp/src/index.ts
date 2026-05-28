@@ -344,6 +344,13 @@ const handleRequest = async (
     // the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
+    // Anthropic-set per-request identifier for the inner upstream client (e.g.
+    // `ClaudeCode`, `ClaudeAI`, `Cowork`). Distinct from `mcpClientName` (the
+    // MCP `initialize` body's `clientInfo.name`) because Claude pools MCP
+    // transports — the same `mcpSessionId` can carry requests from multiple
+    // upstream products, and only this header tracks the live one.
+    const mcpVendorClient = sanitizeHeaderValue(request.headers.get('x-anthropic-client') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -357,6 +364,7 @@ const handleRequest = async (
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient,
         requestStartTime: Date.now(),
     })
 
