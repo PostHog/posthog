@@ -32016,6 +32016,8 @@ export namespace Schemas {
       readonly product_intents?: readonly PatchedTeamProductIntentsItem[];
       readonly managed_viewsets?: PatchedTeamManagedViewsets;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
+      /** Log attribute key whose value matches a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool to filter logs by user identity. Configurable via the `logs_config` endpoint. */
+      readonly logs_distinct_id_attribute_key?: string;
     }
 
     /**
@@ -37923,6 +37925,8 @@ export namespace Schemas {
       readonly product_intents: readonly TeamProductIntentsItem[];
       readonly managed_viewsets: TeamManagedViewsets;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+      /** Log attribute key whose value matches a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool to filter logs by user identity. Configurable via the `logs_config` endpoint. */
+      readonly logs_distinct_id_attribute_key: string;
     }
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };

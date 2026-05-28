@@ -236,7 +236,14 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                const isPinned = pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))
+                // Pinned filters are enforced by the embedding scene (e.g. distinct_id
+                // scope on a person profile). They're applied to the query but hidden
+                // from the chip list — matching how Events / Exceptions hide their
+                // structural person scope. Without this, a user could click in and
+                // edit values that conceptually shouldn't be theirs to edit.
+                if (pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))) {
+                    return null
+                }
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
@@ -246,7 +253,7 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={isPinned ? undefined : () => removeGroupValue(index)}
+                        onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
                     />
