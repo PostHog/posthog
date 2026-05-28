@@ -48,7 +48,6 @@ export type KeyedRateLimit = {
     isRateLimited: boolean
 }
 
-/** Contract the keyed-rate-limiter step talks to. */
 export interface KeyedRateLimiter {
     rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]>
 }
