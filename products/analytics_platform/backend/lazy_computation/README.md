@@ -188,7 +188,7 @@ Each invocation of the executor emits both a structured log and Prometheus count
 
 Jobs run synchronously inside `execute()` — there is no background queue, so PENDING just means "an INSERT is in flight in some pod". A periodic gauge of `status='pending'` rows misses jobs that started and finished between scrapes and tells you nothing about throughput. These two counters fire at the exact PG status transitions instead:
 
-- `lazy_computation_jobs_created_total{table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race (`IntegrityError`) does **not** increment, so the count matches PG row inserts.
+- `lazy_computation_jobs_created_total{cache_state, table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race (`IntegrityError`) does **not** increment, so the count matches PG row inserts. `cache_state` mirrors the executor-level label so a job created during a fresh execute() call lands on `miss` and a top-up job filling a hole in pre-existing READY data lands on `partial_hit`. `hit` never appears because hits don't create anything.
 - `lazy_computation_jobs_finished_total{outcome, table}` — one increment every time a job reaches a terminal status.
 
 `outcome` values:
@@ -211,6 +211,22 @@ Failure share per table:
 sum by (table) (rate(lazy_computation_jobs_finished_total{outcome=~"failed|stale"}[5m]))
   /
 sum by (table) (rate(lazy_computation_jobs_finished_total[5m]))
+```
+
+Average miss size (jobs per full-miss execution — answers "when we miss, how much do we end up computing?"):
+
+```promql
+sum(rate(lazy_computation_jobs_created_total{cache_state="miss"}[5m]))
+  /
+sum(rate(lazy_computation_executions_total{cache_state="miss"}[5m]))
+```
+
+Average partial-hit top-up size (jobs per partial-hit execution):
+
+```promql
+sum(rate(lazy_computation_jobs_created_total{cache_state="partial_hit"}[5m]))
+  /
+sum(rate(lazy_computation_executions_total{cache_state="partial_hit"}[5m]))
 ```
 
 `cache_state` values:

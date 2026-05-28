@@ -2400,13 +2400,16 @@ class TestJobLifecycleCounters(BaseTest):
         sample = metric.labels(**labels)._value.get()
         return sample - before
 
-    def test_successful_insert_increments_created_and_finished_ready(self):
+    def test_full_miss_increments_created_miss_and_finished_ready(self):
+        """A fresh range with no pre-existing READY data is a full miss — the
+        single job created here must land on the `cache_state="miss"` series so
+        miss-execution / miss-job rates can be cross-divided downstream."""
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
             LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
         )
 
-        created_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(self.TABLE))._value.get()
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
         ready_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="ready", table=str(self.TABLE))._value.get()
 
         executor = LazyComputationExecutor()
@@ -2419,7 +2422,14 @@ class TestJobLifecycleCounters(BaseTest):
         )
 
         assert result.ready is True
-        assert self._delta(LAZY_COMPUTATION_JOBS_CREATED_TOTAL, {"table": str(self.TABLE)}, created_before) == 1.0
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 1.0
+        )
         assert (
             self._delta(
                 LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
@@ -2429,13 +2439,73 @@ class TestJobLifecycleCounters(BaseTest):
             == 1.0
         )
 
+    def test_partial_hit_increments_created_partial_hit(self):
+        """When the requested range partially overlaps a pre-existing READY job,
+        the executor only creates the missing-window job — and that job belongs
+        to the `partial_hit` series, not `miss`. This is how downstream tells
+        "we are recomputing 1 day on top of 6 cached" apart from "fresh 7-day
+        miss"."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+        )
+
+        query_info = self._query_info()
+        query_hash = compute_query_hash(query_info)
+
+        # Seed a READY job covering Jan 1 only; request Jan 1–3, forcing the
+        # executor to create exactly one new job (Jan 2–3) with prior coverage
+        # already present.
+        PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 8, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 8, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+            expires_at=django_timezone.now() + timedelta(days=7),
+            computed_at=django_timezone.now(),
+        )
+
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+        partial_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(
+            cache_state="partial_hit", table=str(self.TABLE)
+        )._value.get()
+
+        executor = LazyComputationExecutor()
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 8, 1, tzinfo=UTC),
+            end=datetime(2024, 8, 3, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "partial_hit", "table": str(self.TABLE)},
+                partial_before,
+            )
+            == 1.0
+        )
+        # And critically: the miss series did NOT move — a partial hit must not
+        # contaminate the miss-execution / miss-job ratio.
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 0.0
+        )
+
     def test_failed_insert_increments_created_and_finished_failed(self):
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
             LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
         )
 
-        created_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(self.TABLE))._value.get()
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
         failed_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
             outcome="failed", table=str(self.TABLE)
         )._value.get()
@@ -2450,7 +2520,14 @@ class TestJobLifecycleCounters(BaseTest):
         )
 
         assert result.ready is False
-        assert self._delta(LAZY_COMPUTATION_JOBS_CREATED_TOTAL, {"table": str(self.TABLE)}, created_before) == 1.0
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 1.0
+        )
         assert (
             self._delta(
                 LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
@@ -2467,7 +2544,7 @@ class TestJobLifecycleCounters(BaseTest):
             LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
         )
 
-        created_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(self.TABLE))._value.get()
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
 
         # Range has no existing coverage, so the executor enters the create path
         # on every loop iteration. Patching `create_lazy_computation_job` to
@@ -2487,7 +2564,14 @@ class TestJobLifecycleCounters(BaseTest):
             )
             assert result.ready is False  # Timed out: every create attempt lost the race.
 
-        assert self._delta(LAZY_COMPUTATION_JOBS_CREATED_TOTAL, {"table": str(self.TABLE)}, created_before) == 0.0
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 0.0
+        )
 
     def test_stale_mark_increments_finished_stale_once(self):
         """The atomic update means only the winning waiter increments the

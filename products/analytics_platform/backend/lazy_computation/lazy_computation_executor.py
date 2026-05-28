@@ -99,6 +99,16 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 # instead: subtract the rates to get net backlog growth, slice by `outcome` to
 # see whether failures or staleness are climbing.
 #
+# `created.cache_state` mirrors the executor-level `lazy_computation_executions_total`
+# label so a per-job rate can be attributed to the kind of execute() call that
+# spawned it. Hits don't create anything, so only `miss` and `partial_hit` appear:
+#   - `miss`        → execute() found no pre-existing READY data; every job in
+#                     this counter slice is part of a fresh population.
+#   - `partial_hit` → execute() found some pre-existing READY data; jobs here are
+#                     top-ups filling the gaps.
+# Use `rate(created{cache_state="miss"}) / rate(executions_total{cache_state="miss"})`
+# to get average jobs per miss execution (i.e. average miss window size).
+#
 # `finished` outcomes:
 #   - `ready`  → INSERT succeeded, row moved PENDING → READY.
 #   - `failed` → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
@@ -107,7 +117,7 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
     "lazy_computation_jobs_created_total",
     "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
-    ["table"],
+    ["cache_state", "table"],
 )
 LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
     "lazy_computation_jobs_finished_total",
@@ -781,7 +791,14 @@ class LazyComputationExecutor:
                             did_work = True
                             continue
 
-                        LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(table=str(query_info.table)).inc()
+                        # `had_ready_at_start` is set above before the create loop runs and
+                        # is the same signal `_log_execution` uses to compute the executor's
+                        # final cache_state. Reusing it here keeps job-level and
+                        # execution-level series aligned. Hits never enter this branch.
+                        LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(
+                            cache_state="partial_hit" if had_ready_at_start else "miss",
+                            table=str(query_info.table),
+                        ).inc()
 
                         try:
                             insert_start = time.monotonic()
