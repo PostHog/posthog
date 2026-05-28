@@ -5,10 +5,12 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from products.slack_app.backend.slack_thread import (
+    RANDOM_ACK_EMOJIS,
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
     SlackThreadHandler,
     _format_task_error,
+    random_ack_emoji,
 )
 
 
@@ -84,7 +86,7 @@ class TestSlackThreadHandler(TestCase):
         mock_client.chat_delete.assert_not_called()
 
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_removes_seedling_and_eyes(self, mock_get_client):
+    def test_update_reaction_clears_ack_pool_and_eyes(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -97,11 +99,17 @@ class TestSlackThreadHandler(TestCase):
         handler = SlackThreadHandler(context)
         handler.update_reaction("hedgehog")
 
-        remove_calls = mock_client.reactions_remove.call_args_list
-        assert len(remove_calls) == 2
-        assert remove_calls[0].kwargs["name"] == "seedling"
-        assert remove_calls[1].kwargs["name"] == "eyes"
+        removed_names = [call.kwargs["name"] for call in mock_client.reactions_remove.call_args_list]
+        # Every ack-pool emoji is attempted (Slack returns no_reaction for missing ones) plus the
+        # follow-up "eyes" reaction, so any prior in-progress signal is cleared before the final state.
+        for ack in RANDOM_ACK_EMOJIS:
+            assert ack in removed_names
+        assert "eyes" in removed_names
         mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
+
+    def test_random_ack_emoji_is_in_pool(self):
+        for _ in range(50):
+            assert random_ack_emoji() in RANDOM_ACK_EMOJIS
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):

@@ -1,4 +1,5 @@
 import re
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,32 @@ UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
 UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+
+# Pool of fun, universally-available Slack emoji names used to acknowledge a mention
+# before the bot starts the longer-running work. Anything in this pool is treated as
+# an in-progress signal by `update_reaction` / `_set_followup_done_reaction` and is
+# cleaned up when the bot reaches a terminal state. Keep these distinct from the
+# stage-specific reactions (:mag: for searching, :hedgehog: for done, :x: for failed)
+# and from "eyes" (the follow-up ack), so the cleanup pool stays unambiguous.
+RANDOM_ACK_EMOJIS: tuple[str, ...] = (
+    "seedling",
+    "wave",
+    "sparkles",
+    "rocket",
+    "robot_face",
+    "thinking_face",
+    "hammer_and_wrench",
+    "gear",
+    "coffee",
+    "nerd_face",
+    "zap",
+    "crystal_ball",
+    "mage",
+)
+
+
+def random_ack_emoji() -> str:
+    return random.choice(RANDOM_ACK_EMOJIS)
 
 
 def _format_task_error(error: str) -> str:
@@ -117,7 +144,7 @@ class SlackThreadHandler:
         target_ts = self.context.user_message_ts or self.context.thread_ts
         try:
             client = self._get_client()
-            for stale in ("seedling", "eyes"):
+            for stale in (*RANDOM_ACK_EMOJIS, "eyes"):
                 try:
                     client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name=stale)
                 except Exception:

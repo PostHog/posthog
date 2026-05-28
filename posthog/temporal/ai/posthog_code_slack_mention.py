@@ -17,7 +17,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+from products.slack_app.backend.slack_thread import (
+    RANDOM_ACK_EMOJIS,
+    SlackThreadContext,
+    SlackThreadHandler,
+    random_ack_emoji,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.repo_selection import (
     RepoSelectionRejectedError,
@@ -1126,8 +1131,8 @@ def create_posthog_code_task_for_repo_activity(
     )
     slack = SlackIntegration(integration)
 
-    # Refuse before the :seedling: reaction or the permalink fetch: a denied
-    # mention should not first ack-react and then refuse a second later.
+    # Refuse before the ack reaction or the permalink fetch: a denied mention
+    # should not first ack-react and then refuse a second later.
     if _block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -1140,7 +1145,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "seedling")
+        _safe_react(slack.client, channel, user_message_ts, random_ack_emoji())
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1594,7 +1599,7 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     if not user_message_ts:
         return
 
-    for stale_emoji in ("eyes", "seedling"):
+    for stale_emoji in ("eyes", *RANDOM_ACK_EMOJIS):
         try:
             slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
         except Exception:
