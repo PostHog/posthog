@@ -264,18 +264,52 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
 
 
 def _relax_required_for_defaults(schema: dict[str, Any]) -> dict[str, Any]:
-    """Strip top-level required entries that have defaults.
+    """Recursively strip `required` entries whose property schema has a default.
 
     Mirrors zod's `.default()` semantics: a field with a default is optional
-    at parse time. JSON Schema doesn't infer this from `default`, so we
-    transform it here. Only the top-level required is touched — nested
-    requireds (e.g. `triggers[].config.trusted_workspaces`) stay strict.
+    at parse time. JSON Schema's `required` doesn't infer this from `default`,
+    so we transform it here. The walk covers every object node reachable via
+    `properties`, `items`, `oneOf`/`anyOf`/`allOf`, `additionalProperties`,
+    and `propertyNames` — i.e. every nested schema zod emits, including the
+    discriminated trigger union (`triggers[].config.mention_only`,
+    `triggers[].config.timezone`, …).
     """
     out = copy.deepcopy(schema)
-    props: dict[str, Any] = out.get("properties", {})
-    required: list[str] = list(out.get("required", []))
-    out["required"] = [r for r in required if "default" not in props.get(r, {})]
+    _relax_node(out)
     return out
+
+
+def _relax_node(node: Any) -> None:
+    if not isinstance(node, dict):
+        return
+
+    # Strip required entries whose property is defaulted.
+    props = node.get("properties")
+    required = node.get("required")
+    if isinstance(props, dict) and isinstance(required, list):
+        node["required"] = [r for r in required if not (isinstance(props.get(r), dict) and "default" in props[r])]
+
+    # Recurse through every schema-bearing child.
+    if isinstance(props, dict):
+        for v in props.values():
+            _relax_node(v)
+    items = node.get("items")
+    if isinstance(items, dict):
+        _relax_node(items)
+    elif isinstance(items, list):
+        for v in items:
+            _relax_node(v)
+    for key in ("oneOf", "anyOf", "allOf"):
+        sub = node.get(key)
+        if isinstance(sub, list):
+            for v in sub:
+                _relax_node(v)
+    add_props = node.get("additionalProperties")
+    if isinstance(add_props, dict):
+        _relax_node(add_props)
+    prop_names = node.get("propertyNames")
+    if isinstance(prop_names, dict):
+        _relax_node(prop_names)
 
 
 AGENT_SPEC_JSON_SCHEMA: dict[str, Any] = _AGENT_SPEC_JSON_SCHEMA_RAW

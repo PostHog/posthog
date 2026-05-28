@@ -14,6 +14,7 @@ for a small surface that moves rarely.
 from __future__ import annotations
 
 import pytest
+
 from rest_framework.exceptions import ValidationError
 
 from .serializers import AgentRevisionSerializer
@@ -43,6 +44,31 @@ from .serializers import AgentRevisionSerializer
                 "entrypoint": "agent.md",
             },
         ),
+        # Nested defaults must mirror zod: omitting fields with defaults at
+        # any depth is fine. These were the rough edges I hit when I first
+        # tried to spec the slack / cron triggers — both have config fields
+        # with `.default(...)` in zod that the JSON Schema lists as required.
+        (
+            "slack_omits_mention_only",
+            {
+                "model": "x",
+                "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
+            },
+        ),
+        (
+            "cron_omits_timezone",
+            {
+                "model": "x",
+                "triggers": [{"type": "cron", "config": {"schedule": "0 * * * *"}}],
+            },
+        ),
+        (
+            "mcp_omits_config",
+            {
+                "model": "x",
+                "triggers": [{"type": "mcp", "config": {}}],
+            },
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
@@ -70,6 +96,20 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # Top-level `additionalProperties: false` should reject extra keys —
         # exactly the `name` / `description` case I tripped earlier.
         ("extra_top_level_key", {"model": "x", "description": "agent"}, "description"),
+        # Non-defaulted nested fields must still be rejected when missing —
+        # the relaxation only removes required-with-defaults, not all required.
+        # jsonschema's `oneOf` error doesn't surface which arm failed for what
+        # reason; we just assert the trigger element itself is flagged.
+        (
+            "slack_missing_trusted_workspaces",
+            {"model": "x", "triggers": [{"type": "slack", "config": {"mention_only": False}}]},
+            "triggers.0",
+        ),
+        (
+            "cron_missing_schedule",
+            {"model": "x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
+            "triggers.0",
+        ),
     ],
 )
 def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_substring: str) -> None:
