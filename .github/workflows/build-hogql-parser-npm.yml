@@ -164,12 +164,23 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
+            - name: Check for pin changes
+              id: check-pin
+              shell: bash
+              run: |
+                  if git diff --quiet frontend/package.json pnpm-lock.yaml; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Commit pin
+              if: steps.check-pin.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  add: |
-                      frontend/package.json
-                      pnpm-lock.yaml
-                  commit: '--no-verify'
-                  message: 'Use new @posthog/hogql-parser npm version'
-                  default_author: github_actions
-                  github_token: ${{ steps.app-token.outputs.token }}
+                  commit_message: 'Use new @posthog/hogql-parser npm version'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'frontend/package.json pnpm-lock.yaml'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

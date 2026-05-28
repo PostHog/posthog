@@ -10,7 +10,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDModel
 
-from products.llm_analytics.backend.markdown_outline import get_markdown_outline
+from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
 
 def normalize_prompt_to_string(value: Any) -> str:
