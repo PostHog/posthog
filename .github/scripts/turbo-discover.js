@@ -20,14 +20,19 @@
 const { execFileSync } = require('child_process')
 const fs = require('fs')
 
-const SMALL_THRESHOLD_SECONDS = 2 * 60
-const TARGET_SHARD_SECONDS = 10 * 60
-// Per-product overhead not captured by .test_durations: turbo dispatch, pytest
-// collection, Django init. First product pays ~45s, subsequent ~15s; use 60s
-// as a conservative average. Durations also underpredict by ~2x because
-// pytest-split data was collected under Django Core's shared session.
-const SETUP_OVERHEAD_SECONDS = 60
-const DURATION_SAFETY_FACTOR = 2
+// --- Product shard sizing (same Amdahl shape as Django below) ---
+// Each product is atomic for packing, but unlike Django the test pool isn't
+// fungible across products — bin-pack products into target-sized shards, and
+// multi-shard split any single product that overflows on its own.
+const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
+// Per-product cost within a runner: turbo dispatch, pytest collection, Django
+// init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
+// average that also absorbs the amortized portion of runner startup.
+const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
+// Aligned with DJANGO_SAFETY_FACTOR below. Was 2x originally because pytest-
+// split data was noisy under Django Core's shared session; the outlier-based
+// merge produces cleaner numbers now.
+const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
@@ -129,23 +134,32 @@ function getProductDuration(product, durations) {
     return total
 }
 
-function packSmallProducts(products, durations) {
-    const buckets = []
-    let current = []
-    let currentDuration = 0
+function productEffectiveCost(product, durations) {
+    return getProductDuration(product, durations) * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+}
 
-    for (const product of products) {
-        const effective = getProductDuration(product, durations) * DURATION_SAFETY_FACTOR + SETUP_OVERHEAD_SECONDS
-        if (current.length > 0 && currentDuration + effective > TARGET_SHARD_SECONDS) {
-            buckets.push(current)
-            current = []
-            currentDuration = 0
+// First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
+// effective cost descending so the largest products land first and small ones
+// fill the gaps. Each bucket caps at PRODUCT_TARGET_WALL_SECONDS total.
+function packProducts(products, durations) {
+    const items = products
+        .map((product) => ({ product, cost: productEffectiveCost(product, durations) }))
+        .sort((a, b) => b.cost - a.cost)
+
+    const buckets = []
+    for (const { product, cost } of items) {
+        let placed = false
+        for (const bucket of buckets) {
+            if (bucket.cost + cost <= PRODUCT_TARGET_WALL_SECONDS) {
+                bucket.products.push(product)
+                bucket.cost += cost
+                placed = true
+                break
+            }
         }
-        current.push(product)
-        currentDuration += effective
-    }
-    if (current.length > 0) {
-        buckets.push(current)
+        if (!placed) {
+            buckets.push({ products: [product], cost })
+        }
     }
     return buckets
 }
@@ -216,17 +230,18 @@ function buildDjangoShards(durations) {
 
 function buildMatrix(products, durations) {
     const matrix = []
-    const small = []
+    const packable = []
 
+    // Single product whose own effective cost overflows TARGET — split via
+    // pytest-split inside the product. Each resulting sub-shard runs in its
+    // own runner, so the per-product overhead is paid per sub-shard.
     for (const product of products) {
-        const duration = getProductDuration(product, durations)
-        const shards = duration > TARGET_SHARD_SECONDS ? Math.ceil(duration / TARGET_SHARD_SECONDS) : 1
-        console.error(`  ${product}: ${(duration / 60).toFixed(1)} min, ${shards} shard(s)`)
-        const filters = `--filter=@posthog/products-${product}`
-
-        if (duration < SMALL_THRESHOLD_SECONDS) {
-            small.push(product)
-        } else if (shards > 1) {
+        const cost = productEffectiveCost(product, durations)
+        if (cost > PRODUCT_TARGET_WALL_SECONDS) {
+            const shards = Math.ceil(cost / PRODUCT_TARGET_WALL_SECONDS)
+            const duration = getProductDuration(product, durations)
+            console.error(`  ${product}: ${(duration / 60).toFixed(1)} min → split across ${shards} shards`)
+            const filters = `--filter=@posthog/products-${product}`
             for (let i = 1; i <= shards; i++) {
                 matrix.push({
                     group: `${product} (${i}/${shards})`,
@@ -235,14 +250,17 @@ function buildMatrix(products, durations) {
                 })
             }
         } else {
-            matrix.push({ group: product, filters, pytest_args: '' })
+            packable.push(product)
         }
     }
 
-    for (const bucket of packSmallProducts(small, durations)) {
+    for (const bucket of packProducts(packable, durations)) {
+        console.error(
+            `  bucket (${(bucket.cost / 60).toFixed(1)} min effective): ${bucket.products.join(', ')}`
+        )
         matrix.push({
-            group: bucket.join(', '),
-            filters: bucket.map((p) => `--filter=@posthog/products-${p}`).join(' '),
+            group: bucket.products.join(', '),
+            filters: bucket.products.map((p) => `--filter=@posthog/products-${p}`).join(' '),
             pytest_args: '',
         })
     }
