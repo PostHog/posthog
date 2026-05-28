@@ -735,6 +735,12 @@ class AssistantTool(StrEnum):
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
+    LIST_LLM_SKILLS = "list_llm_skills"
+    GET_LLM_SKILL = "get_llm_skill"
+    GET_LLM_SKILL_FILE = "get_llm_skill_file"
+    CREATE_LLM_SKILL = "create_llm_skill"
+    UPDATE_LLM_SKILL = "update_llm_skill"
+    ARCHIVE_LLM_SKILL = "archive_llm_skill"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
@@ -3837,6 +3843,7 @@ class ProductIntentContext(StrEnum):
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
     LOGS_SETTINGS_OPENED = "logs_settings_opened"
+    METRICS_DOCS_VIEWED = "metrics_docs_viewed"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -5984,6 +5991,10 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: AssistantForm | None = None
+    source: str | None = Field(
+        default=None,
+        description=("Provenance for non-LLM-authored messages. Format: `slash_command:<name>`."),
+    )
     thinking: list[dict[str, Any]] | None = Field(
         default=None,
         description=(

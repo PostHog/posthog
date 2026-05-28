@@ -7,56 +7,56 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 
 import type { incidentStatusLogicType } from './incidentStatusLogicType'
 
-// Raw incident.io API types
-export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
-export type IncidentIoImpact = 'partial_outage' | 'degraded_performance' | 'full_outage'
-export type IncidentIoIncidentStatus = 'investigating' | 'identified' | 'monitoring'
-export type IncidentIoMaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
+// Raw status page API types
+export type ComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
+export type Impact = 'partial_outage' | 'degraded_performance' | 'full_outage'
+export type IncidentStatus = 'investigating' | 'identified' | 'monitoring'
+export type MaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
 
 // Normalized status for display
 export type NormalizedStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
 
-export interface IncidentIoAffectedComponent {
+export interface AffectedComponent {
     id: string
     name: string
     group_name?: string
-    current_status: IncidentIoComponentStatus
+    current_status: ComponentStatus
 }
 
-export interface IncidentIoIncident {
+export interface Incident {
     id: string
     name: string
-    status: IncidentIoIncidentStatus
+    status: IncidentStatus
     url: string
     last_update_at: string
     last_update_message: string
-    current_worst_impact: IncidentIoImpact
-    affected_components: IncidentIoAffectedComponent[]
+    current_worst_impact: Impact
+    affected_components: AffectedComponent[]
 }
 
-export interface IncidentIoMaintenance {
+export interface Maintenance {
     id: string
     name: string
-    status: IncidentIoMaintenanceStatus
+    status: MaintenanceStatus
     last_update_at: string
     last_update_message: string
     url: string
-    affected_components: IncidentIoAffectedComponent[]
+    affected_components: AffectedComponent[]
     started_at?: string
     scheduled_end_at?: string
     starts_at?: string
     ends_at?: string
 }
 
-export interface IncidentIoSummary {
+export interface Summary {
     page_title: string
     page_url: string
-    ongoing_incidents: IncidentIoIncident[]
-    in_progress_maintenances: IncidentIoMaintenance[]
-    scheduled_maintenances: IncidentIoMaintenance[]
+    ongoing_incidents: Incident[]
+    in_progress_maintenances: Maintenance[]
+    scheduled_maintenances: Maintenance[]
 }
 
-export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
+export const STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
 const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 const DEFAULT_STATUS: NormalizedStatus = 'operational'
@@ -83,7 +83,7 @@ function getRelevantGroupName(): string | null {
     return RELEVANT_GROUP_NAME_MAP[window.location.hostname] || null
 }
 
-function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]): boolean {
+function hasRelevantComponents(affectedComponents: AffectedComponent[]): boolean {
     const relevantGroupName = getRelevantGroupName()
     if (!relevantGroupName) {
         // Unknown hostname (self-hosted) — cloud incidents aren't relevant
@@ -96,7 +96,7 @@ function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]
     return affectedComponents.some((component) => component.group_name === relevantGroupName)
 }
 
-function getWorstStatusForRegion(summary: IncidentIoSummary): NormalizedStatus {
+function getWorstStatusForRegion(summary: Summary): NormalizedStatus {
     // Filter incidents to only those affecting the current region
     const relevantIncidents = summary.ongoing_incidents.filter((incident) =>
         hasRelevantComponents(incident.affected_components)
@@ -140,7 +140,7 @@ function getWorstStatusForRegion(summary: IncidentIoSummary): NormalizedStatus {
 }
 
 export const incidentStatusLogic = kea<incidentStatusLogicType>([
-    path(['lib', 'components', 'HealthMenu', 'incidentStatusLogic']),
+    path(['lib', 'components', 'HelpMenu', 'incidentStatusLogic']),
 
     connect(() => ({
         values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
@@ -152,7 +152,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
 
     loaders(() => ({
         summary: [
-            null as IncidentIoSummary | null,
+            null as Summary | null,
             {
                 loadSummary: async () => {
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
@@ -160,7 +160,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
                     // via the rawStatus selector) but still report to error tracking so we keep visibility.
                     try {
-                        const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                        const response = await fetch(`${STATUS_PAGE_BASE}/api/v1/summary`)
                         if (!response.ok) {
                             posthog.captureException(
                                 new Error(`incident.io summary fetch returned ${response.status}`),
@@ -168,7 +168,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                             )
                             return null
                         }
-                        const data: IncidentIoSummary = await response.json()
+                        const data: Summary = await response.json()
                         return data
                     } catch (error) {
                         posthog.captureException(error)
@@ -182,7 +182,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
     selectors({
         rawStatus: [
             (s) => [s.summary],
-            (summary: IncidentIoSummary | null): NormalizedStatus => {
+            (summary: Summary | null): NormalizedStatus => {
                 if (!summary) {
                     return 'operational'
                 }
@@ -208,10 +208,10 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                     return 'All systems operational'
                 }
                 // Filter to only count incidents/maintenances relevant to this region
-                const incidentCount = summary.ongoing_incidents.filter((incident: IncidentIoIncident) =>
+                const incidentCount = summary.ongoing_incidents.filter((incident: Incident) =>
                     hasRelevantComponents(incident.affected_components)
                 ).length
-                const maintenanceCount = summary.in_progress_maintenances.filter((maintenance: IncidentIoMaintenance) =>
+                const maintenanceCount = summary.in_progress_maintenances.filter((maintenance: Maintenance) =>
                     hasRelevantComponents(maintenance.affected_components)
                 ).length
                 if (incidentCount > 0) {

@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantHogQLQuery, HogQLQuery
+
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
@@ -12,6 +14,14 @@ class ExecuteSQLMCPToolArgs(BaseModel):
     truncate: bool = Field(
         default=True,
         description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
+    )
+    connectionId: str | None = Field(
+        default=None,
+        description=(
+            "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). "
+            "When set, runs the query against that source instead of the ClickHouse catalog. "
+            "Use external-data-sources-list to discover available connection ids."
+        ),
     )
 
 
@@ -27,14 +37,25 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     args_schema = ExecuteSQLMCPToolArgs
 
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
-        try:
-            validated_query = await self._validate_hogql_query(args.query)
-        except PydanticOutputParserException as e:
-            raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
+        query: AssistantHogQLQuery | HogQLQuery
+        if args.connectionId:
+            # Queries targeting an external connection reference tables that aren't in the
+            # default ClickHouse database, so the local parse/print HogQL validation step
+            # would reject them. Defer validation to the runner, which resolves the schema
+            # for the selected connection.
+            cleaned_query = args.query.rstrip(";").strip() if args.query else ""
+            if not cleaned_query:
+                raise MaxToolRetryableError("Query validation failed: Query is empty")
+            query = HogQLQuery(query=cleaned_query, connectionId=args.connectionId)
+        else:
+            try:
+                query = await self._validate_hogql_query(args.query)
+            except PydanticOutputParserException as e:
+                raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
 
         insight_context = InsightContext(
             team=self._team,
-            query=validated_query,
+            query=query,
             name="",
             description="",
             user=self._user,
