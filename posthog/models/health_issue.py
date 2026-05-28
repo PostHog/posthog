@@ -5,7 +5,40 @@ from typing import Any, Optional
 from django.db import connection, models, transaction
 from django.utils import timezone
 
+import structlog
+
 from posthog.models.utils import UUIDModel
+
+logger = structlog.get_logger(__name__)
+
+
+def _filter_existing_team_ids(team_ids: set[int], *, kind: str, log_event: str) -> set[int]:
+    """Return the subset of team_ids that still exist in posthog_team.
+
+    Health checks snapshot team IDs at workflow start and dispatch them to
+    activities that may run minutes later — teams can be deleted in the
+    meantime. Callers use this to drop orphaned team_ids before writes so a
+    missing FK does not roll back the whole batch.
+    """
+    if not team_ids:
+        return set()
+
+    # Inline import — posthog.models.__init__ imports HealthIssue before Team,
+    # so a module-level `from posthog.models.team import Team` here would
+    # invert the load order and risk a partial-init failure.
+    from posthog.models.team import Team
+
+    existing = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+    missing = team_ids - existing
+    if missing:
+        logger.warning(
+            "health_issue_dropping_deleted_teams",
+            kind=kind,
+            event=log_event,
+            dropped_count=len(missing),
+            dropped_team_ids=sorted(missing),
+        )
+    return existing
 
 
 class HealthIssue(UUIDModel):
@@ -131,6 +164,17 @@ class HealthIssue(UUIDModel):
             with connection.cursor() as cursor:
                 for team_id in sorted({tid for tid, _ in incoming}):
                     cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [kind_lock_key, team_id])
+
+            # Teams can be deleted between the workflow's team-ID snapshot and
+            # this upsert. A missing team would trigger a deferred FK violation
+            # at COMMIT and roll back every row in the batch, not just the
+            # orphan — so drop incoming rows for teams that no longer exist.
+            existing_team_ids = _filter_existing_team_ids(
+                {tid for tid, _ in incoming}, kind=kind, log_event="bulk_upsert"
+            )
+            if not existing_team_ids:
+                return []
+            incoming = {key: value for key, value in incoming.items() if key[0] in existing_team_ids}
 
             existing_issues = {
                 (issue.team_id, issue.unique_hash): issue
