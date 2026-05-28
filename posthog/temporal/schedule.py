@@ -57,8 +57,6 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_trace_summarization_schedule,
 )
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
-from posthog.temporal.mcp_analytics.backfill_sessions.types import BackfillMCPSessionsInput
-from posthog.temporal.mcp_analytics.summarize_session_intents.types import SummarizeMCPSessionIntentsInput
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -485,74 +483,6 @@ async def create_replay_count_metrics_schedule(client: Client):
             client,
             "replay-count-metrics-schedule",
             replay_count_metrics_schedule,
-            trigger_immediately=False,
-        )
-
-
-async def create_mcp_sessions_backfill_schedule(client: Client):
-    """Create or update the schedule that backfills the MCPSession Postgres table.
-
-    Runs every 5 minutes; each run aggregates mcp_tool_call events seen in the last
-    24 hours and upserts one row per (team, session_id) into Postgres so the
-    sessions list endpoint can read from Postgres instead of ClickHouse.
-    """
-    mcp_sessions_backfill_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "backfill-mcp-sessions",
-            BackfillMCPSessionsInput(),
-            id="backfill-mcp-sessions-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=3,
-            ),
-        ),
-        spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
-        ),
-    )
-
-    if await a_schedule_exists(client, "backfill-mcp-sessions-schedule"):
-        await a_update_schedule(client, "backfill-mcp-sessions-schedule", mcp_sessions_backfill_schedule)
-    else:
-        await a_create_schedule(
-            client,
-            "backfill-mcp-sessions-schedule",
-            mcp_sessions_backfill_schedule,
-            trigger_immediately=False,
-        )
-
-
-async def create_mcp_session_intent_summary_schedule(client: Client):
-    """Create or update the schedule that backfills MCPSession.intent with an LLM summary.
-
-    Runs every 5 minutes (matches the backfill cadence so new sessions become
-    'complete' quickly). Each run picks up to 100 MCPSession rows whose intent is
-    unset and whose last event is older than 30 minutes (so we don't summarise
-    sessions that may still be receiving tool calls), then dispatches the LLM
-    calls in parallel inside the activity.
-    """
-    summary_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "summarize-mcp-session-intents",
-            SummarizeMCPSessionIntentsInput(),
-            id="summarize-mcp-session-intents-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-            ),
-        ),
-        spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
-        ),
-    )
-
-    if await a_schedule_exists(client, "summarize-mcp-session-intents-schedule"):
-        await a_update_schedule(client, "summarize-mcp-session-intents-schedule", summary_schedule)
-    else:
-        await a_create_schedule(
-            client,
-            "summarize-mcp-session-intents-schedule",
-            summary_schedule,
             trigger_immediately=False,
         )
 

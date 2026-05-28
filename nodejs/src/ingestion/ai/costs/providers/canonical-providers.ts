@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-26 20:36:55 UTC
+// Generated at: 2026-05-27 20:39:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -26,6 +26,7 @@ export type CanonicalProvider =
     | 'azure'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
+    | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
@@ -37,6 +38,7 @@ export type CanonicalProvider =
     | 'cloudflare-fp8'
     | 'cohere'
     | 'crucible'
+    | 'crucible-fast'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -114,6 +116,7 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
+    | 'sambanova-minimax-m2-7-dedicated'
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow'

@@ -85,6 +85,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
             className={className}
+            mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
                 <div className="flex flex-col items-start gap-4">
