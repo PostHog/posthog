@@ -14,7 +14,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -52,7 +52,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -107,7 +107,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -157,7 +157,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -226,7 +226,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },
@@ -269,7 +269,7 @@
                                 "type": "string"
                             },
                             "content_format": {
-                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.",
+                                "description": "How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.",
                                 "enum": ["markdown", "plain_text"],
                                 "type": "string"
                             },

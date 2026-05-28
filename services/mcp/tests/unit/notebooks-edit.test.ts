@@ -1,8 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { PostHogApiError } from '@/lib/errors'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import editNotebook from '@/tools/notebooks/edit'
 import type { Context } from '@/tools/types'
+
+vi.mock('@/lib/posthog/flags', () => ({
+    isFeatureFlagEnabled: vi.fn(),
+}))
+
+const mockIsFeatureFlagEnabled = vi.mocked(isFeatureFlagEnabled)
 
 type ProseMirrorTestNode = { type: string } & Record<string, unknown>
 
@@ -12,7 +19,10 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
             request: requestMock,
             getProjectBaseUrl: (projectId: string) => `https://app.posthog.com/project/${projectId}`,
         } as any,
-        stateManager: { getProjectId: vi.fn().mockResolvedValue('42') } as any,
+        stateManager: {
+            getProjectId: vi.fn().mockResolvedValue('42'),
+            getAnalyticsContext: vi.fn().mockResolvedValue({ organizationId: 'org1', projectUuid: 'proj1' }),
+        } as any,
         env: {} as any,
         sessionManager: {} as any,
         cache: {} as any,
@@ -81,6 +91,10 @@ function bodyForCall(requestMock: ReturnType<typeof vi.fn>, callIndex: number): 
 }
 
 describe('notebooks-edit', () => {
+    beforeEach(() => {
+        mockIsFeatureFlagEnabled.mockResolvedValue(true)
+    })
+
     it('appends nodes through the notebook collab save endpoint', async () => {
         const requestMock = vi
             .fn()
@@ -639,6 +653,28 @@ describe('notebooks-edit', () => {
                 },
             ],
         })
+    })
+
+    it('rejects executable analysis cells when the notebook-python flag is off', async () => {
+        mockIsFeatureFlagEnabled.mockResolvedValue(false)
+        const requestMock = vi.fn()
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await expect(
+            tool.handler(context, {
+                short_id: 'abc123',
+                max_retries: 3,
+                edits: [
+                    {
+                        type: 'append',
+                        content: '<hogql>\nSELECT 1\n</hogql>',
+                        content_format: 'markdown',
+                    },
+                ],
+            })
+        ).rejects.toThrow('notebook-python feature flag')
+        expect(requestMock).not.toHaveBeenCalled()
     })
 
     it('recomputes insert_between positions after a collab conflict', async () => {

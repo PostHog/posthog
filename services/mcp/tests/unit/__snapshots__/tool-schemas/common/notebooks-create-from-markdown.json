@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "description": "Notebook markdown. Supports headings, lists, code fences, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use analysis blocks to create executable notebook cells.",
+            "description": "Notebook markdown. Supports headings, lists, code fences, and <query> blocks for old-style query nodes. Prefer <query> blocks for SQL analysis.",
             "minLength": 1,
             "type": "string"
         },

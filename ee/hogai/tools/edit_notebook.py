@@ -1,24 +1,36 @@
 import copy
 import uuid
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, Self, cast
 
 from django.utils.timezone import now
 
 from asgiref.sync import sync_to_async
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, model_validator
 
 from posthog.schema import AssistantTool, MaxUIContext
+
+from posthog.models import Team, User
 
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.python_analysis import annotate_python_nodes
 
 from ee.hogai.artifacts.types import VisualizationRefBlock
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
-from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, markdown_to_tiptap_nodes, tiptap_doc_to_text
+from ee.hogai.tools.create_notebook.tiptap import (
+    blocks_to_tiptap_doc,
+    content_uses_executable_analysis_blocks,
+    markdown_to_tiptap_nodes,
+    nodes_use_executable_analysis_blocks,
+    tiptap_doc_to_text,
+)
+from ee.hogai.utils.feature_flags import has_notebook_python_feature_flag
+from ee.hogai.utils.types.base import AssistantState, NodePath
 from ee.models.assistant import AgentArtifact
 
 EDIT_NOTEBOOK_PROMPT = """
@@ -39,8 +51,50 @@ This tool applies anchored edits to the latest notebook content through the same
 # Inserting insights
 Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
 
+# Inserting query nodes
+Markdown `content` supports `<query title="...">{...query JSON...}</query>` for inline query visualization nodes, including old-style HogQLQuery nodes.
+
+Example:
+{
+  "edits": [
+    {
+      "type": "replace_block",
+      "anchor": "replace this block with an insight showing number of active users last 30 days",
+      "content": "<insight>abc123</insight>"
+    }
+  ]
+}
+
+# Edit operations
+- `replace_block`: replace the whole top-level notebook block containing exact anchor text. Use this for placeholders.
+- `insert_after`, `insert_before`, `insert_after_heading`, `insert_between`: insert content around exact text anchors.
+- `append`: add content to the end of the notebook.
+- `replace_text`: replace exact text within text nodes only.
+
+Use exact anchors copied from notebook context. Do not use create_notebook to edit a saved notebook.
+""".strip()
+
+EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS = """
+Use this tool to edit an existing saved notebook. Prefer it whenever the user asks you to change, update, append to, or replace content in a notebook they are viewing or have referenced.
+
+This tool applies anchored edits to the latest notebook content through the same collaboration save path used by the notebook editor. Open notebook pages receive the change live.
+
+# When to use this instead of create_notebook
+- The user asks to modify an existing notebook.
+- The user asks to replace a placeholder block in the current notebook.
+- Notebook context contains instructions like "replace this block", "add an insight here", or "fill this in".
+- You created an insight and now need to place it into the notebook.
+
+# Targeting notebooks
+- If the user is viewing a notebook, you may omit `short_id`; the current notebook from UI context will be used.
+- If multiple notebooks are in context, provide the exact `short_id`.
+
+# Inserting insights
+Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
+
 # Inserting analysis cells
-Markdown `content` also supports executable notebook cells:
+Prefer `<query title="...">{...query JSON...}</query>` blocks containing HogQLQuery or InsightVizNode query JSON for SQL analysis today.
+Markdown `content` also supports executable notebook cells when the user specifically needs Python, DuckDB, or executable cells:
 - `<hogql title="..." return_variable="events_df">SELECT ...</hogql>` for HogQL SQL cells.
 - `<ducksql title="..." return_variable="summary_df">SELECT ...</ducksql>` for DuckDB SQL cells.
 - `<python title="...">print(events_df)</python>` for Python cells.
@@ -80,7 +134,7 @@ class InsertContentArgs(BaseModel):
         default=None,
         description=(
             "Text or simple Markdown to insert. Supports <insight>artifact_id</insight> tags for visualization "
-            "artifacts and <hogql>, <ducksql>, <python>, and <query> blocks for executable analysis cells. "
+            "artifacts and <query> blocks for inline query visualization nodes. "
             "Provide either content or nodes, not both."
         ),
     )
@@ -88,7 +142,7 @@ class InsertContentArgs(BaseModel):
         default="markdown",
         description=(
             "How to turn content into notebook blocks. Markdown supports headings, lists, code, insight tags, "
-            "and executable analysis cell tags."
+            "and query node tags."
         ),
     )
     nodes: list[ProseMirrorNode] | None = Field(
@@ -284,7 +338,9 @@ def find_top_level_anchor_index(doc: ProseMirrorDoc, anchor: str, occurrence: in
     return None
 
 
-def resolve_insert_nodes(edit: InsertContentArgs, viz_lookup: dict[str, dict[str, Any]]) -> list[ProseMirrorNode]:
+def resolve_insert_nodes(
+    edit: InsertContentArgs, viz_lookup: dict[str, dict[str, Any]], allow_executable_analysis_blocks: bool = True
+) -> list[ProseMirrorNode]:
     if edit.nodes is not None:
         return clone_json(edit.nodes)
 
@@ -301,7 +357,11 @@ def resolve_insert_nodes(edit: InsertContentArgs, viz_lookup: dict[str, dict[str
     def resolve_visualization(artifact_id: str) -> dict[str, Any] | None:
         return viz_lookup.get(artifact_id)
 
-    return blocks_to_tiptap_doc(blocks, resolve_visualization=resolve_visualization).get("content", [])
+    return blocks_to_tiptap_doc(
+        blocks,
+        resolve_visualization=resolve_visualization,
+        allow_executable_analysis_blocks=allow_executable_analysis_blocks,
+    ).get("content", [])
 
 
 def apply_append_edit(doc: ProseMirrorDoc, nodes: list[ProseMirrorNode]) -> ReplaceStep:
@@ -484,18 +544,40 @@ def apply_replace_text_edit(
 
 
 def apply_notebook_edit(
-    doc: ProseMirrorDoc, edit: NotebookEdit, viz_lookup: dict[str, dict[str, Any]]
+    doc: ProseMirrorDoc,
+    edit: NotebookEdit,
+    viz_lookup: dict[str, dict[str, Any]],
+    allow_executable_analysis_blocks: bool = True,
 ) -> list[ReplaceStep]:
     if isinstance(edit, AppendEdit):
-        return [apply_append_edit(doc, resolve_insert_nodes(edit, viz_lookup))]
+        return [apply_append_edit(doc, resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks))]
     if isinstance(edit, InsertAfterHeadingEdit):
         return [
-            apply_insert_after_heading_edit(doc, edit.heading, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))
+            apply_insert_after_heading_edit(
+                doc,
+                edit.heading,
+                edit.occurrence,
+                resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks),
+            )
         ]
     if isinstance(edit, InsertAfterEdit):
-        return [apply_insert_after_edit(doc, edit.anchor, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))]
+        return [
+            apply_insert_after_edit(
+                doc,
+                edit.anchor,
+                edit.occurrence,
+                resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks),
+            )
+        ]
     if isinstance(edit, InsertBeforeEdit):
-        return [apply_insert_before_edit(doc, edit.anchor, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))]
+        return [
+            apply_insert_before_edit(
+                doc,
+                edit.anchor,
+                edit.occurrence,
+                resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks),
+            )
+        ]
     if isinstance(edit, InsertBetweenEdit):
         return [
             apply_insert_between_edit(
@@ -504,11 +586,18 @@ def apply_notebook_edit(
                 edit.before,
                 edit.after_occurrence,
                 edit.before_occurrence,
-                resolve_insert_nodes(edit, viz_lookup),
+                resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks),
             )
         ]
     if isinstance(edit, ReplaceBlockEdit):
-        return [apply_replace_block_edit(doc, edit.anchor, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))]
+        return [
+            apply_replace_block_edit(
+                doc,
+                edit.anchor,
+                edit.occurrence,
+                resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks),
+            )
+        ]
     if isinstance(edit, ReplaceTextEdit):
         return apply_replace_text_edit(doc, edit.find, edit.replace, edit.all_occurrences)
 
@@ -548,11 +637,27 @@ async def build_visualization_lookup(team_id: int, ref_ids: list[str]) -> dict[s
     return viz_lookup
 
 
-def build_edit_plan(content: Any, edits: list[NotebookEdit], viz_lookup: dict[str, dict[str, Any]]) -> EditPlan:
+def edits_use_executable_analysis_blocks(edits: list[NotebookEdit]) -> bool:
+    for edit in edits:
+        if not isinstance(edit, InsertContentArgs):
+            continue
+        if content_uses_executable_analysis_blocks(edit.content):
+            return True
+        if nodes_use_executable_analysis_blocks(edit.nodes):
+            return True
+    return False
+
+
+def build_edit_plan(
+    content: Any,
+    edits: list[NotebookEdit],
+    viz_lookup: dict[str, dict[str, Any]],
+    allow_executable_analysis_blocks: bool = True,
+) -> EditPlan:
     doc = normalize_document(content)
     steps: list[ReplaceStep] = []
     for edit in edits:
-        steps.extend(apply_notebook_edit(doc, edit, viz_lookup))
+        steps.extend(apply_notebook_edit(doc, edit, viz_lookup, allow_executable_analysis_blocks))
 
     return EditPlan(content=doc, steps=steps, text_content=document_text_content(doc))
 
@@ -566,6 +671,32 @@ class EditNotebookTool(MaxTool):
     name: Literal[AssistantTool.EDIT_NOTEBOOK] = AssistantTool.EDIT_NOTEBOOK
     args_schema: type[BaseModel] = EditNotebookToolArgs
     description: str = EDIT_NOTEBOOK_PROMPT
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...] | None = None,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
+    ) -> Self:
+        description = (
+            EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+            if has_notebook_python_feature_flag(team, user)
+            else EDIT_NOTEBOOK_PROMPT
+        )
+        return cls(
+            team=team,
+            user=user,
+            node_path=node_path,
+            state=state,
+            config=config,
+            context_manager=context_manager,
+            description=description,
+        )
 
     def _current_context_notebook_id(self) -> str | None:
         ui_context = self._context_manager.get_ui_context(self._state)
@@ -630,10 +761,22 @@ class EditNotebookTool(MaxTool):
             )
 
         viz_lookup = await build_visualization_lookup(self._team.pk, referenced_visualization_ids(edits))
+        allow_executable_analysis_blocks = has_notebook_python_feature_flag(self._team, self._user)
+        if not allow_executable_analysis_blocks and edits_use_executable_analysis_blocks(edits):
+            return (
+                "Error: Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. "
+                "Use <query> nodes or <insight> artifacts instead.",
+                None,
+            )
 
         for attempt in range(max_retries + 1):
             notebook = await self._get_notebook(target_short_id)
-            plan = build_edit_plan(notebook.content, edits, viz_lookup)
+            plan = build_edit_plan(
+                notebook.content,
+                edits,
+                viz_lookup,
+                allow_executable_analysis_blocks=allow_executable_analysis_blocks,
+            )
 
             if not plan.steps:
                 if title is None:

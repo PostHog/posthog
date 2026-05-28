@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import { PostHogApiError } from '@/lib/errors'
+import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -20,7 +22,7 @@ const ContentFormatSchema = z
     .enum(['markdown', 'plain_text'])
     .optional()
     .describe(
-        'How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use plain_text for one paragraph per non-empty line.'
+        'How to turn content into notebook blocks. Defaults to markdown. Markdown supports headings, lists, fenced code blocks, and <query> blocks for old-style query nodes. Use plain_text for one paragraph per non-empty line.'
     )
 
 const InsertContentFields = {
@@ -194,8 +196,12 @@ type NotebookEditResult = Schemas.Notebook & { applied_edits: number }
 
 const MAX_TEXT_REPLACEMENTS = 100
 const LEAF_NODE_TYPES = new Set(['hardBreak', 'horizontalRule'])
+const NOTEBOOK_PYTHON_FEATURE_FLAG = 'notebook-python'
 const ANALYSIS_BLOCK_PATTERN = /^[ \t]*<(python|hogql|ducksql|duckdb|query)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>[ \t]*$/gim
+const EXECUTABLE_ANALYSIS_BLOCK_PATTERN =
+    /^[ \t]*<(python|hogql|ducksql|duckdb)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>[ \t]*$/gim
 const ATTRIBUTE_PATTERN = /([A-Za-z_][\w:-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)/g
+const EXECUTABLE_ANALYSIS_NODE_TYPES = new Set(['ph-python', 'ph-hogql-sql', 'ph-duck-sql'])
 
 function cloneJson<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T
@@ -372,6 +378,49 @@ function plainTextToNodes(content: string): ProseMirrorNode[] {
         .map((line) => line.trim())
         .filter((line) => line.length > 0)
         .map(paragraphNode)
+}
+
+export function contentUsesExecutableAnalysisBlocks(content: string | undefined): boolean {
+    if (!content) {
+        return false
+    }
+    EXECUTABLE_ANALYSIS_BLOCK_PATTERN.lastIndex = 0
+    return EXECUTABLE_ANALYSIS_BLOCK_PATTERN.test(content)
+}
+
+function nodesUseExecutableAnalysisBlocks(nodes: ProseMirrorNode[] | undefined): boolean {
+    if (!nodes) {
+        return false
+    }
+    return nodes.some((node) => {
+        if (EXECUTABLE_ANALYSIS_NODE_TYPES.has(node.type)) {
+            return true
+        }
+        return nodesUseExecutableAnalysisBlocks(node.content)
+    })
+}
+
+function editUsesExecutableAnalysisBlocks(edit: NotebookEdit): boolean {
+    if (edit.type === 'replace_text') {
+        return false
+    }
+    return contentUsesExecutableAnalysisBlocks(edit.content) || nodesUseExecutableAnalysisBlocks(edit.nodes)
+}
+
+export async function hasNotebookPythonFeatureFlag(context: Context): Promise<boolean> {
+    try {
+        const [distinctId, analyticsContext] = await Promise.all([
+            context.getDistinctId(),
+            context.stateManager.getAnalyticsContext().catch(() => undefined),
+        ])
+        return await isFeatureFlagEnabled(
+            NOTEBOOK_PYTHON_FEATURE_FLAG,
+            distinctId,
+            analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : undefined
+        )
+    } catch {
+        return false
+    }
 }
 
 function decodeHtml(value: string): string {
@@ -970,6 +1019,11 @@ const tool = (): ToolBase<typeof NotebookEditSchema, WithPostHogUrl<NotebookEdit
     handler: async (context: Context, params: Params): Promise<WithPostHogUrl<NotebookEditResult>> => {
         const projectId = String(await context.stateManager.getProjectId())
         const maxRetries = Math.max(0, Math.min(params.max_retries ?? 3, 5))
+        if (params.edits.some(editUsesExecutableAnalysisBlocks) && !(await hasNotebookPythonFeatureFlag(context))) {
+            throw new Error(
+                'Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. Use <query> nodes or saved insights for SQL analysis instead.'
+            )
+        }
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             const notebook = await retrieveNotebook(context, projectId, params.short_id)

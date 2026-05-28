@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -243,3 +244,20 @@ class TestEditNotebookTool(BaseTest):
             == "Error: No notebook short_id was provided, and there is not exactly one notebook in the current context."
         )
         assert artifact is None
+
+    @patch("ee.hogai.tools.edit_notebook.has_notebook_python_feature_flag", return_value=False)
+    def test_rejects_executable_analysis_cells_without_feature_flag(self, _mock_flag):
+        notebook = self._create_notebook()
+        args = EditNotebookToolArgs.model_validate(
+            {
+                "short_id": notebook.short_id,
+                "edits": [{"type": "append", "content": "<hogql>\nSELECT 1\n</hogql>"}],
+            }
+        )
+
+        result, artifact = async_to_sync(self._tool()._arun_impl)(short_id=args.short_id, edits=args.edits)
+
+        assert "notebook-python feature flag" in result
+        assert artifact is None
+        notebook.refresh_from_db()
+        assert notebook.version == 0

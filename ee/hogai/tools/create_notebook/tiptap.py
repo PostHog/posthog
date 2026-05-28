@@ -13,13 +13,18 @@ from ee.hogai.artifacts.types import VisualizationRefBlock
 ANALYSIS_BLOCK_PATTERN = re.compile(
     r"(?ims)^[ \t]*<(python|hogql|ducksql|duckdb|query)\b([^>]*)>\n?(.*?)\n?</\1>[ \t]*$"
 )
+EXECUTABLE_ANALYSIS_BLOCK_PATTERN = re.compile(
+    r"(?ims)^[ \t]*<(python|hogql|ducksql|duckdb)\b([^>]*)>\n?(.*?)\n?</\1>[ \t]*$"
+)
 ATTRIBUTE_PATTERN = re.compile(r"""([A-Za-z_][\w:-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)""")
+EXECUTABLE_ANALYSIS_NODE_TYPES = {"ph-python", "ph-hogql-sql", "ph-duck-sql"}
 
 
 def blocks_to_tiptap_doc(
     blocks: Sequence[BaseModel],
     title: str | None = None,
     resolve_visualization: Any | None = None,
+    allow_executable_analysis_blocks: bool = True,
 ) -> dict:
     """
     Convert stored notebook blocks to a tiptap document structure.
@@ -46,7 +51,13 @@ def blocks_to_tiptap_doc(
         )
 
     for block in blocks:
-        content.extend(_block_to_tiptap_nodes(block, resolve_visualization))
+        content.extend(
+            _block_to_tiptap_nodes(
+                block,
+                resolve_visualization,
+                allow_executable_analysis_blocks=allow_executable_analysis_blocks,
+            )
+        )
 
     if not content:
         content.append({"type": "paragraph"})
@@ -57,9 +68,12 @@ def blocks_to_tiptap_doc(
 def _block_to_tiptap_nodes(
     block: BaseModel,
     resolve_visualization: Any | None = None,
+    allow_executable_analysis_blocks: bool = True,
 ) -> list[dict]:
     if isinstance(block, MarkdownBlock):
-        return markdown_to_tiptap_nodes(block.content)
+        return markdown_to_tiptap_nodes(
+            block.content, allow_executable_analysis_blocks=allow_executable_analysis_blocks
+        )
     elif isinstance(block, VisualizationRefBlock):
         return _visualization_ref_to_tiptap(block, resolve_visualization)
     elif isinstance(block, SessionReplayBlock):
@@ -101,7 +115,7 @@ def _visualization_ref_to_tiptap(
     ]
 
 
-def markdown_to_tiptap_nodes(text: str) -> list[dict]:
+def markdown_to_tiptap_nodes(text: str, allow_executable_analysis_blocks: bool = True) -> list[dict]:
     """
     Convert a markdown string to a list of tiptap nodes.
 
@@ -111,9 +125,17 @@ def markdown_to_tiptap_nodes(text: str) -> list[dict]:
     - Bullet lists (- or *)
     - Ordered lists (1.)
     - Code blocks (triple backtick)
-    - Analysis blocks: <python>, <hogql>, <ducksql>, and <query>
+    - Analysis blocks: <query>, and optionally <python>, <hogql>, and <ducksql>
     - Inline: **bold**, *italic*, `code`, [text](url)
     """
+    return _markdown_to_tiptap_nodes_with_analysis_blocks(
+        text, allow_executable_analysis_blocks=allow_executable_analysis_blocks
+    )
+
+
+def _markdown_to_tiptap_nodes_with_analysis_blocks(
+    text: str, allow_executable_analysis_blocks: bool = True
+) -> list[dict]:
     if not text or not text.strip():
         return []
 
@@ -121,12 +143,37 @@ def markdown_to_tiptap_nodes(text: str) -> list[dict]:
     last_end = 0
     for match in ANALYSIS_BLOCK_PATTERN.finditer(text):
         nodes.extend(_markdown_to_tiptap_nodes(text[last_end : match.start()]))
-        analysis_node = _analysis_block_to_tiptap_node(match.group(1), match.group(2), match.group(3))
+        tag = match.group(1)
+        if tag in {"python", "hogql", "ducksql", "duckdb"} and not allow_executable_analysis_blocks:
+            nodes.extend(_markdown_to_tiptap_nodes(match.group(0)))
+            last_end = match.end()
+            continue
+
+        analysis_node = _analysis_block_to_tiptap_node(tag, match.group(2), match.group(3))
         if analysis_node:
             nodes.append(analysis_node)
         last_end = match.end()
     nodes.extend(_markdown_to_tiptap_nodes(text[last_end:]))
     return nodes
+
+
+def content_uses_executable_analysis_blocks(text: str | None) -> bool:
+    return bool(text and EXECUTABLE_ANALYSIS_BLOCK_PATTERN.search(text))
+
+
+def nodes_use_executable_analysis_blocks(nodes: list[dict] | None) -> bool:
+    if not nodes:
+        return False
+
+    for node in nodes:
+        if node.get("type") in EXECUTABLE_ANALYSIS_NODE_TYPES:
+            return True
+        content = node.get("content")
+        if isinstance(content, list) and nodes_use_executable_analysis_blocks(
+            [child for child in content if isinstance(child, dict)]
+        ):
+            return True
+    return False
 
 
 def _markdown_to_tiptap_nodes(text: str) -> list[dict]:

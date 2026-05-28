@@ -4,7 +4,12 @@ import type { Schemas } from '@/api/generated'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { buildNotebookDocFromMarkdown, documentTextContent } from './edit'
+import {
+    buildNotebookDocFromMarkdown,
+    contentUsesExecutableAnalysisBlocks,
+    documentTextContent,
+    hasNotebookPythonFeatureFlag,
+} from './edit'
 
 const NotebookCreateFromMarkdownSchema = z.object({
     title: z.string().min(1).max(256).describe('Title for the new notebook.'),
@@ -12,7 +17,7 @@ const NotebookCreateFromMarkdownSchema = z.object({
         .string()
         .min(1)
         .describe(
-            'Notebook markdown. Supports headings, lists, code fences, and analysis blocks: <python>, <hogql>, <ducksql>, and <query>. Use analysis blocks to create executable notebook cells.'
+            'Notebook markdown. Supports headings, lists, code fences, and <query> blocks for old-style query nodes. Prefer <query> blocks for SQL analysis.'
         ),
 })
 
@@ -23,6 +28,12 @@ const tool = (): ToolBase<typeof NotebookCreateFromMarkdownSchema, WithPostHogUr
         context: Context,
         params: z.infer<typeof NotebookCreateFromMarkdownSchema>
     ): Promise<WithPostHogUrl<Schemas.Notebook>> => {
+        if (contentUsesExecutableAnalysisBlocks(params.content) && !(await hasNotebookPythonFeatureFlag(context))) {
+            throw new Error(
+                'Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. Use <query> nodes or saved insights for SQL analysis instead.'
+            )
+        }
+
         const projectId = String(await context.stateManager.getProjectId())
         const content = buildNotebookDocFromMarkdown(params.content)
         const result = await context.api.request<Schemas.Notebook>({

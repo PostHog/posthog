@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -146,6 +147,57 @@ class TestCreateNotebookTool(BaseTest):
         assert notebook is not None
         assert agent_artifact is not None
         assert notebook.short_id == agent_artifact.short_id
+
+    @patch("ee.hogai.tools.create_notebook.tool.has_notebook_python_feature_flag", return_value=False)
+    def test_rejects_executable_analysis_cells_without_feature_flag(self, _mock_flag):
+        result, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Test Notebook",
+            content="<hogql>\nSELECT 1\n</hogql>",
+            save_to_notebook=True,
+        )
+
+        assert "notebook-python feature flag" in result
+        assert artifact is None
+        assert Notebook.objects.filter(team=self.team).count() == 0
+
+    @patch("ee.hogai.tools.create_notebook.tool.has_notebook_python_feature_flag", return_value=False)
+    def test_save_to_notebook_allows_query_nodes_without_feature_flag(self, _mock_flag):
+        query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        result, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Saved Query",
+            content='<query title="SQL result">\n{"kind":"HogQLQuery","query":"SELECT 1"}\n</query>',
+            save_to_notebook=True,
+        )
+
+        assert result == ""
+        assert artifact is not None
+        notebook = Notebook.objects.get(team=self.team)
+        assert notebook.content["content"][1] == {
+            "type": "ph-query",
+            "attrs": {"query": query, "title": "SQL result"},
+        }
+
+    @patch("ee.hogai.tools.create_notebook.tool.has_notebook_python_feature_flag", return_value=True)
+    def test_save_to_notebook_allows_executable_analysis_cells_with_feature_flag(self, _mock_flag):
+        result, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Saved Analysis",
+            content='<hogql title="Recent events" return_variable="events_df">\nSELECT 1\n</hogql>',
+            save_to_notebook=True,
+        )
+
+        assert result == ""
+        assert artifact is not None
+        notebook = Notebook.objects.get(team=self.team)
+        assert notebook.content["content"][0]["type"] == "heading"
+        assert notebook.content["content"][1] == {
+            "type": "ph-hogql-sql",
+            "attrs": {
+                "code": "SELECT 1",
+                "returnVariable": "events_df",
+                "title": "Recent events",
+                "__init": {"showSettings": True},
+            },
+        }
 
     def test_update_already_saved_notebook_auto_updates_db(self):
         # First create and save

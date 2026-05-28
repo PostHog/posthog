@@ -8,7 +8,9 @@ from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.tiptap import (
     _parse_inline,
     blocks_to_tiptap_doc,
+    content_uses_executable_analysis_blocks,
     markdown_to_tiptap_nodes,
+    nodes_use_executable_analysis_blocks,
     tiptap_doc_to_text,
 )
 
@@ -209,6 +211,42 @@ SELECT * FROM events_df LIMIT 5
         assert nodes[2]["attrs"]["code"] == "print(events_df.head())"
         assert nodes[3]["attrs"]["returnVariable"] == "top_events"
         assert nodes[4]["attrs"]["query"] == {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+
+    def test_executable_analysis_blocks_can_be_disabled(self):
+        md = """<hogql>
+SELECT 1
+</hogql>
+
+<query title="Active users">
+{"kind":"HogQLQuery","query":"SELECT 1"}
+</query>
+"""
+        nodes = markdown_to_tiptap_nodes(md, allow_executable_analysis_blocks=False)
+
+        assert [node["type"] for node in nodes] == ["paragraph", "ph-query"]
+        assert nodes[0]["content"][0]["text"] == "<hogql> SELECT 1 </hogql>"
+        assert nodes[1]["attrs"]["query"] == {"kind": "HogQLQuery", "query": "SELECT 1"}
+
+    @parameterized.expand(
+        [
+            ("hogql", "<hogql>\nSELECT 1\n</hogql>", True),
+            ("ducksql", "<ducksql>\nSELECT 1\n</ducksql>", True),
+            ("python", "<python>\nprint(1)\n</python>", True),
+            ("query", '<query>\n{"kind":"HogQLQuery","query":"SELECT 1"}\n</query>', False),
+            ("plain", "SELECT 1", False),
+        ]
+    )
+    def test_content_uses_executable_analysis_blocks(self, _name, markdown, expected):
+        assert content_uses_executable_analysis_blocks(markdown) is expected
+
+    def test_nodes_use_executable_analysis_blocks(self):
+        assert nodes_use_executable_analysis_blocks([{"type": "ph-hogql-sql", "attrs": {"code": "SELECT 1"}}])
+        assert nodes_use_executable_analysis_blocks(
+            [{"type": "paragraph", "content": [{"type": "ph-python", "attrs": {"code": "print(1)"}}]}]
+        )
+        assert not nodes_use_executable_analysis_blocks(
+            [{"type": "ph-query", "attrs": {"query": {"kind": "HogQLQuery"}}}]
+        )
 
 
 class TestBlocksToTiptapDoc(SimpleTestCase):

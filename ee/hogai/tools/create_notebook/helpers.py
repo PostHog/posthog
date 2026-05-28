@@ -57,6 +57,7 @@ async def save_notebook_to_db(
     artifact: AgentArtifact,
     blocks: Sequence[StoredBlock],
     title: str,
+    allow_executable_analysis_blocks: bool = True,
 ) -> Notebook:
     """
     Save or update a real Notebook record with the same short_id as the artifact.
@@ -90,7 +91,12 @@ async def save_notebook_to_db(
     def resolve_visualization(artifact_id: str) -> dict | None:
         return viz_lookup.get(artifact_id)
 
-    tiptap_doc = blocks_to_tiptap_doc(blocks, title=title, resolve_visualization=resolve_visualization)
+    tiptap_doc = blocks_to_tiptap_doc(
+        blocks,
+        title=title,
+        resolve_visualization=resolve_visualization,
+        allow_executable_analysis_blocks=allow_executable_analysis_blocks,
+    )
 
     notebook, created = await Notebook.objects.aget_or_create(
         team=team,
