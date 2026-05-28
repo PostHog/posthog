@@ -4,6 +4,7 @@ procs:
         shell: 'pnpm --filter=@posthog/frontend build:products && pnpm --filter=@posthog/playwright exec playwright test --ui'
         env:
             BASE_URL: 'http://localhost:8010'
+            EMAIL_HOST: 'email.test.posthog.net'
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'

@@ -8,7 +8,7 @@ Spin up a full local E2E environment (backend, frontend, docker services, Playwr
 hogli test:e2e
 ```
 
-This uses `bin/phrocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
+This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
 
 To run tests against an already-running PostHog instance:
 

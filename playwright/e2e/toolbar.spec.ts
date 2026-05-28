@@ -1,7 +1,7 @@
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Toolbar', () => {
-    test.skip('Toolbar loads', async ({ page }) => {
+    test('Toolbar loads', async ({ page }) => {
         await page.goToMenuItem('toolbar')
         await page.getByText('Add authorized URL').click()
 
