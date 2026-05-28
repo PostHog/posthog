@@ -8,7 +8,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { AppMetricsResponseApi, AppMetricsTotalsResponseApi, MetricsHasMetricsRetrieve200 } from './api.schemas'
+import type {
+    AppMetricsResponseApi,
+    AppMetricsTotalsResponseApi,
+    MetricsHasMetricsRetrieve200,
+    _MetricQueryRequestApi,
+    _MetricQueryResponseApi,
+} from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/event_filter/metrics/`
@@ -63,5 +69,22 @@ export const metricsHasMetricsRetrieve = async (
     return apiMutator<MetricsHasMetricsRetrieve200>(getMetricsHasMetricsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/query/`
+}
+
+export const metricsQueryCreate = async (
+    projectId: string,
+    _metricQueryRequestApi: _MetricQueryRequestApi,
+    options?: RequestInit
+): Promise<_MetricQueryResponseApi> => {
+    return apiMutator<_MetricQueryResponseApi>(getMetricsQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricQueryRequestApi),
     })
 }
