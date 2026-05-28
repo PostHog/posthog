@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -225,6 +225,35 @@ class TestChatCompletionsEndpoint:
         assert "base_url" not in forwarded_metadata["nested"]
         assert forwarded_metadata["safe"] == "value"
         assert forwarded_metadata["nested"]["keep"] == "ok"
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    @patch("llm_gateway.api.openai.make_cloudflare_completion_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_cf_model_routes_through_cloudflare(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        mock_acompletion: MagicMock,
+        authenticated_client: TestClient,
+        mock_openai_response: dict,
+    ) -> None:
+        mock_ensure_configured.return_value = ("https://api.cloudflare.com/ai/v1", "test-key")
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_openai_response)
+        mock_make_call.return_value = AsyncMock(return_value=mock_response)
+
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
+        mock_acompletion.assert_not_called()
 
 
 class TestUnsupportedModelRejection:
