@@ -489,6 +489,15 @@ export class Scope<S extends Record<string, object> = Record<never, object>> {
     }
 }
 
-export function newScopeBuilder(): ScopeBuilder<Record<never, object>> {
-    return ScopeBuilder.empty()
+/**
+ * Builds a root scope with the given name. The `configure` callback
+ * receives an empty builder and returns the builder with the scope's
+ * entries registered. Mirrors `Scope.extend` so root and child scopes
+ * have the same construction shape.
+ */
+export function newScope<S extends Record<string, object>>(
+    name: string,
+    configure: (builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S>
+): Scope<S> {
+    return configure(ScopeBuilder.empty()).build(name)
 }

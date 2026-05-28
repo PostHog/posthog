@@ -2,7 +2,7 @@ import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { TeamManagerScope } from '../../utils/team-manager'
 import { ProducerName } from '../common/outputs'
-import { newScopeBuilder } from '../common/service-registry'
+import { newScope } from '../common/service-registry'
 import { IngestionOutputsConfig } from '../config'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
 import { ClientWarningsConsumerConfig, ClientWarningsSharedScope, createClientWarningsConsumer } from './consumer'
@@ -26,25 +26,26 @@ describe('createClientWarningsConsumer', () => {
         // The consumer factory extends this scope but doesn't start it
         // (start happens at the caller), so the shape only has to be
         // type-correct — the Managers' bodies don't run.
-        return newScopeBuilder()
-            .register('postgres', {
-                start: () => Promise.resolve({ value: {} as PostgresRouter, stop: () => Promise.resolve() }),
-            })
-            .register('redisPool', {
-                start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
-            })
-            .register('teamManager', new TeamManagerScope({} as PostgresRouter))
-            .register('producerRegistry', {
-                start: () =>
-                    Promise.resolve({
-                        value: {} as KafkaProducerRegistry<ProducerName>,
-                        stop: () => Promise.resolve(),
-                    }),
-            })
-            .register('staticDropEventTokens', {
-                start: () => Promise.resolve({ value: [] as string[], stop: () => Promise.resolve() }),
-            })
-            .build('shared-test')
+        return newScope('shared-test', (b) =>
+            b
+                .register('postgres', {
+                    start: () => Promise.resolve({ value: {} as PostgresRouter, stop: () => Promise.resolve() }),
+                })
+                .register('redisPool', {
+                    start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
+                })
+                .register('teamManager', new TeamManagerScope({} as PostgresRouter))
+                .register('producerRegistry', {
+                    start: () =>
+                        Promise.resolve({
+                            value: {} as KafkaProducerRegistry<ProducerName>,
+                            stop: () => Promise.resolve(),
+                        }),
+                })
+                .register('staticDropEventTokens', {
+                    start: () => Promise.resolve({ value: [] as string[], stop: () => Promise.resolve() }),
+                })
+        )
     }
 
     beforeEach(() => {

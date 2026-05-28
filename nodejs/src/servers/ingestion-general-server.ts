@@ -27,7 +27,7 @@ import {
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryScope } from '../ingestion/common/outputs/registry'
-import { newScopeBuilder } from '../ingestion/common/service-registry'
+import { newScope } from '../ingestion/common/service-registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -140,18 +140,22 @@ export class IngestionGeneralServer implements NodeServer {
         //    ownership.
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        const sharedInfraScope = newScopeBuilder()
-            .register('postgres', new PostgresRouterManager(this.config, this.config.PLUGIN_SERVER_MODE!))
-            .register(
-                'redisPool',
-                new RedisPoolManager({
-                    connection: createIngestionRedisConnectionConfig(this.config),
-                    poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-                })
-            )
-            .register('producerRegistry', new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config))
-            .build('shared-infra')
+        const sharedInfraScope = newScope('shared-infra', (builder) =>
+            builder
+                .register('postgres', new PostgresRouterManager(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .register(
+                    'redisPool',
+                    new RedisPoolManager({
+                        connection: createIngestionRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                .register(
+                    'producerRegistry',
+                    new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config)
+                )
+        )
 
         // `teamManager` is built inside the extension via its Manager so
         // it picks up `postgres` from the started infra scope's container

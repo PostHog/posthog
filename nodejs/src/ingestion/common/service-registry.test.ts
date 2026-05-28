@@ -1,4 +1,4 @@
-import { ConsumerManagedService, adaptManagedService, newScopeBuilder } from './service-registry'
+import { ConsumerManagedService, adaptManagedService, newScope } from './service-registry'
 
 type TrackedService = ConsumerManagedService & { startCalls: number; stopCalls: number }
 
@@ -26,10 +26,9 @@ describe('Lifecycle', () => {
         const a = makeService('a', log)
         const b = makeService('b', log)
 
-        const lifecycle = newScopeBuilder()
-            .register('a', adaptManagedService(a))
-            .register('b', adaptManagedService(b))
-            .build('phase')
+        const lifecycle = newScope('phase', (builder) =>
+            builder.register('a', adaptManagedService(a)).register('b', adaptManagedService(b))
+        )
         const started = await lifecycle.start()
 
         expect(log).toEqual(['start:a', 'start:b'])
@@ -41,7 +40,7 @@ describe('Lifecycle', () => {
         const log: string[] = []
         const a = makeService('a', log)
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
         const { container } = await lifecycle.start()
 
         // Compile-time check: neither `start` nor `stop` should exist on the
@@ -61,13 +60,13 @@ describe('Lifecycle', () => {
         const a = makeService('a', log)
         const b = makeService('b', log)
 
-        const server = newScopeBuilder().register('a', adaptManagedService(a)).build('server')
+        const server = newScope('server', (builder) => builder.register('a', adaptManagedService(a)))
         const { container: serverContainer, stop: stopServer } = await server.start()
 
         // Caller wires the next lifecycle using the prior container's business
         // methods (not start/stop — those aren't exposed).
         expect(serverContainer.a).toBeDefined()
-        const consumer = newScopeBuilder().register('b', adaptManagedService(b)).build('consumer')
+        const consumer = newScope('consumer', (builder) => builder.register('b', adaptManagedService(b)))
         const { stop: stopConsumer } = await consumer.start()
 
         expect(log).toEqual(['start:a', 'start:b'])
@@ -83,11 +82,12 @@ describe('Lifecycle', () => {
         const b = makeService('b', log)
         const c = makeService('c', log)
 
-        const lifecycle = newScopeBuilder()
-            .register('a', adaptManagedService(a))
-            .register('b', adaptManagedService(b))
-            .register('c', adaptManagedService(c))
-            .build('phase')
+        const lifecycle = newScope('phase', (builder) =>
+            builder
+                .register('a', adaptManagedService(a))
+                .register('b', adaptManagedService(b))
+                .register('c', adaptManagedService(c))
+        )
         const { stop } = await lifecycle.start()
         await stop()
 
@@ -108,10 +108,9 @@ describe('Lifecycle', () => {
             }),
         }
 
-        const lifecycle = newScopeBuilder()
-            .register('a', adaptManagedService(a))
-            .register('b', adaptManagedService(b))
-            .build('phase')
+        const lifecycle = newScope('phase', (builder) =>
+            builder.register('a', adaptManagedService(a)).register('b', adaptManagedService(b))
+        )
 
         await expect(lifecycle.start()).rejects.toThrow('b failed')
         // Only services that successfully started are rolled back, in reverse.
@@ -122,7 +121,7 @@ describe('Lifecycle', () => {
         const log: string[] = []
         const a = makeService('a', log)
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
         const { stop } = await lifecycle.start()
 
         await stop()
@@ -135,7 +134,7 @@ describe('Lifecycle', () => {
         const log: string[] = []
         const a = makeService('a', log)
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
         const h1 = await lifecycle.start()
         const h2 = await lifecycle.start()
 
@@ -147,7 +146,7 @@ describe('Lifecycle', () => {
         const log: string[] = []
         const a = makeService('a', log)
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
         const h1 = await lifecycle.start()
         const h2 = await lifecycle.start()
 
@@ -163,7 +162,7 @@ describe('Lifecycle', () => {
         const log: string[] = []
         const a = makeService('a', log)
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
         const h1 = await lifecycle.start()
         await h1.stop()
 
@@ -194,7 +193,7 @@ describe('Lifecycle', () => {
             }),
         }
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
 
         const p1 = lifecycle.start()
         const p2 = lifecycle.start()
@@ -243,7 +242,7 @@ describe('Lifecycle', () => {
             }),
         }
 
-        const lifecycle = newScopeBuilder().register('a', adaptManagedService(a)).build('phase')
+        const lifecycle = newScope('phase', (builder) => builder.register('a', adaptManagedService(a)))
         const h1 = await lifecycle.start()
         const stopPromise = h1.stop()
 
@@ -269,7 +268,7 @@ describe('Lifecycle', () => {
         const a = makeService('a', log)
         const b = makeService('b', log)
 
-        const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
+        const parent = newScope('parent', (builder) => builder.register('a', adaptManagedService(a)))
         const child = parent.extend('child', (services, builder) => {
             // Services from the parent must be available here.
             expect(services.a).toBe(a)
@@ -293,7 +292,7 @@ describe('Lifecycle', () => {
         const b = makeService('b', log)
         const c = makeService('c', log)
 
-        const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
+        const parent = newScope('parent', (builder) => builder.register('a', adaptManagedService(a)))
         const childB = parent.extend('childB', (_services, builder) => builder.register('b', adaptManagedService(b)))
         const childC = parent.extend('childC', (_services, builder) => builder.register('c', adaptManagedService(c)))
 
@@ -325,7 +324,7 @@ describe('Lifecycle', () => {
             stop: jest.fn((): Promise<void> => Promise.resolve()),
         }
 
-        const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
+        const parent = newScope('parent', (builder) => builder.register('a', adaptManagedService(a)))
         const child = parent.extend('child', (_services, builder) =>
             builder.register('bad', adaptManagedService(failing))
         )
@@ -342,7 +341,7 @@ describe('Lifecycle', () => {
         const a = makeService('a', log)
         let buildCalls = 0
 
-        const parent = newScopeBuilder().register('a', adaptManagedService(a)).build('parent')
+        const parent = newScope('parent', (builder) => builder.register('a', adaptManagedService(a)))
         const child = parent.extend('child', (_services, builder) => {
             buildCalls++
             const b = makeService(`b${buildCalls}`, log)
