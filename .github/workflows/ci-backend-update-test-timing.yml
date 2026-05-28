@@ -140,32 +140,11 @@ jobs:
                   BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
-                  # Retry wrapper for transient GitHub artifact API failures (HTTP 500, timeouts)
-                  download_with_retry() {
-                      local max_attempts=3
-                      local delay=30
-                      local attempt=1
-                      while [ $attempt -le $max_attempts ]; do
-                          echo "Attempt $attempt/$max_attempts: gh run download $*"
-                          if gh run download "$@"; then
-                              return 0
-                          fi
-                          if [ $attempt -lt $max_attempts ]; then
-                              echo "Download failed, retrying in ${delay}s..."
-                              sleep $delay
-                              delay=$((delay * 2))
-                          fi
-                          attempt=$((attempt + 1))
-                      done
-                      echo "::error::Download failed after $max_attempts attempts"
-                      return 1
-                  }
-
                   # Download backend timing artifacts. Use segment-specific patterns
                   # so we don't accidentally pull Dagster artifacts here when the same
                   # run ID is provided for both jobs (they share the timing_data- prefix
                   # and would otherwise collide on extraction into the same dir).
-                  download_with_retry "$BACKEND_RUN_ID" \
+                  gh run download "$BACKEND_RUN_ID" \
                       --pattern "timing_data-Core-*" \
                       --pattern "timing_data-Temporal-*" \
                       --pattern "timing_data-Products-*" \
@@ -173,7 +152,7 @@ jobs:
 
                   # Download dagster timing artifacts if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
-                      download_with_retry "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
+                      gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
                       echo "Downloaded Dagster timing artifacts"
                   else
                       echo "Skipping Dagster timing artifacts (no suitable run found)"
