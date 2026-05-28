@@ -11,16 +11,13 @@ import temporalio.workflow
 import temporalio.exceptions
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
 )
+from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 
 
 @dataclasses.dataclass
@@ -82,18 +79,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
         limit=ast.Constant(value=query_limit),
     )
 
-    @database_sync_to_async
-    def _compile_ranges_query() -> tuple[str, dict[str, Any]]:
-        hogql_context = HogQLContext(
-            team_id=inputs.team_id,
-            enable_select_queries=True,
-            limit_context=LimitContext.COHORT_CALCULATION,
-            output_format="JSONEachRow",
-        )
-        sql, _ = prepare_and_print_ast(ranges_query_ast, hogql_context, "clickhouse")
-        return sql, hogql_context.values
-
-    query, query_params = await _compile_ranges_query()
+    query, query_params = await compile_hogql_for_streaming(ranges_query_ast, team_id=inputs.team_id)
 
     ranges: list[tuple[str, str]] = []
     current_batch_start: str | None = None

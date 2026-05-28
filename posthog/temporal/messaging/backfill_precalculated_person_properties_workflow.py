@@ -14,20 +14,17 @@ import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.filter_storage import get_filters_and_properties
+from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import BytecodeResult, execute_bytecode
@@ -537,18 +534,7 @@ async def backfill_precalculated_person_properties_activity(
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
         )
 
-        @database_sync_to_async
-        def _compile_persons_query() -> tuple[str, dict[str, Any]]:
-            hogql_context = HogQLContext(
-                team_id=inputs.team_id,
-                enable_select_queries=True,
-                limit_context=LimitContext.COHORT_CALCULATION,
-                output_format="JSONEachRow",
-            )
-            sql, _ = prepare_and_print_ast(persons_query_ast, hogql_context, "clickhouse")
-            return sql, hogql_context.values
-
-        persons_query, query_params = await _compile_persons_query()
+        persons_query, query_params = await compile_hogql_for_streaming(persons_query_ast, team_id=inputs.team_id)
 
         last_person_id = inputs.start_person_id
         batch_count = 0

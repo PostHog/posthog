@@ -294,7 +294,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.prepare_and_print_ast",
+                "posthog.temporal.messaging.hogql_compile.prepare_and_print_ast",
                 side_effect=fake_prepare_and_print_ast,
             ),
             patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_producer"),
@@ -322,9 +322,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert isinstance(prop_field, ast.Field)
         assert prop_field.chain == ["properties", malicious_property]
 
-        # The query and parameters forwarded to the streaming client come straight from
-        # the HogQL printer's output — the malicious string never appears inline in the
-        # SQL string, only inside the parameter map produced by the printer.
+        # Boundary check: what the activity hands to ``stream_query_as_jsonl`` is exactly
+        # the HogQL printer's output. We're asserting that *this* boundary stays clean —
+        # the malicious key only crosses it inside the printer-produced parameter map,
+        # never as a substring of the SQL template. The downstream ClickHouseClient still
+        # interpolates the parameter map into the wire query via ``prepare_query()``,
+        # which escapes values; that escaping behavior is tested in the ClickHouse client.
         query = captured_query["query"]
         assert isinstance(query, str)
         assert malicious_property not in query
