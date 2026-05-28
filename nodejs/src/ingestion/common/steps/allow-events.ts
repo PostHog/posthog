@@ -1,7 +1,6 @@
 import { EventHeaders } from '../../../types'
-import { ok } from '../../pipelines/results'
+import { dlq, ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
-import { createSendToDlqStep } from './send-to-dlq'
 
 /**
  * DLQs any event whose header `event` name is not in the allow list.
@@ -15,12 +14,11 @@ export function createAllowEventsStep<T extends { headers: EventHeaders }>(
     allowed: readonly string[]
 ): ProcessingStep<T, T> {
     const allowedSet = new Set(allowed)
-    const sendToDlq = createSendToDlqStep<T>('event_not_in_allowlist')
     return function allowEventsStep(input) {
         const name = input.headers.event
         if (name === undefined || allowedSet.has(name)) {
             return Promise.resolve(ok(input))
         }
-        return sendToDlq(input)
+        return Promise.resolve(dlq('event_not_in_allowlist'))
     }
 }

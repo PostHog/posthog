@@ -1,7 +1,6 @@
 import { EventHeaders } from '../../../types'
-import { ok } from '../../pipelines/results'
+import { dlq, ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
-import { createSendToDlqStep } from './send-to-dlq'
 
 /**
  * DLQs any event whose header `event` name is in the deny list. Reads
@@ -15,11 +14,10 @@ export function createDenyEventsStep<T extends { headers: EventHeaders }>(
     denied: readonly string[]
 ): ProcessingStep<T, T> {
     const deniedSet = new Set(denied)
-    const sendToDlq = createSendToDlqStep<T>('event_in_denylist')
     return function denyEventsStep(input) {
         const name = input.headers.event
         if (name !== undefined && deniedSet.has(name)) {
-            return sendToDlq(input)
+            return Promise.resolve(dlq('event_in_denylist'))
         }
         return Promise.resolve(ok(input))
     }
