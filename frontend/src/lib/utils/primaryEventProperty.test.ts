@@ -1,4 +1,5 @@
 import {
+    getDistinctPrimaryPropertiesForEvents,
     getEventsWithPrimaryProperty,
     getPrimaryPropertyForEvent,
     hasTaxonomyPrimaryProperty,
@@ -75,6 +76,55 @@ describe('getEventsWithPrimaryProperty', () => {
             { event: 'arbitrary_custom', id: 2 },
         ]
         expect(getEventsWithPrimaryProperty(events)).toEqual([])
+    })
+})
+
+describe('getDistinctPrimaryPropertiesForEvents', () => {
+    it.each([
+        {
+            name: 'collects taxonomy defaults across events',
+            eventNames: ['$pageview', '$screen'],
+            overrides: undefined,
+            expected: ['$pathname', '$screen_name'],
+        },
+        {
+            name: 'deduplicates when multiple events resolve to the same property',
+            eventNames: ['$pageview', '$pageleave'],
+            overrides: undefined,
+            expected: ['$pathname'],
+        },
+        {
+            name: 'returns an empty list when no events have a primary property',
+            eventNames: ['$autocapture', 'arbitrary_custom'],
+            overrides: undefined,
+            expected: [],
+        },
+        {
+            name: 'returns an empty list for an empty event list',
+            eventNames: [],
+            overrides: undefined,
+            expected: [],
+        },
+        {
+            name: 'picks up team overrides for events without a taxonomy default',
+            eventNames: ['order_placed', 'just_viewed'],
+            overrides: { order_placed: 'order_id' },
+            expected: ['order_id'],
+        },
+        {
+            name: 'taxonomy default still wins over an attempted override',
+            eventNames: ['$pageview'],
+            overrides: { $pageview: '$current_url' },
+            expected: ['$pathname'],
+        },
+        {
+            name: 'mixes taxonomy defaults and team overrides without duplicates',
+            eventNames: ['$pageview', 'order_placed'],
+            overrides: { order_placed: '$pathname' },
+            expected: ['$pathname'],
+        },
+    ])('$name', ({ eventNames, overrides, expected }) => {
+        expect(getDistinctPrimaryPropertiesForEvents(eventNames, overrides)).toEqual(expected)
     })
 })
 

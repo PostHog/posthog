@@ -13,7 +13,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.schema import NodeKind
 
 import posthog.schema_migrations as schema_migrations_module
-from posthog.models.insight import Insight
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration, _discover_migrations
 from posthog.temporal.product_analytics.upgrade_queries_activities import (
     GetInsightsToMigrateActivityInputs,
@@ -25,6 +24,8 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import (
     UpgradeQueriesWorkflow,
     UpgradeQueriesWorkflowInputs,
 )
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 class InsightVizMigration1(SchemaMigration):

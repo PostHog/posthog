@@ -1358,7 +1358,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 breakdown_by=WebStatsBreakdown.TIMEZONE,
             ).results
 
-            assert results == []
+            # Invalid timezone offsets collapse to a single NULL row instead of being dropped,
+            # so totals stay consistent with the overview tile (the frontend renders this as
+            # "(not set)").
+            assert len(results) == 1
+            assert results[0][0] is None
+            assert results[0][1][0] == idx + 1  # visitors == number of distinct persons seen so far
+            assert results[0][2][0] == sum(range(idx + 2))  # views == cumulative pageview count
 
     def test_conversion_goal_no_conversions(self):
         s1 = str(uuid7("2023-12-01"))

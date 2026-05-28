@@ -1,3 +1,4 @@
+export { AndroidInstallation } from './android'
 export { GoInstallation } from './go'
 export { IOSInstallation } from './ios'
 export { JavaInstallation } from './java'

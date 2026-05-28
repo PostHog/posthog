@@ -1,6 +1,7 @@
 from posthog.models import Team
-from posthog.models.feature_flag import FeatureFlag
 from posthog.sync import database_sync_to_async
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .prompts import (
     FEATURE_FLAG_CONTEXT_TEMPLATE,

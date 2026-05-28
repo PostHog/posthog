@@ -28,7 +28,9 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
-    def _collab_save(self, notebook, *, version, steps, content=None, text_content=None, client_id="test-client"):
+    def _collab_save(
+        self, notebook, *, version, steps, content=None, text_content=None, title=None, client_id="test-client"
+    ):
         payload = {
             "client_id": client_id,
             "version": version,
@@ -37,6 +39,8 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         }
         if text_content is not None:
             payload["text_content"] = text_content
+        if title is not None:
+            payload["title"] = title
         return self.client.post(
             f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/save/",
             data=payload,
@@ -100,6 +104,25 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         nb = Notebook.objects.get(short_id=notebook["short_id"])
         assert nb.title == "New Title"
+
+    def test_collab_save_allows_blank_title(self):
+        notebook = self._create_notebook(SAMPLE_DOC)
+        version = notebook["version"]
+
+        response = self._collab_save(
+            notebook,
+            version=version,
+            steps=[{"stepType": "replace", "from": 0, "to": 0}],
+            content={"type": "doc", "content": [{"type": "heading"}]},
+            text_content="",
+            title="",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == ""
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.title == ""
+        assert nb.text_content == ""
 
     def test_collab_save_rejected_stale_version(self):
         notebook = self._create_notebook(SAMPLE_DOC)
@@ -305,6 +328,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             notebook["version"],
+            last_saved_version=notebook["version"],
         )
 
         # Last-Event-ID=0-0 means "from the beginning of the stream", so the pre-populated
@@ -332,6 +356,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-A",
             [{"stepType": "replace", "from": 0, "to": 0}],
             base_version,
+            last_saved_version=base_version,
         )
         submit_steps(
             self.team.pk,
@@ -339,6 +364,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-B",
             [{"stepType": "replace", "from": 1, "to": 1}],
             base_version + 1,
+            last_saved_version=base_version + 1,
         )
 
         first_step_id = f"{base_version + 1}-0"
