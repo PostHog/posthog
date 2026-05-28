@@ -26,49 +26,42 @@ import {
     SessionEventBus,
 } from '@posthog/agent-shared'
 
+import { loadAgentIngressConfig } from './config'
 import { buildApp } from './routing/server'
 
 const log = createLogger('agent-ingress')
 
 async function main(): Promise<void> {
     installProcessHandlers(log)
-    const port = parseInt(process.env.PORT ?? '8080', 10)
-    const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
-    const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
+    const config = loadAgentIngressConfig()
 
-    const posthogDb = new Pool({ connectionString: posthogDbUrl })
-    const agentDb = new Pool({ connectionString: agentDbUrl })
+    const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
+    const agentDb = new Pool({ connectionString: config.agentDbUrl })
 
     // SSE /listen is the consumer side of the same bus the runner publishes
     // to. With REDIS_URL set, multi-host fan-out works; without it /listen
     // only sees events from a runner inside the same process (dev).
     let bus: SessionEventBus = new MemorySessionEventBus()
-    if (process.env.REDIS_URL) {
-        const redis = new RedisSessionEventBus({ url: process.env.REDIS_URL })
+    if (config.redisUrl) {
+        const redis = new RedisSessionEventBus({ url: config.redisUrl })
         await redis.connect()
         bus = redis
     }
 
-    // AGENT_PREVIEW_SECRET gates non-live revision invokes through the Django
-    // preview-proxy. Defaults to INTERNAL_SECRET (the same shared secret
-    // Django uses for janitor calls) so v0 doesn't need new env wiring.
-    // Unset → the gate is bypassed and the warning logs surface the gap.
-    // See docs/agent-platform/plans/draft-preview-auth.md.
-    const previewSecret = process.env.AGENT_PREVIEW_SECRET || process.env.INTERNAL_SECRET || undefined
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),
         queue: new PgSessionQueue(agentDb),
         identities: new PgIdentityStore(agentDb),
         bus,
-        teamId: parseInt(process.env.TEAM_ID ?? '1', 10),
-        routingMode: (process.env.ROUTING_MODE as 'path' | 'domain') ?? 'path',
-        domainSuffix: process.env.DOMAIN_SUFFIX,
-        pathPrefix: process.env.PATH_PREFIX ?? '/agents',
-        slackSigningSecret: process.env.SLACK_SIGNING_SECRET,
-        previewSecret,
+        teamId: config.teamId,
+        routingMode: config.routingMode,
+        domainSuffix: config.domainSuffix,
+        pathPrefix: config.pathPrefix,
+        slackSigningSecret: config.slackSigningSecret,
+        previewSecret: config.previewSecret,
     })
-    app.listen(port, () => {
-        log.info({ port, bus: bus.constructor.name }, 'listening')
+    app.listen(config.port, () => {
+        log.info({ port: config.port, bus: bus.constructor.name }, 'listening')
     })
 }
 

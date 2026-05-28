@@ -36,6 +36,7 @@ import {
     SessionEventBus,
 } from '@posthog/agent-shared'
 
+import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { posthogLlmGatewayModel } from './models/llm-gateway-model'
 import { PiAiClient, resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
@@ -45,36 +46,25 @@ const log = createLogger('agent-runner')
 
 async function main(): Promise<void> {
     installProcessHandlers(log)
-    const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
-    const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
+    const config = loadAgentRunnerConfig()
     // Default to a user-writable dir so dev / local CI work without root.
     // Production sets AGENT_BUNDLE_ROOT to a mounted volume shared with the
     // janitor (same path on both deployments).
-    const bundleRoot = process.env.AGENT_BUNDLE_ROOT ?? `${process.env.HOME ?? '/tmp'}/.posthog/agent-bundles`
-    await mkdir(bundleRoot, { recursive: true })
-    const useGateway = process.env.AGENT_USE_LLM_GATEWAY === '1'
+    await mkdir(config.bundleRoot, { recursive: true })
 
-    const posthogDb = new Pool({ connectionString: posthogDbUrl })
-    const agentDb = new Pool({ connectionString: agentDbUrl })
+    const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
+    const agentDb = new Pool({ connectionString: config.agentDbUrl })
     // Only the queue DB schema is the runner's responsibility — Django owns
     // the authoring tables (agent_application, agent_revision) in posthogDb.
     await agentDb.query(SCHEMA_SQL)
 
-    const defaultApiKey =
-        process.env.POSTHOG_LLM_GATEWAY_KEY ??
-        process.env.ANTHROPIC_API_KEY ??
-        process.env.OPENAI_API_KEY ??
-        process.env.MODEL_API_KEY
-
-    const maxConcurrency = parseInt(process.env.AGENT_MAX_CONCURRENCY ?? '8', 10)
-
+    const defaultApiKey = defaultApiKeyFromConfig(config)
     const revisions = new PgRevisionStore(posthogDb)
 
     // Build the resolveSecrets path. If ENCRYPTION_SALT_KEYS is set, decrypt
     // AgentApplication.encrypted_env via Fernet (matches Django). Otherwise
     // start with no secrets — dev / CI is happy without encryption configured.
-    const encryptionSaltKeys = process.env.ENCRYPTION_SALT_KEYS ?? ''
-    const encryption = new EncryptedFields(encryptionSaltKeys)
+    const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const resolveSecrets = encryption.isConfigured
         ? makeEncryptedEnvResolver({ revisions, encryption })
         : async () => ({})
@@ -83,8 +73,8 @@ async function main(): Promise<void> {
     // sees events published by a runner on host B. Without it the runner
     // still works — events just go nowhere (no SSE consumers can connect).
     let bus: SessionEventBus = new NoopSessionEventBus()
-    if (process.env.REDIS_URL) {
-        const redis = new RedisSessionEventBus({ url: process.env.REDIS_URL })
+    if (config.redisUrl) {
+        const redis = new RedisSessionEventBus({ url: config.redisUrl })
         await redis.connect()
         bus = redis
     }
@@ -92,7 +82,7 @@ async function main(): Promise<void> {
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
-        bundle: new FsBundleStore(bundleRoot),
+        bundle: new FsBundleStore(config.bundleRoot),
         sandboxes: selectSandboxPool(),
         sandboxInstances: new PgSandboxInstanceStore(agentDb),
         pi: new PiAiClient(defaultApiKey),
@@ -100,15 +90,16 @@ async function main(): Promise<void> {
         bus,
         resolveIntegrations: async () => ({}),
         resolveSecrets,
-        resolveModel: useGateway
+        resolveModel: config.useLlmGateway
             ? // Route every model through PostHog's llm-gateway, keeping spec.model
               // as the model id but ignoring the provider prefix.
               (specModel) =>
                   posthogLlmGatewayModel({
                       modelId: specModel.includes('/') ? specModel.split('/').pop()! : specModel,
+                      baseUrl: config.llmGatewayUrl,
                   })
             : undefined,
-        maxConcurrency,
+        maxConcurrency: config.maxConcurrency,
     })
 
     const shutdown = (sig: string): void => {
@@ -119,7 +110,12 @@ async function main(): Promise<void> {
     process.on('SIGINT', () => shutdown('SIGINT'))
 
     log.info(
-        { posthogDb: posthogDbUrl, agentDb: agentDbUrl, concurrency: maxConcurrency, gateway: useGateway },
+        {
+            posthogDb: config.posthogDbUrl,
+            agentDb: config.agentDbUrl,
+            concurrency: config.maxConcurrency,
+            gateway: config.useLlmGateway,
+        },
         'starting worker loop'
     )
     await worker.loop()
