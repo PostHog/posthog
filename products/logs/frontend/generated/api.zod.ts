@@ -124,10 +124,10 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(0)
         .default(logsAlertsCreateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -223,10 +223,10 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(0)
         .default(logsAlertsUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -322,10 +322,10 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(0)
         .default(logsAlertsPartialUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -434,7 +434,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 .default(null),
         })
         .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
-    threshold_count: zod.number().min(1).describe('Threshold count to evaluate against.'),
+    threshold_count: zod.number().min(0).describe('Threshold count to evaluate against.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('\* `above` - Above\n\* `below` - Below')
