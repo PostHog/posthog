@@ -76,6 +76,61 @@ file (and out of this list) once the design lands.
 - [ ] Clean up all env vars django or nodejs side
       Some env vars do direct process.env access - this should all be abstracted to a typed config loader or the standard django settings concept with sensible defaults
 
+- [ ] **MCP tools for invoking a created agent.** The `agent_stack`
+      MCP surface today is authoring-only (`agent-applications-*`,
+      `agent-applications-revisions-*`). After an authoring harness
+      (Claude Code, etc.) creates and promotes an agent via MCP, it
+      has no in-band way to talk to it — the ingress runtime endpoints
+      (`/agents/<slug>/run`, `/send`, `/listen`) aren't wrapped as
+      tools, so the next step isn't discoverable from the tool list.
+      Add `agent-invoke` / `agent-send` / `agent-listen` (SSE stream
+      shape TBD for MCP) so the authoring AI can iterate end-to-end
+      without leaving MCP. See [`agent-authoring-flow.md`](agent-authoring-flow.md)
+      for the broader test-run surface this slots into.
+
+- [ ] **Defensive programming across the three node services.** A
+      malformed request to the janitor today can take the process down.
+      Initial pass landed; remaining gaps captured here. - [x] ~~janitor global express error handler~~ — shipped at
+      [`server.ts:438`](../../../services/agent-janitor/src/server.ts)
+      via `errorHandler(log)` in
+      [`http-utils.ts`](../../../services/agent-janitor/src/http-utils.ts).
+      Distinguishes `ZodError` (400 with structured issues) from
+      unknown errors (500). All async routes wrapped in
+      `asyncHandler` so rejections funnel through it. - [x] ~~zod-validate bodies + query at the edge~~ — every
+      janitor endpoint now parses inputs via zod; the
+      `typeof null === 'object'` hole on `PUT /revisions/:id/bundle`
+      and the non-string content variant are covered by regression
+      tests in
+      [`server.test.ts`](../../../services/agent-janitor/src/server.test.ts). - [x] ~~process-level guards in all three services~~ —
+      `installProcessHandlers(log)` in
+      [`process-handlers.ts`](../../../services/agent-shared/src/runtime/process-handlers.ts);
+      wired into the three `index.ts` files.
+      `unhandledRejection` logs at error and continues;
+      `uncaughtException` logs at fatal then exits (Node docs say
+      continuing after this is unsafe). - [ ] **`parseInt(process.env.PORT ?? '8082', 10)` yields `NaN`** if
+      `PORT="abc"`, and `app.listen(NaN)` silently binds a random
+      port. Same pattern for `STUCK_RUNNING_MS`, `STUCK_WAITING_MS`,
+      `MAX_RETRIES`, `SWEEP_INTERVAL_MS`, `AGENT_MAX_CONCURRENCY`.
+      Validate envs at boot (fail loud) — ties into the
+      “clean up all env vars” bullet above; a typed config loader
+      is the natural home. - [ ] **bundle bulk-push has no per-file size cap** beyond the 8MB
+      JSON limit; a single 7MB file path slips through and lands on
+      disk. Add a per-path and per-bundle ceiling on the
+      `PUT /revisions/:id/bundle` and `PUT /revisions/:id/file`
+      endpoints. - [ ] **port the janitor `errorHandler` improvements back to
+      ingress.** Ingress has a global error handler at
+      [`routing/server.ts:66`](../../../services/agent-ingress/src/routing/server.ts)
+      but doesn't distinguish `ZodError` and doesn't wrap async
+      routes in `asyncHandler`. Same hardening pattern applies.
+      Ingress validates webhook / chat / slack bodies inside
+      per-router code; some paths are already covered, but the
+      consistent shape would be a wrapper + a single error
+      middleware. - [ ] **runner has no equivalent.** The runner has no HTTP
+      surface, but the worker loop has try/catch around individual
+      sessions. Audit: does a malformed `conversation` JSONB or a
+      broken `spec` blob in PG crash the loop, or just fail the one
+      session? If the former, add a per-session error boundary.
+
 - [ ] **Slug-with-revision-suffix triggers for non-live revisions.**
       Today draft / ready revisions are reachable via
       `?revision_id=<full-uuid>` (or `x-agent-revision` header). Add an

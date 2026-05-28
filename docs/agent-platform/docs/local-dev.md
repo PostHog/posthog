@@ -140,7 +140,9 @@ cd services/mcp && pnpm run dev          # → http://localhost:8787/mcp
 cd services/mcp && pnpm run inspector    # web UI to call tools by hand
 ```
 
-Wire Claude Desktop (see [services/mcp/CONTRIBUTING.md](../../../services/mcp/CONTRIBUTING.md#testing-with-claude-desktop-macos)):
+Wire Claude Desktop or Claude Code (see [services/mcp/CONTRIBUTING.md](../../../services/mcp/CONTRIBUTING.md#testing-with-claude-desktop-macos)).
+The same config shape works for Claude Code — add the server to
+`~/.claude/settings.json` or a project-level `.mcp.json`:
 
 ```json
 {
@@ -158,8 +160,8 @@ Wire Claude Desktop (see [services/mcp/CONTRIBUTING.md](../../../services/mcp/CO
 }
 ```
 
-Then in the MCP client you can issue real authoring + invocation tool
-calls against your local Django + janitor + ingress. This is the path
+Then in the MCP client you can issue real authoring tool
+calls against your local Django + janitor. This is the path
 to use when reproducing what an authoring AI would see, or when
 validating that a Django serializer change flowed through to the MCP
 tool surface (`hogli build:openapi` regenerates [services/mcp/src/generated/agent_stack/api.ts](../../../services/mcp/src/generated/agent_stack/api.ts)).
@@ -167,6 +169,26 @@ tool surface (`hogli build:openapi` regenerates [services/mcp/src/generated/agen
 When you change a serializer or viewset under `products/agent_stack/backend/`,
 **always rerun `hogli build:openapi`** before testing via MCP — the MCP
 tool schemas come from the generated OpenAPI and silently drift otherwise.
+
+### Gap: no MCP tools for invoking a created agent
+
+The `agent_stack` MCP surface today is **authoring-only** — `agent-applications-*`
+and `agent-applications-revisions-*` cover create / edit bundle / freeze /
+promote, but there is no MCP tool that wraps the ingress runtime endpoints
+(`/agents/<slug>/run`, `/send`, `/listen`). After an authoring harness like
+Claude Code creates and promotes an agent via MCP, it has no in-band way to
+then talk to it — the next step ("invoke the thing I just built") is not
+discoverable from the tool list.
+
+Workarounds until invocation tools land:
+
+- `bin/run-agent --slug=<your-slug>` from a terminal pane.
+- `curl -XPOST localhost:3030/agents/<slug>/run -d '{"message":"hi"}'` plus
+  `curl -N localhost:3030/agents/<slug>/listen?session_id=...` for SSE.
+- The [`agent-authoring-flow.md`](../plans/agent-authoring-flow.md) plan
+  covers the proper fix: dedicated `agent-invoke` / `agent-send` /
+  `agent-listen` MCP tools (and a scripted test-run surface) so the
+  authoring AI can iterate end-to-end without leaving MCP.
 
 ## E2E tests — `services/agent-tests`
 
