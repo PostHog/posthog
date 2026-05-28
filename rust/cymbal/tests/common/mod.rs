@@ -487,6 +487,7 @@ pub fn make_config_with_sample_rate_and_limits(
     RemoteResolutionConfig {
         host: "test-only".to_string(),
         port: 0,
+        internal_api_secret: "test-secret".to_string(),
         dns_refresh: Duration::from_secs(60),
         request_deadline: deadline,
         connect_timeout: Duration::from_secs(1),

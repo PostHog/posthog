@@ -173,6 +173,7 @@ case "$RS_SVC" in
     # us clear of the personhog-* metrics ports (9100-9105) and flags-consumer.
     export GRPC_ADDRESS="${GRPC_ADDRESS:-127.0.0.1:50061}"
     export METRICS_PORT="${METRICS_PORT:-9106}"
+    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
     # Match the dev cymbal cadence so the load bus updates often.
     export SUBSCRIBE_TICK_INTERVAL_MS="${SUBSCRIBE_TICK_INTERVAL_MS:-500}"
     ;;

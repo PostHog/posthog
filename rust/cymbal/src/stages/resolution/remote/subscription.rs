@@ -7,9 +7,8 @@
 //! the rendezvous-ranked endpoint that is not degraded/draining. The
 //! subscription is cooperative: stream termination triggers a small
 //! backoff (with jitter) and a reconnect, so a transient blip leaves the
-//! snapshot cleared (and the pool falls back to caller-side in-flight
-//! estimation) rather than the endpoint being silently considered healthy
-//! forever.
+//! snapshot cleared and the pool stops routing to that endpoint rather than
+//! silently considering it healthy forever.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

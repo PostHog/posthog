@@ -22,8 +22,8 @@ pub struct RemoteResolutionConfig {
     /// Ceiling for the exponential retry backoff window.
     pub retry_max_backoff: Duration,
     /// Event-level deterministic sample rate for sending eligible events to
-    /// cymbal-resolution. Defaults to 1.0 so enabling remote mode preserves
-    /// the existing full-remote behavior unless explicitly rolled out lower.
+    /// cymbal-resolution. Defaults to 0.0 in [`Config`] so enabling remote mode
+    /// alone does not start sending traffic until rollout is ramped explicitly.
     pub sample_rate: f64,
     /// Maximum exception items per grouped ResolveRequest. Chunking is
     /// event-atomic: an event's exceptions are never split, so a single event
@@ -32,9 +32,9 @@ pub struct RemoteResolutionConfig {
     /// Cadence hint sent on `SubscribeRequest.tick_hint_ms`. The server may
     /// clamp this; the caller relies on whatever cadence the server settles on.
     /// Doubles as the freshness window: snapshots older than `2 *
-    /// subscribe_tick_hint` are treated as "no signal" and the pool falls back
-    /// to caller-side in-flight estimation. Coupling staleness to the tick
-    /// removes a knob that previously had to be tuned in lockstep.
+    /// subscribe_tick_hint` are treated as "no signal" and the pool excludes
+    /// the endpoint from routing. Coupling staleness to the tick removes a knob
+    /// that previously had to be tuned in lockstep.
     pub subscribe_tick_hint: Duration,
     /// Backoff applied before a per-endpoint subscription task reconnects after
     /// the stream ends or errors. Kept small so a transient blip doesn't leave

@@ -59,10 +59,8 @@ struct PoolInner {
 }
 
 /// Pool of gRPC channels addressed by resolved `SocketAddr`. Refreshed
-/// periodically from DNS; selects endpoints by lowest server-reported load
-/// (falling back to least-in-flight when the load snapshot is missing or
-/// stale), with round-robin tie-breaking; retires endpoints that DNS
-/// removed.
+/// periodically from DNS; selects endpoints by lowest fresh server-reported
+/// load, with round-robin tie-breaking; retires endpoints that DNS removed.
 pub struct EndpointPool {
     config: RemoteResolutionConfig,
     resolver: Arc<dyn DnsResolver>,
@@ -264,9 +262,9 @@ impl EndpointPool {
         Ok(())
     }
 
-    /// Select an endpoint, preferring lowest reported load ratio when a fresh
-    /// snapshot is available; falling back to least-in-flight on
-    /// missing/stale snapshots. Ties are broken round-robin.
+    /// Select an endpoint, preferring lowest reported load ratio among endpoints
+    /// with fresh snapshots. Missing, stale, degraded, and draining snapshots
+    /// are excluded from routing. Ties are broken round-robin.
     ///
     /// Production routes via [`Self::select_for_key`] for warm-cache locality;
     /// this entry point is retained for tests and as a fallback for callers

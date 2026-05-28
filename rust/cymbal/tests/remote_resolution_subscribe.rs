@@ -109,6 +109,7 @@ fn pool_config(host: &str, tick_hint: Duration) -> RemoteResolutionConfig {
     RemoteResolutionConfig {
         host: host.to_string(),
         port: 0,
+        internal_api_secret: "test-secret".to_string(),
         dns_refresh: Duration::from_secs(60),
         request_deadline: Duration::from_secs(2),
         connect_timeout: Duration::from_secs(1),
