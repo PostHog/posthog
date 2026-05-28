@@ -534,36 +534,48 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 ],
                 code_language: 'javascript',
                 code: 'return event',
-                mapping_templates: (destination.presets ?? [])
-                    .filter((preset) => preset.type === 'automatic' && preset.subscribe)
-                    .filter((preset) => preset.partnerAction in destination.actions)
-                    .map((preset) => ({
-                        name: preset.name,
-                        include_by_default: true,
-                        filters:
-                            preset.type === 'automatic' && preset.subscribe
-                                ? translateFilters(preset.subscribe)
+                mapping_templates: [
+                    ...(destination.presets ?? [])
+                        .filter((preset) => preset.type === 'automatic' && preset.subscribe)
+                        .filter((preset) => preset.partnerAction in destination.actions)
+                        .map((preset) => ({
+                            name: preset.name,
+                            include_by_default: true,
+                            filters:
+                                preset.type === 'automatic' && preset.subscribe
+                                    ? translateFilters(preset.subscribe)
+                                    : { events: [] },
+                            inputs_schema: [
+                                ...(preset.partnerAction in destination.actions
+                                    ? translateInputsSchema(
+                                          destination.actions[preset.partnerAction as keyof typeof destination.actions]
+                                              .fields,
+                                          preset.mapping
+                                      )
+                                    : []),
+                                {
+                                    key: 'internal_partner_action',
+                                    label: 'Partner Action',
+                                    hidden: true,
+                                    type: 'string',
+                                    default: preset.partnerAction,
+                                    description: 'The partner action to use',
+                                    required: true,
+                                    secret: false,
+                                },
+                            ],
+                        })),
+                    ...Object.entries(destination.actions)
+                        .filter(([key]) => !destination.presets?.some((preset) => preset.partnerAction === key))
+                        .map(([_, action]) => ({
+                            name: action.title,
+                            include_by_default: false,
+                            filters: action.defaultSubscription
+                                ? translateFilters(action.defaultSubscription)
                                 : { events: [] },
-                        inputs_schema: [
-                            ...(preset.partnerAction in destination.actions
-                                ? translateInputsSchema(
-                                      destination.actions[preset.partnerAction as keyof typeof destination.actions]
-                                          .fields,
-                                      preset.mapping
-                                  )
-                                : []),
-                            {
-                                key: 'internal_partner_action',
-                                label: 'Partner Action',
-                                hidden: true,
-                                type: 'string',
-                                default: preset.partnerAction,
-                                description: 'The partner action to use',
-                                required: true,
-                                secret: false,
-                            },
-                        ],
-                    })),
+                            inputs_schema: action.fields ? translateInputsSchema(action.fields) : [],
+                        })),
+                ],
             },
         } as SegmentDestination
     })
