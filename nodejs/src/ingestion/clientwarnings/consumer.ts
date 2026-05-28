@@ -46,9 +46,9 @@ export function createClientWarningsConsumer(
     return createCommonIngestionConsumer({
         config,
         scope,
-        pipeline: ({ container, outputs, promiseScheduler }) =>
+        pipeline: ({ container, promiseScheduler }) =>
             createClientWarningsPipeline({
-                outputs,
+                outputs: container.outputs,
                 teamManager: container.teamManager,
                 eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
                 eventFilterManager: container.eventFilterManager,

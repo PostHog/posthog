@@ -8,7 +8,6 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginS
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { IngestionConsumerConfig } from '../config'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
 import { createOkContext } from '../pipelines/helpers'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
@@ -22,22 +21,14 @@ export interface IngestionBatchingPipeline {
     next(): Promise<BatchResult<unknown> | null>
 }
 
-export interface PipelineFactoryContext<S extends Record<string, object>, O extends string> {
+export interface PipelineFactoryContext<S extends Record<string, object>> {
     container: S
-    outputs: IngestionOutputs<O>
     promiseScheduler: PromiseScheduler
 }
 
-export type PipelineFactory<S extends Record<string, object>, O extends string> = (
-    ctx: PipelineFactoryContext<S, O>
+export type PipelineFactory<S extends Record<string, object>> = (
+    ctx: PipelineFactoryContext<S>
 ) => IngestionBatchingPipeline
-
-/**
- * Constraint on a scope's container: must expose an `outputs` entry.
- * Common consumers read `container.outputs` to thread the outputs through
- * to the pipeline factory.
- */
-export type ContainerWithOutputs<O extends string> = Record<string, object> & { outputs: IngestionOutputs<O> }
 
 export type CommonIngestionConsumerConfig = Pick<
     IngestionConsumerConfig,
@@ -56,14 +47,14 @@ const latestOffsetTimestampGauge = new Gauge({
 })
 
 /**
- * Generic ingestion consumer wired to a service `Scope`, an outputs map,
- * and a pipeline factory. On `start()`: brings up the scope, verifies
- * output topics (rolling the scope back on failure), constructs the
- * pipeline with the started services, then connects the Kafka consumer.
- * On `stop()`: disconnects Kafka, tears the scope down in reverse, and
- * drains the background promise scheduler.
+ * Generic ingestion consumer wired to a service `Scope` and a pipeline
+ * factory. On `start()`: brings up the scope, constructs the pipeline
+ * with the started container (rolling the scope back if the factory
+ * throws), then connects the Kafka consumer. On `stop()`: disconnects
+ * Kafka, tears the scope down in reverse, and drains the background
+ * promise scheduler.
  */
-export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extends string = string> {
+export class CommonIngestionConsumer<S extends Record<string, object>> {
     private name: string
     private groupId: string
     private topic: string
@@ -77,7 +68,7 @@ export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extend
     constructor(
         private config: CommonIngestionConsumerConfig,
         private scope: Scope<S>,
-        private pipelineFactory: PipelineFactory<S, O>,
+        private pipelineFactory: PipelineFactory<S>,
         private healthcheckFn?: () => Promise<HealthCheckResult>
     ) {
         this.groupId = config.INGESTION_CONSUMER_GROUP_ID
@@ -103,7 +94,6 @@ export class CommonIngestionConsumer<S extends ContainerWithOutputs<O>, O extend
         try {
             this.pipeline = this.pipelineFactory({
                 container: this.startedScope.container,
-                outputs: this.startedScope.container.outputs,
                 promiseScheduler: this.promiseScheduler,
             })
         } catch (err) {
