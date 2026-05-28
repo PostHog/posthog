@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -5467,24 +5468,13 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # event property access should be present, not person property access
         self.assertIn("properties", sql)
 
-    @parameterized.expand(
-        [
-            ("modifier_off", False, "retention_first_time", "$pageview", "$pageview", False),
-            ("first_time_same_entity", True, "retention_first_time", "$pageview", "$pageview", True),
-            ("first_ever_same_entity", True, "retention_first_ever_occurrence", "$pageview", "$pageview", True),
-            ("recurring_same_entity_not_applied", True, "retention_recurring", "$pageview", "$pageview", False),
-            ("first_time_different_entity_not_applied", True, "retention_first_time", "$pageview", "$screen", False),
-        ]
-    )
-    def test_retention_first_time_narrowing_modifier(
+    def _render_retention_sql(
         self,
-        _name: str,
-        modifier_on: bool,
+        modifier: bool | None,
         retention_type: str,
         target_event: str,
         return_event: str,
-        expect_global_in: bool,
-    ) -> None:
+    ) -> str:
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.modifiers import create_default_modifiers_for_team
         from posthog.hogql.printer import prepare_and_print_ast
@@ -5497,7 +5487,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 "returningEntity": {"id": return_event, "type": "events"},
             },
         )
-        modifiers = HogQLQueryModifiers(retentionFirstTimeNarrowingPath=modifier_on or None)
+        modifiers = HogQLQueryModifiers(retentionFirstTimeNarrowingPath=modifier)
         runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
         base_query = runner._base_query()
         context = HogQLContext(
@@ -5506,11 +5496,59 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             modifiers=create_default_modifiers_for_team(self.team),
         )
         sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
+        return sql
 
+    @parameterized.expand(
+        [
+            # Explicit True forces narrowing on for first-time/first-ever same-entity queries.
+            ("force_on_first_time_same_entity", True, "retention_first_time", "$pageview", "$pageview", True),
+            (
+                "force_on_first_ever_same_entity",
+                True,
+                "retention_first_ever_occurrence",
+                "$pageview",
+                "$pageview",
+                True,
+            ),
+            # Explicit True still respects the preconditions (must be first-time, same entity).
+            ("force_on_recurring_skipped", True, "retention_recurring", "$pageview", "$pageview", False),
+            ("force_on_different_entity_skipped", True, "retention_first_time", "$pageview", "$screen", False),
+            # Explicit False is a kill switch — never apply, regardless of preconditions or gate.
+            ("kill_switch_first_time_same_entity", False, "retention_first_time", "$pageview", "$pageview", False),
+        ]
+    )
+    def test_retention_first_time_narrowing_explicit_modifier(
+        self,
+        _name: str,
+        modifier: bool,
+        retention_type: str,
+        target_event: str,
+        return_event: str,
+        expect_global_in: bool,
+    ) -> None:
+        sql = self._render_retention_sql(modifier, retention_type, target_event, return_event)
         if expect_global_in:
             self.assertIn("globalIn(", sql)
         else:
             self.assertNotIn("globalIn(", sql)
+
+    def test_retention_first_time_narrowing_static_gate_satisfied(self) -> None:
+        # Modifier unset + retention window much smaller than team age → static gate triggers
+        # narrowing automatically. Team needs to be old enough that `window * 4 <= team_age`
+        # holds for the -7d retention window in `_render_retention_sql` (~11 days incl. lookahead).
+        self.team.created_at = datetime.now(tz=ZoneInfo("UTC")) - relativedelta(years=2)
+        self.team.save()
+
+        sql = self._render_retention_sql(None, "retention_first_time", "$pageview", "$pageview")
+        self.assertIn("globalIn(", sql)
+
+    def test_retention_first_time_narrowing_static_gate_not_satisfied(self) -> None:
+        # Modifier unset + team younger than 4× retention window → gate fails, narrowing skipped.
+        self.team.created_at = datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1)
+        self.team.save()
+
+        sql = self._render_retention_sql(None, "retention_first_time", "$pageview", "$pageview")
+        self.assertNotIn("globalIn(", sql)
 
 
 class TestClickhouseRetentionGroupAggregation(

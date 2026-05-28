@@ -21187,7 +21187,7 @@
                     "type": "string"
                 },
                 "retentionFirstTimeNarrowingPath": {
-                    "description": "Narrow first-time / first-ever retention queries with a `person_id GLOBAL IN (cheap inner subquery)` predicate that keeps only actors whose first qualifying start event falls in the cohort date range. Opt-in; only applied when start and return entities are identical.",
+                    "description": "Narrow first-time / first-ever retention queries with a `person_id GLOBAL IN (cheap inner subquery)` predicate that keeps only actors whose first qualifying start event falls in the cohort date range. Three-state: `true` forces on, `false` is a kill switch, unset falls back to a static gate that enables narrowing when the retention window is small relative to team age. Only applied when start and return entities are identical.",
                     "type": "boolean"
                 },
                 "s3TableUseInvalidColumns": {

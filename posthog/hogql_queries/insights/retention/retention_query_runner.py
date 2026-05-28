@@ -234,6 +234,36 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
     @cached_property
+    def _first_time_narrowing_static_gate(self) -> bool:
+        # Pattern A is a knockout when the cohort window is small relative to team lifetime
+        # (most actors' first qualifying event sits before date_from) and a regression when
+        # the window covers most of team history. As a cheap, conservative proxy for the
+        # narrowing ratio, gate on retention window <= team_age / 4.
+        if self.team.created_at is None:
+            return False
+        try:
+            window = self.query_date_range.date_to() - self.query_date_range.date_from()
+        except (TypeError, ValueError):
+            return False
+        team_age = datetime.now(tz=self.team.created_at.tzinfo) - self.team.created_at
+        return window * 4 <= team_age
+
+    @cached_property
+    def should_apply_first_time_narrowing(self) -> bool:
+        # Three-state resolution of the retentionFirstTimeNarrowingPath modifier:
+        #   True  → force on (bypass static gate, e.g. for opt-in benchmarking)
+        #   False → kill switch (never apply, even if static gate would trigger)
+        #   None  → fall back to the static gate so safe shapes get the win by default
+        if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            return False
+        if not self.start_and_return_entities_are_same:
+            return False
+        explicit = self.modifiers.retentionFirstTimeNarrowingPath
+        if explicit is not None:
+            return explicit
+        return self._first_time_narrowing_static_gate
+
+    @cached_property
     def aggregation_target_events_column(self) -> str:
         if self.group_type_index is not None:
             group_index = int(self.group_type_index)
@@ -418,14 +448,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 )
             )
 
-        # Pattern A narrowing gate: drop actors whose first qualifying start event sits outside the cohort window
-        # before the outer GROUP BY allocates per-actor aggregate state. Only safe when start and return are the
-        # same entity — for different entities the return side legitimately needs actors filtered out by the gate.
-        if (
-            self.modifiers.retentionFirstTimeNarrowingPath
-            and (is_first_occurrence_matching_filters or is_first_ever_occurrence)
-            and self.start_and_return_entities_are_same
-        ):
+        # Pattern A narrowing gate — see should_apply_first_time_narrowing for the resolution logic.
+        if self.should_apply_first_time_narrowing:
             events_where.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GlobalIn,
