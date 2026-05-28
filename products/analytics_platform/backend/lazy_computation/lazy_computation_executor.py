@@ -683,11 +683,6 @@ class LazyComputationExecutor:
         Args:
             run_insert: Optional custom insert function. If not provided, uses the
                         default AST-based run_computation_insert with query_info.
-
-        Callers wanting to attach extra fields to the `lazy_computation.executed`
-        log line should bind them via `structlog.contextvars.bind_contextvars`
-        before invocation — the project-wide structlog config merges contextvars
-        into every log call automatically.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -1064,13 +1059,7 @@ def ensure_precomputed(
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
     executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
-    return executor.execute(
-        team,
-        query_info,
-        time_range_start,
-        time_range_end,
-        run_insert=_run_manual_insert,
-    )
+    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
 def _build_manual_insert_sql(
