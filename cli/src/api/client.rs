@@ -24,6 +24,36 @@ pub struct PHClient {
     throttler: Arc<Mutex<Throttler>>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn api_error(body: &str) -> ClientError {
+        ClientError::ApiError(
+            400,
+            Box::new(Url::parse("https://example.com/api/test").unwrap()),
+            body.to_string(),
+        )
+    }
+
+    #[test]
+    fn matches_structured_api_error_code() {
+        let error = api_error(
+            r#"{"type":"validation_error","code":"content_hash_mismatch","detail":"Different content","attr":null}"#,
+        );
+
+        assert!(error.has_api_error_code("content_hash_mismatch"));
+        assert!(!error.has_api_error_code("release_id_mismatch"));
+    }
+
+    #[test]
+    fn falls_back_to_body_match_for_legacy_errors() {
+        let error = api_error("legacy release_id_mismatch response");
+
+        assert!(error.has_api_error_code("release_id_mismatch"));
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ClientError {
     RequestError(reqwest::Error),
@@ -59,6 +89,28 @@ impl From<reqwest::Error> for ClientError {
     fn from(error: reqwest::Error) -> Self {
         ClientError::RequestError(error)
     }
+}
+
+impl ClientError {
+    pub fn has_api_error_code(&self, expected_code: &str) -> bool {
+        let ClientError::ApiError(_, _, body) = self else {
+            return false;
+        };
+
+        api_error_code(body).is_some_and(|code| code == expected_code)
+            || body.contains(expected_code)
+    }
+}
+
+#[derive(Deserialize)]
+struct ApiErrorCodeResponse {
+    code: Option<String>,
+}
+
+fn api_error_code(body: &str) -> Option<String> {
+    serde_json::from_str::<ApiErrorCodeResponse>(body)
+        .ok()
+        .and_then(|api_error| api_error.code)
 }
 
 #[derive(Serialize, Deserialize, Debug)]

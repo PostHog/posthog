@@ -22,7 +22,7 @@ jobs:
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
@@ -54,7 +54,7 @@ jobs:
                       message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
                       message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
                       if [[ "$IS_FORK" == 'true' ]]; then
-                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
+                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
                       fi
                       # Post once, then edit in place on subsequent pushes
                       existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser.*version stayed the same.*👀")) | .id' | tail -1)
@@ -92,7 +92,7 @@ jobs:
                       MACOSX_DEPLOYMENT_TARGET: ''
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -168,7 +168,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ steps.app-token.outputs.token }}
@@ -180,9 +180,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}

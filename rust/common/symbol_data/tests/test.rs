@@ -10,7 +10,7 @@ const COMPRESSION_OFFSET: usize = MAGIC_LEN + 4 + 4; // after MAGIC + VERSION + 
 #[test]
 fn test_source_and_map_reading() {
     // This file is v1 format - validates backward compatibility
-    let input = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let input = include_bytes!("static/sourcemap_with_nulls.jsdata");
     read_symbol_data::<SourceAndMap>(input).unwrap();
 }
 
@@ -30,7 +30,7 @@ fn test_v2_compressed_header() {
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 1); // zstd
 
-    let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
+    let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
 }
 
@@ -50,7 +50,7 @@ fn test_v2_uncompressed_header() {
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 0); // none
 
-    let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
+    let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
 }
 
@@ -60,7 +60,7 @@ macro_rules! roundtrip_test {
         fn $name() {
             let input = $value;
             let bytes = write_symbol_data(input.clone()).unwrap();
-            let output = read_symbol_data::<$ty>(bytes).unwrap();
+            let output = read_symbol_data::<$ty>(&bytes).unwrap();
             assert_eq!(input, output);
         }
     };
@@ -102,6 +102,6 @@ fn test_v2_compressed_large_payload() {
     let uncompressed_bytes = write_symbol_data_uncompressed(input.clone()).unwrap();
     assert!(bytes.len() < uncompressed_bytes.len() / 2);
 
-    let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
+    let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
 }

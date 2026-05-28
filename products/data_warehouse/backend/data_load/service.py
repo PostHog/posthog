@@ -43,8 +43,8 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 if TYPE_CHECKING:
     from posthog.models import Team
 
-    from products.data_warehouse.backend.models import ExternalDataSource
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
@@ -260,7 +260,7 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
 
 
 def is_any_external_data_schema_paused(team_id: int) -> bool:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
@@ -270,17 +270,11 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    """Check if the CDC feature flag is enabled for a team."""
-    from django.conf import settings
-
-    if settings.DEBUG:
-        return True
-
     import posthoganalytics
 
     return posthoganalytics.feature_enabled(
         "dwh-postgres-cdc",
-        str(team.uuid),
+        str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )
@@ -343,7 +337,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     Calculates the interval from the most frequent CDC schema. If no CDC
     schemas are active, deletes the schedule.
     """
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(

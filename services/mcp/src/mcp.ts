@@ -11,6 +11,8 @@ import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
+    MCP_SERVER_NAME,
+    MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
     getBaseUrlForRegion,
@@ -28,7 +30,7 @@ import {
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -47,7 +49,7 @@ export type RequestProperties = {
     apiToken: string
     // Wrapper-app-provided hint from `?sessionId=` query param. Resolved to a
     // UUID via `SessionManager.getSessionUuid()` and emitted as `$session_id`
-    // for Session Replay / LLM Analytics grouping. Only set by wrapping
+    // for Session Replay / AI observability grouping. Only set by wrapping
     // consumer apps (setup wizard, sandbox, etc.).
     sessionId?: string
     // Streamable-HTTP transport session id (`Mcp-Session-Id` HTTP header).
@@ -86,7 +88,7 @@ export type RequestProperties = {
 
 export class MCP extends McpAgent<Env> {
     server = new McpServer(
-        { name: 'PostHog', version: '1.0.0' },
+        { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
         { instructions: instructionsFormatter.buildV1Instructions() }
     )
 
@@ -97,6 +99,9 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        mcpClientName: undefined,
+        mcpClientVersion: undefined,
+        mcpProtocolVersion: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -564,10 +569,9 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // Start feature flag resolution in parallel with cache seeding
+        // User-level flags resolve in parallel with cache seeding. Tool flags are
+        // deferred until orgId is known so org-group rollouts evaluate correctly.
         const flagPromise = this.resolveVersionFlag()
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
-        const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -596,10 +600,15 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
+        // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
+        // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
+        const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
+        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
+
+        const [flagVersion, toolFeatureFlags, _apiKey] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
-            singleExecPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
@@ -615,7 +624,6 @@ export class MCP extends McpAgent<Env> {
 
         const { useSingleExec, version } = this.resolveModeAndVersion({
             mode,
-            singleExecFlagOn,
             clientProfile,
             flagVersion,
             clientVersion,
@@ -706,7 +714,7 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        this.server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { instructions })
 
         // Register prompts and resources
         await Promise.all([
@@ -868,21 +876,19 @@ export class MCP extends McpAgent<Env> {
      * wrapped client's reported name. Vibe-coding platforms (Lovable, Replit)
      * are detected by OAuth client name since they typically connect through a
      * generic MCP client wrapper. An explicit `mode` from the caller (header
-     * `x-posthog-mcp-mode` or query param `mode`) wins over the flag +
-     * client-profile heuristic.
+     * `x-posthog-mcp-mode` or query param `mode`) wins over the client-profile
+     * heuristic.
      */
     private resolveModeAndVersion(args: {
         mode: McpMode | undefined
-        singleExecFlagOn: boolean
         clientProfile: MCPClientProfile
         flagVersion: number | undefined
         clientVersion: number | undefined
     }): { useSingleExec: boolean; version: number } {
-        const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+        const { mode, clientProfile, flagVersion, clientVersion } = args
         const useSingleExec =
             mode === 'cli' ||
             (mode !== 'tools' &&
-                singleExecFlagOn &&
                 (clientProfile.isCodingAgent() ||
                     clientProfile.isPostHogCodeConsumer() ||
                     clientProfile.isVibeCodingClient()))
@@ -903,16 +909,10 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async resolveSingleExecFlag(): Promise<boolean> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
-        } catch {
-            return false
-        }
-    }
-
-    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(
+        version?: number,
+        groups?: FlagGroups
+    ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
             const flagKeys = getRequiredFeatureFlags(version)
@@ -920,7 +920,7 @@ export class MCP extends McpAgent<Env> {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return undefined
         }

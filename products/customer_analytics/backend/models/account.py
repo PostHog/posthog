@@ -22,9 +22,17 @@ class AccountAssignment(BaseModel):
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Key roles
     csm: AccountAssignment | None = None
     account_executive: AccountAssignment | None = None
     account_owner: AccountAssignment | None = None
+
+    # External connections
+    stripe_customer_id: str | None = None
+    hubspot_deal_id: str | None = None
+    billing_id: str | None = None
+    sfdc_id: str | None = None
+    zendesk_id: str | None = None
 
 
 class AccountManager(TeamScopedManager["Account"]):
@@ -82,7 +90,7 @@ def _enforce_account_group_type_index_drift_policy(sender, instance, **kwargs) -
         return
 
     previous = sender.objects.filter(pk=instance.pk).values_list("account_group_type_index", flat=True).first()
-    if previous == instance.account_group_type_index:
+    if previous is None or previous == instance.account_group_type_index:
         return
 
     AccountModel = apps.get_model("customer_analytics", "Account")

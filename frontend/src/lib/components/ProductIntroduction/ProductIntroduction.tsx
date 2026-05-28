@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
+import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
+import type { SurfaceKey } from '../MCPHint/prompts'
 
 /**
  * A component to introduce new users to a product, and to show something
@@ -24,6 +26,8 @@ export type ProductIntroductionProps = {
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    /** Overrides the default "Your team is already using {productName}..." copy shown when `isEmpty` is false. */
+    secondaryDescription?: string
     /** If you want to override the title, defaults to "Create your first *thing*" */
     titleOverride?: string
     /** If we should show the empty state */
@@ -52,6 +56,11 @@ export type ProductIntroductionProps = {
      * for wide empty states (e.g. template grids). Passed through `cn` with tailwind-merge so `max-w-*` replaces default.
      */
     contentClassName?: string
+    /**
+     * When set, renders an MCP use-case card below the actions, promoting the same product via PostHog MCP from
+     * the user's IDE. Auto-hides if the user has opted out of MCP hints.
+     */
+    mcpSurfaceKey?: SurfaceKey
 }
 
 export const ProductIntroduction = ({
@@ -59,6 +68,7 @@ export const ProductIntroduction = ({
     productKey,
     thingName,
     description,
+    secondaryDescription,
     titleOverride,
     isEmpty,
     action,
@@ -70,6 +80,7 @@ export const ProductIntroduction = ({
     hogLayout = 'default',
     useMainContentContainerQueries = false,
     contentClassName,
+    mcpSurfaceKey,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -166,8 +177,12 @@ export const ProductIntroduction = ({
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
                         <p className="ml-0">
-                            Your team is already using {productName}. You can take a look at what they're doing, or get
-                            started yourself.
+                            {secondaryDescription ?? (
+                                <>
+                                    Your team is already using {productName}. You can take a look at what they're doing,
+                                    or get started yourself.
+                                </>
+                            )}
                         </p>
                     )}
                     <div
@@ -207,6 +222,7 @@ export const ProductIntroduction = ({
                             </LemonButton>
                         )}
                     </div>
+                    {mcpSurfaceKey && <MCPUseCaseCard surfaceKey={mcpSurfaceKey} className="max-w-140" />}
                 </div>
             </div>
         </div>

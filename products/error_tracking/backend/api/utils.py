@@ -76,6 +76,23 @@ def generate_match_all_bytecode():
     return create_bytecode(with_return).bytecode
 
 
+def has_filter_values(json_filters: dict) -> bool:
+    """Check whether a filter dict contains any actual filter values, recursively.
+
+    Non-dict entries are treated as "has values" so the request reaches pydantic
+    validation and gets rejected with a 400 instead of raising AttributeError.
+    """
+    values = json_filters.get("values", [])
+    if not values:
+        return False
+    for v in values:
+        if not isinstance(v, dict):
+            return True
+        if "key" in v or has_filter_values(v):
+            return True
+    return False
+
+
 def validate_bytecode(bytecode: list[Any]) -> None:
     for i, op in enumerate(bytecode):
         if not isinstance(op, Operation):

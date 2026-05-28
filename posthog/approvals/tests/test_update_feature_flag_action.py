@@ -8,7 +8,8 @@ from parameterized import parameterized
 from posthog.approvals.actions.feature_flags import UpdateFeatureFlagAction
 from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.policies import PolicyEngine
-from posthog.models import FeatureFlag
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
 

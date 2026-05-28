@@ -1,6 +1,5 @@
 from typing import Optional, cast
 
-import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
@@ -15,25 +14,24 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.temporal.data_imports.sources.mysql.mysql import (
-    filter_mysql_incremental_fields,
-    get_leading_index_columns_for_schemas as get_mysql_leading_index_columns_for_schemas,
-    get_primary_keys_for_schemas as get_mysql_primary_keys_for_schemas,
-    get_schemas as get_mysql_schemas,
-    mysql_source,
-)
+from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
+_MYSQL_IMPLEMENTATION = MySQLImplementation()
 
 
 @SourceRegistry.register
-class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    @property
+    def get_implementation(self) -> MySQLImplementation:
+        return _MYSQL_IMPLEMENTATION
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MYSQL
@@ -48,14 +46,6 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="connection_string",
-                        label="Connection string (optional)",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=False,
-                        placeholder="mysql://user:password@localhost:3306/database",
-                        secret=True,
-                    ),
                     SourceFieldInputConfig(
                         name="host",
                         label="Host",
@@ -134,83 +124,13 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
             # won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
+            # destination table was created with the narrower type. Delta Lake can't widen an
+            # existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
-
-    def get_schemas(
-        self,
-        config: MySQLSourceConfig,
-        team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
-        force_refresh: bool = False,
-    ) -> list[SourceSchema]:
-        schemas = []
-
-        with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_mysql_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                using_ssl=config.using_ssl,
-                schema=config.schema,
-                names=names,
-            )
-            try:
-                detected_pks = get_mysql_primary_keys_for_schemas(
-                    host=host,
-                    port=port,
-                    user=config.user,
-                    password=config.password,
-                    database=config.database,
-                    schema=config.schema,
-                    table_names=list(db_schemas.keys()),
-                    using_ssl=config.using_ssl,
-                )
-            except Exception as e:
-                structlog.get_logger().warning("Failed to detect primary keys for MySQL schemas", exc_info=e)
-                detected_pks = {}
-
-            indexed_columns_by_table = get_mysql_leading_index_columns_for_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                table_names=list(db_schemas.keys()),
-                using_ssl=config.using_ssl,
-            )
-
-        for table_name, columns in db_schemas.items():
-            incremental_field_tuples = filter_mysql_incremental_fields(columns)
-            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
-
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                    columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
-                )
-            )
-
-        return schemas
 
     def validate_credentials(
         self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -231,28 +151,13 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             return (
                 False,
                 e.value
-                or "Could not connect to MySQL via the SSH tunnel. Please check all connection details are valid.",
+                or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to MySQL. Please check all connection details are valid."
+            return (
+                False,
+                f"Could not connect to {self.get_source_config.name}. Please check all connection details are valid.",
+            )
 
         return True, None
-
-    def source_for_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
-
-        return mysql_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            using_ssl=config.using_ssl,
-            schema=config.schema,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-        )

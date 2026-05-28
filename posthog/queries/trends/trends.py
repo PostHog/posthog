@@ -18,7 +18,6 @@ from posthog.constants import (
     TRENDS_LIFECYCLE,
     TRENDS_LINEAR,
 )
-from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
@@ -28,6 +27,8 @@ from posthog.queries.trends.breakdown import TrendsBreakdown
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.total_volume import TrendsTotalVolume
 from posthog.utils import generate_cache_key, get_safe_cache
+
+from products.actions.backend.models.action import Action
 
 
 class Trends(TrendsTotalVolume, Lifecycle):

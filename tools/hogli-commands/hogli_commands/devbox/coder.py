@@ -5,16 +5,21 @@ All subprocess interactions with the Coder CLI are isolated here.
 
 from __future__ import annotations
 
+import io
 import os
 import re
+import csv
 import sys
 import json
 import shlex
 import shutil
+import socket
 import itertools
 import threading
 import subprocess
 import webbrowser
+import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -23,7 +28,14 @@ import requests
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+_TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
 DEFAULT_TEMPLATE = "posthog-linux"
+# Newer coder versions added an interactive "Select a preset" prompt to `coder
+# create` that `--yes` does not bypass. Callers must always forward `--preset`
+# with a concrete value -- either a preset the template defines, or the literal
+# NO_PRESET sentinel below.
+DEFAULT_PRESET = "Default (warm)"
+NO_PRESET = "none"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -300,15 +312,73 @@ def tailscale_connected() -> bool:
     return bool(status and status.get("BackendState") == "Running")
 
 
+def _tailscale_install_hint() -> str:
+    """Return the platform-specific install command for Tailscale.
+
+    On macOS, the CLI ships inside ``Tailscale.app`` — engineers commonly
+    install the GUI and never realize there is also a CLI to put on PATH.
+    Recommending the cask install handles both at once; the App Store build
+    is mentioned as a fallback because some employees install it that way.
+    """
+    if sys.platform == "darwin":
+        return "Install: `brew install --cask tailscale` (or via the Mac App Store)."
+    if sys.platform.startswith("linux"):
+        return "Install: `curl -fsSL https://tailscale.com/install.sh | sh`."
+    return "Install Tailscale from https://tailscale.com/download."
+
+
+def _tailscale_connect_hint() -> str:
+    """Return the platform-specific command for joining a tailnet."""
+    if sys.platform == "darwin":
+        return "Open the Tailscale app and sign in with your PostHog Google account."
+    return "Run `sudo tailscale up` and complete the SSO flow with your PostHog Google account."
+
+
+def _tailscale_cli_missing_on_macos() -> bool:
+    """Return whether macOS has the Tailscale app but no CLI on PATH."""
+    return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
+
+
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
-    """Fail fast when the Coder deployment is not reachable on the tailnet."""
+    """Fail fast when the host is not connected to a Tailscale tailnet.
+
+    Reports three distinct states with the action that fixes each: not
+    installed (give the install command), installed but not running (give
+    the connect command), and a special macOS path where the GUI is present
+    but the CLI is hidden inside the app bundle (point to the symlink).
+    """
     if tailscale_connected():
         return
 
-    if _resolve_tailscale():
-        _fail(f"Tailscale is not connected. Connect to the PostHog tailnet, then {setup_hint}")
+    if not _resolve_tailscale():
+        _fail(
+            "Tailscale is not installed.\n"
+            f"  {_tailscale_install_hint()}\n"
+            f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
+            f"  Then {setup_hint}"
+        )
 
-    _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
+    # CLI is resolvable, but the daemon is not running -- the user needs to
+    # sign in (a fresh install) or bring the agent back up (it was stopped).
+    if _tailscale_cli_missing_on_macos():
+        # `_resolve_tailscale()` succeeded via the bundled CLI, but `tailscale`
+        # is not on PATH. This trips engineers who try to follow the printed
+        # `tailscale status` hint and get "command not found".
+        _fail(
+            "Tailscale is installed but not connected, and the `tailscale` CLI is not on your PATH.\n"
+            f"  {_tailscale_connect_hint()}\n"
+            "  To use the CLI from your shell, symlink it once:\n"
+            f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
+            f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
+            f"  Then {setup_hint}"
+        )
+
+    _fail(
+        "Tailscale is installed but not connected.\n"
+        f"  {_tailscale_connect_hint()}\n"
+        f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
+        f"  Then {setup_hint}"
+    )
 
 
 # Health warning emitted by `tailscale status` when peers advertise subnet routes
@@ -342,7 +412,8 @@ def ensure_tailscale_routes_accepted() -> None:
 
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
-        _fail("Failed to enable Tailscale subnet routes. Run manually: sudo tailscale set --accept-routes")
+        manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
+        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -355,23 +426,199 @@ def coder_reachable(timeout: float = 5.0) -> bool:
     return resp.ok
 
 
-def ensure_coder_reachable() -> None:
-    """Fail fast when the Coder deployment is not reachable.
+@dataclass(frozen=True)
+class CoderReachabilityDiagnosis:
+    """Why the Coder deployment is unreachable, with a single actionable next step.
 
-    Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does not
-    prove the subnet route to the Coder ALB is actually plumbed — DNS can resolve
-    and packets still blackhole. Probe the API directly so reachability failures
-    surface here instead of as a silent ``curl | sh`` no-op during install.
+    The structured form lets the caller present one concrete cause and one
+    fix rather than a list of commands the user has to interpret. ``facts``
+    is a short list of diagnostic data (tailnet name, resolved IP, peer
+    health) that is safe to share verbatim when asking for help.
+    """
+
+    cause: str
+    next_step: str
+    facts: list[str]
+
+
+def _resolve_host_ip(host: str) -> str | None:
+    """Resolve a hostname to a single IP, or ``None`` if resolution fails.
+
+    Uses the OS resolver so MagicDNS lookups via Tailscale (or split-DNS
+    routes through the tailnet) are honored just as they would be for the
+    actual HTTPS probe. We swallow OSError because every resolver failure
+    mode maps to the same "DNS failed" branch downstream.
+    """
+    try:
+        return socket.gethostbyname(host)
+    except OSError:
+        return None
+
+
+def _tcp_reachable(host: str, port: int, timeout: float = 3.0) -> bool:
+    """Return whether a TCP handshake to ``(host, port)`` completes."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
+    """Diagnose why the Coder deployment is not reachable.
+
+    Probes (in order) DNS resolution, TCP reachability on 443, and the
+    Tailscale peer / route topology, picking the most specific cause and
+    pairing it with a concrete next step. Returns the diagnosis instead of
+    printing it so callers control formatting and tests can assert against
+    structured fields.
     """
     coder_url = get_coder_url()
+    host = urllib.parse.urlparse(coder_url).hostname or coder_url
+    facts: list[str] = [f"Coder URL: {coder_url}"]
+
+    status = _tailscale_status()
+    tailnet_name: str | None = None
+    if status:
+        current_tailnet = status.get("CurrentTailnet")
+        if isinstance(current_tailnet, dict):
+            name = current_tailnet.get("Name")
+            if isinstance(name, str) and name:
+                tailnet_name = name
+                facts.append(f"Tailscale tailnet: {name}")
+        if tailnet_name is None:
+            facts.append("Tailscale tailnet: <unknown>")
+    else:
+        facts.append("Tailscale status: unavailable")
+
+    resolved_ip = _resolve_host_ip(host)
+    if resolved_ip is None:
+        facts.append(f"DNS for {host}: failed")
+        return CoderReachabilityDiagnosis(
+            cause=f"DNS lookup for {host} failed.",
+            next_step=(
+                "MagicDNS may be off or you may be on the wrong tailnet. "
+                "Verify the tailnet name above is PostHog's, then run "
+                "`sudo tailscale up --accept-dns`."
+            ),
+            facts=facts,
+        )
+    facts.append(f"DNS for {host}: {resolved_ip}")
+
+    if _tcp_reachable(host, 443):
+        facts.append(f"TCP {host}:443: open")
+        return CoderReachabilityDiagnosis(
+            cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
+            next_step=(
+                "The Coder deployment may be restarting, or your system clock "
+                "is off (causing TLS to reject the cert). Check the time, then "
+                "retry in a minute."
+            ),
+            facts=facts,
+        )
+    facts.append(f"TCP {host}:443: blocked / timed out")
+
+    return _diagnose_blocked_route(status, facts)
+
+
+def _diagnose_blocked_route(
+    status: dict[str, Any] | None,
+    facts: list[str],
+) -> CoderReachabilityDiagnosis:
+    """Pick a cause when DNS resolves but TCP to the Coder ALB is blocked.
+
+    Walks the Tailscale peer map looking for subnet routers. Cases handled,
+    in priority order:
+
+    1. No peer advertises any subnet route — usually means the host is on
+       the wrong tailnet (e.g. personal account) or has not been added to
+       the PostHog tailnet yet.
+    2. Routers exist but none are online — the relay is bouncing; waiting
+       is the only fix.
+    3. A router is online — Tailscale ACLs or a local VPN is intercepting.
+    """
+    peers = (status or {}).get("Peer") or {}
+    routers = [p for p in peers.values() if isinstance(p, dict) and p.get("PrimaryRoutes")]
+    online_routers = [p for p in routers if p.get("Online")]
+    facts.append(f"Subnet routers on tailnet: {len(routers)} ({len(online_routers)} online)")
+
+    if not routers:
+        return CoderReachabilityDiagnosis(
+            cause="No peer on your tailnet advertises subnet routes.",
+            next_step=(
+                "Either you are not on the PostHog tailnet (check the name "
+                "above), or your account has not been added to the Tailscale "
+                f"policy yet. See {_TAILSCALE_RUNBOOK_URL} for the policy "
+                "request flow, then reach out to Team DevEx with the facts below."
+            ),
+            facts=facts,
+        )
+
+    if not online_routers:
+        names = ", ".join(str(p.get("HostName") or "?") for p in routers)
+        return CoderReachabilityDiagnosis(
+            cause=f"Subnet router peer is offline ({names}).",
+            next_step=(
+                "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
+            ),
+            facts=facts,
+        )
+
+    return CoderReachabilityDiagnosis(
+        cause="TCP is blocked despite an online subnet router on your tailnet.",
+        next_step=(
+            "A non-Tailscale VPN or a local firewall is likely intercepting, "
+            "or the Tailscale policy does not grant your account devbox "
+            f"access. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL} to "
+            "confirm policy membership, or reach out to Team DevEx."
+        ),
+        facts=facts,
+    )
+
+
+def ensure_coder_reachable() -> None:
+    """Fail fast with a structured diagnosis when the Coder ALB is unreachable.
+
+    Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does
+    not prove the subnet route to the Coder ALB is plumbed — DNS can resolve
+    and packets still blackhole. Probe the API directly, and on failure pick
+    the single most-likely cause + next step instead of dumping a list of
+    commands the engineer has to interpret themselves.
+    """
     if coder_reachable():
         return
-    _fail(
-        f"Cannot reach {coder_url} over the tailnet.\n"
-        "Check that you're connected to the PostHog tailnet and that subnet routes are accepted:\n"
-        "  tailscale status   # verify peer is connected\n"
-        "  sudo tailscale set --accept-routes"
+
+    diagnosis = _diagnose_unreachable_coder()
+    body = "\n".join(
+        [
+            f"Cannot reach {get_coder_url()} over the tailnet.",
+            "",
+            f"Cause:     {diagnosis.cause}",
+            f"Next step: {diagnosis.next_step}",
+            "",
+            "Diagnostic facts (safe to share with Team DevEx):",
+            *(f"  - {fact}" for fact in diagnosis.facts),
+        ]
     )
+    _fail(body)
+
+
+def _encode_ssh_option(value: str) -> str:
+    """Encode one value for ``coder config-ssh --ssh-option``.
+
+    The flag is a cobra ``StringSlice``, which runs each value through Go's
+    ``encoding/csv``. Bare ``"`` in a non-quoted field crashes the parser
+    (``parse error: bare " in non-quoted-field``), so SSH options containing
+    quotes -- like ``IdentityAgent "/path with spaces"`` -- need to arrive
+    CSV-encoded. ``csv.QUOTE_MINIMAL`` only wraps fields that actually need
+    it, so plain options like ``ForwardAgent yes`` pass through unchanged.
+
+    coder CSV-decodes the value before writing ``~/.ssh/config``, so the
+    file ends up with the literal SSH form we constructed here.
+    """
+    buf = io.StringIO()
+    csv.writer(buf, quoting=csv.QUOTE_MINIMAL).writerow([value])
+    return buf.getvalue().rstrip("\r\n")
 
 
 def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
@@ -383,14 +630,20 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
     ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
     SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
+
+    The socket path needs to land double-quoted in ``~/.ssh/config`` because
+    1Password's macOS agent lives under ``~/Library/Group Containers/...`` --
+    an unquoted space makes ``ssh`` reject the config with "extra arguments
+    at end of line." See ``_encode_ssh_option`` for how that survives coder's
+    CSV-parsing flag layer.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
-    args += ["--ssh-option", "ForwardAgent yes"]
+    args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
-        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
+        args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
     return args
 
 
@@ -591,16 +844,12 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
     click.echo()
-    click.echo("To reconfigure later:")
-    click.echo("  hogli devbox:setup --configure-git-identity")
-    click.echo("  hogli devbox:setup --configure-git-signing")
-    click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude  (manage CLAUDE_CODE_OAUTH_TOKEN as a Coder user secret)")
+    click.echo("Reconfigure one setting:  hogli devbox:setup --configure-<option>")
+    click.echo("Show saved configuration: hogli devbox:config:show")
+    click.echo("Clear saved settings:     hogli devbox:config:rm --help")
     click.echo()
-    click.echo("To manage other workspace secrets (GH_TOKEN, AWS creds, etc):")
-    click.echo("  hogli devbox:secret:list")
-    click.echo("  hogli devbox:secret:set NAME")
-    click.echo("  hogli devbox:secret:rm NAME")
+    click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -680,7 +929,10 @@ def get_username() -> str:
     if username:
         return username.lower()
 
-    _fail("Failed to determine the Coder username.")
+    _fail(
+        "Could not determine your Coder username from `coder whoami`.\n"
+        f"  Your login may have expired. {RUNTIME_SETUP_HINT}"
+    )
 
 
 def get_workspace_name(label: str | None = None) -> str:
@@ -749,6 +1001,58 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
+def _list_template_presets(template: str) -> list[str]:
+    """Return preset names defined on the active version of ``template``, or [] on failure.
+
+    Emits a warning when the coder CLI itself fails (auth/network/version issues) so
+    a silent fall-through to ``--preset none`` is distinguishable from a template that
+    simply defines no presets.
+    """
+    result = _run(
+        ["coder", "templates", "presets", "list", template, "-o", "json"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f": {detail}" if detail else "."
+        click.echo(
+            click.style(
+                f"Warning: failed to list presets for template '{template}'{suffix}",
+                fg="yellow",
+            ),
+        )
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [entry["name"] for entry in payload if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+
+
+def resolve_template_preset(template: str, requested: str) -> str:
+    """Resolve ``requested`` to a preset the template defines, or ``NO_PRESET``.
+
+    Falls back to ``NO_PRESET`` (with a warning when alternatives exist) so
+    ``coder create`` never reaches its interactive picker.
+    """
+    if requested == NO_PRESET:
+        return NO_PRESET
+    presets = _list_template_presets(template)
+    if requested in presets:
+        return requested
+    if presets:
+        click.echo(
+            click.style(
+                f"Warning: preset '{requested}' not found for template '{template}'. "
+                f"Available: {', '.join(presets)}. Falling back to --preset {NO_PRESET}.",
+                fg="yellow",
+            ),
+        )
+    return NO_PRESET
+
+
 def create_workspace(
     name: str,
     disk_size: int,
@@ -758,6 +1062,7 @@ def create_workspace(
     repo: str = "https://github.com/PostHog/posthog",
     *,
     template: str = DEFAULT_TEMPLATE,
+    preset: str = DEFAULT_PRESET,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -767,6 +1072,9 @@ def create_workspace(
     template's Terraform default via ``--use-parameter-defaults``. If a
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
+
+    ``preset`` is resolved against the template's actual presets via
+    ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),
@@ -779,12 +1087,15 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    resolved_preset = resolve_template_preset(template, preset)
     base_args = [
         "coder",
         "create",
         name,
         "--template",
         template,
+        "--preset",
+        resolved_preset,
         "--use-parameter-defaults",
         "--yes",
     ]
@@ -906,9 +1217,63 @@ def user_secret_exists(name: str) -> bool:
     return any(isinstance(s, dict) and s.get("name") == name for s in secrets)
 
 
+def _ssh_host_alias(name: str) -> str:
+    """Return the ``Host`` alias written by ``coder config-ssh`` for the given workspace."""
+    return f"coder.{name}"
+
+
 def ssh_replace(name: str) -> None:
-    """SSH into a workspace and replace the current process."""
-    _run_or_exit(["coder", "ssh", name])
+    """SSH via the ``coder.*`` host alias so ``~/.ssh/config`` applies.
+
+    Calling ``coder ssh`` directly bypasses the user's ssh config, breaking
+    ``IdentityAgent`` forwarding (Secretive, 1Password) used for commit signing.
+    The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
+    the Coder tunnel via its ``ProxyCommand``.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
+
+
+def exec_replace(name: str, command: list[str]) -> None:
+    """Run a single command in the workspace over the ssh host alias, replacing the process.
+
+    Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
+    for two reasons:
+
+    1. ``coder ssh`` does not propagate the remote command's exit code -- it
+       prints ``Process exited with status N`` to stderr but exits 0 itself,
+       so callers and agents can't tell success from failure. Real ssh
+       forwards the exit code faithfully.
+    2. The ``Host coder.*`` block applies the user's ssh config (IdentityAgent
+       forwarding), same as :func:`ssh_replace`.
+
+    ``command`` tokens are shell-quoted into one string so the remote login
+    shell preserves argument boundaries -- ssh otherwise space-joins argv,
+    which would split a token like ``"uname -sm"`` back into two.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def coder_ssh_alias_configured(name: str) -> bool:
+    """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
+
+    :func:`exec_replace` and :func:`ssh_replace` connect through the
+    ``Host coder.*`` block that ``coder config-ssh`` writes during
+    ``devbox:setup``. When that block is absent, ``ssh coder.<name>`` fails with
+    an opaque ``Could not resolve hostname``; callers check this first so they
+    can point at setup instead. The block is a wildcard, so any ``name`` probes
+    it. Returns ``False`` if ``ssh`` is missing or errors.
+    """
+    try:
+        result = subprocess.run(["ssh", "-G", _ssh_host_alias(name)], capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        if line.startswith("proxycommand "):
+            value = line[len("proxycommand ") :].strip()
+            return bool(value) and value.lower() != "none"
+    return False
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
@@ -951,19 +1316,6 @@ def create_task(
     _run_or_exit(args)
 
 
-def run_in_workspace(
-    name: str, command: list[str], *, capture_output: bool = False
-) -> subprocess.CompletedProcess[str]:
-    """Run a command in the workspace via `coder ssh`."""
-    args = ["coder", "ssh", name, "--", *command]
-    return _run(args, capture_output=capture_output)
-
-
-def replace_with_workspace_command(name: str, command: list[str]) -> None:
-    """Run a workspace command and replace the current process."""
-    _run_or_exit(["coder", "ssh", name, "--", *command])
-
-
 def open_in_browser(name: str) -> None:
     """Open the workspace dashboard in the default browser."""
     username = get_username()
@@ -980,8 +1332,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    ssh_host = f"coder.{name}"
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{ssh_host}", "/home/coder/posthog"])
+    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:

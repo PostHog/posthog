@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconBell, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -31,6 +34,8 @@ export function SdkDoctorScene(): JSX.Element {
         snoozedUntil,
     } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
 
     const { loadRawData, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
 
@@ -59,6 +64,20 @@ export function SdkDoctorScene(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {healthAlertsEnabled && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                to={urls.healthAlerts(['sdk_outdated'])}
+                                onClick={() => {
+                                    posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_doctor' })
+                                }}
+                                icon={<IconBell className="size-4" />}
+                                tooltip="Subscribe to alerts when SDKs go outdated"
+                            >
+                                Alerts
+                            </LemonButton>
+                        )}
                         <LemonButton
                             size="small"
                             type="primary"

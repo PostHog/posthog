@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { dirname, resolve } from 'node:path'
 import { URL, fileURLToPath } from 'node:url'
@@ -17,6 +18,7 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [
             react(),
+            tailwindcss(),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
@@ -42,7 +44,9 @@ export default defineConfig(({ mode }) => {
             },
         ],
         resolve: {
+            dedupe: ['@base-ui/react'],
             alias: {
+                '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
                 // Add direct mappings for PostHog's import structure from tsconfig.json

@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models import Cohort, FeatureFlag
+from posthog.models import Cohort
 from posthog.models.utils import convert_legacy_metrics
 
 from products.experiments.backend.models.experiment import (
@@ -16,6 +16,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class ExperimentAdminForm(ModelForm):
@@ -195,16 +196,22 @@ class ExperimentAdmin(admin.ModelAdmin):
             return redirect("admin:experiments_experiment_changelist")
 
         all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
-        extra_context["show_migration"] = has_legacy_metric(all_metrics)
         extra_context["show_fix_properties"] = has_malformed_properties(all_metrics)
 
         # Get all related ExperimentSavedMetric objects
         shared_metrics = obj.saved_metrics.all()
         shared_metrics_status = []
+        has_legacy_shared_metric = False
+        has_unmigrated_legacy_shared_metric = False
         for metric in shared_metrics:
             kind = metric.query.get("kind") if metric.query else None
             is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
-            migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
+            if is_legacy:
+                has_legacy_shared_metric = True
+            migrated_to_id = metric.metadata.get("migrated_to") if metric.metadata else None
+            migrated = migrated_to_id is not None
+            if is_legacy and not migrated:
+                has_unmigrated_legacy_shared_metric = True
             shared_metrics_status.append(
                 {
                     "id": metric.id,
@@ -212,9 +219,15 @@ class ExperimentAdmin(admin.ModelAdmin):
                     "is_legacy": is_legacy,
                     "migrated": migrated,
                     "migrate_url": reverse("admin:experiments_experimentsavedmetric_change", args=[metric.id]),
+                    "migrated_to_id": migrated_to_id,
+                    "migrated_to_url": reverse("admin:experiments_experimentsavedmetric_change", args=[migrated_to_id])
+                    if migrated_to_id
+                    else None,
                 }
             )
         extra_context["shared_metrics_status"] = shared_metrics_status
+        extra_context["show_migration"] = has_legacy_metric(all_metrics) or has_legacy_shared_metric
+        extra_context["can_migrate"] = not has_unmigrated_legacy_shared_metric
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 

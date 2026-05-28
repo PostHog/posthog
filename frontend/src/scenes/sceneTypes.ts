@@ -10,6 +10,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     Annotations = 'Annotations',
     Approval = 'Approval',
@@ -116,6 +117,7 @@ export enum Scene {
     Person = 'Person',
     Persons = 'Persons',
     AccountConnected = 'AccountConnected',
+    CredentialReview = 'CredentialReview',
     Pipeline = 'Pipeline',
     PipelineStatus = 'PipelineStatus',
     PipelineNode = 'PipelineNode',
@@ -142,6 +144,7 @@ export enum Scene {
     SavedInsights = 'SavedInsights',
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
+    HealthAlerts = 'HealthAlerts',
     SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
@@ -163,6 +166,7 @@ export enum Scene {
     Tracing = 'Tracing',
     Metrics = 'Metrics',
     Transformations = 'Transformations',
+    EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
@@ -356,7 +360,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
     [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 
-    // LLM Analytics
+    // AI observability
     [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,

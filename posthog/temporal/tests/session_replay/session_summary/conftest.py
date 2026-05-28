@@ -144,7 +144,7 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
+    # Cover every pattern so combine_patterns_with_events_context sees full assignments.
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]

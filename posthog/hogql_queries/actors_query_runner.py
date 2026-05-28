@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
@@ -46,7 +46,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+            self.source_query_runner = get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, user=self.user
+            )
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only
@@ -101,12 +103,18 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
     def determine_strategy(self) -> ActorStrategy:
         if self.group_type_index is not None:
-            return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
+            return GroupStrategy(
+                self.group_type_index,
+                team=self.team,
+                query=self.query,
+                paginator=self.paginator,
+                user=self.user,
+            )
 
         if self.is_session_aggregation:
-            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator)
+            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 
-        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 
     @staticmethod
     def _get_recordings(event_results: list, recordings_lookup: dict) -> list[dict]:
@@ -154,7 +162,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         results_list = list(results)
 
         person_uuids = {str(row[person_id_col_index]) for row in results_list if row[person_id_col_index]}
-        person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+        person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
         persons_lookup = person_strategy.get_actors(iter(person_uuids)) if person_uuids else {}
 
         enriched = []
@@ -177,21 +185,13 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def _calculate_internal(self) -> ActorsQueryResponse:
-        # Funnel queries require the experimental analyzer to run correctly
-        # Can remove once clickhouse moves to version 24.3 or above
-        settings = None
-        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
-            self.source_query_runner.source_runner, FunnelsQueryRunner
-        ):
-            settings = HogQLGlobalSettings(enable_analyzer=True)
-
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
-            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None

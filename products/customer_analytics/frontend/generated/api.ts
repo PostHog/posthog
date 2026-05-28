@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccountApi,
+    AccountNotebookApi,
     AccountsListParams,
+    AccountsNotebooksListParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
@@ -18,6 +20,7 @@ import type {
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
+    PaginatedAccountNotebookListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
@@ -83,6 +86,88 @@ export const accountsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(accountApi),
+    })
+}
+
+export const getAccountsNotebooksListUrl = (
+    projectId: string,
+    accountId: string,
+    params?: AccountsNotebooksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/accounts/${accountId}/notebooks/?${stringifiedParams}`
+        : `/api/environments/${projectId}/accounts/${accountId}/notebooks/`
+}
+
+export const accountsNotebooksList = async (
+    projectId: string,
+    accountId: string,
+    params?: AccountsNotebooksListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountNotebookListApi> => {
+    return apiMutator<PaginatedAccountNotebookListApi>(getAccountsNotebooksListUrl(projectId, accountId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsNotebooksCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/environments/${projectId}/accounts/${accountId}/notebooks/`
+}
+
+export const accountsNotebooksCreate = async (
+    projectId: string,
+    accountId: string,
+    accountNotebookApi?: NonReadonly<AccountNotebookApi>,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountNotebookApi),
+    })
+}
+
+export const getAccountsNotebooksRetrieveUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/environments/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+export const accountsNotebooksRetrieve = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksRetrieveUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsNotebooksDestroyUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/environments/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+export const accountsNotebooksDestroy = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountsNotebooksDestroyUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

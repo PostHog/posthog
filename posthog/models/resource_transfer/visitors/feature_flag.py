@@ -4,7 +4,7 @@ from typing import Any
 
 from django.db import models
 
-from posthog.models import Action, Cohort
+from posthog.models import Cohort
 from posthog.models.resource_transfer.types import ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import build_edges_for_ids, make_json_id_rewriter
@@ -17,6 +17,7 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
     rewrite_holdout_in_flag_payload,
 )
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
@@ -36,7 +37,7 @@ class FeatureFlagVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         return FeatureFlag
 

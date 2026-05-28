@@ -4,7 +4,7 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -50,19 +50,22 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    sync_frequency_interval_to_sync_frequency,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -773,15 +776,21 @@ class TestExternalDataSource(APIBaseTest):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
                 return_value=(True, None),
             ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
@@ -1144,6 +1153,8 @@ class TestExternalDataSource(APIBaseTest):
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
+                    "enabled_columns": None,
+                    "available_columns": [],
                 }
             ],
         )
@@ -1271,7 +1282,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
-        parsed_config = Mock()
+        parsed_config = Mock(spec=["to_dict"])
         parsed_config.to_dict.return_value = {
             "host": "localhost",
             "port": "5432",
@@ -1295,6 +1306,7 @@ class TestExternalDataSource(APIBaseTest):
         data = response.json()
         self.assertEqual(data["added"], 2)
         self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["total_tables_seen"], 2)
         self.assertEqual(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
         )
@@ -1530,6 +1542,22 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = []
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 0)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["total_tables_seen"], 0)
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
@@ -2364,6 +2392,130 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert schema.sync_type_config["primary_key_columns"] == expected_persisted
 
+    @parameterized.expand(
+        [
+            # Field omitted -> None: sync everything (default).
+            ("omitted_means_sync_all", "omitted", None),
+            # Explicit null -> None: also sync everything.
+            ("null_means_sync_all", None, None),
+            # Explicit empty list -> []: sync only PKs + incremental field. Critical:
+            # this must NOT collapse to None, since `[]` and `None` carry different
+            # semantics downstream (`build_select_clause`, `filter_columns_by_*`).
+            ("empty_list_means_pks_only", [], []),
+            # Subset list passes through verbatim.
+            ("subset_passes_through", ["email", "name"], ["email", "name"]),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_persists_enabled_columns_payload(
+        self,
+        _name: str,
+        payload_value: list[str] | None | str,
+        expected_persisted: list[str] | None,
+        mock_get_source,
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("email", "text", True), ("name", "text", True)],
+                foreign_keys=[],
+            ),
+        ]
+
+        schema_payload: dict[str, t.Any] = {"name": "events", "should_sync": True, "sync_type": None}
+        if payload_value != "omitted":
+            schema_payload["enabled_columns"] = payload_value
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [schema_payload],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        assert schema.enabled_columns == expected_persisted
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
+        # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
+        # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans
+        # data. This is the long-standing behavior we MUST preserve for direct sources.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="direct",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        legacy_table = DataWarehouseTable.objects.create(
+            name="auth_group",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}},
+        )
+        legacy_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="auth_group",
+            should_sync=True,
+            table=legacy_table,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        legacy_schema.refresh_from_db()
+        # Direct mode renames the row to the qualified discovered name.
+        assert legacy_schema.name == "public.auth_group"
+        assert legacy_schema.table_id == legacy_table.id
+
     def test_create_direct_non_postgres_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -2397,27 +2549,6 @@ class TestExternalDataSource(APIBaseTest):
             response.json(),
             {"message": "Direct query mode is currently supported only for Postgres sources."},
         )
-
-    def test_create_postgres_warehouse_source_requires_schema(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            data={
-                "source_type": "Postgres",
-                "created_via": "web",
-                "access_method": "warehouse",
-                "payload": {
-                    "host": "db.example.com",
-                    "port": 5432,
-                    "database": "postgres",
-                    "user": "postgres",
-                    "password": "secret",
-                    "schema": "",
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):
@@ -2510,10 +2641,16 @@ class TestExternalDataSource(APIBaseTest):
         postgres_connection.close()
 
     def test_database_schema_stripe_credentials(self):
-        with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
-        ) as validate_credentials_mock:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            ) as validate_credentials_mock,
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+            ) as check_perms_mock,
+        ):
             validate_credentials_mock.return_value = True
+            check_perms_mock.return_value = {}
 
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -2525,6 +2662,10 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 200
+            # Each schema in the response should expose the new permission_error field —
+            # mock returns {} so every entry defaults to None (available).
+            for entry in response.json():
+                assert entry["permission_error"] is None
 
     def test_database_schema_stripe_credentials_sad_path(self):
         with patch(
@@ -2562,6 +2703,35 @@ class TestExternalDataSource(APIBaseTest):
 
             assert response.status_code == 400
             assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
+
+    def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
+        """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
+        result into each schema row so the UI can disable tables the credentials can't reach."""
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            ) as validate_credentials_mock,
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+            ) as check_perms_mock,
+        ):
+            validate_credentials_mock.return_value = True
+            # Mark Charge as denied; everything else implicitly returns None via .get()
+            check_perms_mock.return_value = {"Charge": "Missing rak_charge_read"}
+
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
+                    "stripe_account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+            by_table = {entry["table"]: entry for entry in response.json()}
+            assert by_table["Charge"]["permission_error"] == "Missing rak_charge_read"
+            assert by_table["Customer"]["permission_error"] is None
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
@@ -2630,6 +2800,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_source.get_schemas.return_value = [
             SourceSchema(name="table_1", supports_incremental=False, supports_append=False, row_count=42)
         ]
+        mock_source.get_endpoint_permissions.return_value = {}
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -2721,6 +2892,7 @@ class TestExternalDataSource(APIBaseTest):
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
                     "detected_primary_keys": ["id"],
+                    "permission_error": None,
                 }
             ]
 
@@ -2788,6 +2960,7 @@ class TestExternalDataSource(APIBaseTest):
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
                     "detected_primary_keys": ["id"],
+                    "permission_error": None,
                 }
             ]
 
@@ -3083,6 +3256,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
                 data={
                     "job_inputs": {
+                        # Adding an SSH tunnel requires re-supplying the database password.
+                        "password": "password",
                         "ssh_tunnel": {
                             "enabled": True,
                             "host": "ssh.example.com",
@@ -3094,7 +3269,7 @@ class TestExternalDataSource(APIBaseTest):
                                 "passphrase": "testphrase",
                                 "private_key": "testkey",
                             },
-                        }
+                        },
                     },
                 },
             )
@@ -3922,6 +4097,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
                 data={
                     "job_inputs": {
+                        # Disabling the SSH tunnel is an SSH tunnel change — DB password must be re-supplied.
+                        "password": "db_password",
                         "ssh_tunnel": {
                             "enabled": False,
                         },
@@ -3975,6 +4152,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
                 data={
                     "job_inputs": {
+                        # Re-supply DB password so the failure comes from the mocked credential check below.
+                        "password": "db_password",
                         "ssh_tunnel": {
                             "enabled": False,
                         },
@@ -4030,6 +4209,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
+                    # DB password is re-supplied; SSH auth is missing so SSH credential check fails.
+                    "password": "db_password",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "new-ssh.example.com",
@@ -4082,6 +4263,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
+                    # Changing the SSH tunnel forces re-entry of the database password.
+                    "password": "db_password",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "new-ssh.example.com",
@@ -4140,6 +4323,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
+                    # Changing any SSH tunnel field forces re-entry of the database password.
+                    "password": "db_password",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "ssh.example.com",
@@ -4225,13 +4410,199 @@ class TestExternalDataSource(APIBaseTest):
         # After update, it should be normalized to 'auth' format
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
 
+    def test_update_source_ssh_tunnel_change_requires_db_password_reentry(self):
+        """VERIA-311: any change to ssh_tunnel must force the database password to be re-supplied,
+        otherwise an editor could inject a tunnel that exfiltrates the stored credentials."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_veria_311",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                    },
+                },
+            },
+        )
+
+        # Editor swaps the SSH tunnel for an attacker-controlled one without re-entering the DB password.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "ssh_tunnel": {
+                        "enabled": True,
+                        "host": "attacker.example.com",
+                        "port": 22,
+                        "auth": {
+                            "selection": "password",
+                            "username": "sshuser",
+                            "password": "attacker_password",
+                        },
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert "database credentials" in str(response.json())
+
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
+        assert source.job_inputs["password"] == "db_password"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_source_ssh_tunnel_disabled_string_vs_bool_no_false_positive(self, mock_validate_credentials):
+        """Regression: stored `enabled: "False"` must compare equal to incoming JSON `false`.
+
+        A naive `str(value or "")` collapses falsy values to "", so stored "False" would diverge
+        from incoming False and spuriously demand a password re-entry on every save.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_disabled_false_string",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "False",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                    },
+                },
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "database": "renamed_db",
+                    "ssh_tunnel": {
+                        "enabled": False,
+                        "host": "ssh.example.com",
+                        "port": 22,
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["database"] == "renamed_db"
+        assert source.job_inputs["password"] == "db_password"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_source_ssh_tunnel_no_change_does_not_require_db_password(self, mock_validate_credentials):
+        """Re-submitting the same ssh_tunnel (e.g. when saving an unrelated field after a GET) must
+        NOT force the user to re-enter the database password — that would break the no-op save path."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_change",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                    },
+                },
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        ssh_tunnel_from_get = get_response.json()["job_inputs"]["ssh_tunnel"]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"ssh_tunnel": ssh_tunnel_from_get, "database": "renamed_db"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["database"] == "renamed_db"
+        assert source.job_inputs["password"] == "db_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+        mock_validate_credentials.assert_called_once()
+
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
-        with patch(
-            "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
-        ) as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.connect"
+            ) as mocked_connect,
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_columns",
+                return_value={"my_table": [("something", "DATE", False)]},
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_primary_keys",
+                return_value={"my_table": None},
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_leading_index_columns",
+                return_value={"my_table": set()},
+            ),
+        ):
+            mocked_connect.return_value.__enter__.return_value = MagicMock()
             # Create a Snowflake source with password auth
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -4334,11 +4705,17 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=(True, None),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-            ) as mocked_get_bigquery_schemas,
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                return_value=[
+                    SourceSchema(
+                        name="my_table",
+                        supports_incremental=False,
+                        supports_append=False,
+                        columns=[("something", "DATE", False)],
+                    )
+                ],
+            ),
         ):
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
             # Create a BigQuery source
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
