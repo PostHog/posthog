@@ -27,6 +27,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerSceneLogicProps, replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
@@ -60,7 +61,12 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
         !isNew && {
             key: 'observations' as EditorTab,
             label: 'Observations',
-            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
+            content: (
+                <div className="space-y-4">
+                    <SummarizerMaxChat scannerId={scannerId} tabId={tabId} />
+                    <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />
+                </div>
+            ),
         },
         {
             key: 'triggers',
