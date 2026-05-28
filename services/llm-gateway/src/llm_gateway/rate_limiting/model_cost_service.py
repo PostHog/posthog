@@ -70,6 +70,8 @@ class ModelCostService:
         cls._instance = None
 
     def _should_refresh(self) -> bool:
+        if self._last_refresh == 0:
+            return True
         return time.monotonic() - self._last_refresh > CACHE_TTL_SECONDS
 
     def _refresh_cache(self) -> None:
