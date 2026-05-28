@@ -26,13 +26,10 @@
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
-## Publish to changelog?
+## Checklist
 
-<!-- For features only -->
-
-<!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will receive a follow-up PR comment or notification. -->
-
-<!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->
+- [ ] Publish to changelog?
+- [ ] Alert Sales and Marketing teams?
 
 ## Docs update
 
