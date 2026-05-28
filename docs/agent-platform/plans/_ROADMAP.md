@@ -28,7 +28,7 @@ We group the plans into four layers, roughly:
 │  B. Trust & control                                         │
 │     per-session-access-elevation.md ·                       │
 │     approval-gated-tools.md · rate-limiting-sessions.md ·   │
-│     per-turn-cost-capture.md                                │
+│     per-turn-cost-capture.md · draft-preview-auth.md        │
 ├─────────────────────────────────────────────────────────────┤
 │  A. Lifecycle foundation                                    │
 │     long-running-sessions.md · typed-config-loader.md       │

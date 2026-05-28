@@ -52,7 +52,7 @@ file (and out of this list) once the design lands.
       [`streaming-and-reasoning.md`](streaming-and-reasoning.md).
       `PiClient.stream()` alongside `invoke()`; new event kinds for
       text/thinking/toolcall deltas; `spec.reasoning?: 'low' | 'medium'
-    | 'high'` plumbed through `InvokeOpts`. Two features in one plan
+  | 'high'` plumbed through `InvokeOpts`. Two features in one plan
       because they share the pi-ai stream surface.
 
 - [x] ~~**Per-turn cost capture on the session row**~~ — see
@@ -99,3 +99,12 @@ file (and out of this list) once the design lands.
       tool calls retain their gates), and the cron trigger (a
       gateway agent _is_ the natural shape for an org-wide
       assistant). Promote to its own plan when picked up.
+
+- [x] ~~**Draft preview auth (via Django proxy)**~~ — see
+      [`draft-preview-auth.md`](draft-preview-auth.md). Closes a
+      confirmed gap where a draft with `auth.mode: 'public'` is
+      invokable anonymously via the override paths regardless of the
+      live revision's auth. Django proxies non-live invokes and
+      attaches a signed `INTERNAL_SECRET`-style header; ingress
+      refuses non-live invokes without it. Draft's own
+      `spec.auth.mode` is unchanged — this is a layer above it.
