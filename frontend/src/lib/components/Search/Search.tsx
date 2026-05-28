@@ -665,7 +665,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 e.preventDefault()
                 e.stopPropagation()
                 const item = highlightedItemRef.current
-                if (item?.href) {
+                if (item?.href && item.href.startsWith('/') && !item.href.startsWith('//')) {
                     window.open(item.href, '_blank', 'noopener,noreferrer')
                 }
             }
