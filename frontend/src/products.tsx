@@ -1640,7 +1640,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Error tracking',
         intents: [ProductKey.ERROR_TRACKING],
-        category: ProductItemCategory.BEHAVIOR,
+        category: ProductItemCategory.APP_MONITORING,
         type: 'error_tracking',
         iconType: 'error_tracking' as FileSystemIconType,
         iconColor: [
@@ -1777,7 +1777,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: ProductItemCategory.BEHAVIOR,
+        category: ProductItemCategory.APP_MONITORING,
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
@@ -2066,7 +2066,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tracing',
         intents: [ProductKey.TRACING],
-        category: ProductItemCategory.UNRELEASED,
+        category: ProductItemCategory.APP_MONITORING,
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
