@@ -32,6 +32,8 @@ use tonic::Status;
 use tower::{Layer, Service};
 use tracing::warn;
 
+use crate::grpc::GZIP_OVERHEAD_HEADER;
+
 /// gRPC frame header: 1 byte compression flag + 4 byte payload length.
 const GRPC_HEADER_SIZE: usize = 5;
 
@@ -178,6 +180,8 @@ where
                 return Ok(Response::from_parts(parts, boxed));
             }
 
+            let gzip_start = Instant::now();
+
             // Gather body data chunks and trailers separately. For unary RPCs,
             // tonic produces one or more data frames (split at ~32KB boundaries)
             // followed by a trailers frame. We keep chunks as individual Bytes
@@ -226,6 +230,12 @@ where
                 }
             }
 
+            histogram!(
+                "grpc_gzip_body_collect_ms",
+                "method" => method.clone(),
+            )
+            .record(gzip_start.elapsed().as_secs_f64() * 1000.0);
+
             let payload_size = total_size.saturating_sub(GRPC_HEADER_SIZE);
             let already_compressed = chunks.iter().find_map(|c| c.first().copied()) == Some(1);
 
@@ -237,6 +247,8 @@ where
                 || already_compressed
             {
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough", "method" => method.clone()).increment(1);
+                let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
                 let data = concat_chunks(&chunks);
                 let boxed: ResponseBody = Box::pin(PrecomputedBody::new(data, trailers));
                 return Ok(Response::from_parts(parts, boxed));
@@ -246,14 +258,14 @@ where
             // We move the chunk references directly — the encoder reads each
             // chunk sequentially without copying them into a contiguous buffer.
             let level = config.compression_level;
-            let start = Instant::now();
+            let compress_start = Instant::now();
             let compressed = spawn_blocking(move || gzip_compress_chunks(&chunks, level)).await;
-            let elapsed = start.elapsed();
+            let compress_elapsed = compress_start.elapsed();
 
             match compressed {
                 Ok(Ok(bytes)) => {
                     histogram!("grpc_gzip_compression_duration_ms", "method" => method.clone())
-                        .record(elapsed.as_secs_f64() * 1000.0);
+                        .record(compress_elapsed.as_secs_f64() * 1000.0);
                     histogram!("grpc_gzip_uncompressed_bytes", "method" => method.clone())
                         .record(payload_size as f64);
                     histogram!("grpc_gzip_compressed_bytes", "method" => method.clone())
@@ -269,6 +281,9 @@ where
                         .headers
                         .insert(GRPC_ENCODING, HeaderValue::from_static("gzip"));
 
+                    let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                    set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
+
                     let boxed: ResponseBody =
                         Box::pin(PrecomputedBody::new(frame.freeze(), trailers));
                     Ok(Response::from_parts(parts, boxed))
@@ -277,12 +292,16 @@ where
                     warn!(error = %e, "gzip compression failed, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "compress_error", "method" => method.clone())
                         .increment(1);
+                    let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                    set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
                 Err(e) => {
                     warn!(error = %e, "spawn_blocking panicked, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "spawn_error", "method" => method.clone()).increment(1);
+                    let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                    set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
@@ -348,6 +367,13 @@ impl Body for PrecomputedBody {
 // ============================================================
 // Compression helpers
 // ============================================================
+
+fn set_gzip_overhead_header(parts: &mut http::response::Parts, method: &str, overhead_ms: f64) {
+    histogram!("grpc_gzip_total_overhead_ms", "method" => method.to_string()).record(overhead_ms);
+    if let Ok(hv) = HeaderValue::from_str(&format!("{overhead_ms:.3}")) {
+        parts.headers.insert(GZIP_OVERHEAD_HEADER, hv);
+    }
+}
 
 /// Concatenate chunks into a contiguous buffer. Only used for the passthrough
 /// path where we already collected but decided not to compress.
@@ -946,5 +972,56 @@ mod tests {
 
         let trailers = trailers.expect("trailers should be present");
         assert_eq!(trailers.get("grpc-status").unwrap(), "0");
+    }
+
+    #[tokio::test]
+    async fn gzip_overhead_header_set_on_compressed_response() {
+        let payload = b"payload that will be compressed by the gzip layer";
+        let service = MockGrpcService::new(payload);
+        let (parts, _data, _trailers) =
+            call_layer(service, default_test_config(), Some("gzip")).await;
+
+        let overhead = parts
+            .headers
+            .get(GZIP_OVERHEAD_HEADER)
+            .expect("x-gzip-overhead-ms header should be present")
+            .to_str()
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        assert!(overhead >= 0.0, "overhead should be non-negative");
+    }
+
+    #[tokio::test]
+    async fn gzip_overhead_header_set_on_passthrough_when_collected() {
+        let payload = b"tiny";
+        let service = MockGrpcService::new(payload);
+        let config = AsyncGzipConfig {
+            min_payload_size: 1000,
+            ..default_test_config()
+        };
+        let (parts, _data, _trailers) = call_layer(service, config, Some("gzip")).await;
+
+        let overhead = parts
+            .headers
+            .get(GZIP_OVERHEAD_HEADER)
+            .expect("x-gzip-overhead-ms header should be present on collected passthrough")
+            .to_str()
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        assert!(overhead >= 0.0);
+    }
+
+    #[tokio::test]
+    async fn gzip_overhead_header_absent_when_not_accepted() {
+        let payload = b"no gzip requested";
+        let service = MockGrpcService::new(payload);
+        let (parts, _data, _trailers) = call_layer(service, default_test_config(), None).await;
+
+        assert!(
+            parts.headers.get(GZIP_OVERHEAD_HEADER).is_none(),
+            "header should be absent when gzip was never requested"
+        );
     }
 }
