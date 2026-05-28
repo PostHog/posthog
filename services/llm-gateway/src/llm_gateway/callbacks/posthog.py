@@ -316,27 +316,17 @@ class PostHogCallback(InstrumentedCallback):
         loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
 
     def _capture_sync(self, **capture_kwargs: Any) -> None:
-        # Wrap each destination in its own try/except so a primary failure
-        # (e.g. Posthog() construction raising, or capture_exception itself
-        # raising inside the inner handler) does not skip the mirror capture
-        # that the regional usage-report depends on.
-        try:
-            self._capture_to_destination(self._api_key, self._host, **capture_kwargs)
-        except Exception as e:
-            logger.exception("posthog_primary_capture_failed", host=self._host, error=str(e))
+        # No outer try/except: the destinations feed regional billing
+        # aggregations, so we want them to succeed or fail together. If the
+        # primary raises, the secondary intentionally does not run so the two
+        # PostHog instances stay in sync rather than diverging on billing state.
+        self._capture_to_destination(self._api_key, self._host, **capture_kwargs)
         if self._secondary_api_key and self._secondary_host:
-            try:
-                self._capture_to_destination(
-                    self._secondary_api_key,
-                    self._secondary_host,
-                    **capture_kwargs,
-                )
-            except Exception as e:
-                logger.exception(
-                    "posthog_secondary_capture_failed",
-                    host=self._secondary_host,
-                    error=str(e),
-                )
+            self._capture_to_destination(
+                self._secondary_api_key,
+                self._secondary_host,
+                **capture_kwargs,
+            )
 
     def _capture_to_destination(self, api_key: str, host: str, **capture_kwargs: Any) -> None:
         """Fire a single capture against one PostHog instance.
