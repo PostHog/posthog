@@ -61,59 +61,46 @@ impl CredentialProvider for HomeDirProvider {
     }
 }
 
-/// Reads credentials from the process env, then `./.env`, then `./.env.local`.
+/// Reads credentials atomically from a single source. The first source that supplies both
+/// `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (or their legacy aliases) wins; `host`
+/// is optional and is only read from that same source. Order: process env → `.env.local` → `.env`.
 pub struct EnvVarProvider;
 
 fn load_dotenv(path: &Path) -> HashMap<String, String> {
-    dotenvy::from_path_iter(path)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .collect()
+    let Ok(iter) = dotenvy::from_path_iter(path) else {
+        return HashMap::new();
+    };
+    iter.flatten().collect()
 }
 
-fn resolve_var(
-    names: &[&str],
-    dotenv: &HashMap<String, String>,
-    local: &HashMap<String, String>,
-) -> Option<String> {
-    for source in [None, Some(dotenv), Some(local)] {
-        for name in names {
-            let val = match source {
-                None => std::env::var(name).ok(),
-                Some(map) => map.get(*name).cloned(),
-            };
-            if let Some(v) = val {
-                return Some(v);
-            }
-        }
-    }
-    None
+fn try_source<F: Fn(&str) -> Option<String>>(lookup: F) -> Option<Token> {
+    let token = lookup("POSTHOG_CLI_API_KEY").or_else(|| lookup("POSTHOG_CLI_TOKEN"))?;
+    let env_id = lookup("POSTHOG_CLI_PROJECT_ID").or_else(|| lookup("POSTHOG_CLI_ENV_ID"))?;
+    let host = lookup("POSTHOG_CLI_HOST");
+    Some(Token {
+        host,
+        token,
+        env_id,
+    })
 }
 
 impl CredentialProvider for EnvVarProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
-        let dotenv = load_dotenv(Path::new(".env"));
+        if let Some(t) = try_source(|n| std::env::var(n).ok()) {
+            return Ok(t);
+        }
         let local = load_dotenv(Path::new(".env.local"));
-
-        let host = resolve_var(&["POSTHOG_CLI_HOST"], &dotenv, &local);
-        let token = resolve_var(
-            &["POSTHOG_CLI_API_KEY", "POSTHOG_CLI_TOKEN"],
-            &dotenv,
-            &local,
+        if let Some(t) = try_source(|n| local.get(n).cloned()) {
+            return Ok(t);
+        }
+        let dotenv = load_dotenv(Path::new(".env"));
+        if let Some(t) = try_source(|n| dotenv.get(n).cloned()) {
+            return Ok(t);
+        }
+        anyhow::bail!(
+            "Couldn't find POSTHOG_CLI_API_KEY (or POSTHOG_CLI_TOKEN) and \
+             POSTHOG_CLI_PROJECT_ID (or POSTHOG_CLI_ENV_ID) in process env, .env.local, or .env"
         )
-        .context("While trying to read POSTHOG_CLI_API_KEY (from env, .env, or .env.local)")?;
-        let env_id = resolve_var(
-            &["POSTHOG_CLI_PROJECT_ID", "POSTHOG_CLI_ENV_ID"],
-            &dotenv,
-            &local,
-        )
-        .context("While trying to read POSTHOG_CLI_PROJECT_ID (from env, .env, or .env.local)")?;
-        Ok(Token {
-            host,
-            token,
-            env_id,
-        })
     }
 
     fn store_credentials(&self, _token: Token) -> Result<(), Error> {
@@ -167,7 +154,10 @@ pub fn get_token() -> Result<Token, Error> {
     let env = EnvVarProvider;
     let env_err = match env.get_credentials() {
         Ok(token) => {
-            info!("Using token from env var, for environment {}", token.env_id);
+            info!(
+                "Using token from environment or dotenv file, for environment {}",
+                token.env_id
+            );
             return Ok(token);
         }
         Err(e) => e,
@@ -190,4 +180,80 @@ pub fn get_token() -> Result<Token, Error> {
             .context(env_err)
             .context(dir_err),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lookup<'a>(map: &'a HashMap<&'a str, &'a str>) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| map.get(k).map(|v| v.to_string())
+    }
+
+    #[test]
+    fn try_source_returns_none_when_required_missing() {
+        let map = HashMap::new();
+        assert!(try_source(lookup(&map)).is_none());
+    }
+
+    #[test]
+    fn try_source_requires_both_api_key_and_project_id() {
+        let mut only_key = HashMap::new();
+        only_key.insert("POSTHOG_CLI_API_KEY", "phx_abc");
+        assert!(try_source(lookup(&only_key)).is_none());
+
+        let mut only_id = HashMap::new();
+        only_id.insert("POSTHOG_CLI_PROJECT_ID", "1");
+        assert!(try_source(lookup(&only_id)).is_none());
+    }
+
+    #[test]
+    fn try_source_accepts_legacy_aliases() {
+        let mut map = HashMap::new();
+        map.insert("POSTHOG_CLI_TOKEN", "phx_legacy");
+        map.insert("POSTHOG_CLI_ENV_ID", "42");
+        let token = try_source(lookup(&map)).expect("should resolve");
+        assert_eq!(token.token, "phx_legacy");
+        assert_eq!(token.env_id, "42");
+        assert!(token.host.is_none());
+    }
+
+    #[test]
+    fn try_source_prefers_canonical_over_legacy() {
+        let mut map = HashMap::new();
+        map.insert("POSTHOG_CLI_API_KEY", "phx_new");
+        map.insert("POSTHOG_CLI_TOKEN", "phx_old");
+        map.insert("POSTHOG_CLI_PROJECT_ID", "1");
+        map.insert("POSTHOG_CLI_ENV_ID", "2");
+        let token = try_source(lookup(&map)).unwrap();
+        assert_eq!(token.token, "phx_new");
+        assert_eq!(token.env_id, "1");
+    }
+
+    #[test]
+    fn try_source_host_is_optional() {
+        let mut map = HashMap::new();
+        map.insert("POSTHOG_CLI_API_KEY", "phx_abc");
+        map.insert("POSTHOG_CLI_PROJECT_ID", "1");
+        let token = try_source(lookup(&map)).unwrap();
+        assert!(token.host.is_none());
+    }
+
+    #[test]
+    fn try_source_picks_up_host_from_same_source() {
+        let mut map = HashMap::new();
+        map.insert("POSTHOG_CLI_API_KEY", "phx_abc");
+        map.insert("POSTHOG_CLI_PROJECT_ID", "1");
+        map.insert("POSTHOG_CLI_HOST", "https://eu.posthog.com");
+        let token = try_source(lookup(&map)).unwrap();
+        assert_eq!(token.host.as_deref(), Some("https://eu.posthog.com"));
+    }
+
+    #[test]
+    fn try_source_ignores_host_when_required_missing() {
+        // Host alone is not enough to count as a valid source — it must not leak through.
+        let mut map = HashMap::new();
+        map.insert("POSTHOG_CLI_HOST", "https://attacker.example");
+        assert!(try_source(lookup(&map)).is_none());
+    }
 }

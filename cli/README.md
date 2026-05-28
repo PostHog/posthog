@@ -27,7 +27,7 @@ You can authenticate with PostHog interactively for using the CLI locally, but i
 - `POSTHOG_CLI_API_KEY`: [A posthog personal API key.](https://posthog.com/docs/api#private-endpoint-authentication) (also accepts `POSTHOG_CLI_TOKEN` for backward compatibility)
 - `POSTHOG_CLI_PROJECT_ID`: The ID number of the project/environment to connect to. E.g. the "2" in `https://us.posthog.com/project/2` (also accepts `POSTHOG_CLI_ENV_ID` for backward compatibility)
 
-These variables can also be set in a `.env` or `.env.local` file in the directory you run the CLI from. Precedence is process env → `.env` → `.env.local`.
+These variables can also be set in a `.env` or `.env.local` file in the directory you run the CLI from. The CLI picks credentials from a single source — the first one that supplies both `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`. Source order: process env → `.env.local` → `.env`. `POSTHOG_CLI_HOST` is only read from that same source, so a stray host in another file cannot redirect requests.
 
 ### Personal API key scopes
 
