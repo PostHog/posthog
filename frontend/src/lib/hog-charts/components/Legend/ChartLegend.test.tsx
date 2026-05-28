@@ -15,6 +15,8 @@ describe('ChartLegend', () => {
                 <div data-attr="chart">C</div>
             </ChartLegend>
         )
+        // No wrapper div — chart is the only top-level child.
+        expect(container.children).toHaveLength(1)
         expect((container.firstChild as HTMLElement).getAttribute('data-attr')).toBe('chart')
         expect(container.textContent).not.toContain('A')
     })
@@ -25,12 +27,13 @@ describe('ChartLegend', () => {
                 <div data-attr="chart">C</div>
             </ChartLegend>
         )
+        expect(container.children).toHaveLength(1)
         expect((container.firstChild as HTMLElement).getAttribute('data-attr')).toBe('chart')
     })
 
     it('renders legend and chart inside a flex wrapper when show is true', () => {
         const { container } = render(
-            <ChartLegend show items={ITEMS} dataAttr="my-legend">
+            <ChartLegend show items={ITEMS} legendDataAttr="my-legend">
                 <div data-attr="chart">C</div>
             </ChartLegend>
         )

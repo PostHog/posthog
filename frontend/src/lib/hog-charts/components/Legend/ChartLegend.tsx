@@ -13,7 +13,8 @@ export interface ChartLegendProps {
     onItemClick?: (key: string) => void
     hiddenKeys?: string[]
     className?: string
-    dataAttr?: string
+    /** data-attr on the inner `<Legend>`. The outer layout wrapper has no data-attr. */
+    legendDataAttr?: string
     children: React.ReactNode
 }
 
@@ -26,15 +27,14 @@ export function ChartLegend({
     onItemClick,
     hiddenKeys,
     className,
-    dataAttr,
+    legendDataAttr,
     children,
 }: ChartLegendProps): React.ReactElement {
     if (!show || items.length === 0) {
         return <>{children}</>
     }
     const orientation = position === 'left' || position === 'right' ? 'vertical' : 'horizontal'
-    // Charts inside expect the wrapper to claim its parent's flex height — bake `flex-1 min-h-0`
-    // in so consumers don't have to remember it. Caller-supplied className still wins (appended).
+    // Bakes `flex-1 min-h-0` so consumers in a flex-col parent don't have to remember it.
     const wrapperClassName = `flex-1 min-h-0 ${className ?? ''}`.trim()
     return (
         <ChartLegendLayout
@@ -45,7 +45,7 @@ export function ChartLegend({
                     align={align}
                     onItemClick={onItemClick}
                     hiddenKeys={hiddenKeys}
-                    dataAttr={dataAttr}
+                    dataAttr={legendDataAttr}
                 />
             }
             position={position}

@@ -196,7 +196,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             show={!!showLegend}
             items={legendItemsFromSeries(series, theme)}
             position="top"
-            dataAttr="trend-lifecycle-legend"
+            legendDataAttr="trend-lifecycle-legend"
         >
             <TimeSeriesBarChart<TrendsSeriesMeta>
                 series={series}
