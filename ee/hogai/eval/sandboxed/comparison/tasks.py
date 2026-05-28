@@ -11,8 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from posthog.models import FeatureFlag
-
 FLAG_KEY = "cmp-eval-flag"
 
 
@@ -27,6 +25,10 @@ class ComparisonTask:
 
 
 def _feature_flag_created(team_id: int) -> bool:
+    # Imported lazily: a module-level posthog.models import runs at pytest collection time,
+    # before the Django app registry is ready, and fails with a partial-init ImportError.
+    from posthog.models import FeatureFlag
+
     return FeatureFlag.objects.filter(team_id=team_id, key=FLAG_KEY, deleted=False).exists()
 
 

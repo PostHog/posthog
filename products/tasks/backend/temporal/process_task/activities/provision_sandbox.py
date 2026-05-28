@@ -7,9 +7,6 @@ from django.conf import settings
 
 from temporalio import activity
 
-from posthog.models import PersonalAPIKey
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
@@ -152,6 +149,11 @@ def _maybe_posthog_cli_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[
     user = task.created_by
     if user is None:
         return {}
+    # Imported lazily to avoid a posthog.models partial-init ImportError at import time.
+    from posthog.models import PersonalAPIKey
+    from posthog.models.personal_api_key import hash_key_value
+    from posthog.models.utils import generate_random_token_personal, mask_key_value
+
     value = generate_random_token_personal()
     PersonalAPIKey.objects.create(
         user=user,
