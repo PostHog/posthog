@@ -243,9 +243,10 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         # authoritative pass; nothing from `unverified_claims` is trusted past
         # the IdP-config lookup, and the verified pass re-reads every claim we
         # actually act on.
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
         unverified_claims = jwt.decode(
             assertion, options={"verify_signature": False}
-        )  # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        )
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG payload could not be parsed: {e}")
 
