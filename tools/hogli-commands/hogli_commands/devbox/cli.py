@@ -24,11 +24,13 @@ from hogli.manifest import get_manifest
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
+    DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
+    REGIONS,
     _diagnose_unreachable_coder,
     _fail,
     coder_authenticated,
@@ -54,6 +56,7 @@ from .coder import (
     get_sharing_status,
     get_workspace,
     get_workspace_name,
+    get_workspace_region,
     get_workspace_status,
     has_claude_oauth_secret,
     list_coder_users,
@@ -86,9 +89,11 @@ from .config import (
     DevboxConfig,
     clear_dotfiles_uri,
     clear_git_identity,
+    clear_region,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
+    save_region,
 )
 
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
@@ -116,7 +121,9 @@ WORKSPACE_STATUS_COLORS = {
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
 
-def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, Any]] | None]:
+def resolve_workspace_name(
+    workspace: str | None, *, region: str | None = None
+) -> tuple[str, list[dict[str, Any]] | None]:
     """Resolve a workspace target into a full workspace name.
 
     Supports:
@@ -127,20 +134,35 @@ def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, A
 
     Returns (name, workspaces) where workspaces is the already-fetched list
     when available, so callers can skip a second ``_list_workspaces`` call.
+
+    ``region`` controls the region suffix used when constructing names for
+    workspaces that don't exist yet (e.g. ``devbox:start --region``). When
+    resolving an OWN label against the user's actual workspaces, the region
+    suffix is treated as a preference, not a constraint: if the preferred
+    name doesn't exist but a workspace with the same label exists in another
+    region, that one is returned. This keeps a saved region pref from
+    silently masking existing workspaces created before the pref was set.
     """
+    effective_region = region if region is not None else _preferred_region()
     if workspace is not None:
-        return parse_workspace_target(workspace), None
+        target_name = parse_workspace_target(workspace, region=effective_region)
+        # Shared workspace targets (`@user[/label]`) are looked up against the
+        # remote owner, so cross-region label fallback is the owner's
+        # responsibility -- skip it here.
+        if workspace.startswith("@"):
+            return target_name, None
+        return _resolve_own_label(target_name)
 
     workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
-        return get_workspace_name(), workspaces
+        return get_workspace_name(region=effective_region), workspaces
 
     if len(workspaces) == 1:
         return workspaces[0]["name"], workspaces
 
     # Multiple workspaces -- prefer default
-    default_name = get_workspace_name()
+    default_name = get_workspace_name(region=effective_region)
     for ws in workspaces:
         if ws.get("name") == default_name:
             return default_name, workspaces
@@ -149,6 +171,25 @@ def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, A
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
+
+
+def _resolve_own_label(target_name: str) -> tuple[str, list[dict[str, Any]] | None]:
+    """Return ``(name, workspaces)`` for an own-label target, falling back across regions.
+
+    If ``target_name`` matches an existing workspace, return it directly.
+    Otherwise look for any of the user's workspaces with the same label and
+    return that. When no candidate exists, return ``target_name`` so the
+    downstream "not found" path runs with a stable name.
+    """
+    workspaces = list_user_workspaces()
+    if any(ws.get("name") == target_name for ws in workspaces):
+        return target_name, workspaces
+    label = extract_workspace_label(target_name)
+    if label is not None:
+        for ws in workspaces:
+            if extract_workspace_label(ws.get("name", "")) == label:
+                return ws["name"], workspaces
+    return target_name, workspaces
 
 
 def _local_port_is_available(port: int) -> bool:
@@ -497,6 +538,59 @@ def maybe_configure_git_signing(
     click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
 
 
+def _preferred_region() -> str:
+    """Return the saved preferred region, falling back to ``DEFAULT_REGION``.
+
+    Centralized so every command path that needs the user's region
+    preference reads the same value -- and so the fallback to the built-in
+    default lives in one place. A persisted value that's no longer in
+    ``REGIONS`` (e.g. a stale entry from a hand-edited config) falls back
+    to ``DEFAULT_REGION`` instead of poisoning every downstream lookup.
+    """
+    saved = load_config().get("region")
+    return saved if saved in REGIONS else DEFAULT_REGION
+
+
+def maybe_configure_region(configure_region: bool | None) -> None:
+    """Optionally persist the preferred region for new devboxes.
+
+    The region is create-only on a workspace, so saving it locally just
+    pre-fills ``devbox:start --region`` and determines the default
+    workspace name (eu-central-1 boxes carry an ``-eu`` suffix). Existing
+    workspaces are untouched.
+    """
+    config = load_config()
+    existing_region = config.get("region")
+
+    if configure_region is False:
+        if not existing_region:
+            click.echo("Skipping region preference setup.")
+        return
+
+    if configure_region is None and existing_region:
+        return
+
+    click.echo()
+    click.echo(click.style("Preferred region", bold=True))
+    click.echo("  Choose which region new devboxes should land in.")
+    click.echo("  This is saved locally and used as the default for `hogli devbox:start`.")
+    if existing_region:
+        click.echo(f"  Current: {existing_region}")
+    click.echo()
+
+    default_region = existing_region or DEFAULT_REGION
+    region = click.prompt(
+        "Preferred region",
+        default=default_region,
+        type=click.Choice(REGIONS),
+        show_choices=True,
+        show_default=True,
+    ).strip()
+
+    save_region(region)
+    click.echo(f"Saved preferred region: {region}")
+
+
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     """Optionally persist a dotfiles repo URL for new workspaces."""
     config = load_config()
@@ -697,8 +791,19 @@ def _reset_git_identity() -> bool:
     if not (config.get("git_name") or config.get("git_email")):
         click.echo("Nothing to clear: Git identity was not set.")
         return False
-    clear_git_identity()
+    clear_git_identity(config)
     click.echo("Cleared saved Git identity. New workspaces will prompt for one.")
+    return True
+
+
+def _reset_region() -> bool:
+    """Drop the saved region preference. Returns True iff something was cleared."""
+    config = load_config()
+    if not config.get("region"):
+        click.echo("Nothing to clear: region preference was not set.")
+        return False
+    clear_region(config)
+    click.echo("Cleared saved region preference. New workspaces will use the built-in default.")
     return True
 
 
@@ -710,10 +815,11 @@ def _reset_dotfiles() -> bool:
 
     Returns True iff something was cleared.
     """
-    if not load_config().get("dotfiles_uri"):
+    config = load_config()
+    if not config.get("dotfiles_uri"):
         click.echo("Nothing to clear: dotfiles was not set.")
         return False
-    clear_dotfiles_uri()
+    clear_dotfiles_uri(config)
     click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
     for ws in list_user_workspaces():
         ws_name = ws.get("name")
@@ -729,8 +835,9 @@ def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
     return f"{name} <{email}>" if name and email else None
 
 
-def _dotfiles_status(config: DevboxConfig, _: set[str]) -> str | None:
-    return config.get("dotfiles_uri")
+def _field_status(field: str) -> Callable[[DevboxConfig, set[str]], str | None]:
+    """Status reader that returns a single config field's value (or ``None``)."""
+    return lambda config, _: config.get(field)
 
 
 def _secret_status(secret_name: str) -> Callable[[DevboxConfig, set[str]], str | None]:
@@ -773,10 +880,17 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         reset=lambda: _reset_user_secret(GIT_SIGNING_KEY_SECRET),
     ),
     _ConfigItem(
+        cli_key="region",
+        label="Region",
+        needs_secrets=False,
+        status=_field_status("region"),
+        reset=_reset_region,
+    ),
+    _ConfigItem(
         cli_key="dotfiles",
         label="Dotfiles",
         needs_secrets=False,
-        status=_dotfiles_status,
+        status=_field_status("dotfiles_uri"),
         reset=_reset_dotfiles,
     ),
     _ConfigItem(
@@ -853,6 +967,7 @@ def _confirm_run_setup() -> bool:
     click.echo("  - Local SSH config for Coder hosts")
     click.echo("  - Git identity (name/email) for new workspaces")
     click.echo("  - Git commit signing key propagation")
+    click.echo("  - Preferred region for new workspaces (optional)")
     click.echo("  - Dotfiles repo for new workspaces (optional)")
     click.echo("  - Claude OAuth token as a Coder user secret (optional)")
     click.echo()
@@ -876,6 +991,11 @@ def _confirm_run_setup() -> bool:
     help="Propagate your local git signing key into Coder devboxes (reads git config user.signingkey)",
 )
 @click.option(
+    "--configure-region/--skip-configure-region",
+    default=None,
+    help="Prompt for the preferred region (us-east-1 or eu-central-1) for new devboxes",
+)
+@click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
     default=None,
     help="Prompt for a dotfiles repo URL for new Coder workspaces",
@@ -891,6 +1011,7 @@ def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
     configure_git_signing: bool | None,
+    configure_region: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
     verbose: bool,
@@ -901,6 +1022,7 @@ def devbox_setup(
             configure_ssh,
             configure_git_identity,
             configure_git_signing,
+            configure_region,
             configure_dotfiles,
             configure_claude_setup,
         ],
@@ -933,6 +1055,7 @@ def devbox_setup(
     )
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_git_signing(configure_git_signing, known_secret_names=secret_names)
+    maybe_configure_region(configure_region)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_secret(configure_claude_setup, known_secret_names=secret_names)
     print_setup_summary()
@@ -947,12 +1070,14 @@ def devbox_list() -> None:
     if not workspaces:
         click.echo("No devboxes found. Run 'hogli devbox:start' to create one.")
     else:
-        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'NAME'}")
+        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'REGION':<14} {'NAME'}")
         for ws in workspaces:
             ws_name = ws.get("name", "")
             label = extract_workspace_label(ws_name) or "(default)"
             status = get_workspace_status(ws)
-            click.echo(f"  {label:<14} {click.style(status, fg=_workspace_status_color(status)):<20} {ws_name}")
+            region = get_workspace_region(ws) or "unknown"
+            styled_status = click.style(status, fg=_workspace_status_color(status))
+            click.echo(f"  {label:<14} {styled_status:<20} {region:<14} {ws_name}")
 
     shared = list_shared_workspaces()
     if shared:
@@ -1094,17 +1219,31 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     show_default=True,
     help="Coder template preset to apply (use 'none' to opt out)",
 )
+@click.option(
+    "--region",
+    type=click.Choice(REGIONS),
+    default=None,
+    help=(
+        "Region to create the devbox in (set once at creation, cannot be changed later). "
+        "Defaults to the value saved by `devbox:setup --configure-region`, then us-east-1."
+    ),
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
     disk: str,
     template: str,
     preset: str,
+    region: str | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace)
+    effective_region = region or _preferred_region()
+    # Thread the effective region into name resolution so an explicit
+    # --region overrides the saved preference for both the new workspace's
+    # region AND its `-eu` name suffix.
+    name, workspaces = resolve_workspace_name(workspace, region=effective_region)
     ws = get_workspace(name, workspaces)
 
     if ws is not None:
@@ -1113,13 +1252,16 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, disk={disk}GiB)...")
+    click.echo(
+        f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region}, disk={disk}GiB)..."
+    )
     create_workspace(
         name,
         int(disk),
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
+        region=effective_region,
         template=template,
         preset=preset,
         verbose=verbose,
@@ -1393,7 +1535,7 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)
@@ -1457,6 +1599,7 @@ def devbox_status(workspace: str | None) -> None:
 
     click.echo(f"  Name:    {name}")
     click.echo(f"  Status:  {click.style(status, fg=_workspace_status_color(status))}")
+    click.echo(f"  Region:  {get_workspace_region(ws) or 'unknown'}")
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))

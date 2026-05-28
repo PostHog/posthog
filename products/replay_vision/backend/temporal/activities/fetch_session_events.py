@@ -13,6 +13,7 @@ from products.replay_vision.backend.temporal.constants import (
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import IneligibleSessionError, IneligibleSessionKind
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
@@ -53,6 +54,7 @@ _EVENT_ID_BYTES = 8
 
 
 @activity.defn
+@track_activity()
 async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> None:
     """Fetch analytics events for a session and stash in Redis; idempotent — a second call finds the key and returns."""
     redis_client, redis_key = get_redis_state_client(

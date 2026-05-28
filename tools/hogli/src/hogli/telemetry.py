@@ -141,6 +141,11 @@ class TelemetryClient:
         _save_config(config)
 
     def show_first_run_notice_if_needed(self) -> None:
+        # CI is auto-opted-out via is_ci(); the notice would be noise in build
+        # logs and instructs users to set POSTHOG_TELEMETRY_OPT_OUT=1, which is
+        # redundant when the CI gate already disables tracking.
+        if is_ci():
+            return
         config = _load_config()
         if config.get("first_run_notice_shown"):
             return
