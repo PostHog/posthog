@@ -305,5 +305,9 @@ function userHasWidgetProductAccess(productAccess: DashboardWidgetProductAccess 
             return userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
         case 'session_recording':
             return userHasAccess(AccessControlResourceType.SessionRecording, AccessControlLevel.Viewer)
+        default: {
+            const _exhaustive: never = productAccess
+            return _exhaustive
+        }
     }
 }

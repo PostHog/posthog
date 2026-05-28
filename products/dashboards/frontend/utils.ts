@@ -1,6 +1,4 @@
-import api from 'lib/api'
-
-import type { DashboardType, DashboardTile, QueryBasedInsightModel } from '~/types'
+import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardsWidgetsPartialUpdate } from './generated/api'
 import { WidgetConfigValidationError, type WidgetFieldErrors } from './widget_types/widgetConfigValidation'
@@ -19,24 +17,13 @@ export async function updateDashboardWidgetTileConfig({
     dashboardId: number
     tile: DashboardTile<QueryBasedInsightModel>
     config: Record<string, unknown>
-}): Promise<DashboardType<QueryBasedInsightModel>> {
+}): Promise<DashboardTile<QueryBasedInsightModel>> {
     if (!tile.widget) {
         throw new Error('Tile has no widget')
     }
 
     try {
-        return await api.update(`api/environments/${teamId}/dashboards/${dashboardId}`, {
-            tiles: [
-                {
-                    id: tile.id,
-                    widget: {
-                        id: tile.widget.id,
-                        widget_type: tile.widget.widget_type,
-                        config,
-                    },
-                },
-            ],
-        })
+        return await dashboardsWidgetsPartialUpdate(String(teamId), dashboardId, tile.id, { config })
     } catch (error) {
         const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error)
         if (fieldErrors && Object.keys(fieldErrors).length > 0) {
