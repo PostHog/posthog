@@ -22,13 +22,27 @@ to `impl.build_pipeline`. Subclasses usually only define:
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Generic
+from typing import TYPE_CHECKING, Any, Generic
+
+import structlog
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import build_incremental_fields
+from posthog.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+    sql_schema_metadata,
+)
+from posthog.temporal.data_imports.sources.common.sql.projection import prune_enabled_columns
+
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+log = structlog.get_logger(__name__)
 
 
 class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
@@ -39,10 +53,42 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     wiring around it.
     """
 
+    supports_column_selection: bool = False
+
     @property
     @abstractmethod
     def get_implementation(self) -> SQLSourceImplementation[ConfigType, Any, Any]:
         """The driver-layer implementation for this source."""
+
+    @classmethod
+    def default_non_retryable_errors(cls) -> dict[str, str | None]:
+        """Non-retryable error patterns shared by multiple SQL sources.
+
+        Subclasses opt in by merging this into their own
+        `get_non_retryable_errors` return dict, e.g.
+        `return {**self.default_non_retryable_errors(), ...}`. The base
+        `SQLSource` itself does not call this — every existing source's
+        behavior is preserved until it explicitly opts in.
+
+        The two entries here are the ones currently duplicated across
+        ≥2 SQL sources today:
+
+        - "Source column type changed" (MySQL, MSSQL, Snowflake,
+          BigQuery, Redshift)
+        - "Cannot build decimal array from values" (MySQL, MSSQL)
+        """
+        return {
+            "Source column type changed": (
+                "A column's type changed in your source database (for example an integer column was widened to bigint) "
+                "and no longer fits the type we stored. We can't widen an existing column in place — please reset and "
+                "fully re-sync this table to adopt the new type."
+            ),
+            "Cannot build decimal array from values": (
+                "One of your numeric columns contains values that exceed our decimal storage limits "
+                "(max precision 76, max scale 32). Please constrain the column with a lower precision/scale, "
+                "cast it to text in a view, or round the values at the source."
+            ),
+        }
 
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
         """Fallback: use `id` when the driver didn't detect a PK but one is present.
@@ -103,3 +149,51 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         return self.get_implementation.build_pipeline(config, inputs)
+
+    def reconcile_schema_metadata(
+        self,
+        source: ExternalDataSource,
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Persist `schema_metadata` per row and prune stale `enabled_columns`.
+
+        Returns schema names this hook soft-deleted (default impl never does;
+        override to handle direct-query table cleanup).
+        """
+        schemas_by_name: dict[str, SourceSchema] = {s.name: s for s in source_schemas}
+        rows = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+        for row in rows:
+            source_schema = schemas_by_name.get(row.name)
+            if source_schema is None:
+                continue
+            new_metadata = sql_schema_metadata(
+                source_schema.columns,
+                source_schema.foreign_keys,
+                source_catalog=source_schema.source_catalog,
+                source_schema=source_schema.source_schema,
+                source_table_name=source_schema.source_table_name,
+            )
+            existing_config: dict[str, Any] = (
+                dict(row.sync_type_config) if isinstance(row.sync_type_config, dict) else {}
+            )
+            existing_config["schema_metadata"] = new_metadata
+
+            available_names = extract_available_column_names(new_metadata)
+            pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)
+            update_fields = ["sync_type_config", "updated_at"]
+            if removed_columns:
+                log.info(
+                    "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
+                    source_id=str(source.id),
+                    schema_id=str(row.id),
+                    schema_name=row.name,
+                    removed_columns=removed_columns,
+                )
+                row.enabled_columns = pruned_enabled_columns
+                update_fields.append("enabled_columns")
+
+            row.sync_type_config = existing_config
+            row.save(update_fields=update_fields)
+
+        return []

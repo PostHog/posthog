@@ -22,10 +22,10 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 

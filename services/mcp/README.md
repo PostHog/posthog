@@ -327,7 +327,7 @@ Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via
 pnpm run dev:hono
 ```
 
-Defaults to port **3030**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:3030/mcp`.
+Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:8787/mcp`.
 
 `bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
 

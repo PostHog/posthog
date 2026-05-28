@@ -18,6 +18,9 @@ tools:
     conversations-create:
         operation: conversations_create
         enabled: false
+    conversations-destroy:
+        operation: conversations_destroy
+        enabled: false
     conversations-list:
         operation: conversations_list
         enabled: false

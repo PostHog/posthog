@@ -265,7 +265,12 @@ function MobileMinimumDuration(): JSX.Element {
         <div className="flex flex-col gap-2">
             <div className="flex flex-row items-center gap-2">
                 <LemonLabel className="text-base">
-                    Duration threshold <Since ios={{ version: '3.53.0' }} />
+                    Duration threshold{' '}
+                    <Since
+                        ios={{ version: '3.53.0' }}
+                        android={{ version: '3.44.0' }}
+                        flutter={{ version: '5.24.3' }}
+                    />
                 </LemonLabel>
                 <Tooltip title="Minimum duration is shared across web and mobile. Change it on the Web tab.">
                     <span className="text-muted font-semibold">
@@ -274,7 +279,7 @@ function MobileMinimumDuration(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Minimum duration is shared across Web and iOS.{' '}
+                Minimum duration is shared across Web, iOS, Android, and Flutter.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>

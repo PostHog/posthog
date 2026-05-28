@@ -84,6 +84,7 @@ export async function authenticateAndParse(
 
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
+    props.region = props.region || getRegionFromRequest(c.req.raw) || undefined
     if (new URL(c.req.url).searchParams.get('_deprecated') === 'sse') {
         props.viaSseRedirect = true
     }

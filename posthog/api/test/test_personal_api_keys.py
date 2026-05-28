@@ -14,13 +14,13 @@ from posthog.schema import EventsQuery
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):

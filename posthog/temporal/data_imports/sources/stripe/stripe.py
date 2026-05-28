@@ -398,96 +398,116 @@ class StripeValidationError(Exception):
         super().__init__(message)
 
 
-def validate_credentials(
-    api_key: str, table_name: Optional[str] = None, auth_method: Literal["api_key", "oauth"] = "api_key"
-) -> bool:
+def _resolve_to_flat(
+    name: str, all_resources: dict[str, Union[StripeResource, StripeNestedResource]]
+) -> tuple[str, StripeResource]:
+    """Nested resources display as `<nested> (<parent>)` and probe the parent endpoint."""
+    entry = all_resources[name]
+    if isinstance(entry, StripeNestedResource):
+        # Parent_name registration enforced by test_validate_credentials_nested_resources_have_registered_parents.
+        parent_entry = cast(StripeResource, all_resources[entry.parent_name])
+        return f"{name} ({entry.parent_name})", parent_entry
+    return name, entry
+
+
+def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
+    """Cheap limit=1 probe. Returns ``(permission_msg, error_msg)``. 401 raises ``StripeAuthenticationError``.
+
+    Exactly one tuple slot is set on failure; both ``None`` means success.
     """
-    Validates Stripe API credentials and checks permissions for all required resources.
-    Returns True if the API key is valid and has all required permissions.
-    Raises StripeAuthenticationError if the key is invalid/expired (401) — short-circuits the per-resource loop
-    so the user does not see a misleading "lacks permissions for ALL resources" message.
-    Raises StripePermissionError if the key is valid but lacks permissions for specific resources (403).
+    try:
+        resource.method(params={"limit": 1})
+        return None, None
+    except stripe_lib.AuthenticationError as e:
+        raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
+    except stripe_lib.PermissionError as e:
+        raw = getattr(e, "user_message", None) or str(e)
+        return _clean_stripe_error_message(raw), None
+    except Exception as e:
+        return None, _clean_stripe_error_message(str(e))
+
+
+# customers.list is in default RAK scopes + OAuth-reachable — cheap auth probe.
+_BASIC_AUTH_PROBE_ENDPOINT = CUSTOMER_RESOURCE_NAME
+
+
+def validate_credentials(
+    api_key: str,
+    endpoints: Optional[list[str]] = None,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> bool:
+    """Validate Stripe credentials.
+
+    - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
+    - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
-
-    # Drive validation off the same resource definitions get_rows uses — single source of truth.
-    # Nested resources (e.g. /v1/customers/:id/payment_methods) can't be listed without a parent
-    # ID, so we resolve them to their parent via the StripeNestedResource.parent_name field,
-    # which names the top-level entry that gates the same scope.
     all_resources = _build_resources(client, logger=None)
 
-    def _resolve_to_flat(name: str) -> tuple[str, StripeResource]:
-        """Return (display_name, resource_to_probe) for a given table.
-
-        For nested resources, the display name is `<nested> (<parent>)` — keeping the
-        nested table the user toggled visible while making the actionable scope (the
-        parent) explicit in the same string.
-        """
-        entry = all_resources[name]
-        if isinstance(entry, StripeNestedResource):
-            # Type narrowed via the CI test, not at runtime — see
-            # test_validate_credentials_nested_resources_have_registered_parents.
-            parent_entry = cast(StripeResource, all_resources[entry.parent_name])
-            return f"{name} ({entry.parent_name})", parent_entry
-        return name, entry
-
-    # accounts.list requires Connect platform access — OAuth connected-account tokens can't call it.
-    # If a per-table check is requested for Account under OAuth, skip it cleanly: Account is also
-    # absent from ENDPOINTS so it can never be synced via OAuth anyway.
-    if auth_method == "oauth" and table_name == ACCOUNT_RESOURCE_NAME:
+    if endpoints is None:
+        probe_name, probe_resource = _resolve_to_flat(_BASIC_AUTH_PROBE_ENDPOINT, all_resources)
+        # 403 = auth valid, scope missing — not a failure for the basic check.
+        _, error_msg = _probe_endpoint(probe_resource)
+        if error_msg is not None:
+            raise StripeValidationError({probe_name: error_msg})
         return True
 
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
+    resources_to_check: list[tuple[str, StripeResource]] = []
 
-    if table_name is not None and table_name not in all_resources:
-        raise StripePermissionError({table_name: f"{table_name} does not exist"})
-
-    if table_name is not None:
-        # Single-table validation: hit just that resource (or its parent for nested).
-        display_name, flat_resource = _resolve_to_flat(table_name)
-        resources_to_check = [(display_name, flat_resource)]
-    else:
-        # Full validation: probe every flat resource. Nested resources are covered by their
-        # parent's check, so no need to enumerate them separately.
-        resources_to_check = [
-            (name, resource) for name, resource in all_resources.items() if isinstance(resource, StripeResource)
-        ]
-        if auth_method == "oauth":
-            # accounts.list requires Connect platform access — OAuth connected-account tokens can't call it.
-            resources_to_check = [
-                (name, resource) for name, resource in resources_to_check if name != ACCOUNT_RESOURCE_NAME
-            ]
+    for name in endpoints:
+        # OAuth tokens can't call accounts.list (needs Connect platform access). Silent-skip here
+        # because this is a pass/fail validation; check_endpoint_permissions renders an explicit
+        # "not available for OAuth" reason instead since it feeds the UI.
+        if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
+            continue
+        if name not in all_resources:
+            raise StripePermissionError({name: f"{name} does not exist"})
+        resources_to_check.append(_resolve_to_flat(name, all_resources))
 
     for display_name, resource in resources_to_check:
-        try:
-            # Override params to limit=1 for cheap permission probing — we don't need real data.
-            resource.method(params={"limit": 1})
-        except stripe_lib.AuthenticationError as e:
-            # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
-            raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
-        except stripe_lib.PermissionError as e:
-            # 403 — this specific resource is not authorized for the key. The user_message is the
-            # concise Stripe explanation; str(e) on a stripe error includes request id, status code,
-            # and headers — way too noisy when the cause ("missing X read scope") is already obvious
-            # from the resource name.
-            raw = getattr(e, "user_message", None) or str(e)
-            missing_permissions[display_name] = _clean_stripe_error_message(raw)
-        except Exception as e:
-            # Anything else (network, schema, rate limit, unexpected Stripe API change) is not a
-            # permission problem — track separately so callers can render the verbose underlying
-            # message instead of pretending it's a missing scope.
-            errors[display_name] = _clean_stripe_error_message(str(e))
+        permission_msg, error_msg = _probe_endpoint(resource)
+        if permission_msg is not None:
+            missing_permissions[display_name] = permission_msg
+        elif error_msg is not None:
+            errors[display_name] = error_msg
 
-    # Errors take precedence over permission gaps because they indicate something went genuinely
-    # wrong rather than a configuration issue the customer can self-serve. We still pass any
-    # collected 403s along so the caller can report both in one message.
+    # Non-403 errors win but carry 403s along so the caller can report both.
     if errors:
         raise StripeValidationError(errors, missing_permissions=missing_permissions)
     if missing_permissions:
         raise StripePermissionError(missing_permissions)
 
     return True
+
+
+def check_endpoint_permissions(
+    api_key: str,
+    endpoints: list[str],
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> dict[str, str | None]:
+    """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
+
+    Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
+    """
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    all_resources = _build_resources(client, logger=None)
+
+    results: dict[str, str | None] = {}
+    for name in endpoints:
+        if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
+            results[name] = "Account is not available for OAuth-connected Stripe sources"
+            continue
+        if name not in all_resources:
+            results[name] = f"{name} is not a known Stripe resource"
+            continue
+
+        _, probe_resource = _resolve_to_flat(name, all_resources)
+        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        results[name] = permission_msg or error_msg
+
+    return results
 
 
 def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:

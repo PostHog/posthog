@@ -79,10 +79,10 @@ class CreateObservationInputs(BaseModel, frozen=True):
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
-    """`was_created=False` means the row already existed; the caller should no-op."""
-
-    observation_id: UUID
+    # `was_created=False` means no row was persisted (either the row already existed, or the org's monthly quota is exhausted); the caller should no-op.
+    observation_id: UUID | None
     was_created: bool
+    scanner_type: ScannerType
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
@@ -91,7 +91,16 @@ class MarkObservationRunningInputs(BaseModel, frozen=True):
 
 class MarkObservationFailedInputs(BaseModel, frozen=True):
     observation_id: UUID
+    # `kind:message` — kind is one of FailureKind values.
     error_reason: str
+    scanner_type: ScannerType
+
+
+class MarkObservationIneligibleInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    # `kind:message` — kind is one of IneligibleSessionKind values.
+    error_reason: str
+    scanner_type: ScannerType
 
 
 class FetchSessionEventsInputs(BaseModel, frozen=True):
@@ -220,6 +229,7 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
 class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
     scanner_result: ScannerResult
+    scanner_type: ScannerType
 
 
 class EmitObservationEventInputs(BaseModel, frozen=True):
