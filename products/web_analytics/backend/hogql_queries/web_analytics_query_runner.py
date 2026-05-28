@@ -96,34 +96,38 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # tests that call `WebAnalyticsQueryRunner.calculate(<MagicMock>)`
         # exercise it directly.
         with bound_contextvars(filters_hash=self.filters_hash):
-            # Every web analytics query runner produces user-facing dashboard
-            # queries. Tag here so all downstream `sync_execute` calls (live,
-            # preagg, lazy precompute) inherit `product`/`feature` and don't
-            # trip DEBUG-mode `UntaggedQueryError`.
-            tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
-
-            # The HTTP path tags the wrapped query payload in
-            # `posthog/api/services/query.py`, but the weekly digest workflow
-            # (and any other non-HTTP caller) reaches the runner directly and
-            # leaves `log_comment.query` empty. Tag the inner query so every
-            # web-analytics row in `system.query_log` carries `dateRange`,
-            # properties, etc., and so each runner in a long-lived activity
-            # records its own payload instead of inheriting the first one.
-            tag_queries(query=self.query.model_dump(mode="json"))
-
+            # Tag everything ClickHouse will see for this request in one call so
+            # every downstream `sync_execute` (live, preagg, lazy precompute)
+            # inherits a coherent `log_comment` payload.
+            #
+            # `product`/`feature` are required so DEBUG-mode `sync_execute` doesn't
+            # trip `UntaggedQueryError`. `query` is set here because the HTTP
+            # layer (`posthog/api/services/query.py`) tags only the wrapping
+            # payload — the weekly digest workflow (and any other non-HTTP
+            # caller) reaches the runner directly with `log_comment.query`
+            # empty, so each runner records its own payload. `filters_hash`
+            # mirrors the structlog contextvar so the same join key lands in
+            # `system.query_log` rows too.
             query_kind = getattr(self.query, "kind", "Unknown")
             breakdown_value = getattr(self.query, "breakdownBy", None)
             breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
             has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
+
+            tag_kwargs: dict[str, object] = {
+                "product": Product.WEB_ANALYTICS,
+                "feature": Feature.QUERY,
+                "query": self.query.model_dump(mode="json"),
+                "filters_hash": self.filters_hash,
+            }
+            if breakdown_value is not None:
+                tag_kwargs["breakdown_by"] = [breakdown_value.value]
+            tag_queries(**tag_kwargs)
 
             logger.info(
                 "web_analytics_query_started",
                 team_id=self.team.pk,
                 query_kind=query_kind,
             )
-
-            if breakdown_value is not None:
-                tag_queries(breakdown_by=[breakdown_value.value])
 
             start = perf_counter()
             response: Optional[WAR] = None

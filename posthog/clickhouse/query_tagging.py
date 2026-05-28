@@ -401,6 +401,11 @@ class QueryTags(BaseModel):
     filter: Optional[object] = None
     filter_by_type: Optional[list[str]] = None
     breakdown_by: Optional[list[str]] = None
+    # Hex SHA-256 over the input-side schema (filters + dateRange + breakdownBy + timezone).
+    # Set by web analytics runners; lets `system.query_log` rows be joined to the
+    # `web_analytics_query` / `lazy_computation.executed` log lines that carry the
+    # same value via `structlog.contextvars`.
+    filters_hash: Optional[str] = None
 
     # data warehouse
     trend_volume_display: Optional[str] = None

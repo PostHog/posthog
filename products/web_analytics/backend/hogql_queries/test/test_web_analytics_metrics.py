@@ -46,6 +46,10 @@ def _make_runner(
     runner = MagicMock(spec=WebAnalyticsQueryRunner)
     runner.query = query
     runner.team = team
+    # The real `filters_hash` is an Optional[str] cached_property; `spec` doesn't
+    # propagate the annotation so MagicMock would return a Mock object which fails
+    # the QueryTags pydantic validation in `tag_queries`. Pin a stable test value.
+    runner.filters_hash = "test_filters_hash"
     cast(MagicMock, runner.query_strategy).return_value = query_strategy
     cast(MagicMock, runner.clickhouse_query_type).return_value = (
         f"{query_strategy}_query" if query_strategy is not None else None
