@@ -1,6 +1,7 @@
 """Single Gemini call per scanner application; retries once on validation failure with the error fed back."""
 
 import re
+import time
 import asyncio
 from uuid import UUID
 
@@ -12,12 +13,14 @@ from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
+from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_PROVIDER_CALL
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner
 from products.replay_vision.backend.temporal.state import (
@@ -41,6 +44,7 @@ _EVENT_ID_CITATION_RE = re.compile(r"\(event_id ([0-9a-f]{16})\)", re.IGNORECASE
 
 
 @activity.defn
+@track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner against the uploaded video + cached events; validate, finalize, return the output."""
     snapshot, team_name, llm_inputs = await asyncio.gather(
@@ -63,7 +67,10 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
     ]
 
     finalized = await _call_with_retry(
-        scanner=scanner, model=snapshot.model.value, prompt_parts=prompt_parts, team_id=inputs.team_id
+        scanner=scanner,
+        snapshot=snapshot,
+        prompt_parts=prompt_parts,
+        team_id=inputs.team_id,
     )
     finalized, filtered_mapping = _resolve_citations(finalized, scanner, llm_inputs.event_id_mapping)
     return ScannerCallOutput(model_output=finalized, event_id_mapping=filtered_mapping)
@@ -107,7 +114,9 @@ def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
         .first()
     )
     if raw is None:
-        raise ApplicationError(f"ReplayObservation {observation_id} not found for team {team_id}", non_retryable=True)
+        raise ScannerFailureError(
+            f"ReplayObservation {observation_id} not found for team {team_id}", kind=FailureKind.INTERNAL_ERROR
+        )
     return ScannerSnapshot.load_for(observation_id, raw)
 
 
@@ -115,7 +124,7 @@ def _load_team_name(team_id: int) -> str:
     try:
         return Team.objects.values_list("name", flat=True).get(pk=team_id)
     except Team.DoesNotExist:
-        raise ApplicationError(f"Team {team_id} not found", non_retryable=True)
+        raise ScannerFailureError(f"Team {team_id} not found", kind=FailureKind.INTERNAL_ERROR)
 
 
 async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
@@ -125,14 +134,14 @@ async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
     )
     payload = await get_data_class_from_redis(redis_client, redis_key, target_class=ScannerLlmInputs)
     if payload is None:
-        raise ApplicationError(
-            f"ScannerLlmInputs missing in Redis for observation {observation_id}", non_retryable=True
+        raise ScannerFailureError(
+            f"ScannerLlmInputs missing in Redis for observation {observation_id}", kind=FailureKind.INTERNAL_ERROR
         )
     return payload
 
 
 async def _call_with_retry(
-    *, scanner: BaseScanner, model: str, prompt_parts: list[types.Part], team_id: int
+    *, scanner: BaseScanner, snapshot: ScannerSnapshot, prompt_parts: list[types.Part], team_id: int
 ) -> BaseModel:
     """One Gemini call, plus at most one retry that appends the validation error to the prompt."""
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
@@ -140,32 +149,50 @@ async def _call_with_retry(
     response_schema = schema_class.model_json_schema()
     parts = list(prompt_parts)
     last_error: str | None = None
+    metric_labels = {
+        "provider": snapshot.provider.value,
+        "model": snapshot.model.value,
+        "scanner_type": snapshot.scanner_type.value,
+    }
 
     for attempt in range(_MAX_LLM_ATTEMPTS):
-        response = await client.models.generate_content(
-            model=f"models/{model}",
-            contents=parts,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=response_schema,
-            ),
-            posthog_distinct_id=replay_vision_distinct_id(team_id),
-            posthog_groups={"project": str(team_id)},
-        )
+        started = time.monotonic()
+        outcome = "provider_error"
+        try:
+            response = await client.models.generate_content(
+                model=f"models/{snapshot.model.value}",
+                contents=parts,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=response_schema,
+                ),
+                posthog_distinct_id=replay_vision_distinct_id(team_id),
+                posthog_groups={"project": str(team_id)},
+            )
+        except Exception:
+            REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome=outcome).observe(time.monotonic() - started)
+            raise
         response_text = (response.text or "").strip()
         if not response_text:
             last_error = "Empty response from model"
+            outcome = "validation_failed"
         else:
             try:
                 parsed = schema_class.model_validate_json(response_text)
             except ValidationError as e:
                 last_error = f"Schema validation failed: {e}"
+                outcome = "validation_failed"
             else:
                 finalized = scanner.finalize(parsed)
                 semantic_error = scanner.validate_semantics(finalized)
                 if semantic_error is None:
+                    REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome="ok").observe(
+                        time.monotonic() - started
+                    )
                     return finalized
                 last_error = f"Semantic validation failed: {semantic_error}"
+                outcome = "validation_failed"
+        REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome=outcome).observe(time.monotonic() - started)
 
         logger.warning(
             "replay_vision.call_scanner_provider.invalid_response",
@@ -185,9 +212,9 @@ async def _call_with_retry(
             ]
 
     # non_retryable so workflow-level retries don't re-burn on schema/semantic failures.
-    raise ApplicationError(
+    raise ScannerFailureError(
         f"Scanner call rejected after {_MAX_LLM_ATTEMPTS} attempts: {last_error}",
-        non_retryable=True,
+        kind=FailureKind.VALIDATION_FAILED,
     )
 
 

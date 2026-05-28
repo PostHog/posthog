@@ -48,7 +48,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure). The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
@@ -1066,6 +1066,21 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-create-text-tile": {
+        "description": "Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings, dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards if you need precise placement.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard text tile",
+        "title": "Create dashboard text tile",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-delete": {
         "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
         "category": "Dashboards",
@@ -1132,6 +1147,21 @@
         "feature": "dashboards",
         "summary": "Update dashboard",
         "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-update-text-tile": {
+        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard text tile",
+        "title": "Update dashboard text tile",
         "required_scopes": ["dashboard:write"],
         "new_mcp": true,
         "annotations": {
@@ -2697,6 +2727,51 @@
             "readOnlyHint": true
         }
     },
+    "file-download-batch-exports-cancel-create": {
+        "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Cancel a running file download export",
+        "title": "Cancel a running file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-create": {
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Start file download export",
+        "title": "Start file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-retrieve": {
+        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Get file download export status",
+        "title": "Get file download export status",
+        "required_scopes": ["batch_export:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "AI observability",
@@ -4163,6 +4238,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Edit part of a notebook's content.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
         "category": "Notebooks",
@@ -4221,7 +4312,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
         "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
@@ -5969,6 +6062,137 @@
             "readOnlyHint": false
         }
     },
+    "vision-scanners-create": {
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for embeddings) — and fill `scanner_config` to match: monitor/classifier/scorer/summarizer need a `prompt`; classifiers also need `tags`; scorers also need `scale`; indexers reject `prompt`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Create replay vision scanner",
+        "title": "Create replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-delete": {
+        "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Delete replay vision scanner",
+        "title": "Delete replay vision scanner",
+        "required_scopes": ["replay_scanner:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-get": {
+        "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get replay vision scanner",
+        "title": "Get replay vision scanner",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-list": {
+        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of five LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for downstream embedding). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List replay vision scanners",
+        "title": "List replay vision scanners",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-get": {
+        "description": "Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result` including any event citations linking the LLM output back to specific events in the originating session. Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying recording.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get scanner observation",
+        "title": "Get scanner observation",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-list": {
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List scanner observations",
+        "title": "List scanner observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-scan-session": {
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Run scanner against a session now",
+        "title": "Run scanner against a session now",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-update": {
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Update replay vision scanner",
+        "title": "Update replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
         "category": "Visual review",
@@ -5998,6 +6222,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-approve-create": {
+        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Approve visual review snapshots",
+        "title": "Approve visual review snapshots",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },
@@ -6066,7 +6306,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Paginated.",
+        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",
@@ -6078,6 +6318,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-tolerate-create": {
+        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline image.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Tolerate visual review snapshot",
+        "title": "Tolerate visual review snapshot",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },

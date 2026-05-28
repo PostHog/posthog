@@ -159,21 +159,12 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
         useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { triggerBadgeContent, triggerBadgeStatus, totalIssues } = useValues(unifiedHealthMenuLogic)
-    const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sdkDoctorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
 
-    const sdkDoctorTooltip = needsAttention
-        ? 'Needs attention'
-        : needsUpdatingCount > 0
-          ? 'Outdated SDKs found'
-          : 'SDK health is good'
-
-    const hasSdkIssues = needsAttention || needsUpdatingCount > 0
-    const combinedBadgeContent =
-        postHogStatusBadgeContent === '!' || triggerBadgeContent === '!' || hasSdkIssues ? '!' : '✓'
+    const combinedBadgeContent = postHogStatusBadgeContent === '!' || triggerBadgeContent === '!' ? '!' : '✓'
     const combinedBadgeStatus: 'danger' | 'warning' | 'success' =
-        postHogStatusBadgeStatus === 'danger' || triggerBadgeStatus === 'danger' || hasSdkIssues
+        postHogStatusBadgeStatus === 'danger' || triggerBadgeStatus === 'danger'
             ? 'danger'
             : postHogStatusBadgeStatus === 'warning' || triggerBadgeStatus === 'warning'
               ? 'warning'
@@ -230,24 +221,6 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                             <IconStethoscope className="size-5" />
                         </IconWithBadge>
                         Health issues
-                    </Link>
-                )}
-            />
-            <Menu.Item
-                render={(props) => (
-                    <Link
-                        {...props}
-                        to={urls.sdkDoctor()}
-                        buttonProps={{ menuItem: true }}
-                        tooltip={sdkDoctorTooltip}
-                        tooltipPlacement="right"
-                        tooltipCloseDelayMs={0}
-                        data-attr="health-menu-sdk-doctor-button"
-                    >
-                        <IconWithBadge size="xsmall" content={needsUpdatingCount > 0 ? '!' : '✓'} status={sdkHealth}>
-                            <IconCode className="size-5" />
-                        </IconWithBadge>
-                        SDK Doctor
                     </Link>
                 )}
             />

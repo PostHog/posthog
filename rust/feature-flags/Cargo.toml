@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 aho-corasick = { workspace = true }
 anyhow = { workspace = true }
+arc-swap = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
