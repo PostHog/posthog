@@ -557,11 +557,8 @@ function SkillFileViewer({
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
 
     const copyFileLink = (): void => {
-        const path = combineUrl(urls.aiObservabilitySkill(skillName), {
-            file: file.path,
-            version,
-        }).url
-        void copyToClipboard(`${window.location.origin}${path}`, 'file link')
+        const path = urls.aiObservabilitySkill(skillName, { file: file.path, version })
+        void copyToClipboard(urls.absolute(urls.currentProject(path)), 'file link')
     }
 
     return (
