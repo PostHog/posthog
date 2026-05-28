@@ -15,6 +15,7 @@ axum = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 metrics = { workspace = true }
+posthog-rs = { workspace = true }
 serde_json = { workspace = true }
 subtle = "2.6"
 tokio = { workspace = true }

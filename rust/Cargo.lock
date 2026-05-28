@@ -2690,6 +2690,7 @@ dependencies = [
  "futures",
  "metrics",
  "personhog-common",
+ "posthog-rs 0.3.7",
  "prost 0.13.5",
  "serde_json",
  "subtle",

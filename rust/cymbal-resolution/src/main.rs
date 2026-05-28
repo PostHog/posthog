@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::init_from_env().expect("Invalid cymbal-resolution configuration");
     let cymbal_config = CymbalConfig::init_with_defaults().expect("Invalid cymbal configuration");
+    init_posthog_client(&cymbal_config).await;
 
     tracing::info!("Starting cymbal-resolution service");
     tracing::info!("gRPC address: {}", config.grpc_address);
@@ -88,6 +89,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server_result?;
 
     Ok(())
+}
+
+async fn init_posthog_client(config: &CymbalConfig) {
+    match &config.posthog_api_key {
+        Some(key) => {
+            let ph_config = posthog_rs::ClientOptionsBuilder::default()
+                .api_key(key.clone())
+                .api_endpoint(config.posthog_endpoint.clone())
+                .build()
+                .expect("Invalid PostHog client configuration");
+            posthog_rs::init_global(ph_config)
+                .await
+                .expect("Failed to initialize PostHog client");
+            tracing::info!("PostHog client initialized");
+        }
+        None => {
+            posthog_rs::disable_global();
+            tracing::warn!("PostHog client disabled");
+        }
+    }
 }
 
 fn init_tracing() {
