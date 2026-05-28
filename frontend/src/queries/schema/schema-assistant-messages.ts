@@ -517,7 +517,7 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
     UserInterview = 'user_interview',
 }
