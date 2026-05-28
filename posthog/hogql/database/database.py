@@ -667,11 +667,7 @@ class Database(BaseModel):
             return set()
 
         uac.preload_object_access_controls(list(tables))
-        denied = {
-            str(t.id)
-            for t in tables
-            if not uac.check_access_level_for_object(t, required_level="viewer")
-        }
+        denied = {str(t.id) for t in tables if not uac.check_access_level_for_object(t, required_level="viewer")}
         if denied:
             self._denied_resource_ids_by_scope.setdefault("warehouse_table", set()).update(denied)
         return denied
@@ -704,9 +700,7 @@ class Database(BaseModel):
 
         uac.preload_object_access_controls(list(saved_queries))
         denied = {
-            str(sq.id)
-            for sq in saved_queries
-            if not uac.check_access_level_for_object(sq, required_level="viewer")
+            str(sq.id) for sq in saved_queries if not uac.check_access_level_for_object(sq, required_level="viewer")
         }
         if denied:
             self._denied_resource_ids_by_scope.setdefault("warehouse_view", set()).update(denied)
@@ -1320,9 +1314,7 @@ class Database(BaseModel):
                     # Mirrors the name registration done by the add_child branch below.
                     database._denied_tables.add(table.name)
                     if table.external_data_source:
-                        for table_key in _get_warehouse_table_keys(
-                            table, direct_query=database._is_direct_query()
-                        ):
+                        for table_key in _get_warehouse_table_keys(table, direct_query=database._is_direct_query()):
                             database._denied_tables.add(table_key)
                     continue
 
