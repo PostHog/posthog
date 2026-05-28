@@ -122,7 +122,7 @@ logger = structlog.get_logger(__name__)
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
-    labelnames=["query_type", "category", "error_type"],
+    labelnames=["query_type", "category", "error_type", "contains_user_hogql"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -144,6 +144,14 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
     labelnames=["query_type", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
+
+
+def _contains_user_hogql_label() -> str:
+    # Read the tag set by `tag_contains_user_hogql()` at HogQL parse sites; lets
+    # observability split user-HogQL failures from query-builder failures on the
+    # same metric. The tag is the canonical source — see `posthog.clickhouse.query_tagging`.
+    return "true" if get_query_tag_value("contains_user_hogql") else "false"
+
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
@@ -1660,7 +1668,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_start = perf_counter()
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+                QUERY_EXECUTION_TOTAL.labels(
+                    query_type=query_type,
+                    category="success",
+                    error_type="none",
+                    contains_user_hogql=_contains_user_hogql_label(),
+                ).inc()
                 if survey_query_metric_labels:
                     SURVEY_QUERY_EXECUTION_TOTAL.labels(
                         **survey_query_metric_labels, category="success", error_type="none"
@@ -1670,6 +1683,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     query_type=query_type,
                     category=classify_query_error(e),
                     error_type=clickhouse_error_type(e),
+                    contains_user_hogql=_contains_user_hogql_label(),
                 ).inc()
                 if survey_query_metric_labels:
                     SURVEY_QUERY_EXECUTION_TOTAL.labels(
