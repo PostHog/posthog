@@ -13647,6 +13647,13 @@
                 "schema": {
                     "$ref": "#/definitions/DatabaseSchemaSchema"
                 },
+                "search_aliases": {
+                    "description": "Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "source": {
                     "$ref": "#/definitions/DatabaseSchemaSource"
                 },
