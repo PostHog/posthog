@@ -25,7 +25,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     GenerateLabelsActivityOutputs,
     TraceLabelingMetadata,
 )
-from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
+from posthog.temporal.ai_observability.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
 
 @pytest.fixture
