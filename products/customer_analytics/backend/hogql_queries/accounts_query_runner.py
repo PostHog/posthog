@@ -36,12 +36,18 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         if self.query.select:
             seen: set[str] = set()
             self.columns: list[str] = []
+            self._select_exprs: list[ast.Expr] = []
             for col in self.query.select:
-                if col not in seen:
-                    seen.add(col)
-                    self.columns.append(col)
+                expr = parse_expr(col)
+                column_name = expr.alias if isinstance(expr, ast.Alias) else col
+                if column_name in seen:
+                    continue
+                seen.add(column_name)
+                self.columns.append(column_name)
+                self._select_exprs.append(expr)
         else:
             self.columns = list(DEFAULT_COLUMNS)
+            self._select_exprs = [parse_expr(col) for col in self.columns]
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context,
@@ -77,7 +83,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         order_clauses = self.query.orderBy or [DEFAULT_ORDER_BY]
 
         return ast.SelectQuery(
-            select=[parse_expr(col) for col in self.columns],
+            select=self._select_exprs,
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["system", "accounts"]),
                 alias="accounts",
