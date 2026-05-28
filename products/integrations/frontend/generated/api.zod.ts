@@ -366,11 +366,12 @@ user can pick any GitHub org (new or already connected).  GitHub's install
 page handles both cases: orgs where the app is installed show "Configure"
 (no admin needed), orgs where it isn't show "Install" (needs admin).
 
-**PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
-the current project already has a team-level GitHub installation, and the
-user has no ``UserIntegration`` for that installation yet, we skip the org
-picker and redirect straight to ``/login/oauth/authorize`` so the user
-only authorizes themselves and returns to PostHog Code immediately.
+**OAuth fast path:** when the current project already has a team-level
+GitHub installation, and the user has no ``UserIntegration`` for that
+installation yet, we skip the org picker and redirect straight to
+``/login/oauth/authorize`` so the user only authorizes themselves.
+``connect_from`` is preserved for first-party clients so they return to
+the originating client immediately.
 
 In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking

@@ -9,6 +9,48 @@ feature: web_analytics
 url_prefix: /web
 ui_apps: {}
 tools:
+    heatmaps-events-retrieve:
+        operation: heatmaps_events_retrieve
+        enabled: false
+    heatmaps-list:
+        operation: heatmaps_list
+        enabled: false
+    saved-create:
+        operation: saved_create
+        enabled: false
+    saved-destroy:
+        operation: saved_destroy
+        enabled: false
+    saved-list:
+        operation: saved_list
+        enabled: false
+    saved-partial-update:
+        operation: saved_partial_update
+        enabled: false
+    saved-regenerate-create:
+        operation: saved_regenerate_create
+        enabled: false
+    saved-retrieve:
+        operation: saved_retrieve
+        enabled: false
+    web-analytics-filter-presets-create:
+        operation: web_analytics_filter_presets_create
+        enabled: false
+    web-analytics-filter-presets-destroy:
+        operation: web_analytics_filter_presets_destroy
+        enabled: false
+    web-analytics-filter-presets-list:
+        operation: web_analytics_filter_presets_list
+        enabled: false
+    web-analytics-filter-presets-partial-update:
+        operation: web_analytics_filter_presets_partial_update
+        enabled: false
+    web-analytics-filter-presets-retrieve:
+        operation: web_analytics_filter_presets_retrieve
+        enabled: false
+    web-analytics-filter-presets-update:
+        operation: web_analytics_filter_presets_update
+        enabled: false
     web-analytics-weekly-digest:
         operation: web_analytics_weekly_digest
         enabled: true

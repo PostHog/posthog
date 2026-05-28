@@ -314,6 +314,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
+        setEditingInsightName,
+        setEditingInsightDescription,
     } = useActions(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -408,6 +410,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 noBorder
                 noPadding
                 {...titleSectionProps}
+                {...(editingInsight && {
+                    onNameChange: setEditingInsightName,
+                    onDescriptionChange: setEditingInsightDescription,
+                    canEdit: true,
+                    forceEdit: true,
+                    descriptionMaxLength: 400,
+                })}
                 maxToolProps={{
                     identifier: 'execute_sql',
                     context: getExecuteSqlToolContext(queryInput, sourceQuery),

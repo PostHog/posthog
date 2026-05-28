@@ -12,10 +12,11 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 import pydantic
+import posthoganalytics
 
 from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
-from posthog.constants import AvailableFeature
+from posthog.constants import ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
@@ -67,7 +68,7 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=100)
     target_value = models.TextField()
@@ -84,7 +85,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
@@ -109,7 +110,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 5
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(
@@ -307,6 +308,28 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:
         return organization.is_feature_available(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+
+    @classmethod
+    def every_15_minutes_interval_validation_error(
+        cls,
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        user_distinct_id: str,
+        organization: Organization,
+    ) -> str | None:
+        if calculation_interval != AlertCalculationInterval.EVERY_15_MINUTES:
+            return None
+        if not posthoganalytics.feature_enabled(
+            ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY,
+            user_distinct_id,
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+            only_evaluate_locally=False,
+        ):
+            return "15-minute alert intervals are not available for your organization yet."
+        if not cls.supports_high_frequency_intervals(organization):
+            return "15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on."
+        return None
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

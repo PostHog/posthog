@@ -31,15 +31,25 @@ def get_ph_client() -> PostHogClient:
     return PostHogClient("sTMFPsFhdP1Ssg", sync_mode=True)
 
 
-# AI events dynamically generated from AIEventType enum
 AI_EVENTS = [event.value for event in AIEventType]
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 
-# Events that should make a team eligible for an LLM analytics usage report.
-# Keep this list broader than AI_EVENTS when a non-AI event should still trigger reporting.
 LLM_ANALYTICS_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
 
-# ClickHouse query settings for LLM Analytics queries
+# Restricted to customer-emitted events that produce data downstream LLM analytics workflows can act on:
+# excludes server-side artifacts like summaries, reports, and clusters, and prompt-management events that
+# don't generate traces.
+LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS: list[str] = [
+    AIEventType.FIELD_AI_GENERATION.value,
+    AIEventType.FIELD_AI_EMBEDDING.value,
+    AIEventType.FIELD_AI_SPAN.value,
+    AIEventType.FIELD_AI_TRACE.value,
+    AIEventType.FIELD_AI_METRIC.value,
+    AIEventType.FIELD_AI_FEEDBACK.value,
+    AIEventType.FIELD_AI_EVALUATION.value,
+]
+
+# ClickHouse query settings for AI observability queries
 CH_LLM_ANALYTICS_SETTINGS = {
     "max_execution_time": 5 * 60,  # 5 minutes
 }
@@ -216,9 +226,13 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
+def get_teams_with_ai_events(
+    begin: datetime,
+    end: datetime,
+    trigger_events: list[str],
+) -> list[int]:
     """
-    Get all team_ids that have at least one LLM analytics report trigger event in the period.
+    Get all team_ids that have at least one AI observability trigger event in the period.
 
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
@@ -236,13 +250,13 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
         feature=Feature.QUERY,
         kind="celery",
         id=CELERY_TASK_ID,
-        name="Get teams with LLM analytics trigger events",
+        name="Get teams with AI observability trigger events",
         workload=Workload.OFFLINE.value,
     ):
         results = sync_execute(
             query,
             {
-                "llm_analytics_report_trigger_events": LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
+                "llm_analytics_report_trigger_events": trigger_events,
                 "begin": begin,
                 "end": end,
             },
@@ -644,10 +658,10 @@ def _get_all_llm_analytics_reports(
     period_end: datetime,
 ) -> dict[str, dict[str, Any]]:
     """
-    Gather all LLM Analytics usage data for all organizations.
+    Gather all AI observability usage data for all organizations.
 
     This function has been optimized to use a small number of queries instead of 44+:
-    - 1 query to get team_ids with LLM analytics trigger events
+    - 1 query to get team_ids with AI observability trigger events
     - 1 combined query for all metrics (event counts, costs, tokens)
     - 1 query for LLM prompt fetched counts
     - 1 combined query for all dimension breakdowns (using Maps)
@@ -655,16 +669,16 @@ def _get_all_llm_analytics_reports(
     Returns:
         dict mapping organization_id to usage data
     """
-    logger.info("Querying LLM Analytics usage data")
+    logger.info("Querying AI observability usage data")
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
-    team_ids = get_teams_with_ai_events(period_start, period_end)
+    team_ids = get_teams_with_ai_events(period_start, period_end, LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
 
     if not team_ids:
-        logger.info("No teams with LLM analytics trigger events found")
+        logger.info("No teams with AI observability trigger events found")
         return {}
 
-    logger.info(f"Found {len(team_ids)} teams with LLM analytics trigger events")
+    logger.info(f"Found {len(team_ids)} teams with AI observability trigger events")
 
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
@@ -818,7 +832,7 @@ def _get_all_llm_analytics_reports(
                     report["cost_model_provider_breakdown"].get(value, 0) + count
                 )
 
-    logger.info(f"Generated LLM Analytics reports for {len(org_reports)} organizations")
+    logger.info(f"Generated AI observability reports for {len(org_reports)} organizations")
     return org_reports
 
 
@@ -830,7 +844,7 @@ def capture_llm_analytics_report(
     at_date: str | None = None,
 ) -> None:
     """
-    Capture LLM Analytics usage report event for a specific organization.
+    Capture AI observability usage report event for a specific organization.
 
     Args:
         organization_id: The organization ID
@@ -850,10 +864,10 @@ def capture_llm_analytics_report(
             properties=report_dict,
             timestamp=at_date,
         )
-        logger.info(f"Captured LLM Analytics usage report for organization {organization_id}")
+        logger.info(f"Captured AI observability usage report for organization {organization_id}")
     except Exception as err:
         logger.exception(
-            f"LLM Analytics usage report sent to PostHog for organization {organization_id} failed: {str(err)}",
+            f"AI observability usage report sent to PostHog for organization {organization_id} failed: {str(err)}",
         )
 
         try:
@@ -877,7 +891,7 @@ def send_llm_analytics_usage_reports(
     organization_ids: list[str] | None = None,
 ) -> None:
     """
-    Main task to send LLM Analytics usage reports for all organizations.
+    Main task to send AI observability usage reports for all organizations.
 
     Args:
         dry_run: If True, don't actually send reports
@@ -892,7 +906,7 @@ def send_llm_analytics_usage_reports(
     )
 
     if are_usage_reports_disabled:
-        posthoganalytics.capture_exception(Exception(f"LLM Analytics usage reports are disabled for {at}"))
+        posthoganalytics.capture_exception(Exception(f"AI observability usage reports are disabled for {at}"))
         return
 
     at_date = parser.parse(at) if at else None
@@ -901,12 +915,12 @@ def send_llm_analytics_usage_reports(
 
     if organization_ids:
         logger.info(
-            "Sending LLM Analytics usage reports for specific organizations",
+            "Sending AI observability usage reports for specific organizations",
             org_count=len(organization_ids),
             organization_ids=organization_ids,
         )
 
-    logger.info("Gathering LLM Analytics usage data")
+    logger.info("Gathering AI observability usage data")
     query_time_start = datetime.now(UTC)
 
     org_reports = _get_all_llm_analytics_reports(period_start, period_end)
@@ -918,14 +932,14 @@ def send_llm_analytics_usage_reports(
         missing_orgs = set(organization_ids) - set(org_reports.keys())
 
         logger.info(
-            f"Filtered LLM Analytics org reports from {original_count} to {filtered_count} organizations",
+            f"Filtered AI observability org reports from {original_count} to {filtered_count} organizations",
             requested_org_count=len(organization_ids),
             found_org_count=filtered_count,
             missing_orgs=missing_orgs or None,
         )
 
     query_time_duration = (datetime.now(UTC) - query_time_start).total_seconds()
-    logger.info(f"Found {len(org_reports)} LLM Analytics org reports. It took {query_time_duration} seconds.")
+    logger.info(f"Found {len(org_reports)} AI observability org reports. It took {query_time_duration} seconds.")
 
     if dry_run:
         logger.info("Dry run - not sending reports")
@@ -934,7 +948,7 @@ def send_llm_analytics_usage_reports(
     total_orgs = len(org_reports)
     total_orgs_sent = 0
 
-    logger.info("Sending LLM Analytics usage reports")
+    logger.info("Sending AI observability usage reports")
 
     at_date_str = at_date.isoformat() if at_date else None
 
@@ -948,11 +962,11 @@ def send_llm_analytics_usage_reports(
             total_orgs_sent += 1
 
         except Exception as err:
-            logger.exception(f"Failed to queue LLM Analytics report for organization {org_id}: {err}")
+            logger.exception(f"Failed to queue AI observability report for organization {org_id}: {err}")
             capture_exception(err)
 
     logger.info(
-        f"Queued {total_orgs_sent}/{total_orgs} LLM Analytics usage reports",
+        f"Queued {total_orgs_sent}/{total_orgs} AI observability usage reports",
         total_orgs=total_orgs,
         total_orgs_sent=total_orgs_sent,
         region=get_instance_region(),

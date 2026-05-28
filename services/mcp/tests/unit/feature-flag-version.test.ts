@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockIsFeatureEnabled = vi.fn()
+const mockGetAllFlags = vi.fn()
 vi.mock('posthog-node', () => ({
     PostHog: vi.fn().mockImplementation(() => ({
         isFeatureEnabled: mockIsFeatureEnabled,
+        getAllFlags: mockGetAllFlags,
     })),
 }))
 
@@ -68,24 +70,30 @@ describe('evaluateFeatureFlags', () => {
         vi.clearAllMocks()
     })
 
-    it('should evaluate multiple flags and forward groups on each call', async () => {
-        mockIsFeatureEnabled.mockImplementation((flagKey: string) => Promise.resolve(flagKey === 'flag-on'))
+    it('should evaluate multiple flags via getAllFlags and forward groups', async () => {
+        mockGetAllFlags.mockResolvedValue({ 'flag-on': true, 'flag-off': false, unrelated: true })
 
         const result = await evaluateFeatureFlags(['flag-on', 'flag-off'], 'user-123', { organization: 'org-abc' })
 
         expect(result).toEqual({ 'flag-on': true, 'flag-off': false })
-        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-on', 'user-123', {
+        expect(mockGetAllFlags).toHaveBeenCalledWith('user-123', {
+            flagKeys: ['flag-on', 'flag-off'],
             groups: { organization: 'org-abc' },
         })
-        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-off', 'user-123', {
-            groups: { organization: 'org-abc' },
-        })
+    })
+
+    it('should omit groups when not provided', async () => {
+        mockGetAllFlags.mockResolvedValue({ 'flag-a': true })
+
+        await evaluateFeatureFlags(['flag-a'], 'user-123')
+
+        expect(mockGetAllFlags).toHaveBeenCalledWith('user-123', { flagKeys: ['flag-a'] })
     })
 
     it('should short-circuit when no flag keys are requested', async () => {
         const result = await evaluateFeatureFlags([], 'user-123', { organization: 'org-abc' })
 
         expect(result).toEqual({})
-        expect(mockIsFeatureEnabled).not.toHaveBeenCalled()
+        expect(mockGetAllFlags).not.toHaveBeenCalled()
     })
 })

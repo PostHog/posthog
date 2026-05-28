@@ -75,8 +75,13 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.deployments.backend.apps.DeploymentsConfig",
+    "products.web_analytics.backend.apps.WebAnalyticsConfig",
+    "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
+    "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
+    "products.product_analytics.backend.apps.ProductAnalyticsConfig",
+    "products.wizard.backend.apps.WizardConfig",
 ]
 
 INSTALLED_APPS = [
@@ -368,7 +373,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
+    "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "posthog.api.documentation.PostHogAutoSchema",
     # These rate limits are defined in `rate_limit.py`, and they're only
@@ -445,7 +450,7 @@ SPECTACULAR_SETTINGS = {
         "ConversationStatus": "ee.models.assistant.Conversation.Status",
         "ConversationType": "ee.models.assistant.Conversation.Type",
         "DetailModeEnum": "products.llm_analytics.backend.summarization.models.SummarizationMode",
-        "SavedQueryStatusEnum": "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
+        "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
         "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
         "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
@@ -459,12 +464,14 @@ SPECTACULAR_SETTINGS = {
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
-        "LensModelEnum": "products.replay_vision.backend.models.replay_lens.LensModel",
-        "LensTypeEnum": "products.replay_vision.backend.models.replay_lens.LensType",
-        "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
+        "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
+        "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
+        "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+        "BatchExportRunStatusEnum": "posthog.batch_exports.models.BatchExportRun.Status",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -497,6 +504,7 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],

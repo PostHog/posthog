@@ -455,7 +455,7 @@ export interface AlertApi {
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
-    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+    /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
   * `every_15_minutes` - every_15_minutes
   * `hourly` - hourly
@@ -534,7 +534,7 @@ export interface PatchedAlertApi {
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
-    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+    /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
   * `every_15_minutes` - every_15_minutes
   * `hourly` - hourly

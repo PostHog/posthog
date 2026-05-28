@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
@@ -40,8 +41,10 @@ export function copySnappyWASMFile(absWorkingDir) {
 }
 
 export function copyRRWebWorkerFiles(absWorkingDir) {
+    // Mirror rrweb's image-bitmap worker sourcemap (shipped from posthog-js) into our dist/
+    // so the sourceMappingURL baked into our bundled rrweb resolves under collectstatic.
     try {
-        const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/@posthog/rrweb/dist')
+        const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/posthog-js/dist')
         const distDir = path.resolve(absWorkingDir, 'dist')
         const files = fse.readdirSync(rrwebSourceDir)
         const mapFiles = files.filter((f) => f.startsWith('image-bitmap-data-url-worker-') && f.endsWith('.js.map'))
@@ -51,12 +54,6 @@ export function copyRRWebWorkerFiles(absWorkingDir) {
     } catch (error) {
         console.warn('Could not copy rrweb map files:', error.message)
     }
-}
-
-/** Update the file's modified and accessed times to now. */
-async function touchFile(file) {
-    const now = new Date()
-    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -214,12 +211,18 @@ export const commonConfig = {
         },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
-                const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
-                const { css } = await postcss(plugins).process(source, { from: filePath })
-                return css
+                const result = await postcss(plugins).process(source, { from: filePath })
+                // Tailwind reports each scanned source file as a PostCSS `dependency` message.
+                // Surface them as esbuild watchFiles so editing a TSX file re-runs this
+                // transform on tailwind.css in watch mode.
+                const watchFiles = result.messages
+                    .filter((message) => message.type === 'dependency' && message.file)
+                    .map((message) => message.file)
+                return { contents: result.css, loader: 'css', watchFiles }
             },
         }),
         lessLoader({ javascriptEnabled: true }),
@@ -431,8 +434,25 @@ function getBuiltEntryPoints(config, result) {
 
 let buildsInProgress = 0
 
+// Serialize the heavy full-app bundles (PostHog App, Exporter). All esbuild contexts in a
+// process multiplex over one Go service, so concurrent heavy rebuilds keep both build graphs
+// resident at once — the summed peak is what OOM-kills the Docker builder. Each heavy build
+// disposes its context before releasing the lock (see runBuild), so the next heavy build reuses
+// the freed memory instead of stacking on top of it. Dev is unaffected: it keeps contexts alive
+// for incremental watch rebuilds and isn't memory-constrained.
+let heavyBuildChain = Promise.resolve()
+function runExclusiveHeavy(fn) {
+    const result = heavyBuildChain.then(fn)
+    heavyBuildChain = result.then(
+        () => {},
+        () => {}
+    )
+    return result
+}
+
 export async function buildOrWatch(config) {
-    const { absWorkingDir, name, onBuildStart, onBuildComplete, writeMetaFile, extraPlugins, ..._config } = config
+    const { absWorkingDir, name, heavy, onBuildStart, onBuildComplete, writeMetaFile, extraPlugins, ..._config } =
+        config
 
     let buildPromise = null
     let buildAgain = false
@@ -504,12 +524,26 @@ export async function buildOrWatch(config) {
         buildCount++
         const time = new Date()
         log({ name })
+
+        // In production each build runs once then the process exits, so free the build graph
+        // as soon as it's done instead of letting all contexts pile up until process.exit.
+        // Dev keeps the context for incremental rebuilds. For heavy builds this dispose happens
+        // inside the serialization lock, so the next heavy build starts with this one freed.
+        async function rebuildAndRelease() {
+            const result = await esbuildContext.rebuild()
+            if (!isDev) {
+                await esbuildContext.dispose()
+                esbuildContext = null
+            }
+            return result
+        }
+
         try {
-            const buildResult = await esbuildContext.rebuild()
+            const buildResult = heavy && !isDev ? await runExclusiveHeavy(rebuildAndRelease) : await rebuildAndRelease()
 
             if (writeMetaFile) {
                 await fs.writeFile(
-                    `${config.name.toLowerCase().replace(' ', '-')}-esbuild-meta.json`,
+                    `${config.name.toLowerCase().replace(/ /g, '-')}-esbuild-meta.json`,
                     JSON.stringify(buildResult.metafile)
                 )
             }
@@ -556,11 +590,6 @@ export async function buildOrWatch(config) {
                 }
 
                 if (inputFiles.has(filePath)) {
-                    if (filePath.match(/\.tsx?$/)) {
-                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
-                        // in case any new utility classes are used. `touch`ing `base.scss` (or the file that imports tailwind.css) achieves this.
-                        await touchFile(path.resolve(absWorkingDir, '../common/tailwind/tailwind.css'))
-                    }
                     void debouncedBuild()
                 }
             })

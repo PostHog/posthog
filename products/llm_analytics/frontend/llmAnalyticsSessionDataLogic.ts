@@ -17,6 +17,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { SessionTurn, extractSessionTurns } from './extractSessionTurns'
+import { llmAnalyticsSummarizationBatchCheckCreate } from './generated/api'
 import type { llmAnalyticsSessionDataLogicType } from './llmAnalyticsSessionDataLogicType'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { restoreTree } from './llmAnalyticsTraceDataLogic'
@@ -27,6 +29,13 @@ export interface TraceSummary {
     loading: boolean
     error: string | null
 }
+
+// Eager-load the first N traces on mount; later turns render a "Show conversation"
+// button. Picking first N and not first and last N, because cross-trace dedup walks
+// chronologically and accumulates `seenSignatures`; any gap in loaded turns would
+// let the later turns' running history show as "new" content.
+// Most sessions have less than 10 turns, a proper fix later is a bulk query.
+const AUTO_LOAD_LIMIT = 10
 
 export interface SessionDataLogicProps {
     sessionId: string
@@ -71,7 +80,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     })),
 
     actions({
-        toggleTraceExpanded: (traceId: string) => ({ traceId }),
+        // Steps panel = the per-turn `LLMAnalyticsTraceEvents` tree shown via the
+        // "Show steps" link. Distinct from "trace loaded" because the conversation
+        // bubbles render as soon as the full trace is fetched, regardless of steps state.
+        toggleSteps: (traceId: string) => ({ traceId }),
         toggleGenerationExpanded: (generationId: string) => ({ generationId }),
         loadFullTrace: (traceId: string) => ({ traceId }),
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
@@ -86,10 +98,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     }),
 
     reducers({
-        expandedTraceIds: [
+        stepsExpandedTraceIds: [
             new Set<string>() as Set<string>,
             {
-                toggleTraceExpanded: (state, { traceId }) => {
+                toggleSteps: (state, { traceId }) => {
                     const newSet = new Set(state)
                     if (newSet.has(traceId)) {
                         newSet.delete(traceId)
@@ -180,6 +192,11 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return [...(tracesResponse?.results || [])].reverse()
             },
         ],
+        sessionTurns: [
+            (s) => [s.traces, s.fullTraces],
+            (traces: LLMTrace[], fullTraces: Record<string, LLMTrace>): SessionTurn[] =>
+                extractSessionTurns(traces, fullTraces),
+        ],
         summariesLoading: [
             (s) => [s.traceSummaries],
             (traceSummaries: Record<string, TraceSummary>): boolean =>
@@ -187,48 +204,54 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        loadCachedSummaries: async ({ traceIds }) => {
-            if (traceIds.length === 0) {
-                return
-            }
+    listeners(({ actions, values }) => {
+        // Closure-scoped in-flight lock for `loadFullTrace`. Mirrors the pattern used
+        // by sibling lazy loaders in this product (llmPersonsLazyLoaderLogic,
+        // llmSentimentLazyLoaderLogic, traceReviewsLazyLoaderLogic, etc.). We can't
+        // rely on `values.loadingFullTraces` for this guard because kea reducers run
+        // synchronously *before* listeners — so the reducer has already added this
+        // traceId by the time the listener checks. The closure-scoped Set lets the
+        // listener distinguish "this dispatch's reducer just added the id" from
+        // "a prior dispatch is still mid-flight".
+        const inFlightTraceFetches = new Set<string>()
 
-            if (!values.dataProcessingAccepted) {
-                return
-            }
-
-            const teamId = values.currentTeamId
-            if (!teamId) {
-                return
-            }
-
-            try {
-                // nosemgrep: prefer-codegen-api
-                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/batch_check/`, {
-                    trace_ids: traceIds,
-                    mode: 'minimal',
-                })
-
-                if (data.summaries && data.summaries.length > 0) {
-                    actions.loadCachedSummariesSuccess(data.summaries)
+        return {
+            loadCachedSummaries: async ({ traceIds }) => {
+                if (traceIds.length === 0) {
+                    return
                 }
-            } catch {
-                // Silently fail - this is just a cache optimization
-            }
-        },
-        toggleTraceExpanded: async ({ traceId }) => {
-            if (
-                values.expandedTraceIds.has(traceId) &&
-                !values.fullTraces[traceId] &&
-                !values.loadingFullTraces.has(traceId)
-            ) {
-                actions.loadFullTrace(traceId)
 
+                if (!values.dataProcessingAccepted) {
+                    return
+                }
+
+                const teamId = values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+
+                try {
+                    const data = await llmAnalyticsSummarizationBatchCheckCreate(String(teamId), {
+                        trace_ids: traceIds,
+                        mode: 'minimal',
+                    })
+
+                    if (data.summaries && data.summaries.length > 0) {
+                        actions.loadCachedSummariesSuccess(data.summaries)
+                    }
+                } catch {
+                    // Silently fail - this is just a cache optimization
+                }
+            },
+            loadFullTrace: async ({ traceId }) => {
+                if (values.fullTraces[traceId] || inFlightTraceFetches.has(traceId)) {
+                    return
+                }
+                inFlightTraceFetches.add(traceId)
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
                 }
-
                 try {
                     const response = await api.query(traceQuery)
                     if (response.results && response.results[0]) {
@@ -239,70 +262,79 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 } catch (error) {
                     console.error('Error loading full trace:', error)
                     actions.loadFullTraceFailure(traceId)
+                } finally {
+                    inFlightTraceFetches.delete(traceId)
                 }
-            }
-        },
-        summarizeAllTraces: async () => {
-            if (!values.dataProcessingAccepted) {
-                return
-            }
-
-            const hasSummaries = Object.keys(values.traceSummaries).length > 0
-            const traces = values.traces
-            for (const trace of traces) {
-                actions.summarizeTrace(trace.id, hasSummaries)
-            }
-        },
-        summarizeTrace: async ({ traceId, forceRefresh }) => {
-            const teamId = values.currentTeamId
-            if (!teamId) {
-                actions.summarizeTraceFailure(traceId, 'Team ID not available')
-                return
-            }
-
-            try {
-                // First fetch the full trace with all events (session query only has direct children)
-                let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
-                if (!fullTrace) {
-                    const traceQuery: TraceQuery = {
-                        kind: NodeKind.TraceQuery,
-                        traceId,
-                    }
-                    const traceResponse = await api.query(traceQuery)
-                    if (traceResponse.results && traceResponse.results[0]) {
-                        fullTrace = traceResponse.results[0]
-                    } else {
-                        throw new Error('Failed to load full trace')
-                    }
+            },
+            summarizeAllTraces: async () => {
+                if (!values.dataProcessingAccepted) {
+                    return
                 }
 
-                // Build the hierarchy tree from full trace events
-                const hierarchy = restoreTree(fullTrace.events || [], traceId)
+                const hasSummaries = Object.keys(values.traceSummaries).length > 0
+                const traces = values.traces
+                for (const trace of traces) {
+                    actions.summarizeTrace(trace.id, hasSummaries)
+                }
+            },
+            summarizeTrace: async ({ traceId, forceRefresh }) => {
+                const teamId = values.currentTeamId
+                if (!teamId) {
+                    actions.summarizeTraceFailure(traceId, 'Team ID not available')
+                    return
+                }
 
-                // nosemgrep: prefer-codegen-api
-                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, {
-                    summarize_type: 'trace',
-                    mode: 'minimal',
-                    force_refresh: forceRefresh,
-                    data: {
-                        trace: fullTrace,
-                        hierarchy,
-                    },
-                })
+                try {
+                    // First fetch the full trace with all events (session query only has direct children)
+                    let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
+                    if (!fullTrace) {
+                        const traceQuery: TraceQuery = {
+                            kind: NodeKind.TraceQuery,
+                            traceId,
+                        }
+                        const traceResponse = await api.query(traceQuery)
+                        if (traceResponse.results && traceResponse.results[0]) {
+                            fullTrace = traceResponse.results[0]
+                        } else {
+                            throw new Error('Failed to load full trace')
+                        }
+                    }
 
-                actions.summarizeTraceSuccess(traceId, data.summary?.title || 'Untitled trace')
-            } catch (error) {
-                actions.summarizeTraceFailure(traceId, error instanceof Error ? error.message : 'Unknown error')
-            }
-        },
-    })),
+                    // Build the hierarchy tree from full trace events
+                    const hierarchy = restoreTree(fullTrace.events || [], traceId)
+
+                    // nosemgrep: prefer-codegen-api
+                    const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, {
+                        summarize_type: 'trace',
+                        mode: 'minimal',
+                        force_refresh: forceRefresh,
+                        data: {
+                            trace: fullTrace,
+                            hierarchy,
+                        },
+                    })
+
+                    actions.summarizeTraceSuccess(traceId, data.summary?.title || 'Untitled trace')
+                } catch (error) {
+                    actions.summarizeTraceFailure(traceId, error instanceof Error ? error.message : 'Unknown error')
+                }
+            },
+        }
+    }),
 
     subscriptions(({ actions, values }) => ({
         traces: (traces: LLMTrace[]) => {
-            // Load cached summaries when traces are loaded
-            if (traces.length > 0 && Object.keys(values.traceSummaries).length === 0) {
-                const traceIds = traces.map((t) => t.id)
-                actions.loadCachedSummaries(traceIds)
+            if (traces.length === 0) {
+                return
+            }
+            // Cache lookup for existing trace summaries
+            if (Object.keys(values.traceSummaries).length === 0) {
+                actions.loadCachedSummaries(traces.map((t) => t.id))
+            }
+            for (const trace of traces.slice(0, AUTO_LOAD_LIMIT)) {
+                if (!values.fullTraces[trace.id] && !values.loadingFullTraces.has(trace.id)) {
+                    actions.loadFullTrace(trace.id)
+                }
             }
         },
     })),

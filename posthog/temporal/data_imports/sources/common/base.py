@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourc
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     SourceConfig,
@@ -110,6 +110,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
+
+    def get_endpoint_permissions(self, config: ConfigType, team_id: int, endpoints: list[str]) -> dict[str, str | None]:
+        """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
+        return dict.fromkeys(endpoints)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""

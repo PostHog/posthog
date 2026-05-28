@@ -71,7 +71,7 @@ _CDC_ACTIVITY_PATCHES = [
     "posthog.temporal.data_imports.cdc.activities.CDCExtractActivity._get_cdc_schemas",
     "posthog.temporal.data_imports.cdc.activities.get_cdc_adapter",
     "posthog.temporal.data_imports.cdc.activities.S3BatchWriter",
-    "posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer",
+    "posthog.temporal.data_imports.cdc.activities.PostgresProducer",
     "posthog.temporal.data_imports.cdc.activities.activity",
 ]
 
@@ -186,7 +186,7 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
 
 
 class TestFlushDeferredRuns:
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_sends_kafka_messages_for_deferred_runs(self, MockProducer):
         mock_producer = MagicMock()
         MockProducer.return_value = mock_producer
@@ -221,7 +221,7 @@ class TestFlushDeferredRuns:
         assert schema.sync_type_config["cdc_deferred_runs"] == []
         schema.save.assert_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_no_op_when_no_deferred_runs(self, MockProducer):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -232,7 +232,7 @@ class TestFlushDeferredRuns:
         MockProducer.assert_not_called()
         schema.save.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_multiple_deferred_runs(self, MockProducer):
         mock_producer = MagicMock()
         MockProducer.return_value = mock_producer
@@ -271,7 +271,7 @@ class TestCDCExtractActivity:
     """Integration tests for cdc_extract_activity with mocked external deps."""
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -321,7 +321,7 @@ class TestCDCExtractActivity:
         mock_reader.close.assert_called_once()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -368,7 +368,7 @@ class TestCDCExtractActivity:
             assert "status" not in call.kwargs.get("update_fields", [])
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -485,7 +485,7 @@ class TestCDCExtractActivity:
         mock_get_adapter.assert_not_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -567,7 +567,7 @@ class TestCDCExtractActivity:
         mock_reader.close.assert_called_once()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -619,7 +619,7 @@ class TestCDCExtractActivity:
         mock_reader.confirm_position.assert_not_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -706,7 +706,7 @@ class TestCDCExtractActivity:
 
     @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -755,7 +755,7 @@ class TestCDCExtractActivity:
         assert "cdc_last_log_position" not in schema.sync_type_config
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -810,7 +810,7 @@ class TestCDCExtractActivity:
 
     @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -858,7 +858,7 @@ class TestCDCExtractActivity:
         assert schema.sync_type_config.get("cdc_last_log_position") is None
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -925,7 +925,7 @@ class TestCDCExtractActivity:
         assert resource_names == {"users", "users_cdc"}
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -981,7 +981,7 @@ class TestCDCExtractActivity:
 
     @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -1043,7 +1043,7 @@ class TestCDCExtractActivity:
         assert send_calls[1].kwargs["is_final_batch"] is True
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.KafkaBatchProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")

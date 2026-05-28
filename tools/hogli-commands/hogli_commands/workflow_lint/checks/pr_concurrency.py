@@ -1,4 +1,4 @@
-"""PR-triggered ``ci-*.yml`` workflows must declare a safe top-level ``concurrency:`` block.
+"""PR-triggered ``ci-*.yml`` workflows must declare concurrency control.
 
 Without it, every push to a PR branch starts a fresh run while the in-flight
 one keeps burning minutes. The repo convention (used by 30+ workflows):
@@ -6,6 +6,10 @@ one keeps burning minutes. The repo convention (used by 30+ workflows):
     concurrency:
         group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
         cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+Alternatively, workflows may use job-level concurrency on every job instead of
+a top-level block. This is useful when different jobs need different concurrency
+strategies (e.g. some jobs are per-SHA while others are per-branch).
 
 Using ``github.run_id`` as the fallback looks similar but disables dedup for
 push events because every run gets a unique group.
@@ -28,7 +32,7 @@ BAD_FALLBACK = re.compile(r"head_ref\s*\|\|\s*github\.run_id")
 class PrConcurrencyCheck(WorkflowCheck):
     id = "WF002-pr-concurrency"
     label = "PR concurrency"
-    description = "PR-triggered ci-*.yml workflows declare safe top-level concurrency"
+    description = "PR-triggered ci-*.yml workflows declare safe concurrency (top-level or per-job)"
 
     # Workflows intentionally exempt from concurrency cancellation. Each entry has
     # a one-line reason so the next reader knows why.
@@ -40,16 +44,20 @@ class PrConcurrencyCheck(WorkflowCheck):
             "ci-backend-update-test-timing.yml",
             # Migration enforcement; arguably wants to complete on every PR state.
             "ci-migrations-service-separation-check.yml",
+            # Shared concurrency group on master causes intermediate runs to be cancelled.
+            "ci-security.yaml",
         }
     )
 
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Add this block after `on:`:\n"
+            "Either add a top-level block after `on:`:\n"
             "concurrency:\n"
             "    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}\n"
             "    cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
+            "\n"
+            "Or add a `concurrency:` block to every job in the workflow.\n"
             "\n"
             "Do not use `github.run_id` as the fallback; it creates a unique concurrency group per push run.\n"
             "\n"
@@ -81,14 +89,28 @@ class PrConcurrencyCheck(WorkflowCheck):
                 continue
             if wf.concurrency is not None:
                 continue
+            # Accept job-level concurrency as an alternative — the workflow
+            # intentionally manages concurrency per-job instead of top-level.
+            if _has_job_level_concurrency(wf):
+                continue
             result.issues.append(
                 Issue(
                     workflow=wf.path.name,
-                    message="missing top-level concurrency block",
+                    message="missing top-level concurrency block (or per-job concurrency on all jobs)",
                     file=str(wf.path),
                 )
             )
         return result
+
+
+def _has_job_level_concurrency(wf: Workflow) -> bool:
+    """Return True if at least one job in the workflow declares its own concurrency block.
+
+    This indicates the workflow intentionally manages concurrency at the job level
+    rather than using a single top-level block (e.g. because different jobs need
+    different strategies).
+    """
+    return any("concurrency" in job.raw for job in wf.jobs)
 
 
 def _concurrency_group_expr(concurrency: dict | str | None) -> str:

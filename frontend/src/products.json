@@ -65,7 +65,7 @@
         },
         {
             "path": "Error tracking",
-            "category": "Behavior",
+            "category": "App monitoring",
             "iconType": null,
             "type": "error_tracking",
             "intents": ["error_tracking"]
@@ -128,7 +128,7 @@
             "intents": ["llm_evaluations"]
         },
         {
-            "path": "Tags",
+            "path": "Taggers",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_tags",
@@ -148,7 +148,7 @@
             "type": "llm_skills",
             "intents": ["llm_prompts"]
         },
-        { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
+        { "path": "Logs", "category": "App monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
             "category": "Analytics",
@@ -209,7 +209,13 @@
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
-        { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
+        {
+            "path": "Tracing",
+            "category": "App monitoring",
+            "iconType": "tracing",
+            "type": null,
+            "intents": ["tracing"]
+        },
         {
             "path": "User research",
             "category": "Unreleased",
@@ -250,6 +256,13 @@
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
             "type": "hog_function/transformation",
+            "intents": []
+        },
+        {
+            "path": "Event ingestion filtering",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "event_filter",
             "intents": []
         },
         {

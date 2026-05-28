@@ -5,8 +5,10 @@ All subprocess interactions with the Coder CLI are isolated here.
 
 from __future__ import annotations
 
+import io
 import os
 import re
+import csv
 import sys
 import json
 import shlex
@@ -601,6 +603,24 @@ def ensure_coder_reachable() -> None:
     _fail(body)
 
 
+def _encode_ssh_option(value: str) -> str:
+    """Encode one value for ``coder config-ssh --ssh-option``.
+
+    The flag is a cobra ``StringSlice``, which runs each value through Go's
+    ``encoding/csv``. Bare ``"`` in a non-quoted field crashes the parser
+    (``parse error: bare " in non-quoted-field``), so SSH options containing
+    quotes -- like ``IdentityAgent "/path with spaces"`` -- need to arrive
+    CSV-encoded. ``csv.QUOTE_MINIMAL`` only wraps fields that actually need
+    it, so plain options like ``ForwardAgent yes`` pass through unchanged.
+
+    coder CSV-decodes the value before writing ``~/.ssh/config``, so the
+    file ends up with the literal SSH form we constructed here.
+    """
+    buf = io.StringIO()
+    csv.writer(buf, quoting=csv.QUOTE_MINIMAL).writerow([value])
+    return buf.getvalue().rstrip("\r\n")
+
+
 def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path.
 
@@ -610,14 +630,20 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
     ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
     SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
+
+    The socket path needs to land double-quoted in ``~/.ssh/config`` because
+    1Password's macOS agent lives under ``~/Library/Group Containers/...`` --
+    an unquoted space makes ``ssh`` reject the config with "extra arguments
+    at end of line." See ``_encode_ssh_option`` for how that survives coder's
+    CSV-parsing flag layer.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
-    args += ["--ssh-option", "ForwardAgent yes"]
+    args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
-        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
+        args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
     return args
 
 
@@ -818,16 +844,12 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
     click.echo()
-    click.echo("To reconfigure later:")
-    click.echo("  hogli devbox:setup --configure-git-identity")
-    click.echo("  hogli devbox:setup --configure-git-signing")
-    click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude  (manage CLAUDE_CODE_OAUTH_TOKEN as a Coder user secret)")
+    click.echo("Reconfigure one setting:  hogli devbox:setup --configure-<option>")
+    click.echo("Show saved configuration: hogli devbox:config:show")
+    click.echo("Clear saved settings:     hogli devbox:config:rm --help")
     click.echo()
-    click.echo("To manage other workspace secrets (GH_TOKEN, AWS creds, etc):")
-    click.echo("  hogli devbox:secret:list")
-    click.echo("  hogli devbox:secret:set NAME")
-    click.echo("  hogli devbox:secret:rm NAME")
+    click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -1195,9 +1217,63 @@ def user_secret_exists(name: str) -> bool:
     return any(isinstance(s, dict) and s.get("name") == name for s in secrets)
 
 
+def _ssh_host_alias(name: str) -> str:
+    """Return the ``Host`` alias written by ``coder config-ssh`` for the given workspace."""
+    return f"coder.{name}"
+
+
 def ssh_replace(name: str) -> None:
-    """SSH into a workspace and replace the current process."""
-    _run_or_exit(["coder", "ssh", name])
+    """SSH via the ``coder.*`` host alias so ``~/.ssh/config`` applies.
+
+    Calling ``coder ssh`` directly bypasses the user's ssh config, breaking
+    ``IdentityAgent`` forwarding (Secretive, 1Password) used for commit signing.
+    The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
+    the Coder tunnel via its ``ProxyCommand``.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
+
+
+def exec_replace(name: str, command: list[str]) -> None:
+    """Run a single command in the workspace over the ssh host alias, replacing the process.
+
+    Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
+    for two reasons:
+
+    1. ``coder ssh`` does not propagate the remote command's exit code -- it
+       prints ``Process exited with status N`` to stderr but exits 0 itself,
+       so callers and agents can't tell success from failure. Real ssh
+       forwards the exit code faithfully.
+    2. The ``Host coder.*`` block applies the user's ssh config (IdentityAgent
+       forwarding), same as :func:`ssh_replace`.
+
+    ``command`` tokens are shell-quoted into one string so the remote login
+    shell preserves argument boundaries -- ssh otherwise space-joins argv,
+    which would split a token like ``"uname -sm"`` back into two.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def coder_ssh_alias_configured(name: str) -> bool:
+    """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
+
+    :func:`exec_replace` and :func:`ssh_replace` connect through the
+    ``Host coder.*`` block that ``coder config-ssh`` writes during
+    ``devbox:setup``. When that block is absent, ``ssh coder.<name>`` fails with
+    an opaque ``Could not resolve hostname``; callers check this first so they
+    can point at setup instead. The block is a wildcard, so any ``name`` probes
+    it. Returns ``False`` if ``ssh`` is missing or errors.
+    """
+    try:
+        result = subprocess.run(["ssh", "-G", _ssh_host_alias(name)], capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        if line.startswith("proxycommand "):
+            value = line[len("proxycommand ") :].strip()
+            return bool(value) and value.lower() != "none"
+    return False
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
@@ -1240,19 +1316,6 @@ def create_task(
     _run_or_exit(args)
 
 
-def run_in_workspace(
-    name: str, command: list[str], *, capture_output: bool = False
-) -> subprocess.CompletedProcess[str]:
-    """Run a command in the workspace via `coder ssh`."""
-    args = ["coder", "ssh", name, "--", *command]
-    return _run(args, capture_output=capture_output)
-
-
-def replace_with_workspace_command(name: str, command: list[str]) -> None:
-    """Run a workspace command and replace the current process."""
-    _run_or_exit(["coder", "ssh", name, "--", *command])
-
-
 def open_in_browser(name: str) -> None:
     """Open the workspace dashboard in the default browser."""
     username = get_username()
@@ -1269,8 +1332,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    ssh_host = f"coder.{name}"
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{ssh_host}", "/home/coder/posthog"])
+    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:

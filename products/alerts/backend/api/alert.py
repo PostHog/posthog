@@ -22,12 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import extend_schema_field
-from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.models import Insight, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -39,6 +38,22 @@ from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.api.insight import InsightBasicSerializer
+from products.product_analytics.backend.models.insight import Insight
+
+
+def _validate_every_15_minutes_interval(
+    *,
+    calculation_interval: str | AlertCalculationInterval | None,
+    request,
+    organization,
+) -> None:
+    if error := AlertConfiguration.every_15_minutes_interval_validation_error(
+        calculation_interval=calculation_interval,
+        user_distinct_id=str(request.user.distinct_id),
+        organization=organization,
+    ):
+        raise ValidationError({"calculation_interval": [error]})
 
 
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
@@ -211,7 +226,7 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -524,6 +539,13 @@ class AlertSerializer(serializers.ModelSerializer):
             validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         except ValueError as e:
             raise ValidationError(str(e))
+
+        organization = self.context["get_organization"]()
+        _validate_every_15_minutes_interval(
+            calculation_interval=calculation_interval,
+            request=self.context["request"],
+            organization=organization,
+        )
 
         # Investigation agent is only supported for detector-based alerts.
         investigation_enabled = attrs.get(

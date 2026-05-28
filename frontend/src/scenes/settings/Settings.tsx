@@ -362,25 +362,27 @@ export function Settings({
                     className={clsx(
                         'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
-                            ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
-                            : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                            ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
+                            : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
                     {navContent}
                 </div>
             )}
 
-            <AuthenticationAreaComponent>
-                <div
-                    className={clsx(
-                        'flex-1 w-full min-w-0 space-y-2 self-start pb-32',
-                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
-                    )}
-                >
-                    {headerSlot}
-                    <SettingsRenderer {...props} handleLocally={handleLocally} />
-                </div>
-            </AuthenticationAreaComponent>
+            <div
+                className={clsx(
+                    'flex-1 w-full min-w-0 self-start pb-32',
+                    isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
+                )}
+            >
+                <AuthenticationAreaComponent>
+                    <div className="space-y-2">
+                        {headerSlot}
+                        <SettingsRenderer {...props} handleLocally={handleLocally} />
+                    </div>
+                </AuthenticationAreaComponent>
+            </div>
         </div>
     )
 }

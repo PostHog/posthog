@@ -174,7 +174,7 @@ describe('llmPromptLogic', () => {
         logic.actions.setPrompt(mockPrompt)
 
         const url = logic.values.viewAllTracesUrl
-        expect(url).toContain('/llm-analytics/traces?')
+        expect(url).toContain('/ai-observability/traces?')
 
         const parsedUrl = new URL(url, 'https://posthog.test')
         const decodedFilter = JSON.parse(parsedUrl.searchParams.get('filters') || '[]')
