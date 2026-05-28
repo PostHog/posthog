@@ -1587,7 +1587,7 @@ export namespace Schemas {
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
-      /** Narrow first-time / first-ever retention queries with a `person_id GLOBAL IN (cheap inner subquery)` predicate that keeps only actors whose first qualifying start event falls in the cohort date range. Opt-in; only applied when start and return entities are identical. */
+      /** Narrow first-time / first-ever retention queries with a `person_id GLOBAL IN (cheap inner subquery)` predicate that keeps only actors whose first qualifying start event falls in the cohort date range. Three-state: `true` forces on, `false` is a kill switch, unset falls back to a static gate that enables narrowing when the retention window is small relative to team age. */
       retentionFirstTimeNarrowingPath?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
