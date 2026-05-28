@@ -280,22 +280,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'mcp-servers',
-        title: 'MCP servers',
-        group: 'AI',
-        flag: 'MCP_SERVERS',
-        settings: [
-            {
-                id: 'mcp-servers-manage',
-                title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Code agents.',
-                component: <McpStoreSettings />,
-                keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-max',
         title: 'PostHog AI',
         group: 'AI',
@@ -321,6 +305,20 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-posthog-code',
+        title: 'PostHog Code',
+        group: 'AI',
+        flag: 'TASKS',
+        settings: [
+            {
+                id: 'integration-posthog-code-slack',
+                title: 'Slack integration',
+                component: <PostHogCodeSlackIntegration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'posthog-mcp',
         title: 'PostHog MCP',
         group: 'AI',
@@ -333,6 +331,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/model-context-protocol',
                 component: <MCPServerSettings />,
                 keywords: ['ai', 'llm', 'claude', 'cursor', 'copilot'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-servers',
+        title: 'MCP servers',
+        group: 'AI',
+        flag: 'MCP_SERVERS',
+        settings: [
+            {
+                id: 'mcp-servers-manage',
+                title: 'MCP servers',
+                description: 'Install and manage MCP servers for your PostHog AI and PostHog Code agents.',
+                component: <McpStoreSettings />,
+                keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
         ],
     },
@@ -1376,19 +1390,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog Cloud uses static IP addresses for outbound traffic. Add these to your firewall allowlist if needed.',
                 component: <IPAllowListInfo />,
                 keywords: ['whitelist', 'firewall', 'allowlist', 'cidr', 'ip'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-posthog-code',
-        title: 'PostHog Code',
-        flag: 'TASKS',
-        settings: [
-            {
-                id: 'integration-posthog-code-slack',
-                title: 'Slack integration',
-                component: <PostHogCodeSlackIntegration />,
             },
         ],
     },
