@@ -19,6 +19,31 @@ import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 20
 
+// Columns aliased into the `context.columns.X` namespace are present in the response
+// (so the table cell renderers can reach `id` / `external_id` via the row tuple) but
+// hidden from the visible columns via QueryContextColumn.hidden = true.
+export const ACCOUNTS_HOGQL_SELECT: string[] = [
+    'id AS `context.columns.id`',
+    'name',
+    'external_id AS `context.columns.external_id`',
+    'accounts.tags.names AS tag_names',
+    'accounts.notebooks.count AS notebook_count',
+    'csm',
+    'account_executive',
+    'account_owner',
+]
+
+export const ACCOUNTS_HOGQL_COLUMN_NAMES: string[] = [
+    'context.columns.id',
+    'name',
+    'context.columns.external_id',
+    'tag_names',
+    'notebook_count',
+    'csm',
+    'account_executive',
+    'account_owner',
+]
+
 export type RoleFilterValue = number | null
 
 export type AccountsView = 'endpoint' | 'hogql'
@@ -211,7 +236,7 @@ export const accountsLogic = kea<accountsLogicType>([
             ): DataTableNode => {
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
-                    select: ['id', 'name', 'external_id', 'created_at', 'properties'],
+                    select: ACCOUNTS_HOGQL_SELECT,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
                 }
                 const trimmed = searchQuery.trim()
