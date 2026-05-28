@@ -25,7 +25,6 @@ class MonitorOutput(MonitorLlmResponse, frozen=True):
 
 class MonitorScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.MONITOR] = ScannerType.MONITOR
-    prompt: str
     prompt_template: ClassVar[str] = "monitor.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = MonitorOutput

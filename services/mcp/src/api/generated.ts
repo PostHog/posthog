@@ -23606,7 +23606,6 @@ export namespace Schemas {
     * `classifier` - Classifier
     * `scorer` - Scorer
     * `summarizer` - Summarizer
-    * `indexer` - Indexer
      */
     export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
 
@@ -23616,7 +23615,6 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
-      Indexer: 'indexer',
     } as const;
 
     /**
@@ -23647,13 +23645,12 @@ export namespace Schemas {
     export interface ScannerSnapshot {
       /** Scanner name at run time. */
       name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
+      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
@@ -23746,15 +23743,14 @@ export namespace Schemas {
       name: string;
       /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -30101,15 +30097,14 @@ export namespace Schemas {
       name?: string;
       /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -42116,13 +42111,12 @@ export namespace Schemas {
      */
     order_by?: string[];
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
+     * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
     * `monitor` - Monitor
     * `classifier` - Classifier
     * `scorer` - Scorer
     * `summarizer` - Summarizer
-    * `indexer` - Indexer
      */
     scanner_type?: VisionScannersListScannerType;
     };
@@ -42132,7 +42126,6 @@ export namespace Schemas {
 
     export const VisionScannersListScannerType = {
       Classifier: 'classifier',
-      Indexer: 'indexer',
       Monitor: 'monitor',
       Scorer: 'scorer',
       Summarizer: 'summarizer',

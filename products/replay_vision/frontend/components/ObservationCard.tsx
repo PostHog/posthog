@@ -202,7 +202,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    // Indexer / unknown fallback.
+    // Unknown / generic fallback (also covers summarizers that emit facets alongside title/summary).
     const summary = typeof result.summary === 'string' ? result.summary : null
     const userType = typeof result.user_type === 'string' ? result.user_type : null
     const outcome = typeof result.outcome === 'string' ? result.outcome : null

@@ -41,10 +41,9 @@ describe('replayScannerLogic', () => {
     describe('setScannerType', () => {
         it.each([
             { type: 'monitor' as const, expectedConfig: { prompt: '' } },
-            { type: 'summarizer' as const, expectedConfig: { prompt: '', length: 'medium' } },
+            { type: 'summarizer' as const, expectedConfig: { prompt: '', length: 'medium', emits_embeddings: false } },
             { type: 'classifier' as const, expectedConfig: { prompt: '', tags: [], multi_label: true } },
             { type: 'scorer' as const, expectedConfig: { prompt: '', scale: { min: 0, max: 10 } } },
-            { type: 'indexer' as const, expectedConfig: { prompt: '' } },
         ])(
             'switching to $type replaces scanner_config with the default for that type',
             async ({ type, expectedConfig }) => {
@@ -57,7 +56,9 @@ describe('replayScannerLogic', () => {
         it('does not preserve old prompt across type changes', async () => {
             logic.actions.setScannerValues({ scanner_config: { prompt: 'Was there a refund?' } })
             await expectLogic(logic, () => logic.actions.setScannerType('summarizer')).toMatchValues({
-                scanner: expect.objectContaining({ scanner_config: { prompt: '', length: 'medium' } }),
+                scanner: expect.objectContaining({
+                    scanner_config: { prompt: '', length: 'medium', emits_embeddings: false },
+                }),
             })
         })
     })
