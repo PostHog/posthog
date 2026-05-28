@@ -1,8 +1,7 @@
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from rest_framework.exceptions import PermissionDenied
-
-from posthog.test.base import BaseTest
 
 from posthog.rbac.user_access_control import UserAccessControl
 

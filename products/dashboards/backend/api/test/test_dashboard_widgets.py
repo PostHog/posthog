@@ -1,7 +1,6 @@
-from unittest.mock import ANY, patch
-
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, patch
 
 from django.test import override_settings
 
@@ -10,9 +9,9 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from posthog.rbac.user_access_control import UserAccessControl
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -24,9 +23,7 @@ class TestDashboardWidgets(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self._widgets_flag_patchers = [
-            patch(target, return_value=True) for target in self._WIDGETS_FLAG_PATCH_TARGETS
-        ]
+        self._widgets_flag_patchers = [patch(target, return_value=True) for target in self._WIDGETS_FLAG_PATCH_TARGETS]
         for patcher in self._widgets_flag_patchers:
             patcher.start()
 
@@ -292,13 +289,9 @@ class TestDashboardWidgets(APIBaseTest):
             team_id=self.team.id, scope="DashboardWidget", activity="created"
         ).count()
 
-        self.dashboard_api.create_dashboard(
-            {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True}
-        )
+        self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True})
 
-        duplicate_logs = ActivityLog.objects.filter(
-            team_id=self.team.id, scope="DashboardWidget", activity="created"
-        )
+        duplicate_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget", activity="created")
         assert duplicate_logs.count() == create_count + 1
 
     @override_settings(IN_UNIT_TESTING=True)

@@ -9,7 +9,11 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import check_widget_tile_product_access
-from products.dashboards.backend.widget_registry import get_widget_registry_entry, normalize_widget_type, validate_widget_config
+from products.dashboards.backend.widget_registry import (
+    get_widget_registry_entry,
+    normalize_widget_type,
+    validate_widget_config,
+)
 
 
 def prepare_widget_tile_create(
