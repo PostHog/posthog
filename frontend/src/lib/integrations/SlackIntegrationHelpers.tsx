@@ -86,8 +86,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelsBySearch, clearSlackChannelsBySearch } =
-        useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelsBySearch } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
@@ -134,9 +135,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onInputChange={(val) => {
                     const trimmed = val.trim()
                     if (!trimmed) {
-                        // Drop stale search results when the input is cleared, otherwise the dropdown
-                        // would keep surfacing matches from the previous query.
-                        clearSlackChannelsBySearch()
+                        // Dispatching the loader with an empty search cancels any in-flight
+                        // non-empty call via the loader breakpoint counter and resets state to [].
+                        loadSlackChannelsBySearch('')
                         setLocalValue(null)
                         return
                     }

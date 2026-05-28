@@ -23,7 +23,6 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
         loadSlackChannelsBySearch: (search: string) => ({ search }),
-        clearSlackChannelsBySearch: true,
     }),
 
     loaders(({ props }) => ({
@@ -49,10 +48,13 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             [] as SlackChannelType[],
             {
                 loadSlackChannelsBySearch: async ({ search }, breakpoint) => {
-                    await breakpoint(300)
+                    // Handle empty *before* the debounce so dispatching loadSlackChannelsBySearch('')
+                    // both cancels any in-flight non-empty call (via the loader breakpoint counter)
+                    // and writes [] back into state immediately, with no 300 ms wait.
                     if (!search) {
                         return []
                     }
+                    await breakpoint(300)
                     const res = await api.integrations.slackChannelsBySearch(props.id, search)
                     // Discard stale responses — a faster later query may have already resolved.
                     breakpoint()
@@ -79,7 +81,6 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             [] as SlackChannelType[],
             {
                 loadSlackChannelsBySearchSuccess: (_, { slackChannelsBySearch }) => slackChannelsBySearch ?? [],
-                clearSlackChannelsBySearch: () => [],
             },
         ],
     }),
