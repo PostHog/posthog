@@ -1,9 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SlackChannelType } from '~/types'
@@ -20,17 +19,19 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     })),
     actions({
-        loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
+        loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
-        loadSlackChannelsBySearch: (search: string) => ({ search }),
     }),
 
     loaders(({ props }) => ({
         allSlackChannels: [
-            null as { channels: SlackChannelType[]; lastRefreshedAt: string } | null,
+            null as { channels: SlackChannelType[]; lastRefreshedAt: string; has_more?: boolean } | null,
             {
-                loadAllSlackChannels: async ({ forceRefresh }) => {
-                    return await api.integrations.slackChannels(props.id, forceRefresh)
+                loadAllSlackChannels: async ({ forceRefresh, search }, breakpoint) => {
+                    if (search) {
+                        await breakpoint(300)
+                    }
+                    return await api.integrations.slackChannels(props.id, forceRefresh, { search, limit: 200 })
                 },
             },
         ],
@@ -41,24 +42,6 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     await breakpoint(500)
                     const res = await api.integrations.slackChannelsById(props.id, channelId)
                     return res.channels[0] || null
-                },
-            },
-        ],
-        slackChannelsBySearch: [
-            [] as SlackChannelType[],
-            {
-                loadSlackChannelsBySearch: async ({ search }, breakpoint) => {
-                    // Handle empty *before* the debounce so dispatching loadSlackChannelsBySearch('')
-                    // both cancels any in-flight non-empty call (via the loader breakpoint counter)
-                    // and writes [] back into state immediately, with no 300 ms wait.
-                    if (!search) {
-                        return []
-                    }
-                    await breakpoint(300)
-                    const res = await api.integrations.slackChannelsBySearch(props.id, search)
-                    // Discard stale responses — a faster later query may have already resolved.
-                    breakpoint()
-                    return res.channels ?? []
                 },
             },
         ],
@@ -77,34 +60,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
             },
         ],
-        _fetchedSlackChannelsBySearch: [
-            [] as SlackChannelType[],
-            {
-                loadSlackChannelsBySearchSuccess: (_, { slackChannelsBySearch }) => slackChannelsBySearch ?? [],
-            },
-        ],
     }),
-
-    listeners(() => ({
-        loadSlackChannelsBySearchFailure: ({ error }) => {
-            // Surface failures so the picker doesn't masquerade them as an "install the app" empty state.
-            lemonToast.error(`Couldn't search Slack channels: ${error || 'unknown error'}`)
-        },
-    })),
 
     selectors({
         slackChannels: [
-            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById, s._fetchedSlackChannelsBySearch],
-            (_fetchedSlackChannels, _fetchedSlackChannelById, _fetchedSlackChannelsBySearch): SlackChannelType[] => {
+            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
+            (_fetchedSlackChannels, _fetchedSlackChannelById): SlackChannelType[] => {
                 const channels = [..._fetchedSlackChannels]
-                const seen = new Set(channels.map((x) => x.id))
-                for (const channel of _fetchedSlackChannelsBySearch) {
-                    if (!seen.has(channel.id)) {
-                        channels.push(channel)
-                        seen.add(channel.id)
-                    }
-                }
-                if (_fetchedSlackChannelById && !seen.has(_fetchedSlackChannelById.id)) {
+                if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
                     channels.push(_fetchedSlackChannelById)
                 }
                 return channels

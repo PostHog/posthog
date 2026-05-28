@@ -79,16 +79,14 @@ export type SlackChannelPickerProps = {
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
     const {
         slackChannels,
+        allSlackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
-        slackChannelsBySearchLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelsBySearch } = useActions(
-        slackIntegrationLogic({ id: integration.id })
-    )
+    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
@@ -135,24 +133,22 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onInputChange={(val) => {
                     const trimmed = val.trim()
                     if (!trimmed) {
-                        // Dispatching the loader with an empty search cancels any in-flight
-                        // non-empty call via the loader breakpoint counter and resets state to [].
-                        loadSlackChannelsBySearch('')
                         setLocalValue(null)
+                        loadAllSlackChannels()
                         return
                     }
                     setLocalValue(trimmed)
-                    // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still resolve
-                    // via the direct-lookup path instead of falling through to a name search that won't match.
+                    // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
+                    // resolve via the direct-lookup path instead of going through name search.
                     const idCandidate = trimmed.toUpperCase()
                     if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                         loadSlackChannelById(idCandidate)
                         return
                     }
                     // Skip 1-char prefixes — they cost a full backend scan and return mostly noise.
-                    // For shorter input we still dispatch with an empty string so any in-flight
-                    // search is cancelled and stale results don't survive a backspace to 1 char.
-                    loadSlackChannelsBySearch(trimmed.length >= 2 ? trimmed : '')
+                    // Anything shorter falls back to the full unfiltered list so stale matches
+                    // don't survive a backspace to 1 char.
+                    loadAllSlackChannels(false, trimmed.length >= 2 ? trimmed : '')
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
                 onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
@@ -166,9 +162,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
-                    // max-w keeps the popover from outgrowing its modal — the popover only sets
-                    // min-width to the input via matchWidth, not max-width, so an un-wrapped
-                    // empty-state would otherwise stretch the portaled popover past the modal edge.
+                    // max-w-sm keeps the empty-state wrapping inside the popover — the popover is
+                    // portaled and matchWidth only sets min-width, so an un-wrapped long message
+                    // would otherwise stretch the popover past the modal edge.
                     <p className="text-secondary italic p-1 max-w-sm">
                         No channels match your search. If you expected to see a channel here, make sure the PostHog
                         Slack app is installed in it.{' '}
@@ -188,8 +184,14 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                           ]
                         : [])
                 }
-                loading={allSlackChannelsLoading || slackChannelByIdLoading || slackChannelsBySearchLoading}
+                loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+
+            {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    Only the first 200 channels are shown — type to search for a specific channel.
+                </p>
+            ) : null}
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">
