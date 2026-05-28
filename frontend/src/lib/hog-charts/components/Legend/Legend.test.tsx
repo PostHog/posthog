@@ -9,16 +9,31 @@ const ITEMS: LegendItem[] = [
 ]
 
 function rowsOf(container: HTMLElement): HTMLElement[] {
-    return Array.from(container.firstChild!.childNodes) as HTMLElement[]
+    return Array.from(container.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-item"]'))
+}
+
+function swatchOf(row: HTMLElement): HTMLElement {
+    return row.querySelector<HTMLElement>('[aria-hidden="true"]')!
 }
 
 describe('Legend', () => {
     it('renders one row per item with the right label and swatch color', () => {
         const { container } = render(<Legend items={ITEMS} />)
-        const swatches = Array.from(container.querySelectorAll<HTMLElement>('[aria-hidden="true"]'))
-        expect(swatches.map((s) => s.style.backgroundColor).every(Boolean)).toBe(true)
-        expect(swatches).toHaveLength(ITEMS.length)
-        expect(rowsOf(container).map((r) => r.textContent)).toEqual(ITEMS.map((i) => i.label))
+        const rows = rowsOf(container)
+        expect(rows).toHaveLength(ITEMS.length)
+        expect(rows.map((r) => r.textContent)).toEqual(ITEMS.map((i) => i.label))
+        // rgb form because jsdom normalizes inline color values
+        expect(rows.map((r) => swatchOf(r).style.backgroundColor)).toEqual([
+            'rgb(34, 197, 94)',
+            'rgb(59, 130, 246)',
+            'rgb(249, 115, 22)',
+        ])
+    })
+
+    it('emits the intrinsic data-attr by default and each row exposes its key', () => {
+        const { container } = render(<Legend items={ITEMS} />)
+        expect(container.querySelector('[data-attr="hog-chart-legend"]')).not.toBeNull()
+        expect(rowsOf(container).map((r) => r.dataset.key)).toEqual(['new', 'returning', 'dormant'])
     })
 
     it('renders nothing when items is empty', () => {
@@ -49,11 +64,13 @@ describe('Legend', () => {
         expect(onClick).toHaveBeenCalledWith('returning')
     })
 
-    it('dims only rows whose key is in hiddenKeys', () => {
+    it.each([
+        ['new', false],
+        ['returning', true],
+        ['dormant', false],
+    ] as const)('hiddenKeys dims %s -> dimmed=%s', (key, dimmed) => {
         const { container } = render(<Legend items={ITEMS} hiddenKeys={['returning']} />)
-        const dimmedLabels = rowsOf(container)
-            .filter((row) => row.className.includes('opacity-40'))
-            .map((row) => row.textContent)
-        expect(dimmedLabels).toEqual(['Returning'])
+        const row = container.querySelector<HTMLElement>(`[data-key="${key}"]`)!
+        expect(row.className.includes('opacity-40')).toBe(dimmed)
     })
 })

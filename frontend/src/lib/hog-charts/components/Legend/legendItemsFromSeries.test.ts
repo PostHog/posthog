@@ -22,6 +22,27 @@ describe('legendItemsFromSeries', () => {
         ]
         const items = legendItemsFromSeries(series, THEME)
         expect(items.map((i) => i.key)).toEqual(['a', 'c'])
-        expect(items.find((i) => i.key === 'c')!.color).toBe('#ccc')
+        expect(items[1].color).toBe('#ccc')
+    })
+
+    it('drops overlay series by default (trendlines, moving averages)', () => {
+        const series: Series[] = [
+            { key: 'a', label: 'A', data: [] },
+            { key: 'a-trend', label: 'A (trend)', data: [], overlay: true },
+            { key: 'b', label: 'B', data: [] },
+            { key: 'b-ma', label: 'B (moving avg)', data: [], overlay: true },
+        ]
+        const items = legendItemsFromSeries(series, THEME)
+        expect(items.map((i) => i.key)).toEqual(['a', 'b'])
+        expect(items.map((i) => i.color)).toEqual(['#aaa', '#ccc'])
+    })
+
+    it('keeps overlay series when includeOverlay is true', () => {
+        const series: Series[] = [
+            { key: 'a', label: 'A', data: [] },
+            { key: 'a-trend', label: 'A (trend)', data: [], overlay: true },
+        ]
+        const items = legendItemsFromSeries(series, THEME, { includeOverlay: true })
+        expect(items.map((i) => i.key)).toEqual(['a', 'a-trend'])
     })
 })

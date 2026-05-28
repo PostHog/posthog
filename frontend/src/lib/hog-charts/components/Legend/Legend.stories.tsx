@@ -42,20 +42,19 @@ export const Vertical: Story = {
     ),
 }
 
+function InteractiveLegend(): JSX.Element {
+    const [hidden, setHidden] = useState<string[]>([])
+    const toggle = (key: string): void =>
+        setHidden((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+    return (
+        <div className="w-[480px]">
+            <Legend items={LIFECYCLE} hiddenKeys={hidden} onItemClick={toggle} />
+        </div>
+    )
+}
+
 export const Interactive: Story = {
-    render: () => {
-        function InteractiveLegend(): JSX.Element {
-            const [hidden, setHidden] = useState<string[]>([])
-            const toggle = (key: string): void =>
-                setHidden((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
-            return (
-                <div className="w-[480px]">
-                    <Legend items={LIFECYCLE} hiddenKeys={hidden} onItemClick={toggle} />
-                </div>
-            )
-        }
-        return <InteractiveLegend />
-    },
+    render: () => <InteractiveLegend />,
 }
 
 export const ManyItemsWraps: Story = {
