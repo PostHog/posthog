@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1185_fix_non_list_test_account_filters")]
+    dependencies = [("posthog", "1186_activitylog_ip_address")]
 
     operations = [
         migrations.AddField(
