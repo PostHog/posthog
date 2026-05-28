@@ -283,6 +283,7 @@ class LazyComputationTable(StrEnum):
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    RETENTION_ACTOR_EVENT_DAY = "retention_actor_event_day"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
