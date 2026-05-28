@@ -117,9 +117,6 @@ pub(crate) async fn flush<P: Producer>(
     metrics::counter!(FLUSH_TOTAL, "reason" => reason, "worker" => worker).increment(1);
     metrics::histogram!(FLUSH_TUPLES, "worker" => worker).record(snapshot.len() as f64);
 
-    // Distribution of per-tuple counts in this flush. avg (sum/count) near 1
-    // means the volume is unique-value cardinality; a higher avg means values
-    // are actually aggregating.
     for (_, count) in &snapshot {
         metrics::histogram!(FLUSH_TUPLE_COUNT, "worker" => worker).record(*count as f64);
     }
