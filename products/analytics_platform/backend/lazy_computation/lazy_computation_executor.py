@@ -669,6 +669,7 @@ class LazyComputationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], None] | None = None,
+        cache_key_hash: str | None = None,
     ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
@@ -683,6 +684,14 @@ class LazyComputationExecutor:
         Args:
             run_insert: Optional custom insert function. If not provided, uses the
                         default AST-based run_computation_insert with query_info.
+            cache_key_hash: Optional caller-side cache-key identifier emitted on
+                        the `lazy_computation.executed` log line so it can be
+                        joined against the originating product's query log line
+                        (e.g. `web_analytics_query`). Distinct from the internal
+                        `query_hash`: this is computed from the user-facing query
+                        schema rather than the post-build INSERT AST, so it stays
+                        stable across runner-code changes that don't alter the
+                        logical cache key.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -713,6 +722,7 @@ class LazyComputationExecutor:
             logger.info(
                 "lazy_computation.executed",
                 query_hash=query_hash,
+                cache_key_hash=cache_key_hash,
                 table=str(query_info.table),
                 outcome=outcome,
                 cache_state=cache_state,
@@ -940,6 +950,7 @@ def ensure_precomputed(
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
+    cache_key_hash: str | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1059,7 +1070,14 @@ def ensure_precomputed(
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
     executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
-    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
+    return executor.execute(
+        team,
+        query_info,
+        time_range_start,
+        time_range_end,
+        run_insert=_run_manual_insert,
+        cache_key_hash=cache_key_hash,
+    )
 
 
 def _build_manual_insert_sql(
