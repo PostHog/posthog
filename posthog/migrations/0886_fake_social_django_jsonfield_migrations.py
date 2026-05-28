@@ -71,7 +71,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0885_migrate_notebooks_models"),
         # Ensure social_django 0010 is applied before we mark 0011-0016
-        ("social_django", "0010_uid_db_index"),
     ]
 
     operations = [

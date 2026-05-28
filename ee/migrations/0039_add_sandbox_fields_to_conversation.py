@@ -5,6 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("ee", "0002_finalize_fks"),
         ("ee", "0038_alter_enterpriseeventdefinition_eventdefinition_ptr_and_more"),
     ]
 
