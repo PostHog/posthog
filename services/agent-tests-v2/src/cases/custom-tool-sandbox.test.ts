@@ -109,4 +109,56 @@ describe('custom tool sandbox: real e2e', () => {
         expect(parsed.token_header).toMatch(/^Bearer nonce_[a-f0-9]+$/)
         expect(parsed.token_header).not.toContain('topsecret')
     })
+
+    it('writes a sandbox-instance row that traces provisioning → ready → terminated', async () => {
+        c.setScript([fauxCallTool('echoer', { message: 'hi' }), fauxText('done')])
+        const { application, revision } = await c.deployAgent({
+            slug: 'tracked-agent',
+            spec: {
+                tools: [{ kind: 'custom', id: 'echoer', path: 'tools/echoer/' }],
+            },
+            files: {
+                'agent.md': 'echo agent',
+                'tools/echoer/source.ts': '// source',
+                'tools/echoer/compiled.js': ECHOER_COMPILED,
+                'tools/echoer/schema.json': JSON.stringify({ description: 'echoes', args: { type: 'object' } }),
+            },
+        })
+        const res = await request(c.ingress).post('/agents/tracked-agent/run').send({ message: 'fire' })
+        await c.drain()
+
+        // The runner inserts the row at acquire and updates it at release —
+        // by the time the session completes the row must be in `terminated`.
+        const rows = await c.pool.query<{
+            session_id: string
+            state: string
+            provider_kind: string
+            provider_sandbox_id: string
+            terminated_at: Date | null
+        }>(
+            `SELECT session_id::text, state, provider_kind, provider_sandbox_id, terminated_at
+             FROM agent_sandbox_instance_v2
+             WHERE application_id = $1 AND revision_id = $2
+             ORDER BY created_at ASC`,
+            [application.id, revision.id]
+        )
+        expect(rows.rowCount).toBe(1)
+        const row = rows.rows[0]
+        expect(row.session_id).toBe(res.body.session_id)
+        expect(row.state).toBe('terminated')
+        expect(row.provider_kind).toBe('in-process')
+        expect(row.provider_sandbox_id).toBe(res.body.session_id)
+        expect(row.terminated_at).not.toBeNull()
+    })
+
+    it('does NOT write a sandbox-instance row when the agent has no custom tools', async () => {
+        c.setScript([fauxText('hi back')])
+        const { application } = await c.deployAgent({ slug: 'no-tools', spec: {} })
+        await request(c.ingress).post('/agents/no-tools/run').send({ message: 'ping' })
+        await c.drain()
+        const rows = await c.pool.query(`SELECT 1 FROM agent_sandbox_instance_v2 WHERE application_id = $1`, [
+            application.id,
+        ])
+        expect(rows.rowCount).toBe(0)
+    })
 })

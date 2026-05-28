@@ -25,6 +25,7 @@ import {
     createLogger,
     LogSink,
     RevisionStore,
+    SandboxInstanceStore,
     SandboxPool,
     SecretBroker,
     SessionEventBus,
@@ -67,6 +68,13 @@ export interface WorkerDeps {
      * persistent store (ClickHouse via Kafka in prod).
      */
     logs?: LogSink
+    /**
+     * Optional durable sandbox-instance log. When present the worker
+     * writes a row at acquire and updates it at release / failure, so a
+     * sibling worker or the janitor can reap orphans after a crash.
+     * Production wires `PgSandboxInstanceStore`; tests can leave it out.
+     */
+    sandboxInstances?: SandboxInstanceStore
     /**
      * Max concurrent in-flight sessions per worker process. Default 8.
      * Tune against memory / sandbox-pool size / LLM rate limits.
@@ -146,6 +154,7 @@ export class Worker {
         const secrets = await this.deps.resolveSecrets(session)
         const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
         let sandbox = null
+        let sandboxInstanceId: string | null = null
         if (customTools.length > 0) {
             const loads = await Promise.all(
                 customTools.map(async (t) => ({
@@ -159,13 +168,38 @@ export class Worker {
                 }))
             )
             const nonces = this.deps.broker.mintSessionMap(session.id, secrets)
-            sandbox = await this.deps.sandboxes.acquireForSession({
-                sessionId: session.id,
-                teamId: session.team_id,
-                tools: loads,
-                nonces,
-                sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
-            })
+            // Insert a provisioning row BEFORE we ask the pool — if acquireForSession
+            // hangs / crashes we still have a row to reap.
+            if (this.deps.sandboxInstances) {
+                const created = await this.deps.sandboxInstances.create({
+                    team_id: session.team_id,
+                    application_id: session.application_id,
+                    revision_id: rev.id,
+                    session_id: session.id,
+                    provider_kind: this.deps.sandboxes.kind,
+                })
+                sandboxInstanceId = created.id
+            }
+            try {
+                sandbox = await this.deps.sandboxes.acquireForSession({
+                    sessionId: session.id,
+                    teamId: session.team_id,
+                    tools: loads,
+                    nonces,
+                    sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
+                })
+                if (sandboxInstanceId) {
+                    // In-process pool doesn't carry a provider-side id — use the
+                    // sandbox's sessionId so the row's `provider_sandbox_id` is
+                    // never empty.
+                    await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.sessionId)
+                }
+            } catch (err) {
+                if (sandboxInstanceId) {
+                    await this.deps.sandboxInstances!.markFailed(sandboxInstanceId, (err as Error).message)
+                }
+                throw err
+            }
         }
         const resolveModel = this.deps.resolveModel ?? resolveModelCached
         const model = resolveModel(rev.spec.model)
@@ -223,6 +257,9 @@ export class Worker {
         } finally {
             if (sandbox) {
                 await this.deps.sandboxes.release(session.id)
+                if (sandboxInstanceId && this.deps.sandboxInstances) {
+                    await this.deps.sandboxInstances.markTerminated(sandboxInstanceId).catch(() => undefined)
+                }
             }
             this.deps.broker.release(session.id)
         }

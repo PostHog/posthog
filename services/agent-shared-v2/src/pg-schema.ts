@@ -80,9 +80,36 @@ CREATE TABLE IF NOT EXISTS agent_user_v2 (
 
 CREATE UNIQUE INDEX IF NOT EXISTS agent_user_v2_unique_natural_key
     ON agent_user_v2 (application_id, principal_kind, principal_id);
+
+-- Durable lifecycle log for tool sandboxes. Every Docker container / Modal
+-- sandbox the runner creates leaves a row here so a sibling worker (or the
+-- janitor) can reap orphans after a crash. The Docker provider also has
+-- in-process labels + an age-based reaper; this layer is the multi-worker
+-- view of the same information.
+CREATE TABLE IF NOT EXISTS agent_sandbox_instance_v2 (
+    id                    UUID PRIMARY KEY,
+    team_id               INT NOT NULL,
+    application_id        UUID NOT NULL,
+    revision_id           UUID NOT NULL,
+    session_id            UUID,
+    provider_kind         TEXT NOT NULL,   -- 'in-process' | 'docker' | 'modal'
+    provider_sandbox_id   TEXT NOT NULL DEFAULT '',
+    state                 TEXT NOT NULL DEFAULT 'provisioning',
+    error_message         TEXT NOT NULL DEFAULT '',
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at          TIMESTAMPTZ,
+    terminated_at         TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS agent_sandbox_instance_v2_state_idx
+    ON agent_sandbox_instance_v2 (state, COALESCE(last_used_at, created_at));
+
+CREATE INDEX IF NOT EXISTS agent_sandbox_instance_v2_session_idx
+    ON agent_sandbox_instance_v2 (session_id) WHERE session_id IS NOT NULL;
 `
 
 export const DROP_SQL = `
+DROP TABLE IF EXISTS agent_sandbox_instance_v2 CASCADE;
 DROP TABLE IF EXISTS agent_user_v2 CASCADE;
 DROP TABLE IF EXISTS agent_session_v2 CASCADE;
 DROP TABLE IF EXISTS agent_revision_v2 CASCADE;

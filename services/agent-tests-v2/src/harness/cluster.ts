@@ -36,6 +36,7 @@ import {
     FsBundleStore,
     InProcessSandboxPool,
     PgRevisionStore,
+    PgSandboxInstanceStore,
     PgSessionQueue,
     SCHEMA_SQL,
     SecretBroker,
@@ -67,6 +68,7 @@ export interface Cluster {
     identities: IdentityStore
     logs: InMemoryLogSink
     sandboxes: InProcessSandboxPool
+    sandboxInstances: PgSandboxInstanceStore
     broker: SecretBroker
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
@@ -140,6 +142,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const identities: IdentityStore = new MemoryIdentityStore()
     const logs = new InMemoryLogSink()
     const sandboxes = new InProcessSandboxPool()
+    const sandboxInstances = new PgSandboxInstanceStore(pool)
     const broker = new SecretBroker()
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
@@ -164,6 +167,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         revisions,
         bundle,
         sandboxes,
+        sandboxInstances,
         pi: piClient,
         broker,
         bus,
@@ -200,6 +204,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bundleRoot,
         bus,
         identities,
+        sandboxInstances,
         logs,
         sandboxes,
         broker,

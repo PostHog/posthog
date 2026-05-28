@@ -13,6 +13,7 @@ import { Pool } from 'pg'
 import { PgSessionQueue } from './pg-queue'
 import { PgRevisionStore } from './pg-revision-store'
 import { DROP_SQL, SCHEMA_SQL } from './pg-schema'
+import { PgSandboxInstanceStore } from './sandbox-instance-store'
 import { AgentSpecSchema } from './spec'
 
 const TEST_DB_URL =
@@ -276,5 +277,42 @@ maybeDescribe('Postgres impls (real PG)', () => {
         r = await queue.reapStuckRunning(60_000, 2)
         expect(r).toEqual({ requeued: 0, poisoned: 1 })
         expect((await queue.get(id))!.state).toBe('failed')
+    })
+
+    it('PgSandboxInstanceStore round-trips create → markReady → markTerminated, and findStale picks up old rows', async () => {
+        if (!reachable) {
+            return
+        }
+        const store = new PgSandboxInstanceStore(pool)
+        const row = await store.create({
+            team_id: 1,
+            application_id: '44444444-4444-4444-4444-444444444444',
+            revision_id: '55555555-5555-5555-5555-555555555555',
+            session_id: '66666666-6666-6666-6666-666666666666',
+            provider_kind: 'docker',
+        })
+        expect(row.state).toBe('provisioning')
+
+        await store.markReady(row.id, 'container-xyz')
+        let after = await store.get(row.id)
+        expect(after!.state).toBe('ready')
+        expect(after!.provider_sandbox_id).toBe('container-xyz')
+
+        // Force last_used_at into the past so findStale picks it up.
+        await pool.query(
+            `UPDATE agent_sandbox_instance_v2 SET last_used_at = NOW() - interval '1 hour' WHERE id = $1`,
+            [row.id]
+        )
+        const stales = await store.findStale(60_000)
+        expect(stales).toHaveLength(1)
+        expect(stales[0].id).toBe(row.id)
+        expect(stales[0].provider_sandbox_id).toBe('container-xyz')
+
+        await store.markTerminated(row.id)
+        after = await store.get(row.id)
+        expect(after!.state).toBe('terminated')
+        expect(after!.terminated_at).not.toBeNull()
+        // findStale now ignores it — terminated is out of the alive set.
+        expect(await store.findStale(60_000)).toHaveLength(0)
     })
 })
