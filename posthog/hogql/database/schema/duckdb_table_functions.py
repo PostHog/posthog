@@ -9,6 +9,55 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import QueryError
 
+_DANGEROUS_TABLE_FUNCTION_NAMES: frozenset[str] = frozenset(
+    {
+        "read_text",
+        "read_blob",
+        "glob",
+        "read_csv",
+        "read_csv_auto",
+        "read_json",
+        "read_json_auto",
+        "read_json_objects",
+        "read_json_objects_auto",
+        "read_ndjson",
+        "read_ndjson_auto",
+        "read_ndjson_objects",
+        "read_parquet",
+        "parquet_scan",
+        "parquet_metadata",
+        "parquet_schema",
+        "parquet_file_metadata",
+        "parquet_kv_metadata",
+        "parquet_bloom_probe",
+        "read_xlsx",
+        "read_avro",
+        "iceberg_scan",
+        "iceberg_metadata",
+        "iceberg_snapshots",
+        "delta_scan",
+        "sqlite_scan",
+        "sqlite_attach",
+        "postgres_scan",
+        "postgres_scan_pushdown",
+        "postgres_attach",
+        "postgres_query",
+        "mysql_scan",
+        "mysql_query",
+    }
+)
+_DANGEROUS_TABLE_FUNCTION_PREFIXES = ("read_", "scan_")
+_DANGEROUS_TABLE_FUNCTION_SUFFIXES = ("_scan", "_attach", "_query")
+
+
+def is_dangerous_table_function(name: str) -> bool:
+    lowered = name.lower()
+    return (
+        lowered in _DANGEROUS_TABLE_FUNCTION_NAMES
+        or lowered.startswith(_DANGEROUS_TABLE_FUNCTION_PREFIXES)
+        or lowered.endswith(_DANGEROUS_TABLE_FUNCTION_SUFFIXES)
+    )
+
 
 class RangeTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     """DuckDB/Postgres range(start, stop, step) table function. Returns a single column of integers."""

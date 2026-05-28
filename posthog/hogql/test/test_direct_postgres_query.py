@@ -411,6 +411,41 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn(expected_sql_fragment, sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
+    @parameterized.expand(
+        [
+            ("read_text", "SELECT * FROM read_text('/etc/passwd')"),
+            ("read_csv", "SELECT * FROM read_csv('http://169.254.169.254/latest/meta-data')"),
+            ("glob", "SELECT * FROM glob('/etc/*')"),
+            ("postgres_query", "SELECT * FROM postgres_query('db', 'SELECT 1')"),
+        ]
+    )
+    def test_generate_sql_rejects_dangerous_table_function_even_if_cached_in_metadata(
+        self, function_name: str, query: str
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata={"available_table_functions": [function_name]},
+        )
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+
+        with self.assertRaises((QueryError, ExposedHogQLError)):
+            executor.generate_clickhouse_sql()
+
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
