@@ -51,12 +51,7 @@ export function IntegrationChoice({
     }, [value])
 
     useEffect(() => {
-        if (
-            !integrationsLoading &&
-            !value &&
-            integrationsOfKind?.length &&
-            !userClearedSelection.current
-        ) {
+        if (!integrationsLoading && !value && integrationsOfKind?.length && !userClearedSelection.current) {
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
