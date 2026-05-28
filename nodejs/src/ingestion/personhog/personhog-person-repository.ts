@@ -79,7 +79,7 @@ export class PersonHogPersonRepository implements PersonRepository {
             !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
         ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica, callerTag)
             )
         }
 
@@ -93,7 +93,7 @@ export class PersonHogPersonRepository implements PersonRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica, callerTag)
             )
         }
     }
@@ -109,7 +109,7 @@ export class PersonHogPersonRepository implements PersonRepository {
             !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
         ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica, callerTag)
             )
         }
 
@@ -123,7 +123,7 @@ export class PersonHogPersonRepository implements PersonRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica, callerTag)
             )
         }
     }

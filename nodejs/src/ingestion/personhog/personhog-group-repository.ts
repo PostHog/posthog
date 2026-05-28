@@ -67,7 +67,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     > {
         if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
             )
         }
 
@@ -81,7 +81,7 @@ export class PersonHogGroupRepository implements GroupRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
             )
         }
     }
@@ -92,7 +92,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
-                this.postgres.fetchGroupTypesByTeamIds(teamIds)
+                this.postgres.fetchGroupTypesByTeamIds(teamIds, callerTag)
             )
         }
 
@@ -106,7 +106,7 @@ export class PersonHogGroupRepository implements GroupRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
-                this.postgres.fetchGroupTypesByTeamIds(teamIds)
+                this.postgres.fetchGroupTypesByTeamIds(teamIds, callerTag)
             )
         }
     }
@@ -117,7 +117,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (!shouldUseGrpc(this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
-                this.postgres.fetchGroupTypesByProjectIds(projectIds)
+                this.postgres.fetchGroupTypesByProjectIds(projectIds, callerTag)
             )
         }
 
@@ -131,7 +131,7 @@ export class PersonHogGroupRepository implements GroupRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
-                this.postgres.fetchGroupTypesByProjectIds(projectIds)
+                this.postgres.fetchGroupTypesByProjectIds(projectIds, callerTag)
             )
         }
     }
