@@ -85,9 +85,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import check_widget_tile_product_access, get_widget_product_access_error
-from products.dashboards.backend.widget_catalog import (
-    get_widget_catalog_entries,
-)
+from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
     MAX_WIDGETS_BATCH_SIZE,

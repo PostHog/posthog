@@ -30,7 +30,8 @@ def get_widget_product_access_error(
         return None
 
     if not user_access_control.check_access_level_for_resource(
-        required_product_access, required_level  # type: ignore[arg-type]
+        required_product_access,
+        required_level,  # type: ignore[arg-type]
     ):
         return get_widget_product_access_denied_message(required_product_access)
     return None
