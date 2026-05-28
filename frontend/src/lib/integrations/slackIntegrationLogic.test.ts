@@ -152,4 +152,22 @@ describe('slackIntegrationLogic — channel search by name', () => {
         const engineering = logic.values.slackChannels.find((c) => c.id === 'C3')
         expect(engineering?.name).toBe('engineering')
     })
+
+    it('clearSlackChannelsBySearch drops stale search results from slackChannels', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSlackChannelsBySearch('eng')
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannels.map((c) => c.id)).toContain('C3')
+
+        await expectLogic(logic, () => {
+            logic.actions.clearSlackChannelsBySearch()
+        }).toFinishAllListeners()
+
+        // Search results are gone, only the initial page survives.
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1', 'C2'])
+    })
 })

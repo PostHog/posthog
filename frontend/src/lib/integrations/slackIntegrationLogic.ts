@@ -1,5 +1,7 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -22,6 +24,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
         loadSlackChannelsBySearch: (search: string) => ({ search }),
+        clearSlackChannelsBySearch: true,
     }),
 
     loaders(({ props }) => ({
@@ -52,6 +55,8 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                         return []
                     }
                     const res = await api.integrations.slackChannelsBySearch(props.id, search)
+                    // Discard stale responses — a faster later query may have already resolved.
+                    breakpoint()
                     return res.channels ?? []
                 },
             },
@@ -75,9 +80,17 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             [] as SlackChannelType[],
             {
                 loadSlackChannelsBySearchSuccess: (_, { slackChannelsBySearch }) => slackChannelsBySearch ?? [],
+                clearSlackChannelsBySearch: () => [],
             },
         ],
     }),
+
+    listeners(() => ({
+        loadSlackChannelsBySearchFailure: ({ error }) => {
+            // Surface failures so the picker doesn't masquerade them as an "install the app" empty state.
+            lemonToast.error(`Couldn't search Slack channels: ${error || 'unknown error'}`)
+        },
+    })),
 
     selectors({
         slackChannels: [
