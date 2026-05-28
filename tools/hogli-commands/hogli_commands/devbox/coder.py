@@ -49,12 +49,23 @@ JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 # us-east-1 default; eu-central-1 only becomes a valid option once the EU
 # infrastructure is live. The chosen value is immutable after creation, so it
 # is forwarded on `coder create` only -- never on update or the parameter sync.
-# Valid values match the template contract exactly (AWS region strings).
+# Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
 # Key of the workspace metadata item the template publishes the region back as.
 REGION_METADATA_KEY = "region"
+# Workspace-name suffix per region. us-east-1 is the historical default and
+# carries no suffix, so existing workspace names stay unchanged. Non-default
+# regions append `-{suffix}` at the end of the name so that a single user can
+# own one default workspace per region (`devbox-rauln` + `devbox-rauln-eu`)
+# without collision. Labels that conflict with a region suffix are rejected up
+# front -- see `_RESERVED_LABEL_SUFFIXES`.
+REGION_NAME_SUFFIXES: dict[str, str] = {
+    "us-east-1": "",
+    "eu-central-1": "eu",
+}
+_RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXES.values() if s)
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
@@ -946,18 +957,40 @@ def get_username() -> str:
     )
 
 
-def get_workspace_name(label: str | None = None) -> str:
-    """Derive workspace name from Coder username and optional label.
+def _validate_label(label: str) -> None:
+    """Reject labels that don't match the format or collide with a region suffix.
 
-    Returns ``devbox-{username}`` for the default workspace, or
-    ``devbox-{username}-{label}`` for a named workspace.
+    Region suffixes encode the workspace's region at the end of the name
+    (`devbox-rauln-eu`), so a label like `eu` or `foo-eu` would be
+    indistinguishable from a region-suffixed workspace once written to disk.
+    Rejecting at construction time is cheaper than parsing ambiguity later.
     """
-    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
-    if label is None:
-        return base
     if not _LABEL_RE.match(label):
         _fail(f"Invalid workspace label '{label}'. Use lowercase alphanumeric and hyphens.")
-    return f"{base}-{label}"
+    for reserved in _RESERVED_LABEL_SUFFIXES:
+        if label == reserved or label.endswith(f"-{reserved}"):
+            _fail(f"Label '{label}' conflicts with the '-{reserved}' region suffix. Pick a different label.")
+
+
+def _region_name_suffix(region: str) -> str:
+    """Return the workspace-name suffix for ``region`` (`''` for the default region)."""
+    return REGION_NAME_SUFFIXES.get(region, "")
+
+
+def get_workspace_name(label: str | None = None, *, region: str = DEFAULT_REGION) -> str:
+    """Derive workspace name from Coder username, optional label, and region.
+
+    The default region is suffix-free for backward compatibility:
+    ``devbox-{username}`` (default) or ``devbox-{username}-{label}`` (labeled).
+    Non-default regions append a region suffix at the end: ``devbox-{username}-eu``
+    or ``devbox-{username}-{label}-eu``.
+    """
+    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
+    suffix = _region_name_suffix(region)
+    if label is None:
+        return f"{base}-{suffix}" if suffix else base
+    _validate_label(label)
+    return f"{base}-{label}-{suffix}" if suffix else f"{base}-{label}"
 
 
 def get_default_workspace_prefix() -> str:
@@ -980,16 +1013,44 @@ def _list_workspaces() -> list[dict[str, Any]]:
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
-    """Extract the label suffix from a full workspace name.
+    """Extract the label portion of a full workspace name, stripping any region suffix.
 
-    Returns ``None`` for the default workspace (no label).
+    Returns ``None`` for the default workspace in any region (``devbox-{user}``
+    or ``devbox-{user}-eu``). A trailing region suffix is stripped before the
+    label is read so ``devbox-{user}-api-eu`` -> ``api`` and ``devbox-{user}-eu``
+    -> ``None``. Labels that collide with a region suffix are rejected at
+    construction time (see ``_validate_label``), so parsing is unambiguous.
     """
     prefix = get_default_workspace_prefix()
     if workspace_name == prefix:
         return None
-    if workspace_name.startswith(f"{prefix}-"):
-        return workspace_name[len(prefix) + 1 :]
-    return None
+    if not workspace_name.startswith(f"{prefix}-"):
+        return None
+    rest = workspace_name[len(prefix) + 1 :]
+    for reserved in _RESERVED_LABEL_SUFFIXES:
+        if rest == reserved:
+            return None
+        if rest.endswith(f"-{reserved}"):
+            rest = rest[: -len(reserved) - 1]
+            break
+    return rest or None
+
+
+def extract_workspace_region(workspace_name: str) -> str:
+    """Extract the region from a full workspace name's trailing suffix.
+
+    Falls back to ``DEFAULT_REGION`` for suffix-free names. Useful when
+    building defaults from a workspace name without round-tripping through
+    the Coder API for the published metadata.
+    """
+    prefix = get_default_workspace_prefix()
+    if not (workspace_name == prefix or workspace_name.startswith(f"{prefix}-")):
+        return DEFAULT_REGION
+    rest = workspace_name[len(prefix) :].lstrip("-")
+    for region, suffix in REGION_NAME_SUFFIXES.items():
+        if suffix and (rest == suffix or rest.endswith(f"-{suffix}")):
+            return region
+    return DEFAULT_REGION
 
 
 def list_user_workspaces() -> list[dict[str, Any]]:
@@ -1013,7 +1074,7 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
 
 
 def get_workspace_region(workspace: dict[str, Any]) -> str | None:
-    """Return the AWS region a workspace lives in, or ``None`` when unknown.
+    """Return the region a workspace lives in, or ``None`` when unknown.
 
     The template publishes the region as a ``coder_metadata`` item (key
     ``region``), which surfaces under ``latest_build.resources[].metadata[]``
@@ -1427,25 +1488,31 @@ def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
 # ---------------------------------------------------------------------------
 
 
-def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
+def resolve_shared_workspace_name(user: str, label: str | None = None, *, region: str = DEFAULT_REGION) -> str:
     """Build a workspace name for another user's workspace.
 
-    Returns ``devbox-{user}`` for the default workspace, or
-    ``devbox-{user}-{label}`` for a labeled workspace.
+    Mirrors :func:`get_workspace_name`: ``devbox-{user}`` for the default
+    workspace, ``devbox-{user}-{label}`` for a labeled one, with a region
+    suffix appended for non-default regions.
     """
     base = f"{_WORKSPACE_PREFIX}-{user}"
+    suffix = _region_name_suffix(region)
     if label is None:
-        return base
-    return f"{base}-{label}"
+        return f"{base}-{suffix}" if suffix else base
+    return f"{base}-{label}-{suffix}" if suffix else f"{base}-{label}"
 
 
-def parse_workspace_target(target: str) -> str:
+def parse_workspace_target(target: str, *, region: str = DEFAULT_REGION) -> str:
     """Parse a workspace target string into a full workspace name.
 
     Supports:
     - ``@user`` -> another user's default workspace
     - ``@user/label`` -> another user's labeled workspace
     - ``label`` -> current user's labeled workspace
+
+    ``region`` controls the region suffix applied to the resolved name. Pass
+    the saved preference from local config so labels target the same region
+    the caller's other commands use.
     """
     if target.startswith("@"):
         rest = target[1:]
@@ -1453,11 +1520,11 @@ def parse_workspace_target(target: str) -> str:
             user, label = rest.split("/", 1)
             if not user or not label:
                 raise click.UsageError("Expected @user/label but got an empty user or label.")
-            return resolve_shared_workspace_name(user, label)
+            return resolve_shared_workspace_name(user, label, region=region)
         if not rest:
             raise click.UsageError("Expected @user but got bare '@'.")
-        return resolve_shared_workspace_name(rest)
-    return get_workspace_name(target)
+        return resolve_shared_workspace_name(rest, region=region)
+    return get_workspace_name(target, region=region)
 
 
 def share_workspace(name: str, users: list[str], role: str = "use") -> None:

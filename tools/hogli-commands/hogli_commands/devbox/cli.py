@@ -89,9 +89,11 @@ from .config import (
     DevboxConfig,
     clear_dotfiles_uri,
     clear_git_identity,
+    clear_region,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
+    save_region,
 )
 
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
@@ -119,7 +121,9 @@ WORKSPACE_STATUS_COLORS = {
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
 
-def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, Any]] | None]:
+def resolve_workspace_name(
+    workspace: str | None, *, region: str | None = None
+) -> tuple[str, list[dict[str, Any]] | None]:
     """Resolve a workspace target into a full workspace name.
 
     Supports:
@@ -130,20 +134,27 @@ def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, A
 
     Returns (name, workspaces) where workspaces is the already-fetched list
     when available, so callers can skip a second ``_list_workspaces`` call.
+
+    ``region`` controls the region suffix applied to the resolved name.
+    Defaults to the user's saved preference so labels target the same region
+    the rest of the command surface defaults to; pass an explicit override
+    only when the caller already knows the region (e.g. ``devbox:start
+    --region``).
     """
+    effective_region = region if region is not None else _preferred_region()
     if workspace is not None:
-        return parse_workspace_target(workspace), None
+        return parse_workspace_target(workspace, region=effective_region), None
 
     workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
-        return get_workspace_name(), workspaces
+        return get_workspace_name(region=effective_region), workspaces
 
     if len(workspaces) == 1:
         return workspaces[0]["name"], workspaces
 
     # Multiple workspaces -- prefer default
-    default_name = get_workspace_name()
+    default_name = get_workspace_name(region=effective_region)
     for ws in workspaces:
         if ws.get("name") == default_name:
             return default_name, workspaces
@@ -500,6 +511,56 @@ def maybe_configure_git_signing(
     click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
 
 
+def _preferred_region() -> str:
+    """Return the saved preferred region, falling back to ``DEFAULT_REGION``.
+
+    Centralized so every command path that needs the user's region
+    preference reads the same value -- and so the fallback to the built-in
+    default lives in one place.
+    """
+    return load_config().get("region") or DEFAULT_REGION
+
+
+def maybe_configure_region(configure_region: bool | None) -> None:
+    """Optionally persist the preferred region for new devboxes.
+
+    The region is create-only on a workspace, so saving it locally just
+    pre-fills ``devbox:start --region`` and determines the default
+    workspace name (eu-central-1 boxes carry an ``-eu`` suffix). Existing
+    workspaces are untouched.
+    """
+    config = load_config()
+    existing_region = config.get("region")
+
+    if configure_region is False:
+        if not existing_region:
+            click.echo("Skipping region preference setup.")
+        return
+
+    if configure_region is None and existing_region:
+        return
+
+    click.echo()
+    click.echo(click.style("Preferred region", bold=True))
+    click.echo("  Choose which region new devboxes should land in.")
+    click.echo("  This is saved locally and used as the default for `hogli devbox:start`.")
+    if existing_region:
+        click.echo(f"  Current: {existing_region}")
+    click.echo()
+
+    default_region = existing_region or DEFAULT_REGION
+    region = click.prompt(
+        "Preferred region",
+        default=default_region,
+        type=click.Choice(REGIONS),
+        show_choices=True,
+        show_default=True,
+    ).strip()
+
+    save_region(region)
+    click.echo(f"Saved preferred region: {region}")
+
+
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     """Optionally persist a dotfiles repo URL for new workspaces."""
     config = load_config()
@@ -705,6 +766,16 @@ def _reset_git_identity() -> bool:
     return True
 
 
+def _reset_region() -> bool:
+    """Drop the saved region preference. Returns True iff something was cleared."""
+    if not load_config().get("region"):
+        click.echo("Nothing to clear: region preference was not set.")
+        return False
+    clear_region()
+    click.echo("Cleared saved region preference. New workspaces will use the built-in default.")
+    return True
+
+
 def _reset_dotfiles() -> bool:
     """Drop the saved dotfiles URI and push an empty parameter to existing workspaces.
 
@@ -734,6 +805,10 @@ def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
 
 def _dotfiles_status(config: DevboxConfig, _: set[str]) -> str | None:
     return config.get("dotfiles_uri")
+
+
+def _region_status(config: DevboxConfig, _: set[str]) -> str | None:
+    return config.get("region")
 
 
 def _secret_status(secret_name: str) -> Callable[[DevboxConfig, set[str]], str | None]:
@@ -774,6 +849,13 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=True,
         status=_secret_status(GIT_SIGNING_KEY_SECRET),
         reset=lambda: _reset_user_secret(GIT_SIGNING_KEY_SECRET),
+    ),
+    _ConfigItem(
+        cli_key="region",
+        label="Region",
+        needs_secrets=False,
+        status=_region_status,
+        reset=_reset_region,
     ),
     _ConfigItem(
         cli_key="dotfiles",
@@ -856,6 +938,7 @@ def _confirm_run_setup() -> bool:
     click.echo("  - Local SSH config for Coder hosts")
     click.echo("  - Git identity (name/email) for new workspaces")
     click.echo("  - Git commit signing key propagation")
+    click.echo("  - Preferred region for new workspaces (optional)")
     click.echo("  - Dotfiles repo for new workspaces (optional)")
     click.echo("  - Claude OAuth token as a Coder user secret (optional)")
     click.echo()
@@ -879,6 +962,11 @@ def _confirm_run_setup() -> bool:
     help="Propagate your local git signing key into Coder devboxes (reads git config user.signingkey)",
 )
 @click.option(
+    "--configure-region/--skip-configure-region",
+    default=None,
+    help="Prompt for the preferred region (us-east-1 or eu-central-1) for new devboxes",
+)
+@click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
     default=None,
     help="Prompt for a dotfiles repo URL for new Coder workspaces",
@@ -894,6 +982,7 @@ def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
     configure_git_signing: bool | None,
+    configure_region: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
     verbose: bool,
@@ -904,6 +993,7 @@ def devbox_setup(
             configure_ssh,
             configure_git_identity,
             configure_git_signing,
+            configure_region,
             configure_dotfiles,
             configure_claude_setup,
         ],
@@ -936,6 +1026,7 @@ def devbox_setup(
     )
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_git_signing(configure_git_signing, known_secret_names=secret_names)
+    maybe_configure_region(configure_region)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_secret(configure_claude_setup, known_secret_names=secret_names)
     print_setup_summary()
@@ -1102,9 +1193,11 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
 @click.option(
     "--region",
     type=click.Choice(REGIONS),
-    default=DEFAULT_REGION,
-    show_default=True,
-    help="AWS region to create the devbox in (set once at creation, cannot be changed later)",
+    default=None,
+    help=(
+        "Region to create the devbox in (set once at creation, cannot be changed later). "
+        "Defaults to the value saved by `devbox:setup --configure-region`, then us-east-1."
+    ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
@@ -1112,12 +1205,16 @@ def devbox_start(
     disk: str,
     template: str,
     preset: str,
-    region: str,
+    region: str | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace)
+    effective_region = region or _preferred_region()
+    # Thread the effective region into name resolution so an explicit
+    # --region overrides the saved preference for both the new workspace's
+    # region AND its `-eu` name suffix.
+    name, workspaces = resolve_workspace_name(workspace, region=effective_region)
     ws = get_workspace(name, workspaces)
 
     if ws is not None:
@@ -1126,14 +1223,16 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={region}, disk={disk}GiB)...")
+    click.echo(
+        f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region}, disk={disk}GiB)..."
+    )
     create_workspace(
         name,
         int(disk),
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
-        region=region,
+        region=effective_region,
         template=template,
         preset=preset,
         verbose=verbose,
@@ -1407,7 +1506,7 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)

@@ -11,9 +11,10 @@ class DevboxConfig(TypedDict, total=False):
     git_name: str
     git_email: str
     dotfiles_uri: str
+    region: str
 
 
-_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri")
+_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "region")
 
 
 def get_config_path() -> Path:
@@ -86,5 +87,21 @@ def clear_git_identity() -> DevboxConfig:
     config = load_config()
     config.pop("git_name", None)
     config.pop("git_email", None)
+    save_config(config)
+    return config
+
+
+def save_region(region: str) -> DevboxConfig:
+    """Persist the preferred AWS region for new workspaces."""
+    config = load_config()
+    config["region"] = region
+    save_config(config)
+    return config
+
+
+def clear_region() -> DevboxConfig:
+    """Drop the saved preferred region so new workspaces fall back to the built-in default."""
+    config = load_config()
+    config.pop("region", None)
     save_config(config)
     return config
