@@ -255,6 +255,13 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
     )
 
 
+class DeleteTileRequestSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        required=True,
+        help_text="ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.",
+    )
+
+
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -1823,6 +1830,38 @@ class DashboardsViewSet(
 
         tile.refresh_from_db()
         return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=DeleteTileRequestSerializer,
+        responses={204: None},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def delete_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Soft-delete a single tile from a dashboard.
+
+        Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+        object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+        use the dashboard delete endpoint instead.
+        """
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        serializer = DeleteTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tile_id = serializer.validated_data["tile_id"]
+
+        tile = get_object_or_404(
+            DashboardTile,
+            id=tile_id,
+            dashboard=dashboard,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        tile.deleted = True
+        tile.save(update_fields=["deleted"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         parameters=[
