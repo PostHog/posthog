@@ -24,6 +24,8 @@ Before walking through the workflow, check that the slow query in front of you a
 
 If the file you were pointed at is a coordinator, orchestrator, Celery task, Temporal workflow, or management command, the actual ClickHouse-touching query is often **one layer further in**, in the activity / child workflow / inner function the coordinator dispatches. Follow the dispatch (e.g. the class passed to `start_child_workflow`, the activity decorated with `@temporalio.activity.defn`, the function called inside `apply_async`) until you find the layer that builds the HogQL query. Some files mix both (Postgres queries to pick work + HogQL queries to do it); treat them as two separate optimization tasks if both are slow.
 
+**If the slow query turns out to be raw ClickHouse SQL embedded in production code** (Python f-strings, string SQL passed to `sync_execute`, `client.execute`, `client.read_query`, etc., not the output of the HogQL printer), surface this to the user before going further. HogQL queries get materialized-column substitution, property-group dispatch, lazy joins, team-id guards, and a pile of other optimizations automatically through the printer; raw SQL has to reimplement each of those or live without them. Even when the local optimization you're about to suggest is correct (a skip index, a `pmat_*` swap, removing `FINAL`), the structural fix is usually to express the query in HogQL and let the printer handle these consistently. ClickHouse migrations and one-shot operational scripts are reasonable exceptions; long-lived read paths in product code usually aren't.
+
 ## Background: read these once
 
 Start with the handbook context for the conceptual model:
