@@ -53,6 +53,22 @@ export type AccountsView = 'endpoint' | 'hogql'
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
+export type AccountSortableColumn = 'notebook_count' | 'csm' | 'account_executive'
+
+export type AccountSortDirection = 'asc' | 'desc'
+
+export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
+
+// Maps a sortable column key to the HogQL expression to use in ORDER BY.
+// `notebook_count` is the aliased integer count from the SELECT.
+// `csm` and `account_executive` are tuples — sorting by `tupleElement(t, 2)` orders
+// by the `email` field so the result matches what the user sees on screen.
+export const ACCOUNTS_HOGQL_SORT_EXPRS: Record<AccountSortableColumn, string> = {
+    notebook_count: 'notebook_count',
+    csm: 'tupleElement(csm, 2)',
+    account_executive: 'tupleElement(account_executive, 2)',
+}
+
 const ROLE_LABELS: Record<AccountRoleKey, string> = {
     csm: 'CSM',
     account_executive: 'Account executive',
@@ -82,6 +98,8 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
         setCurrentPage: (page: number) => ({ page }),
         setActiveView: (view: AccountsView) => ({ view }),
+        setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
+        toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
         updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
             accountId,
@@ -140,6 +158,12 @@ export const accountsLogic = kea<accountsLogicType>([
             'endpoint' as AccountsView,
             {
                 setActiveView: (_, { view }) => view,
+            },
+        ],
+        sortOrder: [
+            null as AccountSortOrder,
+            {
+                setSortOrder: (_, { sortOrder }) => sortOrder,
             },
         ],
         savingRoles: [
@@ -234,6 +258,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
+                s.sortOrder,
             ],
             (
                 searchQuery: string,
@@ -241,7 +266,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 allRolesUnassigned: boolean,
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue
+                accountOwnerFilter: RoleFilterValue,
+                sortOrder: AccountSortOrder
             ): DataTableNode => {
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
@@ -266,6 +292,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (accountOwnerFilter !== null) {
                     source.accountOwner = accountOwnerFilter
+                }
+                if (sortOrder) {
+                    const expr = ACCOUNTS_HOGQL_SORT_EXPRS[sortOrder.column]
+                    source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
                 }
                 return {
                     kind: NodeKind.DataTableNode,
@@ -316,6 +346,21 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         setCurrentPage: () => {
             actions.loadAccounts()
+        },
+        toggleSort: ({ column }) => {
+            const current = values.sortOrder
+            let next: AccountSortOrder
+            if (!current || current.column !== column) {
+                next = { column, direction: 'asc' }
+            } else if (current.direction === 'asc') {
+                next = { column, direction: 'desc' }
+            } else {
+                next = null
+            }
+            actions.setSortOrder(next)
+        },
+        setSortOrder: () => {
+            actions.setCurrentPage(1)
         },
         refresh: () => {
             actions.loadAccounts()

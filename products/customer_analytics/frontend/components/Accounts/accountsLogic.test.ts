@@ -178,6 +178,55 @@ describe('accountsLogic', () => {
         expect(lastParams).not.toHaveProperty('account_owner')
     })
 
+    describe('sortOrder', () => {
+        it('starts unset and produces no orderBy on the AccountsQuery', () => {
+            expect(logic.values.sortOrder).toBeNull()
+            expect(logic.values.hogqlQuery.source.orderBy).toBeUndefined()
+        })
+
+        it('toggleSort on a fresh column starts ascending', () => {
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['notebook_count'])
+        })
+
+        it('toggleSort cycles asc -> desc -> null on repeated clicks', () => {
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder?.direction).toBe('asc')
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'desc' })
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['notebook_count DESC'])
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder).toBeNull()
+            expect(logic.values.hogqlQuery.source.orderBy).toBeUndefined()
+        })
+
+        it('toggleSort on a different column resets to ascending', () => {
+            logic.actions.toggleSort('notebook_count')
+            logic.actions.toggleSort('notebook_count') // desc
+            logic.actions.toggleSort('csm')
+            expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(csm, 2)'])
+        })
+
+        it('csm desc produces tupleElement(csm, 2) DESC', () => {
+            logic.actions.toggleSort('csm')
+            logic.actions.toggleSort('csm')
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(csm, 2) DESC'])
+        })
+
+        it('account_executive sort uses the tupleElement expression', () => {
+            logic.actions.toggleSort('account_executive')
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(account_executive, 2)'])
+        })
+
+        it('toggleSort resets pagination to page 1', async () => {
+            logic.actions.setCurrentPage(3)
+            logic.actions.toggleSort('notebook_count')
+            await expectLogic(logic).toMatchValues({ currentPage: 1 })
+        })
+    })
+
     it('setCurrentPage updates the offset in the next request', async () => {
         logic.actions.setCurrentPage(3)
         await expectLogic(logic).toFinishAllListeners()
