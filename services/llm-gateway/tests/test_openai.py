@@ -344,6 +344,11 @@ class TestUnsupportedModelRejection:
             "gemini-1.5-pro",
             "gemini-2.0-flash",
             "Gemini-3-Pro-Preview",  # case-insensitive
+            # The `cloudflare/...` prefix would route to litellm's native CF
+            # provider and bypass CLOUDFLARE_ALLOWED_MODELS. Block at the edge.
+            "cloudflare/@cf/meta/llama-3.3-70b-instruct",
+            "cloudflare/@cf/moonshotai/kimi-k2.6",
+            "CLOUDFLARE/@cf/foo",
         ],
     )
     @patch("llm_gateway.api.openai.litellm.acompletion")

@@ -47,13 +47,19 @@ OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
 CLOUDFLARE_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_messages")
 
-# Google providers require litellm[google], which we don't install. Reject these
-# at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.
+# Block model prefixes that would route to a provider this gateway doesn't intend
+# to call through the generic path. Two reasons:
+# - Google providers require litellm[google] (not installed) and would crash deep
+#   in vertex_llm_base with an ImportError if we let them through.
+# - Cloudflare's native litellm provider (`cloudflare/...`) would bypass the
+#   per-call credential injection and the CLOUDFLARE_ALLOWED_MODELS allowlist
+#   that the gateway-routed `@cf/...` path enforces. Reject at the edge so
+#   callers can't smuggle in arbitrary Workers AI models on gateway credentials.
 # Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names
 # that litellm will route to vertex/gemini — most commonly anything starting with
 # "gemini-" (e.g. "gemini-3-pro-preview") — since those may not yet be in the cost
 # registry when brand new.
-_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini"})
+_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini", "cloudflare"})
 _UNSUPPORTED_MODEL_PREFIXES = (
     *(f"{p}/" for p in _UNSUPPORTED_PROVIDERS),
     "gemini-",
