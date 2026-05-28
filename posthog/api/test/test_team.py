@@ -463,7 +463,7 @@ def team_api_test_factory():
                     "user_id": self.user.pk,
                     "was_impersonated": False,
                     "client": None,
-                    "ip_address": None,
+                    "ip_address": "127.0.0.1",
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -490,7 +490,7 @@ def team_api_test_factory():
                         "user_id": self.user.pk,
                         "was_impersonated": False,
                         "client": None,
-                        "ip_address": None,
+                        "ip_address": "127.0.0.1",
                     },
                 )
             assert activity == expected_activity
