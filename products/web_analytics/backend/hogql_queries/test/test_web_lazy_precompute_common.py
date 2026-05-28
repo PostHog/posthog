@@ -93,7 +93,7 @@ class TestComputeFiltersEligibilityHash(BaseTest):
             _overview(compare=True), "UTC"
         )
 
-    def test_property_order_does_not_fragment_key(self) -> None:
+    def test_property_order_currently_fragments_key_documented_not_desired(self) -> None:
         a = [
             EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
             EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.EXACT),

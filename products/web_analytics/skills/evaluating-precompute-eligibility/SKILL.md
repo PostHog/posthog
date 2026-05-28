@@ -140,12 +140,11 @@ That's the property the queries below rely on.
 3. **Start broad, then narrow.** Top-N hashes per team is cheaper than
    detailed-shape extraction; once a hash is interesting, pull a sample of
    its log lines to inspect the underlying query.
-4. **Cross-reference with the rollout-strategy notes** at
-   `~/notes/work/posthog/web-analytics/investigations/` (especially
-   `2026-05-25-web-analytics-precompute-rollout.md` and
-   `2026-05-26-precompute-filter-distinctiveness.md`) — those define the
-   Cache-A / Cache-B / Cache-C / Cache-D tier framework that this hash
-   feeds.
+4. **Cross-reference with the team's rollout-strategy planning** — the
+   Cache-A / Cache-B / Cache-C / Cache-D tier framework, cohort definitions,
+   and `q/key` thresholds live in internal team docs. Ask the web-analytics
+   team for the latest planning artefacts rather than relying on hard-coded
+   paths in this skill.
 
 ## LogQL patterns
 
@@ -336,9 +335,7 @@ seems off, sample a single line via `query_loki_logs` with a small
   analysis for per-`query_type` latency and per-team cost. Use that when
   the question is about CPU / memory / tail latency rather than
   eligibility / repeat-frequency.
-- `~/notes/work/posthog/web-analytics/investigations/2026-05-25-web-analytics-precompute-rollout.md`
-  — plan of record for the rollout, including cohort definitions
-  (Cohort A through D) and the Cache-A / B / C / D tier framework.
-- `~/notes/work/posthog/web-analytics/investigations/2026-05-26-precompute-filter-distinctiveness.md`
-  — methodology behind `q/key`, including the cost model and the
-  break-even-at-1.0 derivation.
+- The web-analytics team's internal rollout-strategy planning documents —
+  cohort definitions, Cache-A / B / C / D tier thresholds, and the `q/key`
+  cost model and break-even derivation. Ask the team for the current
+  artefacts; they're tracked outside this repository.
