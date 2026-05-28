@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use cymbal::error::UnhandledError;
@@ -111,6 +114,7 @@ pub struct CymbalResolutionService {
     /// width in `run_resolve`.
     max_in_flight: u32,
     service_config: ServiceConfig,
+    draining: Arc<AtomicBool>,
 }
 
 impl CymbalResolutionService {
@@ -121,6 +125,7 @@ impl CymbalResolutionService {
         service_instance_id: impl Into<Arc<str>>,
         max_in_flight: u32,
         service_config: ServiceConfig,
+        draining: Arc<AtomicBool>,
     ) -> Self {
         Self {
             symbol_resolver,
@@ -129,6 +134,7 @@ impl CymbalResolutionService {
             service_instance_id: service_instance_id.into(),
             max_in_flight,
             service_config,
+            draining,
         }
     }
 
@@ -204,6 +210,7 @@ impl CymbalResolution for CymbalResolutionService {
         let limiter = self.item_limiter.clone();
         let max_in_flight = self.max_in_flight;
         let degraded_threshold = self.service_config.effective_degraded_load_ratio();
+        let draining = self.draining.clone();
 
         tokio::spawn(async move {
             run_subscribe(
@@ -214,6 +221,7 @@ impl CymbalResolution for CymbalResolutionService {
                 degraded_threshold,
                 tick,
                 subscriber_id,
+                draining,
             )
             .await;
         });
@@ -458,6 +466,7 @@ async fn run_subscribe(
     degraded_threshold: f64,
     tick: Duration,
     subscriber_id: String,
+    draining: Arc<AtomicBool>,
 ) {
     let mut ticker = tokio::time::interval(tick);
     // First tick fires immediately so the caller sees state without waiting
@@ -478,10 +487,11 @@ async fn run_subscribe(
         let available = limiter.available_permits() as u32;
         let in_flight = max_in_flight.saturating_sub(available);
         let degraded = compute_degraded(in_flight, max_in_flight, degraded_threshold);
+        let draining = draining.load(Ordering::Relaxed);
         let event = LoadEvent {
             service_instance_id: service_instance_id.as_ref().to_string(),
             degraded,
-            draining: false,
+            draining,
             in_flight,
             max_in_flight,
             sequence,

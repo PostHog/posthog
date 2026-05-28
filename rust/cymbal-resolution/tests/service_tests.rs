@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::time::Duration;
@@ -100,6 +100,7 @@ fn make_service_with_config(
         "test-instance",
         max_in_flight,
         service_config,
+        Arc::new(AtomicBool::new(false)),
     )
 }
 
@@ -821,6 +822,7 @@ async fn limiter_overload_classifies_as_overloaded_retry_outcome_per_item() {
         "overload-test",
         1,
         fast_service_config(),
+        Arc::new(AtomicBool::new(false)),
     );
 
     // The item must trigger a permit acquisition path. Java/Dart classification
@@ -950,6 +952,7 @@ async fn no_item_payload_is_sent_more_than_once_on_the_resolve_stream() {
         "no-dup-test",
         2,
         fast_service_config(),
+        Arc::new(AtomicBool::new(false)),
     );
 
     let good_exc = raw_exception("RuntimeError");
@@ -1104,6 +1107,34 @@ async fn subscribe_emits_periodic_load_events_with_monotonic_sequence() {
 }
 
 #[tokio::test]
+async fn subscribe_reflects_draining_state() {
+    // The caller pool excludes endpoints that report draining=true, so the
+    // service must surface shutdown state on the load event bus before the
+    // gRPC listener stops accepting new work.
+    let draining = Arc::new(AtomicBool::new(true));
+    let service = CymbalResolutionService::new(
+        Arc::new(FakeResolver::default()),
+        Arc::new(Semaphore::new(4)),
+        Arc::new(Semaphore::new(4)),
+        "draining-test",
+        4,
+        fast_service_config(),
+        draining,
+    );
+    let response = service
+        .subscribe(Request::new(SubscribeRequest {
+            subscriber_id: "draining-watcher".to_string(),
+            tick_hint_ms: 0,
+        }))
+        .await
+        .expect("subscribe returns response");
+    let mut stream = response.into_inner();
+
+    let event = stream.next().await.expect("stream open").expect("event ok");
+    assert!(event.draining);
+}
+
+#[tokio::test]
 async fn subscribe_reflects_in_flight_load_against_max() {
     // Hold a permit on the item limiter to push reported in_flight up; the
     // tick after that must see in_flight=1 against max_in_flight=4. The pool
@@ -1119,6 +1150,7 @@ async fn subscribe_reflects_in_flight_load_against_max() {
         "load-test",
         4,
         fast_service_config(),
+        Arc::new(AtomicBool::new(false)),
     );
     let response = service
         .subscribe(Request::new(SubscribeRequest {
@@ -1158,6 +1190,7 @@ async fn subscribe_flips_degraded_when_in_flight_crosses_threshold() {
             max_tick_interval: Duration::from_secs(1),
             degraded_load_ratio: 0.8,
         },
+        Arc::new(AtomicBool::new(false)),
     );
 
     let response = service
