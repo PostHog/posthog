@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
 
-import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
+import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
@@ -105,10 +105,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                         </span>
                     )}
                     {stillCalculating && pendingLabel && (
-                        <span
-                            className="text-xs text-secondary mt-1 block"
-                            data-attr="export-pending-label"
-                        >
+                        <span className="text-xs text-secondary mt-1 block" data-attr="export-pending-label">
                             {pendingLabel}
                         </span>
                     )}

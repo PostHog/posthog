@@ -19,13 +19,13 @@ const baseAsset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetTyp
 describe('exportStatus', () => {
     describe('isLongRunningExportFormat', () => {
         it.each([
-            [ExporterFormat.MP4, true],
-            [ExporterFormat.WEBM, true],
-            [ExporterFormat.GIF, true],
-            [ExporterFormat.PNG, false],
-            [ExporterFormat.CSV, false],
-            [ExporterFormat.PDF, false],
-        ])('returns %s for %s', (format, expected) => {
+            [true, ExporterFormat.MP4],
+            [true, ExporterFormat.WEBM],
+            [true, ExporterFormat.GIF],
+            [false, ExporterFormat.PNG],
+            [false, ExporterFormat.CSV],
+            [false, ExporterFormat.PDF],
+        ])('returns %s for format %s', (expected, format) => {
             expect(isLongRunningExportFormat(format)).toBe(expected)
         })
 
@@ -44,9 +44,12 @@ describe('exportStatus', () => {
             expect(getExportPendingStatus(baseAsset({ exception: 'boom' }))).toBeNull()
         })
 
-        it('returns rendering_video for pending long-running formats', () => {
-            expect(getExportPendingStatus(baseAsset({ export_format: ExporterFormat.MP4 }))).toBe('rendering_video')
-        })
+        it.each([ExporterFormat.MP4, ExporterFormat.WEBM, ExporterFormat.GIF])(
+            'returns rendering_video for pending long-running format %s',
+            (format) => {
+                expect(getExportPendingStatus(baseAsset({ export_format: format }))).toBe('rendering_video')
+            }
+        )
 
         it('returns pending for other in-progress formats', () => {
             expect(getExportPendingStatus(baseAsset({ export_format: ExporterFormat.CSV }))).toBe('pending')
@@ -54,11 +57,14 @@ describe('exportStatus', () => {
     })
 
     describe('getExportPendingLabel', () => {
-        it('returns a video-specific message for MP4', () => {
-            expect(getExportPendingLabel(baseAsset({ export_format: ExporterFormat.MP4 }))).toBe(
-                'Rendering video — usually takes several minutes'
-            )
-        })
+        it.each([ExporterFormat.MP4, ExporterFormat.WEBM, ExporterFormat.GIF])(
+            'returns a video-specific message for %s',
+            (format) => {
+                expect(getExportPendingLabel(baseAsset({ export_format: format }))).toBe(
+                    'Rendering video — usually takes several minutes'
+                )
+            }
+        )
 
         it('returns a generic message for non-video pending exports', () => {
             expect(getExportPendingLabel(baseAsset({ export_format: ExporterFormat.CSV }))).toBe('Preparing export…')
@@ -78,11 +84,14 @@ describe('exportStatus', () => {
             expect(getExportDisabledReason(baseAsset({ has_content: true }))).toBeUndefined()
         })
 
-        it('returns a video-specific reason for pending MP4 exports', () => {
-            expect(getExportDisabledReason(baseAsset({ export_format: ExporterFormat.MP4 }))).toBe(
-                'Video export is still rendering — this usually takes several minutes'
-            )
-        })
+        it.each([ExporterFormat.MP4, ExporterFormat.WEBM, ExporterFormat.GIF])(
+            'returns a video-specific reason for pending %s exports',
+            (format) => {
+                expect(getExportDisabledReason(baseAsset({ export_format: format }))).toBe(
+                    'Video export is still rendering — this usually takes several minutes'
+                )
+            }
+        )
 
         it('falls back to the generic reason for other formats', () => {
             expect(getExportDisabledReason(baseAsset({ export_format: ExporterFormat.PDF }))).toBe(
