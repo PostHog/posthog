@@ -10,6 +10,7 @@
 mod common;
 
 use std::net::SocketAddr;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -87,6 +88,7 @@ async fn spawn_real_server(item_limiter: Arc<Semaphore>, max_in_flight: u32) -> 
         format!("real-{addr}"),
         max_in_flight,
         service_config,
+        Arc::new(AtomicBool::new(false)),
     );
 
     tokio::spawn(async move {

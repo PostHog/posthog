@@ -14,6 +14,7 @@
 mod common;
 
 use std::net::SocketAddr;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -89,6 +90,7 @@ async fn spawn_cymbal_resolution_with_resolver(resolver: Arc<dyn SymbolResolver>
         "parity-stub",
         4,
         service_config,
+        Arc::new(AtomicBool::new(false)),
     );
 
     tokio::spawn(async move {
