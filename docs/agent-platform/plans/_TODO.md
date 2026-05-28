@@ -47,3 +47,42 @@ file (and out of this list) once the design lands.
       (`all` / `most_recent` / `skip`) bound the outage-recovery blast
       radius; `agent_cron_firing` table dedups across replicas; firings
       coalesce into long-running sessions via `external_key_reuse`.
+
+- [ ] **Streaming deltas into SessionEventBus.** Today `run-turn.ts`
+      calls `pi.invoke()` and waits for the full `AssistantMessage`,
+      then emits one `assistant_text` event per text block. Swap to
+      `stream()` and forward `text_delta` / `thinking_delta` /
+      `toolcall_delta` events into `bus.publish` so `/listen` SSE
+      consumers see tokens live. Tool dispatch still waits for
+      `toolcall_end` (full args). Add `assistant_text_delta` +
+      `assistant_thinking` event kinds; `PiClient` grows a `stream()`
+      method alongside `invoke()`.
+
+- [ ] **Per-turn cost capture on the session row.** pi-ai populates
+      `result.usage.cost.{input,output,total}` and the runner currently
+      drops it — only `tokensIn`/`tokensOut` get logged. Accumulate
+      per-turn tokens + cost onto the session row (new `usage_total`
+      jsonb column on `agent_session_v2`, persist via `onTurnPersist`).
+      Foundation for cost-attribution / budgets surface (a future plan
+      hinted at across rate-limiting / sandboxed / self-healing).
+
+- [ ] **Unified `reasoning` knob on `AgentSpec`.** Reasoning models
+      (Anthropic extended thinking, OpenAI o-series, Gemini thinking)
+      get only provider defaults today. Add optional
+      `spec.reasoning?: 'low' | 'medium' | 'high'`; runner forwards it
+      to pi-ai via `completeSimple()` / `SimpleStreamOptions.reasoning`.
+      One config, all providers.
+
+- [ ] Clean up all env vars django or nodejs side
+      Some env vars do direct process.env access - this should all be abstracted to a typed config loader or the standard django settings concept with sensible defaults
+
+- [ ] **Slug-with-revision-suffix triggers for non-live revisions.**
+      Today draft / ready revisions are reachable via
+      `?revision_id=<full-uuid>` (or `x-agent-revision` header). Add an
+      ergonomic slug-form alternative — e.g. `/agents/my-app-ABC123/...`
+      where `ABC123` is the leading hex of a revision id under the
+      `my-app` application. Resolver tries the suffix split first; on
+      ambiguous prefixes it 400s rather than picking. Pairs naturally
+      with the existing `?revision_id` override (uuid wins, suffix is
+      shorthand). Useful for Slack mentions / webhook URLs where you
+      want to share a draft link without exposing the full UUID.
