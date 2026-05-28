@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_analytics", "0005_alter_mcpsession_duration_seconds_and_more"),
+        ("mcp_analytics", "0008_drop_mcpsession_backfill_columns"),
         ("posthog", "1171_backfill_credentials_reviewed_at"),
     ]
 
