@@ -151,7 +151,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_producer,
         events_handle.clone(),
         move |e: &Event| fan_out(e, &excluded_events),
-        false,
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),
@@ -159,19 +158,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_producer,
         groups_handle.clone(),
         move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
-        false,
     ));
-    // Merger bypasses the team filter: every record on the intermediate
-    // topic already passed the events/groups workers' filter, and re-applying
-    // would silently drop partial aggregates if rollout_percentage shrinks
-    // between deploys, breaking sum-conservation.
     tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
         shared_config.clone(),
         merger_consumer,
         merger_producer,
         merger_handle.clone(),
         |m: &PropertyValueMessage| extract_tuple(m),
-        true,
     ));
     drop(events_handle);
     drop(groups_handle);
