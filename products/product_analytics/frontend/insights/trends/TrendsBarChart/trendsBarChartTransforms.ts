@@ -19,8 +19,7 @@ export interface TrendsBarResultLike {
     compare?: boolean
     compare_label?: string | null
     action?: { order?: number } | null
-    // Formula-mode results have a top-level `order` instead of `action.order` — it identifies
-    // which formula the row belongs to so breakdown rows of the same formula can share a band.
+    // Formula rows carry a top-level `order` instead of `action.order`.
     order?: number | null
     breakdown_value?: unknown
     filter?: unknown
@@ -113,10 +112,8 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
         const base = r.label ?? ''
         return r.compare_label ? `${base} - ${r.compare_label}` : base
     })
-    // d3.scaleBand dedupes its domain. Band key suffix = the series identity (`action.order`
-    // for normal series, top-level `order` for formula rows). Breakdowns of one series share
-    // an identity → same band → bars overlap by descending size in the same row. Different
-    // series with the same display label get different identities → distinct bands.
+    // Suffix the band key with the series identity so duplicate display labels from
+    // different series get distinct bands (breakdowns of one series still share a band).
     const labels = visible.map((r, i) => {
         const seriesId = r.action?.order ?? r.order ?? 0
         return `${displayLabels[i]}__${seriesId}`

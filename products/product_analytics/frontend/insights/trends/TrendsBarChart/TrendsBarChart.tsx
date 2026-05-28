@@ -185,10 +185,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     )
 
     const aggregatedConfig: BarChartConfig = useMemo(() => {
-        // Aggregated band keys are synthetic `${displayLabel}__${seriesId}` so multiple
-        // series with duplicate display labels don't collapse onto one band. Render the
-        // human label via the categorical-axis formatter, and skip repeats so band-shared
-        // breakdown rows don't draw the same text six times on top of itself.
+        // Band keys are synthetic per-series; render the human label via the categorical-axis
+        // formatter and skip repeats so band-shared breakdown rows don't double-paint.
         let xTickFormatter: BarChartConfig['xTickFormatter']
         if (displayLabels && labels) {
             const firstIndexOf = new Map<string, number>()
@@ -268,14 +266,11 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // Sparse-stacked: drop sibling series with data=0 at this band so the tooltip shows one row.
+            // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,
-                      seriesData: ctx.seriesData.filter((entry) => {
-                          const raw = entry.series.data[ctx.dataIndex]
-                          return typeof raw === 'number' && raw !== 0
-                      }),
+                      seriesData: ctx.seriesData.slice(0, 1),
                   }
                 : ctx
             const onRowClick = canHandleClick
