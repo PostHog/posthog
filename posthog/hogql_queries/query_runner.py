@@ -121,7 +121,7 @@ logger = structlog.get_logger(__name__)
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
-    labelnames=["query_type", "category", "error_type", "has_user_authored_hogql"],
+    labelnames=["query_type", "category", "error_type", "contains_user_hogql"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -145,7 +145,7 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 
-def _has_user_authored_hogql_label() -> str:
+def _contains_user_hogql_label() -> str:
     # Read the tag set by `tag_contains_user_hogql()` at HogQL parse sites; lets
     # observability split user-HogQL failures from query-builder failures on the
     # same metric. The tag is the canonical source — see `posthog.clickhouse.query_tagging`.
@@ -1667,7 +1667,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_type=query_type,
                 category="success",
                 error_type="none",
-                has_user_authored_hogql=_has_user_authored_hogql_label(),
+                contains_user_hogql=_contains_user_hogql_label(),
             ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(
@@ -1678,7 +1678,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_type=query_type,
                 category=classify_query_error(e),
                 error_type=clickhouse_error_type(e),
-                has_user_authored_hogql=_has_user_authored_hogql_label(),
+                contains_user_hogql=_contains_user_hogql_label(),
             ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(

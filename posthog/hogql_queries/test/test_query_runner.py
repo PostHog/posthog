@@ -506,10 +506,10 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="success", error_type="none", has_user_authored_hogql="false"
+            query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="error", error_type="ValueError", has_user_authored_hogql="false"
+            query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -521,14 +521,14 @@ class TestQueryRunner(BaseTest):
 
         assert (
             QUERY_EXECUTION_TOTAL.labels(
-                query_type="TestQuery", category="success", error_type="none", has_user_authored_hogql="false"
+                query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
             )._value.get()
             - before_success
             == success_delta
         )
         assert (
             QUERY_EXECUTION_TOTAL.labels(
-                query_type="TestQuery", category="error", error_type="ValueError", has_user_authored_hogql="false"
+                query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
             )._value.get()
             - before_failure
             == failure_delta
@@ -536,10 +536,10 @@ class TestQueryRunner(BaseTest):
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
     @parameterized.expand([("success_path", None), ("error_path", ValueError)])
-    def test_query_execution_metric_labels_with_user_authored_hogql(
+    def test_query_execution_metric_labels_with_contains_user_hogql(
         self, _name: str, expected_exception: Optional[type[Exception]]
     ) -> None:
-        # Verifies the `has_user_authored_hogql` label flows from the canonical
+        # Verifies the `contains_user_hogql` label flows from the canonical
         # `QueryTags.contains_user_hogql` tag (set by `tag_contains_user_hogql()`
         # at HogQL parse sites) rather than being recomputed schema-side.
         from posthog.clickhouse.query_tagging import reset_query_tags, tag_contains_user_hogql
@@ -558,7 +558,7 @@ class TestQueryRunner(BaseTest):
                 "query_type": "TestQuery",
                 "category": "success",
                 "error_type": "none",
-                "has_user_authored_hogql": "true",
+                "contains_user_hogql": "true",
             }
         else:
 
@@ -571,7 +571,7 @@ class TestQueryRunner(BaseTest):
                 "query_type": "TestQuery",
                 "category": "error",
                 "error_type": "ValueError",
-                "has_user_authored_hogql": "true",
+                "contains_user_hogql": "true",
             }
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -638,10 +638,10 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="success", error_type="none", has_user_authored_hogql="false"
+            query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="error", error_type="ValueError", has_user_authored_hogql="false"
+            query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -651,13 +651,13 @@ class TestQueryRunner(BaseTest):
 
         assert (
             QUERY_EXECUTION_TOTAL.labels(
-                query_type="TestQuery", category="success", error_type="none", has_user_authored_hogql="false"
+                query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
             )._value.get()
             == before_success
         )
         assert (
             QUERY_EXECUTION_TOTAL.labels(
-                query_type="TestQuery", category="error", error_type="ValueError", has_user_authored_hogql="false"
+                query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
             )._value.get()
             == before_failure
         )
