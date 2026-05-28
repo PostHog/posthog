@@ -1,8 +1,18 @@
 import { Pool } from 'pg'
+import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
 import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
+
+// Counts Postgres write failures from createJob / bulkCreateJobs *after* input
+// validation has passed. Zod parse errors and the overwrite-conflict logical
+// error do not increment this counter, so any non-zero rate indicates a real
+// problem on our side (schema drift, DB unhealthy, constraint violation).
+const dbWriteFailureCounter = new Counter({
+    name: 'cdp_cyclotron_v2_db_write_failure',
+    help: 'Failed Postgres writes to cyclotron_jobs (input already validated).',
+})
 
 /**
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
@@ -75,30 +85,36 @@ export class CyclotronV2Manager {
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
-        const result = await this.pool.query<{ id: string }>(
-            `INSERT INTO cyclotron_jobs
-             (id, team_id, function_id, queue_name, status, priority, scheduled, created,
-              lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, distinct_id, person_id, action_id)
-             VALUES ($1, $2, $3, $4, 'available', $5, $6, $7,
-                     NULL, NULL, 0, 0, $7,
-                     $8, $9, $10, $11, $12)
-             ${upsertClause}`,
-            [
-                id,
-                job.teamId,
-                job.functionId ?? null,
-                job.queueName,
-                job.priority ?? 0,
-                job.scheduled ?? now,
-                now,
-                job.parentRunId ?? null,
-                job.state ?? null,
-                job.distinctId ?? null,
-                job.personId ?? null,
-                job.actionId ?? null,
-            ]
-        )
+        let result: { rows: { id: string }[] }
+        try {
+            result = await this.pool.query<{ id: string }>(
+                `INSERT INTO cyclotron_jobs
+                 (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                  lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+                  parent_run_id, state, distinct_id, person_id, action_id)
+                 VALUES ($1, $2, $3, $4, 'available', $5, $6, $7,
+                         NULL, NULL, 0, 0, $7,
+                         $8, $9, $10, $11, $12)
+                 ${upsertClause}`,
+                [
+                    id,
+                    job.teamId,
+                    job.functionId ?? null,
+                    job.queueName,
+                    job.priority ?? 0,
+                    job.scheduled ?? now,
+                    now,
+                    job.parentRunId ?? null,
+                    job.state ?? null,
+                    job.distinctId ?? null,
+                    job.personId ?? null,
+                    job.actionId ?? null,
+                ]
+            )
+        } catch (err) {
+            dbWriteFailureCounter.inc()
+            throw err
+        }
         if (job.overwriteExisting && result.rows.length === 0) {
             // Existing row was in an active state — refuse to clobber.
             throw new CyclotronJobConflictError(id)
@@ -171,46 +187,52 @@ export class CyclotronV2Manager {
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
-        const result = await this.pool.query<{ id: string }>(
-            `INSERT INTO cyclotron_jobs
-             (id, team_id, function_id, queue_name, status, priority, scheduled, created,
-              lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, distinct_id, person_id, action_id)
-             SELECT
-                unnest($1::uuid[]),
-                unnest($2::int[]),
-                unnest($3::uuid[]),
-                unnest($4::text[]),
-                'available'::CyclotronJobStatus,
-                unnest($5::smallint[]),
-                unnest($6::timestamptz[]),
-                $12::timestamptz,
-                NULL::uuid,
-                NULL::timestamptz,
-                0::smallint,
-                0::smallint,
-                $12::timestamptz,
-                unnest($7::text[]),
-                unnest($8::bytea[]),
-                unnest($9::text[]),
-                unnest($10::text[]),
-                unnest($11::text[])
-             ${upsertClause}`,
-            [
-                ids,
-                teamIds,
-                functionIds,
-                queueNames,
-                priorities,
-                scheduleds,
-                parentRunIds,
-                states,
-                distinctIds,
-                personIds,
-                actionIds,
-                now,
-            ]
-        )
+        let result: { rows: { id: string }[] }
+        try {
+            result = await this.pool.query<{ id: string }>(
+                `INSERT INTO cyclotron_jobs
+                 (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                  lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+                  parent_run_id, state, distinct_id, person_id, action_id)
+                 SELECT
+                    unnest($1::uuid[]),
+                    unnest($2::int[]),
+                    unnest($3::uuid[]),
+                    unnest($4::text[]),
+                    'available'::CyclotronJobStatus,
+                    unnest($5::smallint[]),
+                    unnest($6::timestamptz[]),
+                    $12::timestamptz,
+                    NULL::uuid,
+                    NULL::timestamptz,
+                    0::smallint,
+                    0::smallint,
+                    $12::timestamptz,
+                    unnest($7::text[]),
+                    unnest($8::bytea[]),
+                    unnest($9::text[]),
+                    unnest($10::text[]),
+                    unnest($11::text[])
+                 ${upsertClause}`,
+                [
+                    ids,
+                    teamIds,
+                    functionIds,
+                    queueNames,
+                    priorities,
+                    scheduleds,
+                    parentRunIds,
+                    states,
+                    distinctIds,
+                    personIds,
+                    actionIds,
+                    now,
+                ]
+            )
+        } catch (err) {
+            dbWriteFailureCounter.inc()
+            throw err
+        }
 
         if (overwriteExisting) {
             const returnedIds = new Set(result.rows.map((r) => r.id))
