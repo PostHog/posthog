@@ -124,6 +124,26 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.errors.email).toContain('Choose who to send this email from')
     })
 
+    it('flags the step as invalid when integrationId is set but from.email is missing', async () => {
+        // Runtime schema requires both `from.email` and `from.integrationId`. The pre-fix
+        // validator already rejected missing `from.email`; the editor must keep doing so even
+        // though the new code path also requires `from.integrationId`.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.errors.email).toContain('Choose who to send this email from')
+    })
+
     it('does not flag a "from" error when an integration sender has been picked', async () => {
         useMocks({
             get: {
