@@ -12,10 +12,13 @@ plan; this file is the order we'd build them in.
 
 ## Layers
 
-We group the plans into four layers, roughly:
+We group the plans into five layers, roughly:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
+│  E. Human surfaces                                          │
+│     agent-console-website.md                                │
+├─────────────────────────────────────────────────────────────┤
 │  D. Authoring & self-improvement                            │
 │     agent-authoring-flow.md · self-healing-agents.md        │
 ├─────────────────────────────────────────────────────────────┤
@@ -174,6 +177,58 @@ judge infrastructure, and lands a draft for human review.
   `$agent_application_id` + `$agent_revision_id`. This is the
   single biggest pre-D.2 piece of work.
 
+## E. Human surfaces
+
+The console. Read-mostly UI for the broader human audience —
+reviewers, operators, and authors who don't drive the MCP directly.
+Sits on top because it consumes everything below: the lifecycle and
+spec shape from **A**, the principal model from **B.1**, the SSE
+stream from **C.streaming**, the preview URLs from **C.routing**,
+the draft-auth gate from **B.draft-preview**, and the authoring
+flow from **D.1**.
+
+### E.1 [`agent-console-website.md`](agent-console-website.md)
+
+Standalone Next.js app at `services/agent-console/`, styled with
+[`@posthog/quill`](../../../packages/quill), logging in via PostHog
+OAuth (through the existing `oauth-proxy`). Every read surface maps
+to an existing REST endpoint; every write happens through a
+**concierge agent** session — the **D.1** authoring AI given a chat
+dock — whose principal is the human user (so mutations log against
+the user, not a PostHog org).
+
+The chat dock itself ships as a new sibling package
+`@posthog/agent-chat` (at `packages/agent-chat/`, sibling to
+`packages/quill/`). The console embeds `<AgentChat />`; the same
+component drops into a future `app.posthog.com` native dock or
+customer React SDK without a fork.
+
+Introduces one new platform-level primitive:
+
+- **Client-fulfilled tools.** The spec declares `kind: "client"`
+  tools alongside its native and custom tools — either referencing
+  a well-known contract (`from_native: "@posthog/ui/focus"`) or
+  defining a bespoke one inline. A connecting client lists which
+  ones it can handle via `client.handles[]` at session open. The
+  runner surfaces only the intersection to the model; calls flow as
+  `client_tool_call` SSE events to the originating client and
+  results post back via a new ingress endpoint. Bounded payloads,
+  per-call timeout, no ability for the client to extend the model's
+  tool surface beyond what the spec author approved. Flagship
+  well-known tools: `@posthog/ui/focus` (navigate the read panel to
+  whatever the agent is working on) and `@posthog/ui/toast`. The
+  protocol generalizes to any chat-trigger client — Slack message
+  viewers, MCP hosts, embedded SDK widgets — and is the natural
+  extension point for future UX affordances.
+
+**Shared cross-cut introduced by this layer:**
+
+- _Client-fulfilled tool protocol._ Introduced by **E.1** §8 but
+  generalizes beyond the console. Any future client-side chat
+  surface declares `client.handles[]` for the well-known
+  `@posthog/ui/*` set it supports; spec authors don't re-author
+  per client kind.
+
 ## Cross-cut: shared infrastructure pieces
 
 Three pieces of infrastructure get introduced once and reused
@@ -186,6 +241,7 @@ each one three times.
 | Artifact channel             | C.1 sandboxed-agent-inference §7    | B.2 approval-gated approver-edit UX, C.4 resumable-conversations rendering |
 | ai_events trace emission     | D.2 self-healing-agents §3.1        | D.1 authoring flow (test results), all observability surfaces              |
 | `agent_test_session` + judge | D.1 agent-authoring-flow §test-runs | D.2 self-healing-agents §5 replay-and-grade                                |
+| Client-tool protocol         | E.1 agent-console-website §8        | Any future chat-trigger client surface (Slack viewers, MCP hosts, SDKs)    |
 
 ## A walk-through of how to ship this
 
@@ -211,10 +267,19 @@ Assuming no parallelism, a reasonable order:
 9. **D.2 §11 v1+** — the rest of self-healing. Manual introspection
    first, then replay-and-grade once D.1's test infrastructure
    exists, then cron-driven runs once **C.5** lands.
+10. **E.1** — agent console website. Read-mostly v0 (overview,
+    bundle, revisions, sessions) ships on top of **A** + **C.streaming**
+    - **C.routing** alone — does not strictly require **D.1** to land
+      first because the chat dock can drive any agent (the concierge
+      itself can ship as a hand-authored bundle until the templates
+      layer arrives). The client-tool protocol is a runner change but
+      its surface is opt-in, so it's safe to ship behind a flag while
+      the console iterates.
 
 In practice we'll parallelize across layers, but the dependency arrows
 remain: nothing in **B** ships without **A**; nothing in **C** /
-**D** ships without **B**.
+**D** ships without **B**; nothing in **E** ships without the
+streaming + principal pieces it consumes.
 
 ## What's _not_ in scope here
 
