@@ -1,11 +1,11 @@
 # engineering_analytics — Engineering Spec
 
 Owner: team-devex
-Sibling doc: [PRODUCT_BRIEF.md](./PRODUCT_BRIEF.md) — read that first for motivations, persona, and the wedge. This file is the engineering contract: architecture, canonical types, file layout, ordering.
+Sibling doc: [README.md](./README.md) — read that first for the product picture, motivations, and the wedge. This file is the engineering contract: architecture, canonical types, file layout, ordering.
 
 ## 1. Purpose
 
-Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) as MCP tools and DRF endpoints. Consumers and motivations are in BRIEF.
+Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) as MCP tools and DRF endpoints. Consumers and motivations are in the README.
 
 ## 2. Non-goals
 
@@ -52,7 +52,7 @@ graph TB
 Rules:
 
 - HogQL via `execute_hogql_query()` is the only data access pattern. No raw ClickHouse `sync_execute()`.
-- Django ORM is not used by this product. There is no product Postgres DB in v1 — see BRIEF §10.
+- Django ORM is not used by this product. There is no product Postgres DB in v1 — see README → Locked decisions.
 - `logic/queries/` is the only module that names warehouse tables (`github_pull_requests`, `github_workflow_runs`). Logic and facade work with canonical types only.
 - One contract feeds both surfaces: DRF viewsets with `@extend_schema` produce OpenAPI → TypeScript types AND MCP tool descriptions. Logic functions are called by both.
 - Every MCP-tools PR ships with a matching in-product skill at `skills/<name>/SKILL.md` so the dogfooder has an installed playbook for chaining tool calls — same pattern as `products/visual_review/skills/triaging-visual-review-runs/`.
@@ -120,13 +120,13 @@ classDiagram
 `is_bot` on `Author` is set inside the query / mapping layer:
 `is_bot = handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 
-Tool-specific return types (`WorkflowReport`, `TimeToMerge`, `PRLifecycle`) live in `facade/contracts.py` alongside the canonical types. They wrap rows + a `metric_quality` field per BRIEF §10.
+Tool-specific return types (`WorkflowReport`, `TimeToMerge`, `PRLifecycle`) live in `facade/contracts.py` alongside the canonical types. They wrap rows + a `metric_quality` field per README → Locked decisions.
 
-Types that exist in BRIEF but are not in v1 contracts (reviewers, deploys, file paths) wait until the corresponding warehouse data lands.
+Types named in the README but not in v1 contracts (reviewers, deploys, file paths) wait until the corresponding warehouse data lands.
 
 ## 5. v1 tool catalog
 
-Tools live in `products/engineering_analytics/mcp/tools.yaml`. Each tool description is prompt-engineered — it explains to the calling LLM **when** and **why** to call it, not just the parameter list. Tool return shapes are typed contracts, not free-form prose (BRIEF §10).
+Tools live in `products/engineering_analytics/mcp/tools.yaml`. Each tool description is prompt-engineered — it explains to the calling LLM **when** and **why** to call it, not just the parameter list. Tool return shapes are typed contracts, not free-form prose (README → Locked decisions).
 
 | Tool              | Source data            | Returns                                                                                                    | Quality                                                |
 | ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -142,22 +142,22 @@ UI: one read-only scene rendering `workflow_report` as a horizontal bar chart of
 
 Vertical slices. Each PR independently mergeable. Draft-only by default. No date commitments.
 
-| Step | PR                                                                                                                                                                               | Output                                       | Status            |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------- |
-| 1    | #58888 — scaffold + SPEC.md + PRODUCT_BRIEF.md                                                                                                                                   | Empty product shell, this doc, alignment doc | In progress       |
-| 2    | #58890 — `github_workflow_runs` warehouse source                                                                                                                                 | CI run data ingested                         | Ready for review  |
-| 3    | New — `workflow_report` + `time_to_merge` + `pr_lifecycle` MCP tools (HogQL → logic → facade → DRF → MCP, one vertical slice with all three) + matching `skills/<name>/SKILL.md` | First useful MCP tools + installed playbook  | Pending step 2    |
-| 4    | New — read-only UI scene for `workflow_report`                                                                                                                                   | Demo surface                                 | Pending step 3    |
-| 5    | New (parallel) — `pull_request_reviews` warehouse source                                                                                                                         | Unblocks the wedge tool when we build it     | Independent track |
+| Step | PR                                                                                                                                                                               | Output                                      | Status            |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------- |
+| 1    | #58888 — scaffold + SPEC.md + README.md                                                                                                                                          | Empty product shell, this doc, product doc  | In progress       |
+| 2    | #58890 — `github_workflow_runs` warehouse source                                                                                                                                 | CI run data ingested                        | Ready for review  |
+| 3    | New — `workflow_report` + `time_to_merge` + `pr_lifecycle` MCP tools (HogQL → logic → facade → DRF → MCP, one vertical slice with all three) + matching `skills/<name>/SKILL.md` | First useful MCP tools + installed playbook | Pending step 2    |
+| 4    | New — read-only UI scene for `workflow_report`                                                                                                                                   | Demo surface                                | Pending step 3    |
+| 5    | New (parallel) — `pull_request_reviews` warehouse source                                                                                                                         | Unblocks the wedge tool when we build it    | Independent track |
 
 Rule: each PR independently mergeable. Bottom must be merged before the next opens for review. Draft-only until manual approval.
 
 ## 7. Locked decisions
 
-Engineering-specific decisions. Product-level decisions live in BRIEF §10. If you want to change one, do it in a separate PR with a written reason.
+Engineering-specific decisions. Product-level decisions live in README → Locked decisions. If you want to change one, do it in a separate PR with a written reason.
 
 - **HogQL only for analytics data.** No raw ClickHouse.
-- **No product Postgres DB in v1.** Saved state lives in the agent's memory; tool calls are stateless. `db_routing.yaml` reserves a separate-DB slot for the eventual first model, but it's a silent no-op until then.
+- **No product Postgres DB.** Saved state lives in the agent's memory; tool calls are stateless. No `db_routing.yaml` entry — analytics data is in the warehouse / ClickHouse (shared infra, nothing to provision). If a product-config model is ever needed, it goes on the **main** DB as a team-scoped model (`TeamScopedRootMixin`), not a separate DB.
 - **Provider abstraction deferred.** No `CodeHostProvider` Protocol in v1. GitHub-shaped HogQL lives in `logic/queries/`. The boundary between `logic/queries/` and `logic/` is the future Protocol seam — keep canonical types above it, GitHub-isms below.
 - **Canonical types live in `facade/contracts.py`** as frozen dataclasses. No Django imports, no provider-specific fields.
 - **CI granularity = workflow level** (`github_workflow_runs`). Job-level breakdown requires a new warehouse endpoint and is deferred.
@@ -211,8 +211,8 @@ Antibodies encoded:
 
 ## 11. Reference reading
 
-- [PRODUCT_BRIEF.md](./PRODUCT_BRIEF.md) — product alignment doc (read this first)
+- [README.md](./README.md) — product picture, motivations, locked decisions, glossary (read this first)
 - `products/architecture.md` — folder structure, isolation rules, tach + import-linter
 - `products/README.md` — how to scaffold a product
-- `posthog/models/scoping/README.md` — ProductTeamModel contract (for whenever the first model lands)
+- `posthog/models/scoping/README.md` — `TeamScopedRootMixin` contract (main-DB team-scoped model, for whenever the first config model lands)
 - Closed-stack PRs #55316–#55322 — what not to do
