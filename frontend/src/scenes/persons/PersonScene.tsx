@@ -383,31 +383,33 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         key: PersonsTabType.LOGS,
                         label: <span data-attr="persons-logs-tab">Logs</span>,
                         content: (
-                            <LogsViewer
-                                id={`person-${person.uuid ?? person.id}`}
-                                initialFilters={{
-                                    filterGroup: {
-                                        type: FilterLogicalOperator.And,
-                                        values: [
-                                            {
-                                                type: FilterLogicalOperator.And,
-                                                values: [
-                                                    {
-                                                        key:
-                                                            currentTeam?.logs_distinct_id_attribute_key ||
-                                                            'distinct_id',
-                                                        type: PropertyFilterType.LogAttribute,
-                                                        operator: PropertyOperator.Exact,
-                                                        value: person.distinct_ids,
-                                                    } as any,
-                                                ],
-                                            },
-                                        ],
-                                    },
-                                }}
-                                showFullScreenButton={false}
-                                showSavedViewsButton={false}
-                            />
+                            <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[25rem]">
+                                <LogsViewer
+                                    id={`person-${person.uuid ?? person.id}`}
+                                    initialFilters={{
+                                        filterGroup: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            key:
+                                                                currentTeam?.logs_distinct_id_attribute_key ||
+                                                                'distinct_id',
+                                                            type: PropertyFilterType.LogAttribute,
+                                                            operator: PropertyOperator.Exact,
+                                                            value: person.distinct_ids,
+                                                        } as any,
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    }}
+                                    showFullScreenButton={false}
+                                    showSavedViewsButton={false}
+                                />
+                            </div>
                         ),
                     },
                     {
