@@ -208,6 +208,7 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
+    SlackTaskContext = 'SlackTaskContext',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
