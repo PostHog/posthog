@@ -290,17 +290,15 @@ export class IngestionApiServer implements NodeServer {
             })
         }
 
-        const { value: eventIngestionRestrictionManager } = await new EventIngestionRestrictionManagerScope(
-            this.redisPool,
-            {
+        const { value: eventIngestionRestrictionManager, stop: stopEventIngestionRestrictionManager } =
+            await new EventIngestionRestrictionManagerScope(this.redisPool, {
                 pipeline: 'analytics',
                 staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
                 staticSkipPersonTokens:
                     this.config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
                 staticForceOverflowTokens:
                     this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
-            }
-        ).start()
+            }).start()
 
         const personsStore: PersonsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
             dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
@@ -351,11 +349,12 @@ export class IngestionApiServer implements NodeServer {
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
+        const eventFilterManagerStarted = await new EventFilterManagerScope(this.postgres).start()
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
-            eventFilterManager: (await new EventFilterManagerScope(this.postgres).start()).value,
+            eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
             promiseScheduler: this.promiseScheduler,
@@ -378,6 +377,8 @@ export class IngestionApiServer implements NodeServer {
             onShutdown: async () => {
                 await this.topHog.stop()
                 await this.hogTransformer.stop()
+                await eventFilterManagerStarted.stop()
+                await stopEventIngestionRestrictionManager()
             },
             healthcheck: () => this.isHealthy(),
         }
