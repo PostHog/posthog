@@ -10,8 +10,20 @@
 
 import { Value } from 'typebox/value'
 
-import { AgentRevision, IntegrationCredentials, Sandbox, ToolRef } from '@posthog/agent-shared-v2'
+import { AgentRevision, BundleStore, IntegrationCredentials, Sandbox, ToolRef } from '@posthog/agent-shared-v2'
 import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+
+/**
+ * Native tools the runner auto-includes for every agent (or conditionally,
+ * like `@posthog/load-skill` when skills are present). They aren't listed in
+ * `spec.tools`, so dispatchTool needs to recognize them outside the spec
+ * lookup. Keep this in sync with `ALWAYS_ON_NATIVE_TOOL_IDS` in run-turn.ts.
+ */
+const AUTO_INCLUDED_NATIVES = new Set([
+    '@posthog/meta-ask-for-input',
+    '@posthog/meta-end-session',
+    '@posthog/load-skill',
+])
 
 export type ToolDispatchOutcome =
     | { kind: 'ok'; result: unknown }
@@ -28,6 +40,8 @@ export interface DispatchInput {
     /** Resolved secret-value lookup for native tools (custom tools receive nonces). */
     secret: (name: string) => string | undefined
     log: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
+    /** Bundle store + revision id are exposed to native tools as a `readBundleFile` closure on ToolContext. */
+    bundle?: BundleStore
 }
 
 export async function dispatchTool(
@@ -44,15 +58,18 @@ export async function dispatchTool(
         return { kind: 'end', summary: a.summary }
     }
 
-    const ref = input.rev.spec.tools.find((t: ToolRef) => t.id === toolName)
-    if (!ref) {
+    // Native tools the runner auto-includes (not declared in spec.tools).
+    // We skip the spec.tools lookup for these and dispatch straight to native.
+    const isAutoIncluded = AUTO_INCLUDED_NATIVES.has(toolName)
+    const ref = isAutoIncluded ? null : input.rev.spec.tools.find((t: ToolRef) => t.id === toolName)
+    if (!isAutoIncluded && !ref) {
         return { kind: 'error', message: `tool not in revision: ${toolName}` }
     }
-    if (ref.kind === 'native' && !hasNativeTool(toolName)) {
+    if (!isAutoIncluded && ref!.kind === 'native' && !hasNativeTool(toolName)) {
         return { kind: 'error', message: `native tool unknown: ${toolName}` }
     }
 
-    if (ref.kind === 'custom') {
+    if (ref && ref.kind === 'custom') {
         if (!input.sandbox) {
             return { kind: 'error', message: `custom tool ${toolName} requires a sandbox` }
         }
@@ -76,6 +93,16 @@ export async function dispatchTool(
             integrations: input.integrations,
             secret: input.secret,
             log: input.log,
+            skillIndex: input.rev.spec.skills.map((s) => ({ id: s.id, description: s.description, path: s.path })),
+            readBundleFile: input.bundle
+                ? async (path: string): Promise<string | null> => {
+                      try {
+                          return await input.bundle!.readText(input.rev.id, path)
+                      } catch {
+                          return null
+                      }
+                  }
+                : undefined,
         })
         return { kind: 'ok', result }
     } catch (err) {

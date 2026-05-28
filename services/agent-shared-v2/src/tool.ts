@@ -43,6 +43,19 @@ export interface ToolContext {
     secret(name: string): string | undefined
     /** Structured log out of the tool — surfaces in the session log. */
     log(level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void
+    /**
+     * Optional bundle-file accessor scoped to the active revision. Tools that
+     * need lazy access to skills/* or other bundle content (e.g.
+     * `@posthog/load-skill`) read through this; tools that don't need bundle
+     * access ignore it. Returns null when the file is missing.
+     */
+    readBundleFile?: (path: string) => Promise<string | null>
+    /**
+     * Available skills for this revision — `{ id, description, path }`.
+     * Populated when `spec.skills` is non-empty. `@posthog/load-skill` uses
+     * this to validate the requested skill id before fetching its body.
+     */
+    skillIndex?: ReadonlyArray<{ id: string; description?: string; path: string }>
 }
 
 export interface IntegrationCredentials {

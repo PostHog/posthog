@@ -256,6 +256,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     sandbox: deps.sandbox,
                     integrations: deps.integrations,
                     secret: (name) => deps.secrets[name],
+                    bundle: deps.bundle,
                     log,
                 },
                 originalName,
@@ -333,7 +334,13 @@ const ALWAYS_ON_NATIVE_TOOL_IDS = ['@posthog/meta-ask-for-input', '@posthog/meta
 async function buildToolList(rev: AgentRevision, bundle: BundleStore): Promise<Tool[]> {
     const decls: Tool[] = []
     const seen = new Set<string>()
-    const allTools = [...ALWAYS_ON_NATIVE_TOOL_IDS.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
+    // `@posthog/load-skill` is auto-included only when the agent has skills —
+    // exposing it to a skill-less agent just adds a tool that errors on use.
+    const alwaysOn = [...ALWAYS_ON_NATIVE_TOOL_IDS]
+    if (rev.spec.skills.length > 0) {
+        alwaysOn.push('@posthog/load-skill')
+    }
+    const allTools = [...alwaysOn.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
     for (const t of allTools) {
         if (seen.has(t.id)) {
             continue

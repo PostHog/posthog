@@ -1,9 +1,18 @@
-import { AgentRevision, AgentSpecSchema, InProcessSandboxPool, Sandbox } from '@posthog/agent-shared-v2'
+import {
+    AgentRevision,
+    AgentSpecSchema,
+    InProcessSandboxPool,
+    MemoryBundleStore,
+    Sandbox,
+} from '@posthog/agent-shared-v2'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { dispatchTool } from './tool-dispatch'
 
-function makeRev(toolRefs: AgentRevision['spec']['tools']): AgentRevision {
+function makeRev(
+    toolRefs: AgentRevision['spec']['tools'],
+    skills: AgentRevision['spec']['skills'] = []
+): AgentRevision {
     return {
         id: 'rev1',
         application_id: 'app1',
@@ -13,7 +22,7 @@ function makeRev(toolRefs: AgentRevision['spec']['tools']): AgentRevision {
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs }),
+        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills }),
     }
 }
 
@@ -126,5 +135,36 @@ describe('dispatchTool', () => {
             {}
         )
         expect(out.kind).toBe('error')
+    })
+
+    it('@posthog/load-skill returns the body of a known skill from the bundle', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'skills/research.md', 'Body of the research skill.')
+        const out = await dispatchTool(
+            {
+                ...baseInput,
+                rev: makeRev([], [{ id: 'research', path: 'skills/research.md', description: 'How to research' }]),
+                bundle,
+            },
+            '@posthog/load-skill',
+            { id: 'research' }
+        )
+        expect(out.kind).toBe('ok')
+        expect(out.kind === 'ok' && out.result).toEqual({ id: 'research', body: 'Body of the research skill.' })
+    })
+
+    it('@posthog/load-skill errors on an unknown skill id', async () => {
+        const bundle = new MemoryBundleStore()
+        const out = await dispatchTool(
+            {
+                ...baseInput,
+                rev: makeRev([], [{ id: 'research', path: 'skills/research.md' }]),
+                bundle,
+            },
+            '@posthog/load-skill',
+            { id: 'ghost' }
+        )
+        expect(out.kind).toBe('error')
+        expect(out.kind === 'error' && out.message).toMatch(/unknown skill id/)
     })
 })

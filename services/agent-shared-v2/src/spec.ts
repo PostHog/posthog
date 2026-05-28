@@ -83,6 +83,12 @@ export const McpRefSchema = z.discriminatedUnion('kind', [
 export const SkillRefSchema = z.object({
     id: z.string(),
     path: z.string(),
+    /**
+     * Short summary shown in the system-prompt skill index. The model decides
+     * whether to call `@posthog/load-skill` based on this description, so it
+     * should describe WHAT the skill teaches the agent and WHEN to load it.
+     */
+    description: z.string().optional(),
 })
 
 export const SpecLimitsSchema = z.object({

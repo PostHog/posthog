@@ -11,6 +11,7 @@
 
 import { NativeTool, NativeToolSchema } from '@posthog/agent-shared-v2'
 
+import { loadSkill } from './tools/load-skill'
 import { askForInputTool, endSessionTool, emitEventTool } from './tools/meta'
 import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
@@ -29,6 +30,7 @@ export const ALL_TOOLS: NativeTool[] = [
     askForInputTool,
     endSessionTool,
     emitEventTool,
+    loadSkill,
 ]
 
 const BY_ID = new Map<string, NativeTool>(ALL_TOOLS.map((t) => [t.id, t]))

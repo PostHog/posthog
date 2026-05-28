@@ -15,6 +15,7 @@ describe('native tool registry', () => {
                 '@posthog/meta-ask-for-input',
                 '@posthog/meta-end-session',
                 '@posthog/meta-emit-event',
+                '@posthog/load-skill',
             ])
         )
     })
