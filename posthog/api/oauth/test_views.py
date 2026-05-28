@@ -1,6 +1,7 @@
 import base64
 import hashlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
@@ -355,27 +356,14 @@ class TestOAuthAPI(APIBaseTest):
         # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
         # requests before validate_silent_login runs, so the validator's False branch can't
         # be exercised through the HTTP flow — call it directly instead.
-        class _Req:
-            pass
-
-        req = _Req()
-        req.user = self.user
+        req = SimpleNamespace(user=self.user)
         self.assertTrue(OAuthValidator().validate_silent_login(req))
 
     def test_validate_silent_login_returns_false_for_unauthenticated_request(self):
-        class _Req:
-            pass
-
-        anon_req = _Req()
-        anon_req.user = AnonymousUser()
-        self.assertFalse(OAuthValidator().validate_silent_login(anon_req))
-
-        no_user_req = _Req()
-        self.assertFalse(OAuthValidator().validate_silent_login(no_user_req))
-
-        none_user_req = _Req()
-        none_user_req.user = None
-        self.assertFalse(OAuthValidator().validate_silent_login(none_user_req))
+        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=AnonymousUser())))
+        # request object with no `user` attribute at all
+        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace()))
+        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=None)))
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
