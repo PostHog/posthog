@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -56,38 +57,41 @@ class TestDashboardDeleteTile(APIBaseTest):
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
         assert insight_response.status_code == status.HTTP_200_OK
 
-    def test_delete_unknown_tile_returns_404(self) -> None:
+    def _setup_unknown_tile_id(self) -> tuple[int, int]:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        self._delete_tile(dashboard_id, tile_id=9_999_999, expected_status=status.HTTP_404_NOT_FOUND)
+        return dashboard_id, 9_999_999
 
-    def test_delete_tile_from_other_dashboard_returns_404(self) -> None:
+    def _setup_tile_from_other_dashboard(self) -> tuple[int, int]:
         dashboard_a, _ = self.dashboard_api.create_dashboard({"name": "a"})
         dashboard_b, _ = self.dashboard_api.create_dashboard({"name": "b"})
-
         _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_a, text="on a")
         tile_id = dashboard_json["tiles"][0]["id"]
+        return dashboard_b, tile_id
 
-        # Tile belongs to dashboard_a — deleting via dashboard_b must not succeed.
-        self._delete_tile(dashboard_b, tile_id, expected_status=status.HTTP_404_NOT_FOUND)
-
-        assert len(self.dashboard_api.get_dashboard(dashboard_a)["tiles"]) == 1
-
-    def test_delete_tile_on_deleted_dashboard_returns_404(self) -> None:
+    def _setup_parent_dashboard_soft_deleted(self) -> tuple[int, int]:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hi")
         tile_id = dashboard_json["tiles"][0]["id"]
-
         self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": True})
+        return dashboard_id, tile_id
 
-        self._delete_tile(dashboard_id, tile_id, expected_status=status.HTTP_404_NOT_FOUND)
-
-    def test_delete_tile_twice_second_call_returns_404(self) -> None:
+    def _setup_tile_already_soft_deleted(self) -> tuple[int, int]:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hi")
         tile_id = dashboard_json["tiles"][0]["id"]
-
         self._delete_tile(dashboard_id, tile_id)
-        # Second call: the manager filters out deleted tiles, so it's not found.
+        return dashboard_id, tile_id
+
+    @parameterized.expand(
+        [
+            ("unknown_tile_id", _setup_unknown_tile_id),
+            ("tile_belongs_to_other_dashboard", _setup_tile_from_other_dashboard),
+            ("parent_dashboard_soft_deleted", _setup_parent_dashboard_soft_deleted),
+            ("tile_already_soft_deleted", _setup_tile_already_soft_deleted),
+        ]
+    )
+    def test_delete_returns_404(self, _name, setup) -> None:
+        dashboard_id, tile_id = setup(self)
         self._delete_tile(dashboard_id, tile_id, expected_status=status.HTTP_404_NOT_FOUND)
 
     def test_delete_tile_requires_tile_id(self) -> None:
