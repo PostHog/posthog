@@ -475,6 +475,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         },
         loadHeatmapFailure: ({ error }) => {
             lemonToast.error(error || 'Heatmap query failed')
+            actions.setIsReady(true)
         },
         loadAreaEventsFailure: ({ error }) => {
             lemonToast.error(error || 'Failed to load events for selected area')

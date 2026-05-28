@@ -64,7 +64,7 @@ function HeatmapMouseInfo({
             }}
         >
             <div className="border rounded bg-surface-primary shadow-md p-2 whitespace-nowrap font-semibold">
-                {rawHeatmapLoading ? 'Loading…' : `${value} ${heatmapTooltipLabel}`}
+                {rawHeatmapLoading ? 'Loading…' : `${value ?? 0} ${heatmapTooltipLabel}`}
             </div>
         </div>
     )
