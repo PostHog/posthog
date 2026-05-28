@@ -22,7 +22,11 @@ pub(crate) fn load_dotenv(path: &Path) -> Result<HashMap<String, String>, Error>
         })?;
         let key = key.trim();
         if key.is_empty() {
-            anyhow::bail!("Malformed line {} in env file {}: empty key", i + 1, path.display());
+            anyhow::bail!(
+                "Malformed line {} in env file {}: empty key",
+                i + 1,
+                path.display()
+            );
         }
         map.insert(key.to_string(), unquote(value.trim()).to_string());
     }
@@ -70,7 +74,10 @@ mod tests {
         writeln!(f, "POSTHOG_CLI_HOST='https://eu.posthog.com'").unwrap();
         let map = load_dotenv(f.path()).unwrap();
         assert_eq!(map.get("POSTHOG_CLI_API_KEY").unwrap(), "phx_quoted");
-        assert_eq!(map.get("POSTHOG_CLI_HOST").unwrap(), "https://eu.posthog.com");
+        assert_eq!(
+            map.get("POSTHOG_CLI_HOST").unwrap(),
+            "https://eu.posthog.com"
+        );
     }
 
     #[test]
