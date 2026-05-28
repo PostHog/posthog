@@ -14,6 +14,7 @@ import { z } from 'zod'
 import { IdentityStore, SessionQueue } from '@posthog/agent-shared'
 
 import { enqueueOrResume } from '../enqueue/enqueue'
+import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
 import { SlackEventBodySchema } from './slack.schemas'
@@ -30,79 +31,82 @@ export interface SlackTriggerDeps {
 
 export function slackRouter(deps: SlackTriggerDeps): Router {
     const r = Router({ mergeParams: true })
-    r.post('/slack/events', async (req: Request, res: Response) => {
-        if (deps.signingSecret && !verifySlackSignature(req, deps.signingSecret)) {
-            res.status(401).json({ error: 'invalid_signature' })
-            return
-        }
-        const body = req.body as { type?: string; challenge?: string; event?: SlackEvent }
-        if (body.type === 'url_verification') {
-            res.json({ challenge: body.challenge })
-            return
-        }
-        const event = body.event
-        if (!event || event.type !== 'message' || event.bot_id) {
-            res.json({ ok: true })
-            return
-        }
-        const resolved = await resolveAgent(deps.resolver, req, res)
-        if (!resolved) {
-            if (!res.headersSent) {
-                res.status(404).json({ error: 'no_agent' })
+    r.post(
+        '/slack/events',
+        asyncHandler(async (req: Request, res: Response) => {
+            if (deps.signingSecret && !verifySlackSignature(req, deps.signingSecret)) {
+                res.status(401).json({ error: 'invalid_signature' })
+                return
             }
-            return
-        }
-        if (!hasTrigger(resolved, 'slack')) {
-            res.status(404).json({ error: 'no_slack_trigger' })
-            return
-        }
+            const body = req.body as { type?: string; challenge?: string; event?: SlackEvent }
+            if (body.type === 'url_verification') {
+                res.json({ challenge: body.challenge })
+                return
+            }
+            const event = body.event
+            if (!event || event.type !== 'message' || event.bot_id) {
+                res.json({ ok: true })
+                return
+            }
+            const resolved = await resolveAgent(deps.resolver, req, res)
+            if (!resolved) {
+                if (!res.headersSent) {
+                    res.status(404).json({ error: 'no_agent' })
+                }
+                return
+            }
+            if (!hasTrigger(resolved, 'slack')) {
+                res.status(404).json({ error: 'no_slack_trigger' })
+                return
+            }
 
-        // Workspace trust check. trusted_workspaces is required in the spec:
-        // an array gates on membership; `"*"` opens to any workspace.
-        const slackTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
-        const trusted =
-            slackTrigger && 'config' in slackTrigger
-                ? (slackTrigger.config as { trusted_workspaces?: string[] | '*' }).trusted_workspaces
-                : undefined
-        const workspaceId = event.team ?? 'unknown'
-        if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
-            res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
-            return
-        }
+            // Workspace trust check. trusted_workspaces is required in the spec:
+            // an array gates on membership; `"*"` opens to any workspace.
+            const slackTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
+            const trusted =
+                slackTrigger && 'config' in slackTrigger
+                    ? (slackTrigger.config as { trusted_workspaces?: string[] | '*' }).trusted_workspaces
+                    : undefined
+            const workspaceId = event.team ?? 'unknown'
+            if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
+                res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
+                return
+            }
 
-        // Identity resolution: same (workspace, user) tuple resolves to the
-        // same AgentUser across sessions.
-        const principalId = `${workspaceId}:${event.user}`
-        let agentUserId = principalId
-        if (deps.identities) {
-            const agentUser = await deps.identities.findOrCreate({
+            // Identity resolution: same (workspace, user) tuple resolves to the
+            // same AgentUser across sessions.
+            const principalId = `${workspaceId}:${event.user}`
+            let agentUserId = principalId
+            if (deps.identities) {
+                const agentUser = await deps.identities.findOrCreate({
+                    team_id: resolved.application.team_id,
+                    application_id: resolved.application.id,
+                    principal_kind: 'slack',
+                    principal_id: principalId,
+                    metadata: { workspace: workspaceId, slack_user: event.user },
+                })
+                agentUserId = agentUser.id
+            }
+
+            const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
+            const slackPrincipal = {
+                kind: 'slack',
                 team_id: resolved.application.team_id,
-                application_id: resolved.application.id,
-                principal_kind: 'slack',
-                principal_id: principalId,
-                metadata: { workspace: workspaceId, slack_user: event.user },
-            })
-            agentUserId = agentUser.id
-        }
-
-        const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
-        const slackPrincipal = {
-            kind: 'slack',
-            team_id: resolved.application.team_id,
-            id: agentUserId,
-        }
-        const { sessionId, isResume } = await enqueueOrResume(
-            { queue: deps.queue, teamId: deps.teamId },
-            {
-                application: resolved.application,
-                revision: resolved.revision,
-                externalKey,
-                seed: { role: 'user', content: event.text ?? '', timestamp: Date.now() },
-                principal: slackPrincipal,
+                id: agentUserId,
             }
-        )
-        res.json({ ok: true, session_id: sessionId, resumed: isResume })
-    })
+            const { sessionId, isResume } = await enqueueOrResume(
+                { queue: deps.queue, teamId: deps.teamId },
+                {
+                    application: resolved.application,
+                    revision: resolved.revision,
+                    externalKey,
+                    seed: { role: 'user', content: event.text ?? '', timestamp: Date.now() },
+                    principal: slackPrincipal,
+                }
+            )
+            res.json({ ok: true, session_id: sessionId, resumed: isResume })
+        })
+    )
     return r
 }
 

@@ -124,22 +124,45 @@ export class Worker {
         let claimed = 0
 
         while (this.running && claimed < targetClaims && !this.shutdownController.signal.aborted) {
-            // Wait for an open slot.
+            // Wait for an open slot. allSettled (not race) so one in-flight
+            // session rejecting doesn't propagate out — runOne owns its own
+            // try/catch and the rejection is informational here.
             while (this.inflight.size >= this.maxConcurrency) {
-                await Promise.race(this.inflight.values())
+                await Promise.allSettled(this.inflight.values())
             }
             if (!this.running || this.shutdownController.signal.aborted || claimed >= targetClaims) {
                 break
             }
-            const session = await this.deps.queue.claim(claimMs)
+            let session: AgentSession | null
+            try {
+                session = await this.deps.queue.claim(claimMs)
+            } catch (err) {
+                // Transient PG error / malformed row mapping. Log and keep
+                // spinning — the next claim attempt will likely succeed.
+                // Without this guard a single bad row crashes the worker.
+                log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'claim.failed')
+                continue
+            }
             if (!session) {
                 continue
             }
+            const claimedSession = session
             claimed++
-            const p = this.runOne(session).finally(() => {
-                this.inflight.delete(session.id)
-            })
-            this.inflight.set(session.id, p)
+            const p = this.runOne(claimedSession)
+                .catch((err) => {
+                    // runOne already has an inner try/catch; this is a
+                    // belt-and-braces guard so an unexpected rejection
+                    // (e.g. queue.update failing in the catch arm) doesn't
+                    // surface as an unhandledRejection on the inflight map.
+                    log.error(
+                        { session_id: claimedSession.id, err: (err as Error).message },
+                        'runOne.unhandled_rejection'
+                    )
+                })
+                .finally(() => {
+                    this.inflight.delete(claimedSession.id)
+                })
+            this.inflight.set(claimedSession.id, p)
         }
 
         // Drain any still-in-flight sessions before returning so the caller
@@ -150,67 +173,72 @@ export class Worker {
     async runOne(session: AgentSession): Promise<void> {
         const sLog = log.child({ session_id: session.id, application_id: session.application_id })
         sLog.debug({ revision_id: session.revision_id }, 'session.claim')
-        const rev = await this.deps.revisions.getRevision(session.revision_id)
-        if (!rev) {
-            sLog.warn({}, 'session.revision_missing — marking failed')
-            await this.deps.queue.update(session.id, { state: 'failed' })
-            return
-        }
-        const integrations = await this.deps.resolveIntegrations(session)
-        const secrets = await this.deps.resolveSecrets(session)
-        const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
         let sandbox = null
         let sandboxInstanceId: string | null = null
-        if (customTools.length > 0) {
-            const loads = await Promise.all(
-                customTools.map(async (t) => ({
-                    id: t.id,
-                    compiledJs: await this.deps.bundle.readText(rev.id, `${t.path.replace(/\/$/, '')}/compiled.js`),
-                    schemaJson: JSON.parse(
-                        await this.deps.bundle
-                            .readText(rev.id, `${t.path.replace(/\/$/, '')}/schema.json`)
-                            .catch(() => '{}')
-                    ),
-                }))
-            )
-            const nonces = this.deps.broker.mintSessionMap(session.id, secrets)
-            // Insert a provisioning row BEFORE we ask the pool — if acquireForSession
-            // hangs / crashes we still have a row to reap.
-            if (this.deps.sandboxInstances) {
-                const created = await this.deps.sandboxInstances.create({
-                    team_id: session.team_id,
-                    application_id: session.application_id,
-                    revision_id: rev.id,
-                    session_id: session.id,
-                    provider_kind: this.deps.sandboxes.kind,
-                })
-                sandboxInstanceId = created.id
-            }
-            try {
-                sandbox = await this.deps.sandboxes.acquireForSession({
-                    sessionId: session.id,
-                    teamId: session.team_id,
-                    tools: loads,
-                    nonces,
-                    sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
-                })
-                if (sandboxInstanceId) {
-                    // In-process pool doesn't carry a provider-side id — use the
-                    // sandbox's sessionId so the row's `provider_sandbox_id` is
-                    // never empty.
-                    await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.sessionId)
-                }
-            } catch (err) {
-                if (sandboxInstanceId) {
-                    await this.deps.sandboxInstances!.markFailed(sandboxInstanceId, (err as Error).message)
-                }
-                throw err
-            }
-        }
-        const resolveModel = this.deps.resolveModel ?? resolveModelCached
-        const model = resolveModel(rev.spec.model)
-        const apiKey = this.deps.resolveApiKey?.(session)
         try {
+            // Pre-flight (revision load, secrets, sandbox acquire) lives INSIDE
+            // the try so a malformed revision.spec (ZodError out of PgRevisionStore),
+            // a missing tool file, a decryption failure, or a sandbox-pool exhaustion
+            // doesn't escape this method and crash the outer worker loop.
+            // The single session gets marked failed; siblings keep running.
+            const rev = await this.deps.revisions.getRevision(session.revision_id)
+            if (!rev) {
+                sLog.warn({}, 'session.revision_missing — marking failed')
+                await this.deps.queue.update(session.id, { state: 'failed' })
+                return
+            }
+            const integrations = await this.deps.resolveIntegrations(session)
+            const secrets = await this.deps.resolveSecrets(session)
+            const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
+            if (customTools.length > 0) {
+                const loads = await Promise.all(
+                    customTools.map(async (t) => ({
+                        id: t.id,
+                        compiledJs: await this.deps.bundle.readText(rev.id, `${t.path.replace(/\/$/, '')}/compiled.js`),
+                        schemaJson: JSON.parse(
+                            await this.deps.bundle
+                                .readText(rev.id, `${t.path.replace(/\/$/, '')}/schema.json`)
+                                .catch(() => '{}')
+                        ),
+                    }))
+                )
+                const nonces = this.deps.broker.mintSessionMap(session.id, secrets)
+                // Insert a provisioning row BEFORE we ask the pool — if acquireForSession
+                // hangs / crashes we still have a row to reap.
+                if (this.deps.sandboxInstances) {
+                    const created = await this.deps.sandboxInstances.create({
+                        team_id: session.team_id,
+                        application_id: session.application_id,
+                        revision_id: rev.id,
+                        session_id: session.id,
+                        provider_kind: this.deps.sandboxes.kind,
+                    })
+                    sandboxInstanceId = created.id
+                }
+                try {
+                    sandbox = await this.deps.sandboxes.acquireForSession({
+                        sessionId: session.id,
+                        teamId: session.team_id,
+                        tools: loads,
+                        nonces,
+                        sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
+                    })
+                    if (sandboxInstanceId) {
+                        // In-process pool doesn't carry a provider-side id — use the
+                        // sandbox's sessionId so the row's `provider_sandbox_id` is
+                        // never empty.
+                        await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.sessionId)
+                    }
+                } catch (err) {
+                    if (sandboxInstanceId) {
+                        await this.deps.sandboxInstances!.markFailed(sandboxInstanceId, (err as Error).message)
+                    }
+                    throw err
+                }
+            }
+            const resolveModel = this.deps.resolveModel ?? resolveModelCached
+            const model = resolveModel(rev.spec.model)
+            const apiKey = this.deps.resolveApiKey?.(session)
             const outcome = await runSession(rev, session, {
                 pi: this.deps.pi,
                 model,

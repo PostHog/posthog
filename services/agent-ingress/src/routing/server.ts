@@ -4,7 +4,7 @@
  * mounted at root in domain mode.
  */
 
-import express, { Express, NextFunction, Request, Response } from 'express'
+import express, { Express, Request, Response } from 'express'
 
 import type { IdentityStore } from '@posthog/agent-shared'
 import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared'
@@ -21,7 +21,8 @@ import { resolveAgent } from '../triggers/resolve'
 import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
 import { webhookTrigger } from '../triggers/webhook'
-import { AmbiguousRevisionError, RevisionResolver, RoutingMode } from './resolver'
+import { asyncHandler, errorHandler } from './http-utils'
+import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
  * The full set of trigger modules the ingress knows about. Each module is
@@ -114,48 +115,41 @@ export function buildApp(opts: BuildAppOpts): Express {
     // appear, and each route is rendered with its auth concretely resolved
     // against the agent's `spec.auth`. There is no hand-maintained map of
     // "which triggers have schemas" — it falls out of the module registry.
-    app.get(`${mount}/schemas`, async (req: Request, res: Response) => {
-        const resolved = await resolveAgent(resolver, req, res)
-        if (!resolved) {
-            if (!res.headersSent) {
-                res.status(404).json({ error: 'no_agent' })
+    app.get(
+        `${mount}/schemas`,
+        asyncHandler(async (req: Request, res: Response) => {
+            const resolved = await resolveAgent(resolver, req, res)
+            if (!resolved) {
+                if (!res.headersSent) {
+                    res.status(404).json({ error: 'no_agent' })
+                }
+                return
             }
-            return
-        }
-        const configured = new Set(resolved.revision.spec.triggers.map((t) => t.type))
-        const triggers = TRIGGER_MODULES.filter((m) => configured.has(m.type)).map((m) => ({
-            type: m.type,
-            routes: m.routes.map((r) => ({
-                method: r.method,
-                path: r.path,
-                ...(r.bodySchema ? { bodySchema: r.bodySchema } : {}),
-                ...(r.querySchema ? { querySchema: r.querySchema } : {}),
-                auth: resolveRouteAuth(r.auth, resolved.revision.spec.auth),
-            })),
-        }))
-        res.json({
-            agent: { slug: resolved.application.slug, name: resolved.application.name },
-            triggers,
+            const configured = new Set(resolved.revision.spec.triggers.map((t) => t.type))
+            const triggers = TRIGGER_MODULES.filter((m) => configured.has(m.type)).map((m) => ({
+                type: m.type,
+                routes: m.routes.map((r) => ({
+                    method: r.method,
+                    path: r.path,
+                    ...(r.bodySchema ? { bodySchema: r.bodySchema } : {}),
+                    ...(r.querySchema ? { querySchema: r.querySchema } : {}),
+                    auth: resolveRouteAuth(r.auth, resolved.revision.spec.auth),
+                })),
+            }))
+            res.json({
+                agent: { slug: resolved.application.slug, name: resolved.application.name },
+                triggers,
+            })
         })
-    })
+    )
 
     for (const m of TRIGGER_MODULES) {
         app.use(mount, m.router(triggerDeps))
     }
 
-    app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-        if (err instanceof AmbiguousRevisionError) {
-            res.status(400).json({
-                error: 'ambiguous_revision',
-                prefix: err.prefix,
-                application_id: err.applicationId,
-                candidates: err.candidates,
-                detail: 'Multiple revisions match this prefix; re-issue with a longer prefix or pass ?revision_id.',
-            })
-            return
-        }
-        log.error({ err: err.message, stack: err.stack, path: req.path, method: req.method }, 'unhandled')
-        res.status(500).json({ error: 'internal_error' })
-    })
+    // Last in the chain. Catches rejections from `asyncHandler`-wrapped
+    // routes, translates ZodError / malformed JSON / AmbiguousRevisionError
+    // into structured 400s, everything else into a JSON 500.
+    app.use(errorHandler(log))
     return app
 }
