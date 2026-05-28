@@ -1,6 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
+import { defineLuaTokenBucketGuarded } from '../../ingestion/error-tracking/redis-token-bucket-guarded.lua'
 import { RedisPoolConfig, createRedisFromConfig } from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
@@ -34,10 +35,7 @@ export type RedisV2 = {
     ) => Promise<Array<[Error | null, any]> | null>
 }
 
-export const createRedisV2PoolFromConfig = (
-    config: RedisPoolConfig,
-    extraScriptDefiners: ((client: Redis) => void)[] = []
-): RedisV2 => {
+export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const pool = createPool<RedisClient>(
         {
             create: async () => {
@@ -45,9 +43,7 @@ export const createRedisV2PoolFromConfig = (
 
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
-                for (const define of extraScriptDefiners) {
-                    define(client)
-                }
+                defineLuaTokenBucketGuarded(client)
 
                 return client as RedisClient
             },
