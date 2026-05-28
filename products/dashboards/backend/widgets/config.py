@@ -4,31 +4,36 @@ from typing import Any
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-# Dashboard widgets default to excluding internal/test users (same as weekly digest and
-# error-tracking widget historical behavior). Product scenes may use different defaults.
-DEFAULT_FILTER_TEST_ACCOUNTS = True
+from posthog.models.team import Team
 
 MAX_WIDGET_CONFIG_LIMIT = 25
 
 WIDGET_DATE_FROM_VALUES = frozenset({"-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"})
 
 
-def validate_filter_test_accounts(config: dict[str, Any]) -> bool:
-    value = config.get("filterTestAccounts", DEFAULT_FILTER_TEST_ACCOUNTS)
+def default_filter_test_accounts_for_team(team: Team) -> bool:
+    return bool(team.test_account_filters_default_checked)
+
+
+def validate_filter_test_accounts_value(value: object) -> bool:
     if not isinstance(value, bool):
         raise DRFValidationError({"config": "filterTestAccounts must be a boolean."})
     return value
 
 
-def resolve_filter_test_accounts(config: dict[str, Any]) -> bool:
+def resolve_filter_test_accounts(config: dict[str, Any], team: Team) -> bool:
     """Return whether widget queries should apply team.test_account_filters."""
-    return validate_filter_test_accounts(config)
+    if "filterTestAccounts" in config:
+        return validate_filter_test_accounts_value(config["filterTestAccounts"])
+    return default_filter_test_accounts_for_team(team)
 
 
 def merge_base_widget_config_fields(config: dict[str, Any]) -> dict[str, Any]:
     """Shared config fields inherited by all widget types."""
+    if "filterTestAccounts" not in config:
+        return {}
     return {
-        "filterTestAccounts": validate_filter_test_accounts(config),
+        "filterTestAccounts": validate_filter_test_accounts_value(config["filterTestAccounts"]),
     }
 
 

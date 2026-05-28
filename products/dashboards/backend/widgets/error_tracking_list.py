@@ -4,10 +4,11 @@ from typing import Any, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.schema import DateRange, ErrorTrackingQuery
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema import DateRange, ErrorTrackingQuery
 
 from products.dashboards.backend.widgets.config import (
     MAX_WIDGET_CONFIG_LIMIT,
@@ -15,7 +16,12 @@ from products.dashboards.backend.widgets.config import (
     resolve_filter_test_accounts,
     validate_widget_date_range,
 )
-from products.error_tracking.backend.api.query_utils import LIST_ISSUE_FIELDS, build_date_range, get_page_info, pick_fields
+from products.error_tracking.backend.api.query_utils import (
+    LIST_ISSUE_FIELDS,
+    build_date_range,
+    get_page_info,
+    pick_fields,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
 # Validate/run for one widget_type — register in widget_registry.py. See products/dashboards/CONTRIBUTING.md.
@@ -32,9 +38,7 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
 
     order_by = config.get("orderBy", "occurrences")
     if order_by not in ERROR_TRACKING_ORDER_BY:
-        raise DRFValidationError(
-            {"config": f"orderBy must be one of: {', '.join(sorted(ERROR_TRACKING_ORDER_BY))}."}
-        )
+        raise DRFValidationError({"config": f"orderBy must be one of: {', '.join(sorted(ERROR_TRACKING_ORDER_BY))}."})
 
     order_direction = config.get("orderDirection", "DESC")
     if order_direction not in {"ASC", "DESC"}:
@@ -56,9 +60,7 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
     }
 
 
-def run_error_tracking_list_widget(
-    team: Team, config: dict[str, Any], user: User | None = None
-) -> dict[str, Any]:
+def run_error_tracking_list_widget(team: Team, config: dict[str, Any], user: User | None = None) -> dict[str, Any]:
     _ = user
     limit = cast(int, config["limit"])
     offset = 0
@@ -67,7 +69,7 @@ def run_error_tracking_list_widget(
         kind="ErrorTrackingQuery",
         dateRange=DateRange(**build_date_range(date_range_raw)),
         status=cast(str, config.get("status", "active")),
-        filterTestAccounts=resolve_filter_test_accounts(config),
+        filterTestAccounts=resolve_filter_test_accounts(config, team),
         orderBy=cast(str, config.get("orderBy", "occurrences")),
         orderDirection=cast(str, config.get("orderDirection", "DESC")),
         limit=limit,

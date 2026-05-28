@@ -1,28 +1,19 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.test.base import APIBaseTest
-
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-
-from parameterized import parameterized
-
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.dashboards.backend.widgets.config import DEFAULT_FILTER_TEST_ACCOUNTS, MAX_WIDGET_CONFIG_LIMIT
-from products.dashboards.backend.widgets.error_tracking_list import (
-    ERROR_TRACKING_ORDER_BY,
-    validate_error_tracking_list_config,
-)
-    SESSION_REPLAY_ORDER_BY,
-    validate_session_replay_list_config,
-)
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     get_widget_registry_entry,
     validate_widget_config,
 )
+from products.dashboards.backend.widgets.config import MAX_WIDGET_CONFIG_LIMIT
+from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -42,7 +33,7 @@ class TestWidgetRegistry(APIBaseTest):
         validated = validate_error_tracking_list_config({})
         assert validated["limit"] == MAX_WIDGET_CONFIG_LIMIT
         assert validated["orderBy"] == "occurrences"
-        assert validated["filterTestAccounts"] is DEFAULT_FILTER_TEST_ACCOUNTS
+        assert "filterTestAccounts" not in validated
 
     def test_validate_error_tracking_list_config_rejects_invalid_filter_test_accounts(self) -> None:
         with self.assertRaises(Exception):
@@ -60,6 +51,7 @@ class TestWidgetRegistry(APIBaseTest):
     def test_validate_error_tracking_list_config_rejects_unsupported_date_range(self) -> None:
         with self.assertRaises(Exception):
             validate_error_tracking_list_config({"dateRange": {"date_from": "-48h"}})
+
 
 class TestDashboardRunWidgets(APIBaseTest):
     def setUp(self) -> None:
@@ -108,6 +100,23 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_calculate.assert_called_once()
 
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
+    def test_run_widgets_uses_team_filter_test_accounts_default(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
+        )
+        self.team.test_account_filters_default_checked = True
+        self.team.save()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        self._run(dashboard_id, [tile_id])
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertTrue(query.filterTestAccounts)
+
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_applies_filter_test_accounts_when_enabled(self, mock_runner_cls: MagicMock) -> None:
         mock_runner_cls.return_value.calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}

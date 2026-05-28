@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from products.dashboards.backend.widgets.config import MAX_WIDGET_CONFIG_LIMIT, WIDGET_DATE_FROM_VALUES
 from products.dashboards.backend.widget_registry import normalize_widget_type
+from products.dashboards.backend.widgets.config import MAX_WIDGET_CONFIG_LIMIT, WIDGET_DATE_FROM_VALUES
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 
 
@@ -57,13 +57,13 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
             },
             "filterTestAccounts": {
                 "type": "boolean",
-                "default": True,
+                "optional": True,
+                "uses_project_default": True,
             },
         },
         "required_product_access": "error_tracking",
         "availability_requirements": ["exception_autocapture"],
     },
-
 }
 
 
