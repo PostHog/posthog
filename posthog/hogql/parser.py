@@ -239,9 +239,9 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
     ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
 }
 
-# Fraction of `*_shadow` parses in PROD that also run the shadow backend. Held at 1% for the rust-py rollout: a latent
-# rust-py pathology (slow parse, crash) then touches ~1% of requests, not all. Ramp to 100% once it looks safe in prod.
-# Tests always sample 100%.
+# Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
+# the shadow leg now runs the cpp parser on ~1% of requests purely as a divergence canary. Bump if a fresh regression
+# surfaces and tighter coverage is needed. Tests always sample 100%.
 _SHADOW_SAMPLE_RATE = 0.01
 
 
@@ -256,16 +256,16 @@ def _resolve_parser_mode(
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    An absent modifier defaults to `CPP_WITH_RUST_PY_SHADOW`: cpp stays the
-    primary (its result is always returned) and rust-py runs as the shadow,
-    sampled per `_shadow_sample_rate` (100% in test, 1% in prod for now). The
+    An absent modifier defaults to `RUST_PY_WITH_CPP_SHADOW`: rust-py is the
+    primary (its result is always returned) and cpp runs as the shadow,
+    sampled per `_shadow_sample_rate` (100% in test, 1% in prod). The
     divergence behavior differs by environment downstream
     (`_run_shadow_comparison`): TEST raises on any mismatch, prod only
     reports it (never failing the request).
 
     If the rust wheel failed to import (`_RUST_PARSER_AVAILABLE` is False)
-    the default drops the shadow and runs cpp-only, so a broken wheel can't
-    spam the parse path; the unavailability is reported once at import time.
+    the default falls back to cpp-only, so a broken wheel can't take the
+    parse path down; the unavailability is reported once at import time.
 
     An explicit `backend=` override (test factories / parity scripts) is
     honoured untouched and bypasses the shadow. Resolution happens here at
@@ -274,7 +274,7 @@ def _resolve_parser_mode(
     """
     if parser_mode is None:
         if backend == DEFAULT_BACKEND and _RUST_PARSER_AVAILABLE:
-            return _PARSER_MODE_BACKENDS[ParserMode.CPP_WITH_RUST_PY_SHADOW]
+            return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
         return backend, None
     return _PARSER_MODE_BACKENDS[parser_mode]
 

@@ -16,7 +16,7 @@ from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode
 class TestParserMode(BaseTest):
     @parameterized.expand(
         [
-            (None, ("cpp-json", "rust-py")),
+            (None, ("rust-py", "cpp-json")),
             (ParserMode.CPP_ONLY, ("cpp-json", None)),
             (ParserMode.RUST_ONLY, ("rust-json", None)),
             (ParserMode.CPP_WITH_RUST_SHADOW, ("cpp-json", "rust-json")),
@@ -35,7 +35,7 @@ class TestParserMode(BaseTest):
     def test_resolve_parser_mode_default_shadows_in_prod_not_only_in_test(self):
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
-            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", "rust-py"))
+            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("rust-py", "cpp-json"))
 
     def test_resolve_parser_mode_drops_shadow_when_rust_unavailable(self):
         with patch("posthog.hogql.parser._RUST_PARSER_AVAILABLE", False):
