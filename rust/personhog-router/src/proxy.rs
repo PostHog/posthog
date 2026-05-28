@@ -232,10 +232,18 @@ impl RawProxyInner {
     ) -> http::Response<BoxBody> {
         let (parts, body) = req.into_parts();
 
+        let collect_start = Instant::now();
         let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
             Ok(b) => b,
             Err(resp) => return resp,
         };
+        let client = current_client_name();
+        histogram!(
+            "personhog_router_body_collect_ms",
+            "method" => method.to_string(),
+            "client" => client.to_string(),
+        )
+        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
         let new_path = format!("{REPLICA_PREFIX}{method}");
 
@@ -267,8 +275,18 @@ impl RawProxyInner {
             *req.version_mut() = parts.version;
             *req.headers_mut() = parts.headers.clone();
 
+            let oneshot_start = Instant::now();
             match channel.oneshot(req).await {
-                Ok(response) => return response,
+                Ok(response) => {
+                    let client = current_client_name();
+                    histogram!(
+                        "personhog_router_backend_roundtrip_ms",
+                        "method" => method.to_string(),
+                        "client" => client.to_string(),
+                    )
+                    .record(oneshot_start.elapsed().as_secs_f64() * 1000.0);
+                    return response;
+                }
                 Err(e) => {
                     let is_last = attempt >= self.retry_config.max_retries;
                     if is_last {
