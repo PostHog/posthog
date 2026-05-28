@@ -30,7 +30,10 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import {
+    hasPinnedContext,
+    taxonomicFilterPinnedPropertiesLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -102,7 +105,6 @@ import { eventMetadataTaxonomicGroupsLogic } from './eventMetadataTaxonomicGroup
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsLogic'
-import { recentPinnedTaxonomicGroupsLogic } from './recentPinnedTaxonomicGroupsLogic'
 import { suggestedFiltersTaxonomicGroupsLogic } from './suggestedFiltersTaxonomicGroupsLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
@@ -339,8 +341,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['suggestedFiltersTaxonomicGroups'],
             apmTaxonomicGroupsLogic,
             ['apmTaxonomicGroups'],
-            recentPinnedTaxonomicGroupsLogic,
-            ['recentPinnedTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -543,7 +543,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.cohortTaxonomicGroups,
                 s.apmTaxonomicGroups,
                 s.featureFlags,
-                s.recentPinnedTaxonomicGroups,
             ],
             (
                 currentTeam: TeamType,
@@ -563,8 +562,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 maxAIContextTaxonomicGroups: TaxonomicFilterGroup[],
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 apmTaxonomicGroups: TaxonomicFilterGroup[],
-                featureFlags: Record<string, boolean | string | undefined>,
-                recentPinnedTaxonomicGroups: TaxonomicFilterGroup[]
+                featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
                 const { eventNames } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
@@ -1187,7 +1185,32 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     },
                     ...maxAIContextTaxonomicGroups,
                     ...suggestedFiltersTaxonomicGroups,
-                    ...recentPinnedTaxonomicGroups,
+                    {
+                        name: 'Recent',
+                        searchPlaceholder: 'recent',
+                        type: TaxonomicFilterGroupType.RecentFilters,
+                        isLocalOnly: true,
+                        isMetaGroup: true,
+                        logic: recentTaxonomicFiltersLogic,
+                        value: 'recentFilterItems',
+                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+                            'name' in item ? (item.name ?? null) : null,
+                        getPopoverHeader: () => 'Recent',
+                    } as TaxonomicFilterGroup,
+                    {
+                        name: 'Pinned',
+                        searchPlaceholder: 'pinned',
+                        type: TaxonomicFilterGroupType.PinnedFilters,
+                        isLocalOnly: true,
+                        isMetaGroup: true,
+                        logic: taxonomicFilterPinnedPropertiesLogic,
+                        value: 'pinnedFilterItems',
+                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+                            'name' in item ? (item.name ?? null) : null,
+                        getPopoverHeader: () => 'Pinned',
+                    } as TaxonomicFilterGroup,
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
