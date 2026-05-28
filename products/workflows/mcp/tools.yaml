@@ -135,6 +135,6 @@ tools:
         title: List workflows
         description: >
             List workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps. Filter to a
-            single lifecycle state with the `status` query parameter (`active`, `draft`, or `archived`).
+            (draft/active/archived), version, trigger configuration, and timestamps. Filter to a single lifecycle state
+            with the `status` query parameter (`active`, `draft`, or `archived`).
         ui_app: workflow-list
