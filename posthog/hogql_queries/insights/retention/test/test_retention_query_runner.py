@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
@@ -5465,6 +5466,51 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         self.assertNotIn("events__events", sql)
         # event property access should be present, not person property access
         self.assertIn("properties", sql)
+
+    @parameterized.expand(
+        [
+            ("modifier_off", False, "retention_first_time", "$pageview", "$pageview", False),
+            ("first_time_same_entity", True, "retention_first_time", "$pageview", "$pageview", True),
+            ("first_ever_same_entity", True, "retention_first_ever_occurrence", "$pageview", "$pageview", True),
+            ("recurring_same_entity_not_applied", True, "retention_recurring", "$pageview", "$pageview", False),
+            ("first_time_different_entity_not_applied", True, "retention_first_time", "$pageview", "$screen", False),
+        ]
+    )
+    def test_retention_first_time_narrowing_modifier(
+        self,
+        _name: str,
+        modifier_on: bool,
+        retention_type: str,
+        target_event: str,
+        return_event: str,
+        expect_global_in: bool,
+    ) -> None:
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={
+                "retentionType": retention_type,
+                "targetEntity": {"id": target_event, "type": "events"},
+                "returningEntity": {"id": return_event, "type": "events"},
+            },
+        )
+        modifiers = HogQLQueryModifiers(retentionFirstTimeNarrowingPath=modifier_on or None)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+        base_query = runner._base_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
+
+        if expect_global_in:
+            self.assertIn("globalIn(", sql)
+        else:
+            self.assertNotIn("globalIn(", sql)
 
 
 class TestClickhouseRetentionGroupAggregation(

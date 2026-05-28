@@ -7428,6 +7428,15 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    retentionFirstTimeNarrowingPath: bool | None = Field(
+        default=None,
+        description=(
+            "Narrow first-time / first-ever retention queries with a `person_id GLOBAL"
+            " IN (cheap inner subquery)` predicate that keeps only actors whose first"
+            " qualifying start event falls in the cohort date range. Opt-in; only"
+            " applied when start and return entities are identical."
+        ),
+    )
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,

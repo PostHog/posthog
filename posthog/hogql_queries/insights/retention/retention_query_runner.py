@@ -227,6 +227,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return entity_to_expr(self.return_event, self.team)
 
     @cached_property
+    def start_and_return_entities_are_same(self) -> bool:
+        identity_fields = {"id", "type", "table_name", "timestamp_field", "properties"}
+        return self.start_event.model_dump(mode="json", include=identity_fields) == self.return_event.model_dump(
+            mode="json", include=identity_fields
+        )
+
+    @cached_property
     def aggregation_target_events_column(self) -> str:
         if self.group_type_index is not None:
             group_index = int(self.group_type_index)
@@ -326,6 +333,24 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             ]
         )
 
+    def _first_time_narrowing_subquery(self) -> ast.SelectQuery:
+        """
+        Inner subquery for the Pattern A narrowing gate. Returns the set of actor IDs
+        whose first qualifying start_entity event falls within the cohort date range —
+        i.e. the only actors who can possibly contribute to a first-time / first-ever
+        retention result. The outer query then applies `actor_id GLOBAL IN (this)` so
+        the wide GROUP BY only allocates state for in-cohort actors.
+        """
+        actor_id_field = ast.Field(chain=["events", self.aggregation_target_events_column])
+        min_timestamp = ast.Call(name="min", args=[ast.Field(chain=["events", "timestamp"])])
+        return ast.SelectQuery(
+            select=[actor_id_field],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self.start_entity_expr,
+            group_by=[actor_id_field],
+            having=self.events_timestamp_filter(field=min_timestamp),
+        )
+
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
         if self.is_custom_bracket_retention:
@@ -390,6 +415,22 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     # Sorting for consistent snapshots in tests
                     right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
                     op=ast.CompareOperationOp.In,
+                )
+            )
+
+        # Pattern A narrowing gate: drop actors whose first qualifying start event sits outside the cohort window
+        # before the outer GROUP BY allocates per-actor aggregate state. Only safe when start and return are the
+        # same entity — for different entities the return side legitimately needs actors filtered out by the gate.
+        if (
+            self.modifiers.retentionFirstTimeNarrowingPath
+            and (is_first_occurrence_matching_filters or is_first_ever_occurrence)
+            and self.start_and_return_entities_are_same
+        ):
+            events_where.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalIn,
+                    left=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                    right=self._first_time_narrowing_subquery(),
                 )
             )
 

@@ -428,6 +428,8 @@ export interface HogQLQueryModifiers {
     sessionIdPushdown?: boolean
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
+    /** Narrow first-time / first-ever retention queries with a `person_id GLOBAL IN (cheap inner subquery)` predicate that keeps only actors whose first qualifying start event falls in the cohort date range. Opt-in; only applied when start and return entities are identical. */
+    retentionFirstTimeNarrowingPath?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean

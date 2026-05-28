@@ -21186,6 +21186,10 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
+                "retentionFirstTimeNarrowingPath": {
+                    "description": "Narrow first-time / first-ever retention queries with a `person_id GLOBAL IN (cheap inner subquery)` predicate that keeps only actors whose first qualifying start event falls in the cohort date range. Opt-in; only applied when start and return entities are identical.",
+                    "type": "boolean"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
