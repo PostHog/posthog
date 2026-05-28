@@ -144,6 +144,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         from posthog.clickhouse.client.execute import UntaggedQueryError
         from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+
         from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 
         mock_list_recordings.return_value = ([], False, None, None)

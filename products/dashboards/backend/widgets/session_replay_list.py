@@ -4,15 +4,12 @@ from typing import Any, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQuery
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQuery
-
-from posthog.session_recordings.session_recording_api import (
-    SessionRecordingSerializer,
-    list_recordings_from_query,
-)
+from posthog.session_recordings.session_recording_api import SessionRecordingSerializer, list_recordings_from_query
 
 from products.dashboards.backend.widgets.config import (
     MAX_WIDGET_CONFIG_LIMIT,
@@ -31,6 +28,7 @@ SESSION_REPLAY_ORDER_BY = frozenset(
         "console_error_count",
     }
 )
+
 
 class _SessionRecordingListViewShim:
     """Skip list-view N+1 paths in SessionRecordingSerializer (external refs, summaries)."""
@@ -58,9 +56,7 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
 
     order_by = config.get("orderBy", "start_time")
     if order_by not in SESSION_REPLAY_ORDER_BY:
-        raise DRFValidationError(
-            {"config": f"orderBy must be one of: {', '.join(sorted(SESSION_REPLAY_ORDER_BY))}."}
-        )
+        raise DRFValidationError({"config": f"orderBy must be one of: {', '.join(sorted(SESSION_REPLAY_ORDER_BY))}."})
 
     order_direction = config.get("orderDirection", "DESC")
     if order_direction not in {"ASC", "DESC"}:
@@ -98,9 +94,7 @@ def _build_recordings_query(team: Team, config: dict[str, Any]) -> RecordingsQue
     )
 
 
-def run_session_replay_list_widget(
-    team: Team, config: dict[str, Any], user: User | None = None
-) -> dict[str, Any]:
+def run_session_replay_list_widget(team: Team, config: dict[str, Any], user: User | None = None) -> dict[str, Any]:
     query = _build_recordings_query(team, config)
     with tags_context(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk):
         recordings, has_more, _, _next_cursor = list_recordings_from_query(
