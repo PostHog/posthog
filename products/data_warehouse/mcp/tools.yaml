@@ -445,8 +445,20 @@ tools:
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
+    fix-hogql-destroy:
+        operation: fix_hogql_destroy
+        enabled: false
     fix-hogql-list:
         operation: fix_hogql_list
+        enabled: false
+    fix-hogql-partial-update:
+        operation: fix_hogql_partial_update
+        enabled: false
+    fix-hogql-retrieve:
+        operation: fix_hogql_retrieve
+        enabled: false
+    fix-hogql-update:
+        operation: fix_hogql_update
         enabled: false
     insight-variables-list:
         operation: insight_variables_list
@@ -710,6 +722,9 @@ tools:
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
         enabled: false
+    warehouse-model-paths-retrieve:
+        operation: warehouse_model_paths_retrieve
+        enabled: false
     warehouse-saved-queries-activity-retrieve:
         operation: warehouse_saved_queries_activity_retrieve
         enabled: false
@@ -767,17 +782,47 @@ tools:
     warehouse-tables-create:
         operation: warehouse_tables_create
         enabled: false
+    warehouse-tables-destroy:
+        operation: warehouse_tables_destroy
+        enabled: false
     warehouse-tables-file-create:
         operation: warehouse_tables_file_create
         enabled: false
     warehouse-tables-list:
         operation: warehouse_tables_list
         enabled: false
+    warehouse-tables-partial-update:
+        operation: warehouse_tables_partial_update
+        enabled: false
+    warehouse-tables-refresh-schema-create:
+        operation: warehouse_tables_refresh_schema_create
+        enabled: false
+    warehouse-tables-retrieve:
+        operation: warehouse_tables_retrieve
+        enabled: false
+    warehouse-tables-update:
+        operation: warehouse_tables_update
+        enabled: false
+    warehouse-tables-update-schema-create:
+        operation: warehouse_tables_update_schema_create
+        enabled: false
     warehouse-view-link-create:
         operation: warehouse_view_link_create
         enabled: false
+    warehouse-view-link-destroy:
+        operation: warehouse_view_link_destroy
+        enabled: false
     warehouse-view-link-list:
         operation: warehouse_view_link_list
+        enabled: false
+    warehouse-view-link-partial-update:
+        operation: warehouse_view_link_partial_update
+        enabled: false
+    warehouse-view-link-retrieve:
+        operation: warehouse_view_link_retrieve
+        enabled: false
+    warehouse-view-link-update:
+        operation: warehouse_view_link_update
         enabled: false
     warehouse-view-link-validate-create:
         operation: warehouse_view_link_validate_create
@@ -785,8 +830,20 @@ tools:
     warehouse-view-links-create:
         operation: warehouse_view_links_create
         enabled: false
+    warehouse-view-links-destroy:
+        operation: warehouse_view_links_destroy
+        enabled: false
     warehouse-view-links-list:
         operation: warehouse_view_links_list
+        enabled: false
+    warehouse-view-links-partial-update:
+        operation: warehouse_view_links_partial_update
+        enabled: false
+    warehouse-view-links-retrieve:
+        operation: warehouse_view_links_retrieve
+        enabled: false
+    warehouse-view-links-update:
+        operation: warehouse_view_links_update
         enabled: false
     warehouse-view-links-validate-create:
         operation: warehouse_view_links_validate_create

@@ -189,11 +189,23 @@ tools:
     dashboard-templates-create:
         operation: dashboard_templates_create
         enabled: false
+    dashboard-templates-destroy:
+        operation: dashboard_templates_destroy
+        enabled: false
     dashboard-templates-json-schema-retrieve:
         operation: dashboard_templates_json_schema_retrieve
         enabled: false
     dashboard-templates-list:
         operation: dashboard_templates_list
+        enabled: false
+    dashboard-templates-partial-update:
+        operation: dashboard_templates_partial_update
+        enabled: false
+    dashboard-templates-retrieve:
+        operation: dashboard_templates_retrieve
+        enabled: false
+    dashboard-templates-update:
+        operation: dashboard_templates_update
         enabled: false
     dashboard-update:
         operation: dashboards_partial_update
