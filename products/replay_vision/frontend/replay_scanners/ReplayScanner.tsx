@@ -68,6 +68,13 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             label: 'Configuration',
             content: (
                 <div className="space-y-6 max-w-3xl">
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Details</h3>
+                        <p className="text-sm text-muted m-0">
+                            What this scanner looks for and how it analyzes recordings.
+                        </p>
+                    </div>
+
                     <Field name="name" label="Name">
                         <LemonInput placeholder="e.g. Confused checkout flow" />
                     </Field>
