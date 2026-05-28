@@ -183,7 +183,8 @@ jest.mock('@floating-ui/react', () => {
     const React = require('react')
     return {
         ...actual,
-        FloatingPortal: ({ children }: { children: unknown }) => React.createElement(React.Fragment, null, children),
+        FloatingPortal: ({ children }: { children?: React.ReactNode; [key: string]: unknown }) =>
+            React.createElement(React.Fragment, null, children),
     }
 })
 
