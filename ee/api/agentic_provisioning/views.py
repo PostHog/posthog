@@ -1415,6 +1415,7 @@ def _compute_partner_scoped_teams(
         if _user_can_access_team(user, team):
             granted.add(team.id)
 
+    # sorted() only for deterministic test assertions and log diffs; scope order is not a correctness requirement
     return sorted(granted)
 
 
