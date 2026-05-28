@@ -1,0 +1,46 @@
+{
+    "name": "@posthog/agent-console",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Standalone read-mostly console for the PostHog agent platform. Next.js + @posthog/quill on top; embeds @posthog/agent-chat for the editing dock. v0 is Storybook-driven with all data sources mocked; v0.1 swaps mocks for the generated PostHog API client + real OAuth.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "module",
+    "scripts": {
+        "dev": "next dev -p 3040",
+        "build": "next build",
+        "start": "next start -p 3040",
+        "typescript:check": "tsc --noEmit -p .",
+        "storybook": "storybook dev -p 6041 --no-open",
+        "build-storybook": "storybook build"
+    },
+    "dependencies": {
+        "@posthog/agent-chat": "workspace:*",
+        "@posthog/quill": "workspace:*",
+        "@posthog/quill-tokens": "workspace:*",
+        "lucide-react": "^0.577.0",
+        "next": "^15.5.4",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0"
+    },
+    "devDependencies": {
+        "@storybook/addon-docs": "^7.6.4",
+        "@storybook/react": "catalog:",
+        "@storybook/react-vite": "^7.6.4",
+        "@storybook/theming": "^7.6.20",
+        "@tailwindcss/postcss": "^4.1.17",
+        "@tailwindcss/vite": "^4.1.17",
+        "@types/node": "catalog:",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^4.3.4",
+        "storybook": "^7.6.21",
+        "storybook-dark-mode": "3.0.3",
+        "tailwindcss": "^4.1.17",
+        "typescript": "catalog:",
+        "vite": "^5.4.21"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}

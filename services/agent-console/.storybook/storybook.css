@@ -1,0 +1,30 @@
+/*
+ * Storybook CSS entry — same shape as the console's `src/styles/globals.css`,
+ * but with `@source` paths resolved relative to the .storybook directory.
+ *
+ * Both files import quill-tokens directly so design-token edits reload here
+ * the moment they land (no quill dist rebuild required).
+ */
+
+@import 'tailwindcss';
+@import '@posthog/quill-tokens/color-system.css';
+@import '@posthog/quill-tokens/tailwind-lib.css';
+
+/* See `src/styles/globals.css` for the rationale behind these two imports.
+ * Both files need them; Storybook and Next.js compile Tailwind independently. */
+@import '@posthog/quill/tailwind.css';
+@import '@posthog/quill/primitives.css';
+
+/* Scan sources from both contributing locations. */
+@source "../src/**/*.{ts,tsx}";
+@source "../../../packages/agent-chat/src/**/*.{ts,tsx}";
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}

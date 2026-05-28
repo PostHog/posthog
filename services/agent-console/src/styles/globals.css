@@ -1,0 +1,43 @@
+/*
+ * Global styles for the agent console.
+ *
+ * Quill is wired in source-mode (workspace package), not via the published
+ * dist — so we point Tailwind at quill-tokens' source CSS and `@source` at
+ * both the chat package and the console's own .tsx files. This keeps HMR
+ * fast: editing a Tailwind class anywhere in the workspace shows up in the
+ * browser without a quill dist rebuild.
+ */
+
+@import 'tailwindcss';
+
+/* Design tokens — :root custom properties + the @theme inline block. */
+@import '@posthog/quill-tokens/color-system.css';
+@import '@posthog/quill-tokens/tailwind-lib.css';
+
+/* Tailwind utilities scanned out of @posthog/quill's compiled dist JS.
+ * Without this, class strings that live only in Quill source (e.g.
+ * `data-[orientation=horizontal]:flex-col` on the Tabs root) are
+ * unknown to our Tailwind compiler and don't get generated. */
+@import '@posthog/quill/tailwind.css';
+
+/* BEM styles for Quill primitives (tabs, dialog, popover, etc.) — these
+ * live in per-primitive .css files imported by their .tsx and bundled
+ * into @posthog/quill's dist as `primitives.css`. Without this import,
+ * primitives that rely on BEM classes (Tabs, Combobox, ScrollArea, …)
+ * appear unstyled. */
+@import '@posthog/quill/primitives.css';
+
+/* Scan sources for class-name strings — same shape as Quill's storybook.css. */
+@source "../**/*.{ts,tsx}";
+@source "../../app/**/*.{ts,tsx}";
+@source "../../../../packages/agent-chat/src/**/*.{ts,tsx}";
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}

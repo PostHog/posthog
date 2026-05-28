@@ -76,6 +76,14 @@ authoring AI already uses. The chat surface itself is a separate
 package the console _embeds_ (§11) — so anything else that wants
 to talk to an agent later can drop the same dock in.
 
+**Build order matters here.** v0 is a fully-mocked Storybook of
+every surface (read pages, chat dock, focus-tool navigation,
+streaming, approvals) — design review happens against fixtures
+before any backend is wired. Only once the Storybook is signed
+off do we start swapping mocks for real API / SSE / OAuth calls.
+The stories then double as visual regression tests through the
+rewire. Full strategy in §12; rollout phases in §17.
+
 ## 3. Why a separate service, not part of frontend/
 
 Three reasons to live outside `frontend/`:
@@ -574,7 +582,8 @@ console-specific. Pulling the chat into its own package means:
 - The chat can be Storybook'd in isolation — useful both for
   design iteration and for `services/agent-tests/` integration
   where we want to drive client-tool handlers without spinning up
-  Next.js.
+  Next.js. Storybook is the **first** thing we build, not an
+  afterthought — see §12 for the Storybook-first build strategy.
 
 ### 11.1 Package shape
 
@@ -676,7 +685,96 @@ unwound). Worth it on day one because:
   surface in the platform; iterating it in Storybook is far
   faster than driving the whole console.
 
-## 12. Local-dev shape
+## 12. Build strategy — Storybook-first, then real wiring
+
+The console + agent-chat ship in two distinct phases. We do **not**
+mix them.
+
+### 12.1 Phase 1 — fully-mocked Storybook (the design review surface)
+
+Every surface — read panel pages, chat dock, focus-tool navigation,
+streaming assistant turns, approval inline cards, error states —
+is built **inside Storybook with all data sources mocked**. No
+fetch calls, no SSE connections, no OAuth. Pure components driven
+by fixture props and stub handlers.
+
+The fixture surface mirrors the real types (`@posthog/agent-shared`
+exports), so swapping a mock for a real call later is a one-line
+change, not a refactor.
+
+What lands in Phase 1:
+
+- `packages/agent-chat/storybook/` — every state of `<AgentChat />`
+  as a story: idle, mid-stream, tool call in flight, focus-tool
+  result, approval inline card, error / disconnected, follow-mode
+  off, etc.
+- `services/agent-console/.storybook/` — every read page as a
+  story, fed by a `mockApi` module that returns fixture rows.
+  Each page is rendered both as "happy path with rich data" and
+  "empty / error / loading" so visual snapshots cover edge cases.
+- Shared fixture library at `packages/agent-chat/src/fixtures/`
+  (or similar) — typed sample data both stories and tests can
+  import. Single source of truth for "what does a typical
+  agent / revision / session / SSE event look like".
+- Storybook + Chromatic-style visual snapshots wired into CI
+  (or Playwright + a snapshot baseline — pick later). Either way,
+  every story doubles as a regression test.
+
+This phase is the **design review surface**. We iterate visually
+in Storybook until the UX is right, then promote to Phase 2.
+Nothing about the runtime / backend changes during Phase 1 — the
+runner doesn't even need to know client-fulfilled tools exist yet.
+
+### 12.2 Phase 2 — replace mocks with real wiring
+
+Only after Phase 1's Storybook is approved do we start replacing
+fixtures with real calls. Per surface:
+
+| Mock                            | Real replacement                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mockApi.listAgents()`          | Generated TypeScript client → `GET /api/projects/<team>/agent_applications/`                                                                                  |
+| `mockApi.getSession()` + stream | `EventSource('/listen/<id>')` against agent-ingress, wired through `RedisSessionEventBus`                                                                     |
+| `mockChatSession.send()`        | `POST /agents/<slug>/chat/send` through the Django proxy (per [`draft-preview-auth.md`](draft-preview-auth.md) for drafts)                                    |
+| Stub `principalToken`           | Real OAuth flow through `oauth-proxy` (with `dev-bypass` mode for local)                                                                                      |
+| Static `client_tool_call`       | Runner-emitted SSE event; requires shipping the client-fulfilled tools protocol on the runner (§8) and the concierge agent's spec referencing `@posthog/ui/*` |
+
+The order within Phase 2 is dictated by what each surface depends
+on:
+
+1. **Read surfaces** first — they just need OAuth + the generated
+   REST client. No runner / ingress changes.
+2. **Concierge agent + chat dock (non-client-tool)** — the chat
+   can stream and dispatch server-side tools without
+   client-fulfilled tools. Lands the dock against a real session
+   but without `@posthog/ui/focus` driving navigation.
+3. **Runner client-fulfilled tools protocol** — the biggest
+   platform change. Ships behind a feature flag.
+4. **`@posthog/ui/focus` + `@posthog/ui/toast` handlers** — final
+   step. Concierge's spec adds the references; console provides
+   the handlers; the dock starts driving navigation.
+
+Stories from Phase 1 stay as snapshot tests throughout Phase 2 —
+they prove no visual regressions slipped in during the rewire.
+
+### 12.3 Why this split
+
+- **Design review is faster than backend integration.** Iterating
+  on the UX while a real Django call is in the loop wastes the
+  feedback cycle. Storybook reloads in ms; a full stack roundtrip
+  is minutes.
+- **Visual snapshots are free regression tests.** Every Phase 1
+  story is a Phase 2 safety net. The console can refactor its
+  data layer aggressively as long as the stories don't drift.
+- **It de-risks the runner change.** Client-fulfilled tools is a
+  meaningful platform addition. Building the chat dock against a
+  fake event stream lets us iterate the protocol shape (§8.4 limits,
+  error semantics, etc.) without touching the runner. By the time
+  the runner work starts, the contract is settled.
+- **It's the natural shape of the team.** Design can move on the
+  UI in parallel with backend folks evolving the runner protocol,
+  with no merge conflicts until Phase 2.1.
+
+## 13. Local-dev shape
 
 ```bash
 # In services/agent-console/
@@ -698,7 +796,7 @@ config flag so prod can never accidentally start in bypass mode.
 @posthog/agent-chat storybook`) independently of the console for
 iterating on the chat surface in isolation.
 
-## 13. Deployment
+## 14. Deployment
 
 **v0 — Dockerized service in the repo.** `services/agent-console/`
 gets a Dockerfile, builds the same way the other agent-platform
@@ -719,7 +817,21 @@ the ingress / runner / janitor stack. PostHog OAuth becomes
 proxy already supports multi-region / self-hosted via the existing
 `oauth-proxy` design.
 
-## 14. What this is _not_
+## 14.5 Ideas inbox
+
+Freeform list of features / refinements that surfaced during build-out
+but don't yet have a home in §17 (Rollout). Promote to a rollout
+phase — or a separate plan — once we commit. Newest first.
+
+- **Spend breakdown** — drill into total cost by principal (user or
+  cron trigger), by day, by tool, by revision. Surface on the Sessions
+  tab as an additional view, or as a dedicated `/spend` page later.
+  Sources: `agent_session.usage_total` (per
+  [`per-turn-cost-capture.md`](per-turn-cost-capture.md)) joined with
+  session principal + revision id. Useful before approval-gating
+  high-cost agents and for billing transparency. Captured 2026-05-28.
+
+## 15. What this is _not_
 
 - **Not a replacement for the in-PostHog frontend.** If `app.posthog.com`
   decides to host an "Agents" tab natively later, the read pages
@@ -732,7 +844,7 @@ proxy already supports multi-region / self-hosted via the existing
   No cross-team discovery, no public listings. If we want a
   marketplace later it's a different surface.
 
-## 15. Open questions
+## 16. Open questions
 
 1. **How does the concierge agent get installed?** PostHog's org
    needs the agent provisioned in every region. The simplest shape
@@ -788,24 +900,67 @@ proxy already supports multi-region / self-hosted via the existing
    `defaultHandlers` export that consumers can take or replace
    per-id — opt-in convenience without forcing a coupling.
 
-## 16. Rollout
+## 17. Rollout
 
-**v0 — read-only console + concierge edit.**
+The rollout follows the Phase 1 / Phase 2 split from §12. Each
+"v" below is a separate phase boundary, not a release vehicle.
 
-- New package: `packages/agent-chat/` — `<AgentChat />`, handler
-  API, SSE plumbing, Storybook. Unpublished; consumed via
-  workspace link.
-- Next.js app under `services/agent-console/`, deployed to
-  `console.agents.posthog.com`.
-- OAuth login via `oauth-proxy`; scoped read access.
-- Read surfaces for: agent list, agent overview, bundle viewer,
-  revisions, sessions (incl. live SSE tail).
-- `<AgentChat />` embedded as the dock; one concierge session per
-  (team, agent).
-- Client-fulfilled tool protocol shipped on the runner;
-  well-known `@posthog/ui/focus` and `@posthog/ui/toast` handlers
-  shipped by the console.
-- Local-dev wiring + `dev-bypass` OAuth mode.
+**v0 — fully-mocked Storybook (design review surface).**
+
+Phase 1 per §12.1. Nothing wired to a real backend; everything
+runs in Storybook against fixtures.
+
+- New package: `packages/agent-chat/` with `<AgentChat />`,
+  handler-dispatch module, fixture library, Storybook.
+- New service: `services/agent-console/` with the Next.js app
+  shell, read-page components, Storybook for every read surface.
+- Shared fixtures at `packages/agent-chat/src/fixtures/` (agent /
+  revision / session / SSE event shapes), typed against
+  `@posthog/agent-shared`.
+- Mocked `<AgentChat />` driven by a fake event stream —
+  streaming text, tool calls, focus-tool calls, approval cards,
+  disconnects, all visible as stories.
+- Visual-snapshot CI wired (Chromatic-style or Playwright-baseline
+  — TBD).
+- **Design review happens here.** No further phases start until
+  the v0 Storybook is approved.
+
+**v0.1 — read surfaces against the real API.**
+
+Phase 2.1. Mocks for read pages get replaced with the generated
+TypeScript client; chat dock remains mocked.
+
+- OAuth login via `oauth-proxy`; scoped read access. `dev-bypass`
+  mode for local.
+- Generated REST client wired into the page handlers.
+- Console deploys to `console.agents.posthog.com`.
+- Stories from v0 continue to pass against the rewired pages —
+  visual regressions blocked by CI.
+
+**v0.2 — concierge chat against a real session (no client tools).**
+
+Phase 2.2. The dock connects to a real concierge agent session
+over SSE; server-side tool calls work; `@posthog/ui/*` tools
+still mocked because the runner protocol hasn't shipped yet.
+
+- Concierge agent's bundle shipped to PostHog's org per region.
+- `<AgentChat />` opens a real chat session, streams turns,
+  renders tool calls.
+- One concierge session per (team, agent), resume via
+  `localStorage`.
+
+**v0.3 — client-fulfilled tools on the runner.**
+
+Phase 2.3. The platform addition lands behind a feature flag.
+
+- `kind: "client"` spec extension, `client.handles[]` handshake,
+  `client_tool_call` SSE event, `/sessions/<id>/client_tool_result`
+  endpoint.
+- Well-known `@posthog/ui/focus` + `@posthog/ui/toast` contracts
+  in the runner registry.
+- Concierge spec adds the references; console wires the handlers;
+  the dock starts driving navigation.
+- Feature flag flipped once exercised in staging.
 
 **v1 — review + diff polish.**
 
@@ -825,7 +980,7 @@ proxy already supports multi-region / self-hosted via the existing
   dock — first non-console consumer of the package, proves the
   abstraction.
 
-## 17. Dependencies + what this enables
+## 18. Dependencies + what this enables
 
 **Hard depends on:**
 

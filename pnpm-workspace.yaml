@@ -7,6 +7,7 @@ packages:
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
+    - packages/agent-chat
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -16,6 +17,7 @@ packages:
     - nodejs/src/scripts
     - products/*
     - docs/onboarding
+    - services/agent-console
     - services/agent-shared
     - services/agent-tools
     - services/agent-sandbox-host
