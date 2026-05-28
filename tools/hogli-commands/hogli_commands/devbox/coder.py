@@ -45,10 +45,13 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
-# Create-time region selector. The template defines `workspace_region` with a
-# us-east-1 default; eu-central-1 only becomes a valid option once the EU
-# infrastructure is live. The chosen value is immutable after creation, so it
-# is forwarded on `coder create` only -- never on update or the parameter sync.
+# Region selector. The template defines `workspace_region` with a us-east-1
+# default; eu-central-1 became a valid option when the EU infrastructure went
+# live. The value is immutable after creation, but it must still be forwarded
+# on `coder update` and the parameter sync -- when a template author changes a
+# parameter's allowed values, Coder re-prompts existing workspaces for that
+# parameter regardless of `--use-parameter-defaults`, and the prompt is not
+# bypassable by any flag. Pinning the current value short-circuits the picker.
 # Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
 REGIONS = ("us-east-1", "eu-central-1")
@@ -1218,7 +1221,7 @@ def update_workspace(
     does not declare) are dropped by the retry shim instead of aborting
     the update.
     """
-    base_args = ["coder", "update", name, "--yes", "--use-parameter-defaults"]
+    base_args = ["coder", "update", name, "--use-parameter-defaults"]
     result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
@@ -1238,7 +1241,7 @@ def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
     local config key (for example, a saved ``dotfiles_uri`` after the user
     switches templates) does not abort the pre-start sync.
     """
-    base_args = ["coder", "update", name, "--yes", "--use-parameter-defaults"]
+    base_args = ["coder", "update", name, "--use-parameter-defaults"]
     result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
