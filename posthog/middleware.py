@@ -1185,6 +1185,12 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
+    # POST but read-only: returns metadata about available incremental fields / columns
+    # for a data warehouse schema. Validates external credentials and lists schemas
+    # against the customer's source — no PostHog-side mutations.
+    re.compile(
+        r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
+    ),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
