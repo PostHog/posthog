@@ -131,16 +131,11 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
-    {
-        value: 'indexer',
-        label: 'Indexer',
-        description: 'Generates semantic embeddings of the session for free-text search.',
-    },
 ]
 
-export type EditorTab = 'observations' | 'triggers' | 'configuration'
+export type EditorTab = 'observations' | 'configuration'
 
-export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'triggers', 'configuration']
+export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string

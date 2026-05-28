@@ -5,14 +5,14 @@ import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
 import type { TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
-import { seriesKeysAtCursor } from './utils/bars-under-cursor'
+import { type BarLayout, isStackedLayout, resolveBarsAtCursor } from './utils/bars-under-cursor'
 
 export interface BarTooltipProps<Meta> {
     ctx: TooltipContext<Meta>
     userTooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     stackedData: Map<string, StackedBand> | undefined
     topStackedKeyByAxis: Map<string, string>
-    layout: 'stacked' | 'grouped' | 'percent'
+    layout: BarLayout
     isHorizontal: boolean
 }
 
@@ -36,12 +36,11 @@ export function BarTooltip<Meta>({
     return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
 }
 
-/** Returns null when the cursor is in a gap (no bar under it on the band axis) so the
- *  tooltip frame doesn't render around an empty body. */
+/** Stacked/percent: cursor-resolved segment is moved to seriesData[0]. */
 function narrowSeriesByCursor<Meta>(
     ctx: TooltipContext<Meta>,
     scales: BarScaleSet,
-    layout: 'stacked' | 'grouped' | 'percent',
+    layout: BarLayout,
     isHorizontal: boolean,
     stackedData: Map<string, StackedBand> | undefined,
     topStackedKeyByAxis: Map<string, string>
@@ -50,8 +49,9 @@ function narrowSeriesByCursor<Meta>(
     if (!cursor) {
         return ctx
     }
-    const hits = seriesKeysAtCursor({
-        series: ctx.seriesData.map((entry) => entry.series),
+    const seriesList = ctx.seriesData.map((entry) => entry.series)
+    const { hits, strictHit } = resolveBarsAtCursor({
+        series: seriesList,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
         cursor,
@@ -64,5 +64,12 @@ function narrowSeriesByCursor<Meta>(
     if (hits.size === 0) {
         return null
     }
-    return { ...ctx, seriesData: ctx.seriesData.filter((entry) => hits.has(entry.series.key)) }
+    let filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
+    if (isStackedLayout(layout) && filtered.length > 1 && strictHit) {
+        const idx = filtered.findIndex((entry) => entry.series.key === strictHit)
+        if (idx > 0) {
+            filtered = [filtered[idx], ...filtered.filter((_, i) => i !== idx)]
+        }
+    }
+    return { ...ctx, seriesData: filtered }
 }

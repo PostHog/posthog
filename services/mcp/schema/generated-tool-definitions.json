@@ -1049,6 +1049,21 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-create-text-tile": {
+        "description": "Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings, dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards if you need precise placement.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard text tile",
+        "title": "Create dashboard text tile",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-delete": {
         "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
         "category": "Dashboards",
@@ -1115,6 +1130,21 @@
         "feature": "dashboards",
         "summary": "Update dashboard",
         "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-update-text-tile": {
+        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard text tile",
+        "title": "Update dashboard text tile",
         "required_scopes": ["dashboard:write"],
         "new_mcp": true,
         "annotations": {
