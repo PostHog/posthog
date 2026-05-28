@@ -607,6 +607,12 @@ export const ExecuteSQLSchema = z.object({
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
         ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional ID of an external data source (e.g. a DuckLake or direct-Postgres connection) to run the query against. When omitted, the query runs against the default ClickHouse engine.'
+        ),
 })
 
 export const ReadDataWarehouseSchemaSchema = z
