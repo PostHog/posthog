@@ -50,6 +50,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -874,16 +875,24 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
-        if self.send_raw_query and self.connection_id is not None:
-            self._execute_raw_direct_postgres_query()
-            self._capture_send_raw_query_translation_error()
-        else:
-            prepared_execution = self._prepare_execution()
+        try:
+            if self.send_raw_query and self.connection_id is not None:
+                self._execute_raw_direct_postgres_query()
+                self._capture_send_raw_query_translation_error()
+            else:
+                prepared_execution = self._prepare_execution()
 
-            if prepared_execution.engine == "direct_postgres":
-                self._execute_direct_postgres_query()
-            elif self.clickhouse_sql is not None:
-                self._execute_clickhouse_query()
+                if prepared_execution.engine == "direct_postgres":
+                    self._execute_direct_postgres_query()
+                elif self.clickhouse_sql is not None:
+                    self._execute_clickhouse_query()
+        finally:
+            # Side-channel: push collected warnings to the query-runner-level accumulator even on
+            # failure. The warning is often the actual explanation for the query error (e.g. a
+            # FAILED warehouse sync left the table unreadable); throwing it away when execution
+            # raises would hide the most useful signal.
+            if self.context and self.context.data_warehouse_sync_warnings:
+                record_warnings(self.context.data_warehouse_sync_warnings.values())
 
         warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
         return HogQLQueryResponse(
