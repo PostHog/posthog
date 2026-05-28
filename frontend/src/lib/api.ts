@@ -1461,12 +1461,13 @@ export class ApiRequest {
     public integrationSlackChannels(
         id: IntegrationType['id'],
         forceRefresh: boolean,
+        params?: { search?: string; limit?: number; offset?: number },
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
             .addPathComponent('channels')
-            .withQueryString({ force_refresh: forceRefresh })
+            .withQueryString({ force_refresh: forceRefresh, ...(params ?? {}) })
     }
 
     public integrationSlackChannelsById(
@@ -5799,9 +5800,10 @@ const api = {
         },
         async slackChannels(
             id: IntegrationType['id'],
-            forceRefresh: boolean
-        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string }> {
-            return await new ApiRequest().integrationSlackChannels(id, forceRefresh).get()
+            forceRefresh: boolean,
+            params?: { search?: string; limit?: number; offset?: number }
+        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string; has_more?: boolean }> {
+            return await new ApiRequest().integrationSlackChannels(id, forceRefresh, params).get()
         },
         async slackChannelsById(
             id: IntegrationType['id'],

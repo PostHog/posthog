@@ -19,16 +19,31 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     })),
     actions({
-        loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
+        loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
+        setSlackChannelSearch: (search: string) => ({ search }),
     }),
 
     loaders(({ props }) => ({
         allSlackChannels: [
-            null as { channels: SlackChannelType[]; lastRefreshedAt: string } | null,
+            null as {
+                channels: SlackChannelType[]
+                lastRefreshedAt: string
+                has_more?: boolean
+                search?: string
+            } | null,
             {
-                loadAllSlackChannels: async ({ forceRefresh }) => {
-                    return await api.integrations.slackChannels(props.id, forceRefresh)
+                loadAllSlackChannels: async ({ forceRefresh, search }, breakpoint) => {
+                    // Debounce so onInputChange-driven keystrokes don't fan out to the API.
+                    // forceRefresh is the user-driven "Refresh channels" button — skip the debounce so it feels instant.
+                    if (!forceRefresh && search) {
+                        await breakpoint(300)
+                    }
+                    const response = await api.integrations.slackChannels(props.id, forceRefresh, {
+                        search,
+                        limit: 200,
+                    })
+                    return { ...response, search }
                 },
             },
         ],
@@ -57,6 +72,12 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
             },
         ],
+        slackChannelSearch: [
+            '',
+            {
+                setSlackChannelSearch: (_, { search }) => search,
+            },
+        ],
     }),
 
     selectors({
@@ -69,6 +90,10 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 }
                 return channels
             },
+        ],
+        slackChannelsHasMore: [
+            (s) => [s.allSlackChannels],
+            (allSlackChannels): boolean => Boolean(allSlackChannels?.has_more),
         ],
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -40,8 +40,23 @@ export function IntegrationChoice({
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
+    // Suppress the auto-select effect after an explicit "Clear selection". Without this guard,
+    // the effect below would immediately re-pick the first integration the moment value becomes null.
+    const userClearedSelection = useRef(false)
+
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+        if (value) {
+            userClearedSelection.current = false
+        }
+    }, [value])
+
+    useEffect(() => {
+        if (
+            !integrationsLoading &&
+            !value &&
+            integrationsOfKind?.length &&
+            !userClearedSelection.current
+        ) {
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
@@ -141,7 +156,10 @@ export function IntegrationChoice({
                         },
                         value
                             ? {
-                                  onClick: () => onChange?.(null),
+                                  onClick: () => {
+                                      userClearedSelection.current = true
+                                      onChange?.(null)
+                                  },
                                   label: 'Clear selection',
                                   sideIcon: <IconX />,
                               }

@@ -79,8 +79,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
+        slackChannelSearch,
+        slackChannelsHasMore,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, setSlackChannelSearch } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
@@ -125,20 +129,29 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 onInputChange={(val) => {
+                    setSlackChannelSearch(val)
                     if (val) {
+                        // Server-side filter — the list endpoint defaults to 50 channels, so without
+                        // a search query we'd cap the picker at the first 50 channels in the workspace.
+                        loadAllSlackChannels(false, val)
+                        // Keep the channel-ID lookup so pasting a private channel ID still resolves it.
                         loadSlackChannelById(val)
                         setLocalValue(val)
+                    } else {
+                        // Restore the default unfiltered listing on clear.
+                        loadAllSlackChannels(false, '')
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
                 onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
                 disabled={disabled}
                 mode="single"
+                disableFiltering
                 data-attr="select-slack-channel"
                 placeholder="Select a channel..."
                 action={{
                     children: <span className="Link">Refresh channels</span>,
-                    onClick: () => loadAllSlackChannels(true),
+                    onClick: () => loadAllSlackChannels(true, slackChannelSearch),
                     disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
@@ -162,6 +175,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 }
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+            {slackChannelsHasMore && !allSlackChannelsLoading ? (
+                <p className="text-xs text-secondary mt-1">
+                    Showing the first 200 matching channels. Type to narrow the list.
+                </p>
+            ) : null}
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">

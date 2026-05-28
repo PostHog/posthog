@@ -1187,13 +1187,28 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         lastEventQuery: [
             (s) => [s.baseEventsQuery],
             (baseEventsQuery): EventsQuery | null => {
-                return baseEventsQuery ? { ...baseEventsQuery, limit: 1 } : null
+                if (!baseEventsQuery) {
+                    return null
+                }
+                // Bound the query tightly: LIMIT 1 plus an explicit upper bound so ClickHouse can
+                // skip future-dated partitions, and project just the columns the sample globals need.
+                // Without this, ORDER BY timestamp DESC over a wide range with `select: ['*', 'person']`
+                // has been observed to exceed the per-query memory cap (see "Load new event" OOMs).
+                return {
+                    ...baseEventsQuery,
+                    limit: 1,
+                    before: 'now()',
+                }
             },
             { resultEqualityCheck: equal },
         ],
         lastEventSecondQuery: [
             (s) => [s.lastEventQuery],
-            (lastEventQuery): EventsQuery | null => (lastEventQuery ? { ...lastEventQuery, after: '-30d' } : null),
+            // Fallback window stays narrower than the previous 30 days for the same memory-budget
+            // reason as `lastEventQuery`. Users with no events matching their filter in 14 days
+            // are very unlikely to find a matching one at 30 days, and the example $pageview
+            // fallback covers the truly-empty case.
+            (lastEventQuery): EventsQuery | null => (lastEventQuery ? { ...lastEventQuery, after: '-14d' } : null),
         ],
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
