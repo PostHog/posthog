@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
@@ -52,19 +53,19 @@ def _insert_metric_row(
 
 
 class TestPickInterval:
-    def test_picks_minute_for_one_hour_range(self):
+    @parameterized.expand(
+        [
+            # 60 buckets at 1 min each
+            ("1h_range_picks_minute", dt.timedelta(hours=1), "minute"),
+            # 24 buckets, comfortably under the ~60 target
+            ("1d_range_picks_hour", dt.timedelta(days=1), "hour"),
+            # 30 buckets; finer intervals all exceed the target
+            ("30d_range_picks_day", dt.timedelta(days=30), "day"),
+        ]
+    )
+    def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
         start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-        assert _pick_interval(start, start + dt.timedelta(hours=1)) == "minute"
-
-    def test_picks_hour_for_one_day_range(self):
-        start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-        # 1 day / hour = 24 buckets, comfortably under the ~60 target.
-        assert _pick_interval(start, start + dt.timedelta(days=1)) == "hour"
-
-    def test_picks_day_for_thirty_day_range(self):
-        start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-        # 30 days / day = 30 buckets; finer intervals all exceed the target.
-        assert _pick_interval(start, start + dt.timedelta(days=30)) == "day"
+        assert _pick_interval(start, start + delta) == expected
 
 
 class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):

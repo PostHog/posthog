@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -20,6 +20,7 @@ export interface MetricsViewerPoint {
 
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 const DEFAULT_DATE_FROM = '-1h'
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
 
 const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
@@ -38,6 +39,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
         setDateFrom: (dateFrom: string | null) => ({ dateFrom }),
         setDateTo: (dateTo: string | null) => ({ dateTo }),
+        // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
+        // action aborts the previous controller before storing the new one.
+        setQueryAbortController: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressQuery: (controller: AbortController | null) => ({ controller }),
     }),
     reducers({
         metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
@@ -47,8 +52,20 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
+        queryAbortController: [
+            null as AbortController | null,
+            { setQueryAbortController: (_, { controller }) => controller },
+        ],
     }),
-    loaders(({ values }) => ({
+    listeners(({ actions, values }) => ({
+        cancelInProgressQuery: ({ controller }) => {
+            if (values.queryAbortController !== null) {
+                values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setQueryAbortController(controller)
+        },
+    })),
+    loaders(({ values, actions }) => ({
         queryResults: [
             [] as MetricsViewerPoint[],
             {
@@ -63,6 +80,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     }
                     await breakpoint(300)
                     const dateToISO = resolveDate(values.dateTo) ?? undefined
+                    const controller = new AbortController()
+                    actions.cancelInProgressQuery(controller)
                     const response = await api.metrics.query({
                         query: {
                             metricName: trimmedName,
@@ -70,8 +89,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             dateFrom: dateFromISO,
                             ...(dateToISO ? { dateTo: dateToISO } : {}),
                         },
+                        signal: controller.signal,
                     })
                     breakpoint()
+                    actions.setQueryAbortController(null)
                     return response.results
                 },
             },
