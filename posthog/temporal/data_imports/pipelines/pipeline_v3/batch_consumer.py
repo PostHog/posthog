@@ -182,18 +182,76 @@ class BatchConsumer:
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
-                await self._process_single(batch)
+                succeeded = await self._process_single(batch)
+                if not succeeded:
+                    # Stop processing sibling batches in this run once one fails or
+                    # enters waiting_retry — later batches depend on earlier ones.
+                    logger.info(
+                        self._event("group_halted_by_non_success"),
+                        team_id=team_id,
+                        schema_id=schema_id,
+                        run_uuid=batch.run_uuid,
+                        remaining=len(batches) - batches.index(batch) - 1,
+                    )
+                    break
         finally:
             self._semaphore.release()
             assert self._conn is not None
             await self._adapter.unlock(self._conn, batches=batches)
 
-    async def _process_single(self, batch: PendingBatch) -> None:
-        assert self._conn is not None
+    async def _process_single(self, batch: PendingBatch) -> bool:
+        """Bind per-batch log context, then process. Returns True only on success.
 
+        Binds structlog contextvars so every downstream log line (including loader calls)
+        routes to log_entries under the right schema/workflow before any logger fires.
+        """
         team_id = str(batch.team_id)
         schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
+
+        # Producer (running inside a Temporal activity) stamps workflow ids into batch metadata,
+        # so no DB round-trip is needed here. Derive workflow_type from the workflow_id prefix so
+        # non-CDC syncs (regular `external-data-job`) route to the right `log_entries` source too.
+        workflow_id = batch.metadata.get("workflow_id") or ""
+        workflow_run_id = batch.metadata.get("workflow_run_id") or ""
+        workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
+
+        bound_keys = (
+            "team_id",
+            "schema_id",
+            "source_id",
+            "job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "workflow_type",
+            "workflow_id",
+            "workflow_run_id",
+            "log_source_id",
+            "attempt",
+        )
+        structlog.contextvars.bind_contextvars(
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            source_id=batch.source_id,
+            job_id=batch.job_id,
+            run_uuid=batch.run_uuid,
+            batch_id=batch.id,
+            resource_name=batch.resource_name,
+            workflow_type=workflow_type,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            log_source_id=batch.schema_id,
+            attempt=attempt,
+        )
+        try:
+            return await self._process_single_inner(batch, attempt, team_id, schema_id)
+        finally:
+            # Unbind only the keys we set so ambient context (parent logger, test setup) survives.
+            structlog.contextvars.unbind_contextvars(*bound_keys)
+
+    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> bool:
+        assert self._conn is not None
 
         if attempt > self._config.max_attempts:
             logger.error(
@@ -203,7 +261,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
-            return
+            return False
 
         await self._adapter.update_status(
             self._conn,
@@ -230,6 +288,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            return True
         except Exception as err:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
@@ -256,6 +315,7 @@ class BatchConsumer:
                     attempt=attempt,
                     error_response={"error": str(err)[:1000]},
                 )
+            return False
 
     async def _fail_run(
         self,
@@ -296,16 +356,46 @@ class BatchConsumer:
         RECOVERY_SWEEPS_TOTAL.labels(outcome="orphans_found").inc()
         logger.info(self._event("recovery_sweep_found_stale_batches"), count=len(stale))
 
+        recovery_bound_keys = (
+            "team_id",
+            "schema_id",
+            "source_id",
+            "job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "log_source_id",
+            "attempt",
+        )
         for batch in stale:
-            if batch.latest_attempt >= self._config.max_attempts:
-                await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
-            else:
-                await self._adapter.update_status(
-                    conn,
-                    batch_id=batch.id,
-                    job_state=self._adapter.waiting_retry_state,
-                    attempt=batch.latest_attempt,
-                )
+            # latest_attempt was already incremented before the crash (pre-increment in
+            # _process_single), so no +1 needed here.
+            structlog.contextvars.bind_contextvars(
+                team_id=batch.team_id,
+                schema_id=batch.schema_id,
+                source_id=batch.source_id,
+                job_id=batch.job_id,
+                run_uuid=batch.run_uuid,
+                batch_id=batch.id,
+                resource_name=batch.resource_name,
+                log_source_id=batch.schema_id,
+                attempt=batch.latest_attempt,
+            )
+            try:
+                if batch.latest_attempt >= self._config.max_attempts:
+                    logger.warning(self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt)
+                    await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                else:
+                    logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
+                    await self._adapter.update_status(
+                        conn,
+                        batch_id=batch.id,
+                        job_state=self._adapter.waiting_retry_state,
+                        attempt=batch.latest_attempt,
+                        error_response={"error": "executing timed out — pod restart or OOM"},
+                    )
+            finally:
+                structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
 
     def _install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
