@@ -12857,6 +12857,11 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    export interface DeleteTileRequest {
+      /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+    }
+
     /**
      * * `pending` - Pending
     * `delivered` - Delivered
@@ -39007,6 +39012,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsDeleteTileCreateParams = {
+    format?: EnvironmentsDashboardsDeleteTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTileCreateFormat = typeof EnvironmentsDashboardsDeleteTileCreateFormat[keyof typeof EnvironmentsDashboardsDeleteTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -44011,6 +44028,18 @@ export namespace Schemas {
 
 
     export const DashboardsCreateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsDeleteTileCreateParams = {
+    format?: DashboardsDeleteTileCreateFormat;
+    };
+
+    export type DashboardsDeleteTileCreateFormat = typeof DashboardsDeleteTileCreateFormat[keyof typeof DashboardsDeleteTileCreateFormat];
+
+
+    export const DashboardsDeleteTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

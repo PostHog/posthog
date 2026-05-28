@@ -123,12 +123,11 @@ tools:
         enrich_url: '{params.id}'
         title: Delete dashboard tile
         description: >
-            Soft-delete a single tile (text, insight, or button) from a dashboard. Behaves the same as
-            the delete button in the UI — the underlying Insight, Text, or ButtonTile object is
-            preserved (so an insight that lives on multiple dashboards stays on the others), and the
-            remaining tiles keep their absolute grid positions, leaving a gap where the deleted tile
-            was. Call dashboard-reorder-tiles afterwards if you want to compact the layout. Pass the
-            DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole
+            Soft-delete a single tile (text, insight, or button) from a dashboard. Behaves the same as the delete button
+            in the UI — the underlying Insight, Text, or ButtonTile object is preserved (so an insight that lives on
+            multiple dashboards stays on the others), and the remaining tiles keep their absolute grid positions,
+            leaving a gap where the deleted tile was. Call dashboard-reorder-tiles afterwards if you want to compact the
+            layout. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole
             dashboard instead, use dashboard-delete.
         param_overrides:
             id:

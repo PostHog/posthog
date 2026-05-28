@@ -6,6 +6,8 @@ import {
     DashboardsCreateBody,
     DashboardsCreateTextTileCreateBody,
     DashboardsCreateTextTileCreateParams,
+    DashboardsDeleteTileCreateBody,
+    DashboardsDeleteTileCreateParams,
     DashboardsDestroyParams,
     DashboardsListQueryParams,
     DashboardsPartialUpdateBody,
@@ -158,6 +160,28 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
             body: { deleted: true },
         })
         return result
+    },
+})
+
+const DashboardDeleteTileSchema = DashboardsDeleteTileCreateParams.omit({ project_id: true })
+    .extend(DashboardsDeleteTileCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsDeleteTileCreateParams.shape['id']) })
+
+const dashboardDeleteTile = (): ToolBase<typeof DashboardDeleteTileSchema, unknown> => ({
+    name: 'dashboard-delete-tile',
+    schema: DashboardDeleteTileSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardDeleteTileSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.tile_id !== undefined) {
+            body['tile_id'] = params.tile_id
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/delete_tile/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 
@@ -457,6 +481,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': dashboardCreate,
     'dashboard-create-text-tile': dashboardCreateTextTile,
     'dashboard-delete': dashboardDelete,
+    'dashboard-delete-tile': dashboardDeleteTile,
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,

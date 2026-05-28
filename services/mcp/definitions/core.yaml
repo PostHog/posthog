@@ -170,6 +170,9 @@ tools:
     dashboards-create-unlisted-dashboard-create:
         operation: dashboards_create_unlisted_dashboard_create
         enabled: false
+    dashboards-delete-tile-create:
+        operation: dashboards_delete_tile_create
+        enabled: false
     dashboards-destroy:
         operation: dashboards_destroy
         enabled: false

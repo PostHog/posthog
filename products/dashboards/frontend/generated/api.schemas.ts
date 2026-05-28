@@ -7352,6 +7352,11 @@ export interface DashboardTileApi {
     transparent_background?: boolean | null
 }
 
+export interface DeleteTileRequestApi {
+    /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+    tile_id: number
+}
+
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -7630,6 +7635,18 @@ export type DashboardsCreateTextTileCreateFormat =
     (typeof DashboardsCreateTextTileCreateFormat)[keyof typeof DashboardsCreateTextTileCreateFormat]
 
 export const DashboardsCreateTextTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsDeleteTileCreateParams = {
+    format?: DashboardsDeleteTileCreateFormat
+}
+
+export type DashboardsDeleteTileCreateFormat =
+    (typeof DashboardsDeleteTileCreateFormat)[keyof typeof DashboardsDeleteTileCreateFormat]
+
+export const DashboardsDeleteTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
