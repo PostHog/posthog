@@ -4,9 +4,8 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { sdkDoctorLogicType } from './sdkDoctorLogicType'
 
@@ -28,44 +27,65 @@ export type SdkType =
 // Small helper to define what our versions look like
 export type SdkVersion = `${string}.${string}.${string}`
 
-// For a team we have a map of SDK types to all of the versions we say in recent times
-// This is what we receive from the backend, we then do some calculations in the UI to determine
-// what we should be displaying in the UI
-export type TeamSdkUsageEntry = {
-    lib_version: SdkVersion
-    count: number
-    is_latest: boolean
-    max_timestamp: string
-    release_date: string | undefined
-}
+/**
+ * Overall health status for SDK version monitoring
+ */
+export type SdkHealthStatus = 'danger' | 'warning' | 'success'
 
-export type SdkDoctorResponse = {
-    [key in SdkType]?: {
-        latest_version: SdkVersion
-        usage: TeamSdkUsageEntry[]
-    }
-}
+// --- Backend report shape (mirrors SdkHealthReportSerializer in posthog/api/sdk_doctor.py) ---
+//
+// All outdatedness heuristics (device thresholds, grace periods, traffic-share rules, severity
+// escalation) live in products/growth/backend/sdk_health.py and are surfaced pre-computed here.
+// The frontend renders these fields directly — it does NOT recompute health.
 
-// This is the final data used to display in the UI
 export type OutdatedTrafficAlert = {
-    version: SdkVersion
+    version: string
     thresholdPercent: number
 }
 
-export type AugmentedTeamSdkVersionsInfo = {
-    [key in SdkType]?: {
-        isOutdated: boolean
-        isOld: boolean
-        needsUpdating: boolean
-        currentVersion: SdkVersion
-        allReleases: AugmentedTeamSdkVersionsInfoRelease[]
-        outdatedTrafficAlerts: OutdatedTrafficAlert[]
-    }
+export type SdkReleaseAssessmentResponse = {
+    version: string
+    count: number
+    max_timestamp: string
+    release_date: string | null
+    days_since_release: number | null
+    released_ago: string | null
+    is_outdated: boolean
+    is_old: boolean
+    needs_updating: boolean
+    is_current_or_newer: boolean
+    status_reason: string
+    sql_query: string
+    activity_page_url: string
 }
+
+export type SdkAssessmentResponse = {
+    lib: SdkType
+    readable_name: string
+    latest_version: string
+    needs_updating: boolean
+    is_outdated: boolean
+    is_old: boolean
+    severity: 'none' | 'warning' | 'danger'
+    reason: string
+    banners: string[]
+    releases: SdkReleaseAssessmentResponse[]
+    outdated_traffic_alerts: { version: string; threshold_percent: number }[]
+}
+
+export type SdkHealthReportResponse = {
+    overall_health: 'healthy' | 'needs_attention'
+    health: SdkHealthStatus
+    needs_updating_count: number
+    team_sdk_count: number
+    sdks: SdkAssessmentResponse[]
+}
+
+// --- Camel-cased shapes the UI components consume (adapted from the backend report) ----------
 
 export type AugmentedTeamSdkVersionsInfoRelease = {
     type: SdkType
-    version: SdkVersion
+    version: string
     maxTimestamp: string
     count: number
     latestVersion: string
@@ -76,54 +96,41 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     isOld: boolean
     needsUpdating: boolean
     isCurrentOrNewer: boolean
+    statusReason: string
+    sqlQuery: string
+    activityPageUrl: string
 }
 
-/**
- * Overall health status for SDK version monitoring
- */
-export type SdkHealthStatus = 'danger' | 'warning' | 'success'
+export type AugmentedTeamSdkVersionsInfo = {
+    [key in SdkType]?: {
+        isOutdated: boolean
+        isOld: boolean
+        needsUpdating: boolean
+        currentVersion: string
+        severity: 'none' | 'warning' | 'danger'
+        banners: string[]
+        allReleases: AugmentedTeamSdkVersionsInfoRelease[]
+        outdatedTrafficAlerts: OutdatedTrafficAlert[]
+    }
+}
 
 /**
  * SDK Doctor - PostHog SDK Health Monitoring
  *
- * Detects installed SDKs and their versions across a team's events.
- * Provides smart version outdatedness detection.
+ * Detects installed SDKs and their versions across a team's events and surfaces a pre-digested
+ * health report computed entirely by the backend (see products/growth/backend/sdk_health.py).
  *
- * Architecture:
- * - Backend detection: Team SDK detections cached server-side (72h Redis, refreshed every 12 hours)
- * - Version checking: Per-SDK GitHub API queries cached server-side (72h Redis, refreshed every 6 hours)
- * - Smart semver: Contextual thresholds
+ * Data flow:
+ * - Team SDK detections + GitHub latest versions are cached server-side and refreshed by the
+ *   Temporal `sdk_outdated` health check.
+ * - The `report` endpoint applies the outdatedness heuristics and returns the assessment below.
  */
-
-const DEVICE_CONTEXT_CONFIG = {
-    mobileSDKs: ['posthog-ios', 'posthog-android', 'posthog-flutter', 'posthog-react-native'] as SdkType[],
-    desktopSDKs: [
-        'web',
-        'posthog-node',
-        'posthog-python',
-        'posthog-php',
-        'posthog-ruby',
-        'posthog-go',
-        'posthog-dotnet',
-        'posthog-elixir',
-    ] as SdkType[],
-    // Age-based outdated detection depends on mobile/desktop
-    // We're more lenient with mobile versions because it's harder to keep them up to date
-    // Arbitrary threshold for now, 4 months for desktop, 6 months for mobile
-    ageThresholds: { desktop: 16, mobile: 24 },
-} as const
-
-// Threshold for considering an outdated version's traffic "significant"
-// Web SDK ships very frequently, so we use a higher threshold (20% vs 10%)
-// to avoid over-alerting when old versions linger in the 7-day event window
-const SIGNIFICANT_TRAFFIC_THRESHOLD_WEB = 0.2
-const SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
 
 export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdkDoctorLogic']),
 
     connect(() => ({
-        values: [preflightLogic, ['isCloudOrDev']],
+        values: [preflightLogic, ['isCloudOrDev'], teamLogic, ['currentTeamId']],
     })),
 
     actions({
@@ -142,19 +149,17 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
         ],
     })),
 
-    loaders(() => ({
-        rawData: [
-            null as SdkDoctorResponse | null,
+    loaders(({ values }) => ({
+        report: [
+            null as SdkHealthReportResponse | null,
             {
-                loadRawData: async (options?: { forceRefresh?: boolean }): Promise<SdkDoctorResponse | null> => {
+                loadReport: async (options?: { forceRefresh?: boolean }): Promise<SdkHealthReportResponse | null> => {
                     try {
-                        const endpoint =
-                            options?.forceRefresh === true ? 'api/sdk_doctor/?force_refresh=true' : 'api/sdk_doctor/'
-                        const response = await api.get<SdkDoctorResponse>(endpoint)
-
-                        return response
+                        const base = `api/projects/${values.currentTeamId}/sdk_doctor/report/`
+                        const endpoint = options?.forceRefresh === true ? `${base}?force_refresh=true` : base
+                        return await api.get<SdkHealthReportResponse>(endpoint)
                     } catch (error) {
-                        console.error('Error loading SDK doctor data', error)
+                        console.error('Error loading SDK doctor report', error)
                         return null
                     }
                 },
@@ -164,130 +169,75 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
 
     selectors({
         augmentedData: [
-            (s) => [s.rawData],
-            (rawData: SdkDoctorResponse): AugmentedTeamSdkVersionsInfo => {
-                if (!rawData) {
+            (s) => [s.report],
+            (report: SdkHealthReportResponse | null): AugmentedTeamSdkVersionsInfo => {
+                if (!report) {
                     return {}
                 }
 
                 return Object.fromEntries(
-                    Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
-                        const isSingleVersion = teamSdkUsage.usage.length === 1
-                        const releasesInfo = teamSdkUsage.usage.map((usageEntry) =>
-                            computeAugmentedInfoRelease(
-                                sdkType as SdkType,
-                                usageEntry,
-                                parseVersion(teamSdkUsage.latest_version),
-                                isSingleVersion
-                            )
-                        )
-
-                        // Calculate total events across all versions of this SDK
-                        const totalEvents = releasesInfo.reduce((sum, r) => sum + r.count, 0)
-
-                        // Check if any outdated version handles significant traffic
-                        // Web SDK uses 20% threshold (ships frequently), others use 10%
-                        // Skip for mobile SDKs - users don't auto-update apps, so outdated versions are expected
-                        const isMobileSdk = DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType as SdkType)
-                        const trafficThreshold =
-                            sdkType === 'web'
-                                ? SIGNIFICANT_TRAFFIC_THRESHOLD_WEB
-                                : SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT
-                        const thresholdPercent = trafficThreshold * 100
-
-                        // Find outdated versions exceeding the traffic threshold
-                        const outdatedTrafficAlerts: OutdatedTrafficAlert[] =
-                            !isMobileSdk && totalEvents > 0
-                                ? releasesInfo
-                                      .filter((r) => r.isOutdated && r.count / totalEvents >= trafficThreshold)
-                                      .map((r) => ({ version: r.version, thresholdPercent }))
-                                : []
-
-                        const hasSignificantOutdatedTraffic = outdatedTrafficAlerts.length > 0
-
-                        // SDK is outdated if most recent version is outdated OR any outdated version has significant traffic
-                        // Safe: backend only includes SDKs with at least one usage entry
-                        const isOutdated = releasesInfo[0]!.isOutdated || hasSignificantOutdatedTraffic
-
-                        return [
-                            sdkType,
-                            {
-                                isOutdated,
-                                isOld: releasesInfo[0]!.isOld,
-                                needsUpdating: isOutdated || releasesInfo[0]!.isOld,
-                                currentVersion: teamSdkUsage.latest_version,
-                                allReleases: releasesInfo,
-                                outdatedTrafficAlerts,
-                            },
-                        ]
-                    })
+                    report.sdks.map((sdk) => [
+                        sdk.lib,
+                        {
+                            isOutdated: sdk.is_outdated,
+                            isOld: sdk.is_old,
+                            needsUpdating: sdk.needs_updating,
+                            currentVersion: sdk.latest_version,
+                            severity: sdk.severity,
+                            banners: sdk.banners,
+                            outdatedTrafficAlerts: sdk.outdated_traffic_alerts.map((alert) => ({
+                                version: alert.version,
+                                thresholdPercent: alert.threshold_percent,
+                            })),
+                            allReleases: sdk.releases.map(
+                                (release): AugmentedTeamSdkVersionsInfoRelease => ({
+                                    type: sdk.lib,
+                                    version: release.version,
+                                    maxTimestamp: release.max_timestamp,
+                                    count: release.count,
+                                    latestVersion: sdk.latest_version,
+                                    releaseDate: release.release_date ?? undefined,
+                                    releasedAgo: release.released_ago ?? undefined,
+                                    daysSinceRelease: release.days_since_release ?? undefined,
+                                    isOutdated: release.is_outdated,
+                                    isOld: release.is_old,
+                                    needsUpdating: release.needs_updating,
+                                    isCurrentOrNewer: release.is_current_or_newer,
+                                    statusReason: release.status_reason,
+                                    sqlQuery: release.sql_query,
+                                    activityPageUrl: release.activity_page_url,
+                                })
+                            ),
+                        },
+                    ])
                 )
             },
         ],
 
         needsUpdatingCount: [
-            (s) => [s.augmentedData],
-            (augmentedData: AugmentedTeamSdkVersionsInfo): number => {
-                return Object.values(augmentedData).filter((sdk) => sdk.needsUpdating).length
-            },
+            (s) => [s.report],
+            (report: SdkHealthReportResponse | null): number => report?.needs_updating_count ?? 0,
         ],
 
         needsAttention: [
-            (s) => [s.augmentedData, s.needsUpdatingCount, s.snoozedUntil],
-            (
-                augmentedData: AugmentedTeamSdkVersionsInfo,
-                needsUpdatingCount: number,
-                snoozedUntil: string | null
-            ): boolean => {
-                // If snoozed, we don't need attention to this
+            (s) => [s.report, s.snoozedUntil],
+            (report: SdkHealthReportResponse | null, snoozedUntil: string | null): boolean => {
                 if (snoozedUntil !== null) {
                     return false
                 }
-
-                // If there are no SDKs - unlikely, but it happens just after onboarding - we don't need attention at all
-                const teamSdkCount = Object.values(augmentedData).length
-                if (teamSdkCount === 0) {
-                    return false
-                }
-
-                // Let's call their attention if at least half of their SDKs are outdated
-                // It's unlikely for people to have more than 3 SDKs, but let's be safe
-                // and handle it very generically.
-                //
-                // | Outdated SDKs \ Total SDKs |  1  |  2  |  3  |  4  |  5  |
-                // |----------------------------|-----|-----|-----|-----|-----|
-                // |                0           |  NO |  NO |  NO |  NO |  NO |
-                // |                1           | YES | YES |  NO |  NO |  NO |
-                // |                2           |     | YES | YES | YES |  NO |
-                // |                3           |     |     | YES | YES | YES |
-                // |                4           |     |     |     | YES | YES |
-                // |                5           |     |     |     |     | YES |
-                return needsUpdatingCount >= Math.ceil(teamSdkCount / 2)
+                return report?.overall_health === 'needs_attention'
             },
         ],
 
         sdkHealth: [
-            (s) => [s.needsAttention, s.needsUpdatingCount],
-            (needsAttention: boolean, needsUpdatingCount: number): SdkHealthStatus => {
-                // If there's need for attention, then it's automatically marked as danger
-                if (needsAttention) {
-                    return 'danger'
-                }
-
-                // If there's no need for attention, but there are outdated SDKs, then it's marked as warning
-                if (needsUpdatingCount >= 1) {
-                    return 'warning'
-                }
-
-                // Else, we're in a healthy state
-                return 'success'
-            },
+            (s) => [s.report],
+            (report: SdkHealthReportResponse | null): SdkHealthStatus => report?.health ?? 'success',
         ],
 
         hasErrors: [
-            (s) => [s.rawData, s.rawDataLoading],
-            (rawData: SdkDoctorResponse | null, rawDataLoading: boolean): boolean => {
-                return !rawDataLoading && rawData === null
+            (s) => [s.report, s.reportLoading],
+            (report: SdkHealthReportResponse | null, reportLoading: boolean): boolean => {
+                return !reportLoading && report === null
             },
         ],
     }),
@@ -303,198 +253,10 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
             return
         }
 
-        actions.loadRawData()
+        actions.loadReport()
 
         if (values.snoozedUntil && new Date(values.snoozedUntil) < new Date()) {
             actions.unsnooze()
         }
     }),
 ])
-
-/**
- * Smart semver detection with age-based thresholds.
- *
- * This is the core version comparison logic that determines if an SDK version is outdated.
- * It applies contextual rules based on semantic versioning and release age to avoid false positives.
- *
- * Detection thresholds:
- * - **Grace period**: Versions <7 days old are NEVER flagged (even if major version behind)
- * - **Major**: Always flag if major version behind (1.x → 2.x) OR >1 year old
- * - **Minor**: Flag if 3+ minors behind OR >6 months old
- *
- * The grace period prevents nagging teams about brand-new releases they haven't had time to upgrade to.
- * The age-based thresholds catch abandoned projects using very old versions.
- *
- * @param type - SDK type to check (e.g., 'web', 'python', 'node')
- * @param version - Current version string to evaluate
- * @param latestVersionsData - Version data from GitHub API including:
- *   - latestVersion: Most recent version string
- *   - versions: All versions in descending order
- *   - releaseDates: Map of version -> ISO date for time-based checks
- * @returns Object containing:
- *   - isOutdated: Whether version should be flagged (uses smart semver logic)
- *   - releasesAhead: Number of releases between current and latest
- *   - latestVersion: The most recent version available
- *   - releaseDate: ISO date when current version was released
- *   - daysSinceRelease: Age of current version in days
- *   - isOld: Whether version is outdated by age alone (for "Old" badge)
- *   - deviceContext: Device platform category (mobile/desktop/mixed)
- *   - error: Error message if version parsing fails
- */
-function computeAugmentedInfoRelease(
-    type: SdkType,
-    usageEntry: TeamSdkUsageEntry,
-    latestVersion: SemanticVersion,
-    isSingleVersion: boolean = false
-): AugmentedTeamSdkVersionsInfoRelease {
-    try {
-        // Parse versions for comparison
-        const currentVersion = parseVersion(usageEntry.lib_version)
-
-        // Check if versions differ
-        const diff = diffVersions(latestVersion, currentVersion)
-
-        // Check if current version is equal to or newer than cached latest
-        // This handles the case where events show a newer version than what's cached from GitHub
-        // diff === null means versions are equal; diff.diff <= 0 means current >= latest
-        const isCurrentOrNewer = diff === null || diff.diff <= 0
-
-        // Count number of versions behind by estimating based on semantic version difference
-        let releasesBehind = 0
-        if (diff) {
-            if (diff.kind === 'major') {
-                releasesBehind = diff.diff * 100 // Major version differences are significant
-            } else if (diff.kind === 'minor') {
-                releasesBehind = diff.diff * 10 // Minor versions represent normal releases
-            } else if (diff.kind === 'patch') {
-                releasesBehind = diff.diff
-            }
-        }
-
-        // Age-based analysis
-        let daysSinceRelease: number | undefined
-        let isOld = false
-
-        if (usageEntry.release_date) {
-            daysSinceRelease = calculateVersionAge(usageEntry.release_date)
-            const weeksOld = daysSinceRelease / 7
-
-            // Age-based outdated detection depends on mobile/desktop
-            // We're more lenient with mobile versions because it's harder to keep them up to date
-            const deviceContext = determineDeviceContext(type)
-
-            const ageThreshold =
-                deviceContext === 'desktop'
-                    ? DEVICE_CONTEXT_CONFIG.ageThresholds.desktop
-                    : DEVICE_CONTEXT_CONFIG.ageThresholds.mobile
-
-            isOld = releasesBehind > 0 && weeksOld > ageThreshold
-        }
-
-        // Grace period: Don't flag versions released within the grace period (even if major version behind)
-        // This gives our team time to fix any issues with recent releases before we nag them about new releases
-        // Web SDK ships very frequently, so it gets a longer grace period (14 days vs 7 days)
-        //
-        // NOTE: If daysSinceRelease is undefined (e.g., failed releases not in GitHub),
-        // we continue with release count logic only - this is intentional
-        let isRecentRelease = false
-        const GRACE_PERIOD_DAYS = type === 'web' ? 14 : 7
-
-        if (daysSinceRelease !== undefined) {
-            isRecentRelease = daysSinceRelease < GRACE_PERIOD_DAYS
-        }
-
-        // Smart version detection based on semver difference
-        let isOutdated = false
-
-        // Single version case: only warn if >30 days old to avoid false positives after upgrades
-        // When a user upgrades, old events from the previous version are still in the 7-day window
-        // but no new events with the new version exist yet, causing confusing "Outdated" warnings
-        const SINGLE_VERSION_GRACE_PERIOD_DAYS = 30
-
-        if (isSingleVersion && diff && diff.kind !== 'patch' && daysSinceRelease !== undefined) {
-            isOutdated = daysSinceRelease > SINGLE_VERSION_GRACE_PERIOD_DAYS
-        } else if (isRecentRelease) {
-            // Apply grace period - don't flag anything <7 days old
-            isOutdated = false
-        } else if (diff) {
-            switch (diff.kind) {
-                case 'major':
-                    // Major version behind (e.g. 1.x -> 2.x): Always flag as outdated
-                    isOutdated = true
-                    break
-                case 'minor':
-                    // Minor version behind (e.g. 1.2.x -> 1.5.x): Flag if 3+ minors behind OR >6 months old
-                    const sixMonthsInDays = 180
-                    const isMinorOutdatedByCount = diff.diff >= 3
-                    const isMinorOutdatedByAge = daysSinceRelease !== undefined && daysSinceRelease > sixMonthsInDays
-                    isOutdated = isMinorOutdatedByCount || isMinorOutdatedByAge
-                    break
-                case 'patch':
-                    // Patch version behind (e.g. 1.2.3 -> 1.2.7) is never outdated
-                    isOutdated = false
-                    break
-            }
-        }
-
-        return {
-            type,
-            version: usageEntry.lib_version,
-            maxTimestamp: usageEntry.max_timestamp,
-            count: usageEntry.count,
-            isOutdated,
-            isOld, // Returned separately for "Old" badge in UI
-            needsUpdating: isOutdated || isOld,
-            isCurrentOrNewer,
-            releaseDate: usageEntry.release_date,
-            releasedAgo: usageEntry.release_date ? dayjs(usageEntry.release_date).fromNow() : undefined,
-            daysSinceRelease,
-            latestVersion: versionToString(latestVersion),
-        }
-    } catch {
-        // If we can't parse the versions, return error state
-        return {
-            type,
-            version: usageEntry.lib_version,
-            maxTimestamp: usageEntry.max_timestamp,
-            count: usageEntry.count,
-            isOutdated: false,
-            isOld: false,
-            needsUpdating: false,
-            isCurrentOrNewer: false,
-            releaseDate: undefined,
-            releasedAgo: undefined,
-            daysSinceRelease: undefined,
-            latestVersion: versionToString(latestVersion),
-        }
-    }
-}
-
-/**
- * Calculate the age of a version in days based on its release date
- *
- * @param releaseDate - ISO date string when the version was released
- * @returns Number of days since the release
- */
-function calculateVersionAge(releaseDate: string): number {
-    const release = new Date(releaseDate)
-    const now = new Date()
-    return Math.floor((now.getTime() - release.getTime()) / (1000 * 60 * 60 * 24))
-}
-
-/**
- * Determine the device context (mobile/desktop/mixed) for an SDK type
- *
- * @param sdkType - The SDK type to categorize
- * @returns 'mobile', 'desktop', or 'mixed' based on SDK type
- */
-function determineDeviceContext(sdkType: SdkType): 'mobile' | 'desktop' | 'mixed' {
-    if (DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType)) {
-        return 'mobile'
-    }
-    if (DEVICE_CONTEXT_CONFIG.desktopSDKs.includes(sdkType)) {
-        return 'desktop'
-    }
-
-    return 'mixed'
-}
