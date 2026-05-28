@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -1064,8 +1065,6 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("error_description", body)
 
     def test_token_endpoint_returns_temporarily_unavailable_on_pgbouncer_query_wait_timeout(self):
-        from django.db import OperationalError
-
         token_data = {**self.base_token_body, "code": "does_not_matter"}
 
         with patch(
@@ -1081,8 +1080,6 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("error_description", body)
 
     def test_token_endpoint_does_not_swallow_unrelated_operational_errors(self):
-        from django.db import OperationalError
-
         token_data = {**self.base_token_body, "code": "does_not_matter"}
 
         with patch(
