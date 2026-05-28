@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -148,7 +148,8 @@ class TestHogFlowAPI(APIBaseTest):
             "code": "invalid_input",
             "detail": (
                 "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
+                "For seconds, use a fraction of a minute."
             ),
             "type": "validation_error",
         }
@@ -550,6 +551,108 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "draft"
+
+    def _create_active_hog_flow(self) -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+        return flow_id
+
+    def test_mcp_cannot_modify_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed via MCP"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 400, response.json()
+        assert "enabled (active) workflow via MCP" in response.json()["detail"]
+
+    @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
+    def test_mcp_can_disable_active_workflow(self, _name, target_status):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": target_status},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == target_status
+
+    def test_mcp_can_modify_draft_workflow(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}",
+            {"name": "Renamed via MCP"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["name"] == "Renamed via MCP"
+
+    def test_non_mcp_can_modify_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed via UI"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["name"] == "Renamed via UI"
+
+    def test_edges_validation_accepts_list_of_edges(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["edges"] = [{"from": "trigger_node", "to": "action_1", "type": "continue"}]
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["edges"] == [{"from": "trigger_node", "to": "action_1", "type": "continue"}]
+
+    def test_edges_validation_rejects_non_list(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["edges"] = "not-an-array"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "edges"
+
+    def test_can_call_a_test_invocation(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        with patch("posthog.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}},
+                    "mock_async_functions": True,
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json() == {"status": "success"}
+
+            assert mock_invoke.call_count == 1
+            assert mock_invoke.call_args.kwargs["team_id"] == self.team.id
+            assert mock_invoke.call_args.kwargs["hog_flow_id"] == flow_id
+            payload = mock_invoke.call_args.kwargs["payload"]
+            assert payload["globals"] == {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}}
+            assert payload["mock_async_functions"] is True
 
     def test_hog_flow_conditional_event_filter_rejected(self):
         conditional_action = {

@@ -1,10 +1,11 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import {
     TEST_ORG_ID,
     TEST_PROJECT_ID,
     createTestClient,
     createTestContext,
+    generateUniqueKey,
     parseToolResponse,
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
@@ -17,8 +18,12 @@ describe('Workflows', { concurrent: false }, () => {
 
     const listTool = GENERATED_TOOLS['workflows-list']!()
     const getTool = GENERATED_TOOLS['workflows-get']!()
+    const createTool = GENERATED_TOOLS['workflows-create']!()
+    const updateTool = GENERATED_TOOLS['workflows-update']!()
     const logsTool = GENERATED_TOOLS['hog-flows-logs-retrieve']!()
     const metricsTool = GENERATED_TOOLS['hog-flows-metrics-retrieve']!()
+
+    const createdWorkflowIds: string[] = []
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -26,6 +31,52 @@ describe('Workflows', { concurrent: false }, () => {
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
     })
+
+    afterEach(async () => {
+        // Hard delete is intentionally not exposed as an MCP tool, but the underlying API
+        // endpoint still exists. Call it directly for teardown so we actually remove the rows
+        // instead of leaving archived workflows behind in the shared integration env.
+        const projectId = await context.stateManager.getProjectId()
+        for (const id of createdWorkflowIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(id)}/`,
+                })
+            } catch {
+                // Best effort — workflow may already be gone
+            }
+        }
+        createdWorkflowIds.length = 0
+    })
+
+    function makeWorkflowParams(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+        const ts = Date.now()
+        return {
+            name: `mcp-test-${generateUniqueKey('wf')}`,
+            status: 'draft',
+            actions: [
+                {
+                    id: 'trigger_node',
+                    name: 'Trigger',
+                    type: 'trigger',
+                    created_at: ts,
+                    updated_at: ts,
+                    config: { type: 'event', filters: { events: [] } },
+                },
+                {
+                    id: 'exit_node',
+                    name: 'Exit',
+                    type: 'exit',
+                    created_at: ts,
+                    updated_at: ts,
+                    config: { reason: 'Default exit' },
+                },
+            ],
+            edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+            ...overrides,
+        }
+    }
 
     describe('workflows-list tool', () => {
         it('should list workflows and return paginated structure', async () => {
@@ -164,6 +215,84 @@ describe('Workflows', { concurrent: false }, () => {
         it('should throw for a non-existent UUID', async () => {
             const absentId = crypto.randomUUID()
             await expect(metricsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-create tool', () => {
+        it('should create a draft workflow with one trigger and one exit', async () => {
+            const params = makeWorkflowParams()
+            const result = await createTool.handler(context, params)
+            const workflow = parseToolResponse(result)
+            createdWorkflowIds.push(workflow.id)
+
+            expect(workflow.id).toBeTypeOf('string')
+            expect(workflow.name).toBe(params.name)
+            expect(workflow.status).toBe('draft')
+            expect(workflow.version).toBeTypeOf('number')
+            expect(Array.isArray(workflow.actions)).toBe(true)
+            expect(workflow.actions).toHaveLength(2)
+            expect(workflow._posthogUrl).toContain(`/pipeline/destinations/hog-${workflow.id}`)
+        })
+
+        it('should reject a workflow without exactly one trigger action', async () => {
+            const params = makeWorkflowParams({
+                actions: [
+                    {
+                        id: 'exit_node',
+                        name: 'Exit',
+                        type: 'exit',
+                        config: { reason: 'Default exit' },
+                    },
+                ],
+                edges: [],
+            })
+            await expect(createTool.handler(context, params)).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-update tool', () => {
+        it('should partially update a workflow name', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const renamed = parseToolResponse(
+                await updateTool.handler(context, { id: created.id, name: 'mcp-test-renamed' })
+            )
+
+            expect(renamed.id).toBe(created.id)
+            expect(renamed.name).toBe('mcp-test-renamed')
+        })
+
+        it('should archive a workflow via status transition', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const archived = parseToolResponse(
+                await updateTool.handler(context, { id: created.id, status: 'archived' })
+            )
+
+            expect(archived.status).toBe('archived')
+        })
+    })
+
+    // workflows-run hits the invocations endpoint, which forwards to the CDP plugin
+    // server (CDP_API_URL). That container isn't started in MCP CI (only the `temporal`
+    // compose profile is enabled), so the happy-path returns 500 from a DNS failure.
+    // Coverage for the endpoint lives in posthog/api/test/test_hog_flow.py
+    // (test_can_call_a_test_invocation) with CDP mocked, and at the MCP unit layer
+    // (tests/unit/workflows-run-handler.test.ts) for the handler wiring.
+
+    describe('full lifecycle', () => {
+        it('should create → update → archive', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            const id = created.id
+            createdWorkflowIds.push(id)
+
+            const updated = parseToolResponse(await updateTool.handler(context, { id, name: 'mcp-lifecycle-test' }))
+            expect(updated.name).toBe('mcp-lifecycle-test')
+
+            const archived = parseToolResponse(await updateTool.handler(context, { id, status: 'archived' }))
+            expect(archived.status).toBe('archived')
         })
     })
 })
