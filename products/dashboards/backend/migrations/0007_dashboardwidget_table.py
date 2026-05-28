@@ -1,6 +1,7 @@
 # Generated manually for dashboard widget entity
 
 import django.utils.timezone
+import django.db.models.manager
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
@@ -60,8 +61,12 @@ class Migration(migrations.Migration):
                             models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                         ),
                     ],
+                    managers=[
+                        ("all_teams", django.db.models.manager.Manager()),
+                    ],
                     options={
                         "db_table": "posthog_dashboardwidget",
+                        "default_manager_name": "all_teams",
                     },
                 ),
             ],
