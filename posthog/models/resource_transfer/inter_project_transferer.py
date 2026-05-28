@@ -10,6 +10,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.models import Project, Team, User
+from posthog.models.scoping import team_scope
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import (
     ResourceKind,
@@ -54,7 +55,8 @@ def duplicate_resource_to_new_team(
         substitution_count=len(substitutions) if substitutions else 0,
     )
     with transaction.atomic():
-        graph = list(build_resource_duplication_graph(resource, set()))
+        with team_scope(source_team.id):
+            graph = list(build_resource_duplication_graph(resource, set()))
         logger.info(
             "resource_transfer.graph_built",
             vertex_count=len(graph),
@@ -405,29 +407,30 @@ def get_suggested_substitutions(
     """
     recommendations: list[tuple[ResourceTransferKey, ResourceTransferKey]] = []
 
-    for vertex in dag:
-        visitor = ResourceTransferVisitor.get_visitor(vertex.model)
+    with team_scope(new_team.id):
+        for vertex in dag:
+            visitor = ResourceTransferVisitor.get_visitor(vertex.model)
 
-        if visitor is None:
-            raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
+            if visitor is None:
+                raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
 
-        if visitor.is_immutable():
-            continue
+            if visitor.is_immutable():
+                continue
 
-        suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
+            suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
 
-        if suggested_resource is None:
-            suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
+            if suggested_resource is None:
+                suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
 
-        if suggested_resource is None:
-            continue
+            if suggested_resource is None:
+                continue
 
-        source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
-        dest_key: ResourceTransferKey = (
-            cast(ResourceKind, visitor.kind),
-            suggested_resource.pk,
-        )
-        recommendations.append((source_key, dest_key))
+            source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
+            dest_key: ResourceTransferKey = (
+                cast(ResourceKind, visitor.kind),
+                suggested_resource.pk,
+            )
+            recommendations.append((source_key, dest_key))
 
     return recommendations
 
@@ -655,13 +658,14 @@ def _duplicate_vertex(
 
     payload = visitor.adjust_duplicate_payload(payload, vertex, new_team)
 
-    if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
-        payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+    with team_scope(new_team.id):
+        if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
+            payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
 
-    if visitor.kind == "FeatureFlag" and payload.get("key"):
-        payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
+        if visitor.kind == "FeatureFlag" and payload.get("key"):
+            payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
 
-    new_resource = cast(Any, visitor.get_model()).objects.create(**payload)
+        new_resource = cast(Any, visitor.get_model()).objects.create(**payload)
     logger.info(
         "resource_transfer.duplicate_vertex.created",
         kind=visitor.kind,

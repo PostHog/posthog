@@ -236,50 +236,22 @@ export const DashboardsAnalyzeRefreshResultCreateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
- * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
 export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
     fromDashboardId: zod.number().describe('Dashboard id the tile currently belongs to.'),
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
 
-export const dashboardsMoveTilePartialUpdateBodyNameMax = 400
-
-export const dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault = false
-
-export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().max(dashboardsMoveTilePartialUpdateBodyNameMax).nullish(),
-        description: zod.string().optional(),
-        pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
-        deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
-        data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .optional()
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
-        quick_filter_ids: zod
-            .array(zod.string())
-            .nullish()
-            .describe('List of quick filter IDs associated with this dashboard'),
-        use_template: zod
-            .string()
-            .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
-        use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
-        delete_insights: zod
-            .boolean()
-            .default(dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault)
-            .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
+export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+    toDashboard: zod.number().optional().describe('Destination dashboard ID.'),
+    tile: zod
+        .object({
+            id: zod.number().describe('Dashboard tile ID to move.'),
+        })
+        .optional()
+        .describe('Tile to move, identified by its dashboard tile ID.'),
+})
 
 export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
     tile_order: zod
@@ -329,6 +301,105 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Add a widget tile to a dashboard.
+ */
+export const dashboardsWidgetsCreateBodyWidgetTypeMax = 64
+
+export const dashboardsWidgetsCreateBodyNameMax = 400
+
+export const DashboardsWidgetsCreateBody = /* @__PURE__ */ zod.object({
+    widget_type: zod
+        .string()
+        .max(dashboardsWidgetsCreateBodyWidgetTypeMax)
+        .describe('Widget type identifier from dashboard-widget-catalog-list.'),
+    config: zod
+        .unknown()
+        .describe(
+            'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list.'
+        ),
+    name: zod
+        .string()
+        .max(dashboardsWidgetsCreateBodyNameMax)
+        .nullish()
+        .describe('Optional custom display name for the widget tile.'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Optional markdown description shown when show_description is enabled.'),
+    layouts: zod.unknown().optional().describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+    show_description: zod.boolean().optional().describe('Whether to show the description on the dashboard tile.'),
+})
+
+/**
+ * Update an existing widget tile on a dashboard.
+ */
+export const dashboardsWidgetsPartialUpdateBodyNameMax = 400
+
+export const DashboardsWidgetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    config: zod
+        .unknown()
+        .optional()
+        .describe("Updated widget configuration JSON. Validated for the tile's widget_type."),
+    name: zod
+        .string()
+        .max(dashboardsWidgetsPartialUpdateBodyNameMax)
+        .nullish()
+        .describe('Optional custom display name for the widget tile.'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Optional markdown description shown when show_description is enabled.'),
+    show_description: zod.boolean().optional().describe('Whether to show the description on the dashboard tile.'),
+    layouts: zod.unknown().optional().describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+})
+
+/**
+ * Add multiple widget tiles to a dashboard in one atomic request.
+ */
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax = 64
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
+
+export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
+    widgets: zod
+        .array(
+            zod.object({
+                widget_type: zod
+                    .string()
+                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
+                    .describe('Widget type identifier from dashboard-widget-catalog-list.'),
+                config: zod
+                    .unknown()
+                    .describe(
+                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list.'
+                    ),
+                name: zod
+                    .string()
+                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax)
+                    .nullish()
+                    .describe('Optional custom display name for the widget tile.'),
+                description: zod
+                    .string()
+                    .optional()
+                    .describe('Optional markdown description shown when show_description is enabled.'),
+                layouts: zod
+                    .unknown()
+                    .optional()
+                    .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                show_description: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether to show the description on the dashboard tile.'),
+            })
+        )
+        .min(1)
+        .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
+        .describe('Widget tiles to add atomically (1–10). Each entry uses the same fields as a single add request.'),
+})
 
 /**
  * Bulk update tags on multiple objects.

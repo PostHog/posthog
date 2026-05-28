@@ -83,6 +83,7 @@ ActivityScope = Literal[
     "Log",
     "LogsAlertConfiguration",
     "LogsExclusionRule",
+    "DashboardWidget",
     "ProductTour",
     "Ticket",
     "InstanceSetting",
@@ -629,10 +630,10 @@ def describe_change(m: Any) -> Union[str, dict]:
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
         description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
-        if m.insight:
-            description["insight"] = {"id": m.insight.id}
-        if m.text:
-            description["text"] = {"id": m.text.id}
+        description["insight"] = {"id": m.insight_id} if m.insight_id else None
+        description["text"] = {"id": m.text_id} if m.text_id else None
+        description["button_tile"] = {"id": m.button_tile_id} if m.button_tile_id else None
+        description["widget"] = {"id": str(m.widget_id)} if m.widget_id else None
         return description
     else:
         return str(m)

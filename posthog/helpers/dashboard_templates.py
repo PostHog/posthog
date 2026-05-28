@@ -1,17 +1,24 @@
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db.models import Q
 
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
+from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.product_analytics.backend.models.insight import Insight
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -484,7 +491,13 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
     )
 
 
-def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
+def create_from_template(
+    dashboard: Dashboard,
+    template: DashboardTemplate,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
@@ -528,6 +541,17 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
                 placement=template_tile.get("placement", "left"),
                 style=template_tile.get("style", "primary"),
                 transparent_background=template_tile.get("transparent_background"),
+            )
+        elif template_tile["type"] == "WIDGET":
+            _create_tile_for_widget(
+                dashboard,
+                widget_type=template_tile.get("widget_type", ""),
+                config=template_tile.get("config", {}),
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                transparent_background=template_tile.get("transparent_background"),
+                user=user,
+                user_access_control=user_access_control,
             )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
@@ -576,6 +600,43 @@ def _create_tile_for_button(
         dashboard=dashboard,
         team_id=dashboard.team_id,
         layouts=layouts,
+        color=color,
+        transparent_background=transparent_background,
+    )
+
+
+def _create_tile_for_widget(
+    dashboard: Dashboard,
+    widget_type: str,
+    config: dict,
+    layouts: dict | None,
+    color: Optional[str],
+    transparent_background: Optional[bool] = None,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    from products.dashboards.backend.widget_create import prepare_widget_tile_create
+
+    normalized_widget_type, validated_config = prepare_widget_tile_create(
+        team_id=dashboard.team_id,
+        widget_type=widget_type,
+        config=config,
+        user_access_control=user_access_control,
+    )
+    with team_scope(dashboard.team_id):
+        widget = DashboardWidget.objects.create(
+            team=dashboard.team,
+            widget_type=normalized_widget_type,
+            config=validated_config,
+            created_by=user,
+            last_modified_by=user,
+        )
+    DashboardTile.objects.create(
+        widget=widget,
+        dashboard=dashboard,
+        team_id=dashboard.team_id,
+        layouts=layouts or {},
         color=color,
         transparent_background=transparent_background,
     )
