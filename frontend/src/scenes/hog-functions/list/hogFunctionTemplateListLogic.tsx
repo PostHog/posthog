@@ -15,8 +15,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    CyclotronJobFiltersType,
     HogFunctionSubTemplateIdType,
+    HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
     HogFunctionTypeType,
@@ -42,8 +42,18 @@ export type HogFunctionTemplateListLogicProps = {
     additionalTypes?: HogFunctionTypeType[]
     /** If provided, only those templates will be shown */
     subTemplateIds?: HogFunctionSubTemplateIdType[] | null
-    /** Overrides to be used when creating a new hog function */
-    getConfigurationOverrides?: (subTemplateId?: HogFunctionSubTemplateIdType) => CyclotronJobFiltersType | undefined
+    /**
+     * Overrides to merge into the sub-template before building the new-function URL.
+     * Common fields: `filters` (merged with the sub-template's defaults), `name`,
+     * `description`. Anything else returned overrides the matching field on the
+     * sub-template. The resolved sub-template is passed as the second argument so
+     * callers that need to decorate the sub-template's own name/description (e.g.
+     * health alerts adding the selected `kind` to the name) can do so.
+     */
+    getConfigurationOverrides?: (
+        subTemplateId: HogFunctionSubTemplateIdType | undefined,
+        subTemplate: HogFunctionSubTemplateType | null
+    ) => Partial<HogFunctionSubTemplateType> | undefined
     syncFiltersWithUrl?: boolean
     manualTemplates?: HogFunctionTemplateType[] | null
     manualTemplatesLoading?: boolean
@@ -261,21 +271,22 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         ? getSubTemplate(template, template.sub_template_id)
                         : null
 
-                    const configurationOverrides = getConfigurationOverrides
-                        ? getConfigurationOverrides(subTemplate?.sub_template_id)
-                        : null
+                    const overrides = getConfigurationOverrides
+                        ? getConfigurationOverrides(subTemplate?.sub_template_id, subTemplate)
+                        : undefined
 
-                    const filters =
-                        configurationOverrides || subTemplate?.filters
+                    const mergedFilters =
+                        overrides?.filters || subTemplate?.filters
                             ? {
                                   ...subTemplate?.filters,
-                                  ...configurationOverrides,
+                                  ...overrides?.filters,
                               }
                             : undefined
 
                     const configuration: Record<string, any> = {
                         ...subTemplate,
-                        ...(filters ? { filters } : {}),
+                        ...overrides,
+                        ...(mergedFilters ? { filters: mergedFilters } : {}),
                     }
 
                     return combineUrl(urls.hogFunctionNew(template.id), queryParams ?? {}, {

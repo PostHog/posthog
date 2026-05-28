@@ -198,6 +198,8 @@ class ActivityLog(UUIDTModel):
     is_system = models.BooleanField(null=True)
     # Value of the x-posthog-client request header captured when the activity was logged
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
+    # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -833,11 +835,14 @@ def log_activity(
     detail: Detail,
     was_impersonated: bool,
     client: Optional[str] = None,
+    ip_address: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
+    if ip_address is None:
+        ip_address = activity_storage.get_ip_address()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -871,6 +876,7 @@ def log_activity(
                 activity=activity,
                 detail=detail,
                 client=client,
+                ip_address=ip_address,
             )
 
         def _do_log_activity():
@@ -886,6 +892,7 @@ def log_activity(
                 activity=log.activity,
                 detail=log.detail,
                 client=log.client,
+                ip_address=log.ip_address,
             )
 
         if instance_only:
@@ -926,6 +933,7 @@ class LogActivityEntry(TypedDict, total=False):
     detail: Required[Detail]
     was_impersonated: Required[bool]
     client: Optional[str]
+    ip_address: Optional[str]
     force_save: bool
 
 

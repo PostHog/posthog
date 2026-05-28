@@ -2,18 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCopy, IconEye, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonButtonWithDropdown,
-    LemonCheckbox,
-    LemonInput,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { XRayHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { FilterPill } from '../components/FilterPill'
 import { VisionQuotaMeter } from './components/VisionQuotaMeter'
 import { replayScannersLogic } from './replayScannersLogic'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
@@ -38,39 +32,6 @@ export const scene: SceneExport = {
     component: ReplayScannersScene,
     logic: replayScannersLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-function FilterPill<T extends string>({
-    label,
-    options,
-    value,
-    onChange,
-}: {
-    label: string
-    options: { value: T; label: string }[]
-    value: T[]
-    onChange: (next: T[]) => void
-}): JSX.Element {
-    const toggle = (v: T): void => {
-        onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
-    }
-    return (
-        <LemonButtonWithDropdown
-            type="secondary"
-            size="small"
-            dropdown={{
-                closeOnClickInside: false,
-                overlay: options.map((opt) => (
-                    <LemonButton key={opt.value} fullWidth onClick={() => toggle(opt.value)}>
-                        <LemonCheckbox checked={value.includes(opt.value)} className="pointer-events-none mr-2" />
-                        {opt.label}
-                    </LemonButton>
-                )),
-            }}
-        >
-            {value.length > 0 ? `${label} (${value.length})` : label}
-        </LemonButtonWithDropdown>
-    )
 }
 
 export function ReplayScannersScene(): JSX.Element {
@@ -216,6 +177,16 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             <VisionQuotaMeter />
+
+            <ProductIntroduction
+                productName="Replay vision"
+                productKey={ProductKey.REPLAY_VISION}
+                thingName="scanner"
+                description="Replay vision runs scanners over completed sessions on a schedule or on demand, using session recordings and events to do anything you can describe — categorize sessions, monitor user behavior, surface frustration or confusion, flag bugs, score intent, or detect any custom pattern. Results land as queryable events you can build insights, alerts, and cohorts on."
+                secondaryDescription="You can get started using a template, or create a fully custom scanner yourself."
+                customHog={XRayHog}
+                action={() => push(urls.replayVision('new'))}
+            />
 
             <SceneSection
                 title="Scanners"

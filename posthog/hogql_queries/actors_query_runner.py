@@ -26,6 +26,7 @@ from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy, SessionStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -258,6 +259,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         )
 
     def _calculate(self) -> ActorsQueryResponse:
+        # `ActorsQuery.select` and `ActorsQuery.orderBy` are user-supplied HogQL strings,
+        # parsed by `to_query()`. Tag here so platform sub-query callers (e.g.
+        # `hogql_cohort_query._actors_query_from_source`) that invoke `to_query()` with
+        # platform-constant select lists are not mis-attributed.
+        tag_contains_user_hogql()
         try:
             self.calculating = True
             return self._calculate_internal()
