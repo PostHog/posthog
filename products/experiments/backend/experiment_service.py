@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Now
+from django.db.models.functions import Coalesce, NullIf, Now
 from django.utils import timezone
 
 import pydantic
@@ -2314,8 +2314,16 @@ class ExperimentService:
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
             elif order_value in ["created_by", "-created_by"]:
+                # Match the frontend column's `first_name || email` sorter — treat an
+                # empty `first_name` as missing and fall back to `email`, so users with
+                # a blank first name aren't bunched at one end of the list.
                 prefix = "-" if order_value.startswith("-") else ""
-                queryset = queryset.order_by(f"{prefix}created_by__first_name", f"{prefix}created_by__email")
+                queryset = queryset.annotate(
+                    created_by_display=Coalesce(
+                        NullIf(F("created_by__first_name"), Value("")),
+                        F("created_by__email"),
+                    )
+                ).order_by(f"{prefix}created_by_display")
             else:
                 queryset = queryset.order_by(order_value)
         else:
