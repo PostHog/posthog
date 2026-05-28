@@ -9,6 +9,7 @@
     "scripts": {
         "build": "tsc",
         "dev": "tsx src/index.ts",
+        "test": "vitest run",
         "typecheck": "tsc --noEmit",
         "typecheck:tsgo": "tsgo --noEmit"
     },
@@ -22,6 +23,7 @@
         "@types/node": "^20.0.0",
         "@types/sharp": "^0.31.1",
         "tsx": "^4.0.0",
-        "typescript": "6.0.3"
+        "typescript": "6.0.3",
+        "vitest": "^3.2.4"
     }
 }
