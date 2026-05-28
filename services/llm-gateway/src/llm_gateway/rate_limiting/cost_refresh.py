@@ -51,7 +51,8 @@ def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
         if alias in model_cost:
             continue
         if canonical in model_cost:
-            model_cost[alias] = model_cost[canonical]
+            # Shallow copy so a future in-place mutation under one key doesn't bleed into the other.
+            model_cost[alias] = dict(model_cost[canonical])
         else:
             logger.warning("cost_alias_canonical_missing", alias=alias, canonical=canonical)
 

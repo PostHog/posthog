@@ -8,6 +8,7 @@ import litellm
 import pytest
 
 from llm_gateway.rate_limiting.cost_refresh import (
+    COST_ALIASES,
     CostRefreshService,
     apply_cost_aliases,
     normalize_metric_labels,
@@ -22,6 +23,9 @@ class TestApplyCostAliases:
         }
         apply_cost_aliases(cost)
         assert cost["openai/@cf/moonshotai/kimi-k2.6"] == cost["moonshot/kimi-k2.6"]
+        # Load-bearing: the alias must be a copy, not a shared reference — otherwise an
+        # in-place mutation under one key silently mutates the other.
+        assert cost["openai/@cf/moonshotai/kimi-k2.6"] is not cost["moonshot/kimi-k2.6"]
 
     def test_does_not_overwrite_existing_alias(self) -> None:
         cost: dict[str, Any] = {
@@ -47,6 +51,15 @@ class TestApplyCostAliases:
         cost: dict[str, Any] = {"openai/@cf/moonshotai/kimi-k2.6": {"input_cost_per_token": 0.999}}
         apply_cost_aliases(cost)
         mock_logger.warning.assert_not_called()
+
+    def test_canonicals_exist_in_litellm_cost_map(self) -> None:
+        """Lock in that every COST_ALIASES canonical is present in the pinned litellm
+        cost map. If a litellm bump drops the canonical, this fails in CI rather than
+        letting `apply_cost_aliases` log `cost_alias_canonical_missing` every refresh
+        in production and falling back to the default cost for those models.
+        """
+        missing = [canonical for canonical in COST_ALIASES.values() if canonical not in litellm.model_cost]
+        assert not missing, f"COST_ALIASES canonicals missing from litellm.model_cost: {missing}"
 
 
 class TestNormalizeMetricLabels:
