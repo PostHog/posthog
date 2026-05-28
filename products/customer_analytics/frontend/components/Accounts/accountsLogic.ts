@@ -137,7 +137,9 @@ export function buildAccountColumnGroups(
             return
         }
         seenJoinKeys.add(key)
-        joinGroups.push({ key, label: key, options })
+        // Every join under `system.accounts` carries the `accounts.` prefix
+        // — drop it from the user-facing label since it's just visual noise.
+        joinGroups.push({ key, label: fieldName, options })
     }
 
     if (accountsTable) {
