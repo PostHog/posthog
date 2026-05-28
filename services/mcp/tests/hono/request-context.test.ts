@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 const mockMe = vi.fn()
 
 vi.mock('@/api/client', () => ({
-    ApiClient: vi.fn().mockImplementation(() => ({
-        users: () => ({ me: mockMe }),
-    })),
+    ApiClient: vi.fn().mockImplementation(function () {
+        return {
+            users: () => ({ me: mockMe }),
+        }
+    }),
 }))
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
