@@ -669,7 +669,6 @@ class LazyComputationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], None] | None = None,
-        extra_log_metadata: dict[str, object] | None = None,
     ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
@@ -684,12 +683,11 @@ class LazyComputationExecutor:
         Args:
             run_insert: Optional custom insert function. If not provided, uses the
                         default AST-based run_computation_insert with query_info.
-            extra_log_metadata: Optional caller-supplied key/value pairs merged
-                        into the `lazy_computation.executed` structured log line.
-                        Logging-only — does not affect job lookup, hashing, or
-                        execution. Use this to attach a stable identifier (e.g.
-                        an input-side `filters_hash`) so the lazy log can be
-                        joined against the originating product's request log.
+
+        Callers wanting to attach extra fields to the `lazy_computation.executed`
+        log line should bind them via `structlog.contextvars.bind_contextvars`
+        before invocation — the project-wide structlog config merges contextvars
+        into every log call automatically.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -729,7 +727,6 @@ class LazyComputationExecutor:
                 time_range_start=str(start),
                 time_range_end=str(end),
                 time_range_days=(end - start).days,
-                **(extra_log_metadata or {}),
             )
 
         try:
@@ -948,7 +945,6 @@ def ensure_precomputed(
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
-    extra_log_metadata: dict[str, object] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1074,7 +1070,6 @@ def ensure_precomputed(
         time_range_start,
         time_range_end,
         run_insert=_run_manual_insert,
-        extra_log_metadata=extra_log_metadata,
     )
 
 

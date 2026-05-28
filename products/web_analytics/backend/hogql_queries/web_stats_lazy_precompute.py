@@ -256,7 +256,6 @@ def ensure_web_stats_precomputed(
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
-        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 

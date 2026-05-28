@@ -306,7 +306,6 @@ def ensure_web_goals_precomputed(
         table=LazyComputationTable.WEB_GOALS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_goals_lazy_insert",
-        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 

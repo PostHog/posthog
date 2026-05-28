@@ -299,7 +299,6 @@ def ensure_web_stats_paths_precomputed(
         table=LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",
-        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 

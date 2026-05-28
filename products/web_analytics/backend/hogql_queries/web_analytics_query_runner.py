@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from structlog.contextvars import bound_contextvars
 
 from posthog.schema import (
     ActionConversionGoal,
@@ -85,6 +86,16 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     def calculate(self) -> WAR:
+        # `filters_hash` is bound here so every structured log emitted inside
+        # this request — `web_analytics_query_started`, `web_analytics_query`,
+        # each lazy-precompute path's `*_rejected` / `*_eligible`, and the
+        # framework's `lazy_computation.executed` — automatically carries it
+        # via `structlog.contextvars.merge_contextvars`. Joining log streams
+        # by cache key needs no further plumbing.
+        with bound_contextvars(filters_hash=self.filters_hash):
+            return self._calculate_with_logging()
+
+    def _calculate_with_logging(self) -> WAR:
         # Every web analytics query runner produces user-facing dashboard
         # queries. Tag here so all downstream `sync_execute` calls (live,
         # preagg, lazy precompute) inherit `product`/`feature` and don't
@@ -180,16 +191,16 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 date_from=self.query_date_range.date_from_str,
                 date_to=self.query_date_range.date_to_str,
                 sampling_enabled=sampling.enabled if sampling else False,
-                filters_hash=self.filters_hash,
             )
 
     @cached_property
     def filters_hash(self) -> Optional[str]:
         """Stable hash of the user-facing query inputs that would fragment a
-        precompute cache key. Emitted on `web_analytics_query` and threaded
-        through to `lazy_computation.executed` so the two log streams can be
-        joined for queries-per-distinct-cache-key analysis. See
-        `compute_query_filters_hash` for the exact field set."""
+        precompute cache key. Bound on the structlog contextvars in
+        `calculate()` so every log emitted inside the request — including the
+        framework's `lazy_computation.executed` — carries it automatically and
+        the log streams can be joined for queries-per-distinct-cache-key
+        analysis. See `compute_query_filters_hash` for the exact field set."""
         try:
             return compute_query_filters_hash(self.query, self.team.timezone)
         except Exception:

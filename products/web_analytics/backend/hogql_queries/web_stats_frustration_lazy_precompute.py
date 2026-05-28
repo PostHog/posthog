@@ -241,7 +241,6 @@ def ensure_web_stats_frustration_precomputed(
         table=LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_frustration_lazy_insert",
-        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 

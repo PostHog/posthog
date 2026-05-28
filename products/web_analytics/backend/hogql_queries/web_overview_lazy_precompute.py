@@ -125,7 +125,6 @@ def ensure_web_overview_precomputed(
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",
-        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 
