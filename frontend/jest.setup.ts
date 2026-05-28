@@ -175,6 +175,18 @@ jest.mock('posthog-js', () => {
     return { ...actual, __esModule: true, default: mock, posthog: mock }
 })
 
+// Render FloatingPortal children inline so hog-charts tooltips commit
+// synchronously — eliminates the portal async hop that causes "tooltip not yet
+// rendered" flakes under CI load.
+jest.mock('@floating-ui/react', () => {
+    const actual = jest.requireActual('@floating-ui/react')
+    const React = require('react')
+    return {
+        ...actual,
+        FloatingPortal: ({ children }: { children: unknown }) => React.createElement(React.Fragment, null, children),
+    }
+})
+
 jest.mock('@tiptap/extension-code-block-lowlight', () => {
     const mockExtension = {
         configure: jest.fn(() => ({})),
