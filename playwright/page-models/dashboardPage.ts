@@ -28,7 +28,13 @@ export class DashboardPage {
     }
 
     async createNew(dashboardName?: string): Promise<DashboardPage> {
-        // CI occasionally hits net::ERR_NETWORK_CHANGED on goto; retry the navigation only.
+        // CI occasionally hits net::ERR_NETWORK_CHANGED on this goto.
+        // Loopback doesn't "change network", so the real cause is almost certainly a
+        // granian or Caddy-proxy connection reset under CPU pressure, surfacing in
+        // Chromium as ERR_NETWORK_CHANGED rather than ERR_CONNECTION_RESET. The retry
+        // wrapper masks it. TODO(playwright-suite-cleanup): re-evaluate after the
+        // depot-ubuntu-latest-16 runner upgrade lands and a week of data; if it
+        // disappears, drop this wrapper.
         await expect(async () => {
             await this.page.goto(urls.dashboards())
         }).toPass({ timeout: 60000 })
