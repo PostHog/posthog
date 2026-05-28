@@ -21,8 +21,14 @@
         }
     }
 
+    // Both lists get a comparable fixed height (~7 rows for visible columns)
+    // and scroll independently — without this, the visible list grows
+    // unbounded and the modal sprouts a second scrollbar on top of the
+    // available-columns one. Keeping the two sections at the same height
+    // gives a clean 50/50 split.
+    .SelectedColumnsList,
     .AvailableColumnsList {
-        max-height: min(360px, 50vh);
+        height: 16rem;
         overflow-y: auto;
     }
 }
