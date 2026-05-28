@@ -2,7 +2,9 @@ import json
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
+
+from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
 
@@ -189,3 +191,29 @@ class TestSdkOutdatedCheck(TestCase):
         mock_pipe.setex.assert_called_once()
         _key, ttl, _payload = mock_pipe.setex.call_args[0]
         assert ttl == TEAM_SDK_CACHE_EXPIRY
+
+
+class TestSdkOutdatedRenderAlert(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("safe_version", "1.198.0", "web is on 1.198.0, latest is 1.200.0"),
+            ("space_injection", "1.198.0 <https://evil.example|click>", "web is behind 1.200.0"),
+            ("newline_injection", "1.198.0\n@channel", "web is behind 1.200.0"),
+            ("markdown_injection", "**1.198.0**", "web is behind 1.200.0"),
+            ("empty_string", "", "web is behind 1.200.0"),
+        ]
+    )
+    def test_render_alert_rejects_unsafe_lib_version(self, _name: str, raw_version: str, expected_summary: str) -> None:
+        issue = HealthIssue(
+            team_id=1,
+            kind="sdk_outdated",
+            severity=HealthIssue.Severity.WARNING,
+            payload={
+                "sdk_name": "web",
+                "latest_version": "1.200.0",
+                "usage": [{"lib_version": raw_version, "count": 100, "max_timestamp": "2026-03-20"}],
+            },
+            unique_hash="h",
+        )
+        content = SdkOutdatedCheck.render_alert(issue)
+        assert content.summary == expected_summary

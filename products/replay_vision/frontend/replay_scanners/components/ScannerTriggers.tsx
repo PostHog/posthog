@@ -29,10 +29,6 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
 
     return (
         <div className="space-y-6 max-w-3xl">
-            <div className="text-sm text-muted">
-                Sampling and filters control which completed recordings this scanner runs against.
-            </div>
-
             <Field name="sampling_rate" label="Sampling">
                 {({ value, onChange }) => {
                     const ratio = typeof value === 'number' ? value : 0
