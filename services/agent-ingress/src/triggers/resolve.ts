@@ -47,7 +47,7 @@ export async function resolveAgent(
                 prefix: err.prefix,
                 application_id: err.applicationId,
                 candidates: err.candidates,
-                detail: 'Multiple revisions match this prefix; re-issue with a longer prefix or pass ?revision_id.',
+                detail: 'Multiple revisions match this prefix; re-issue with a longer prefix (up to the full 32-char revision hex).',
             })
             return null
         }
