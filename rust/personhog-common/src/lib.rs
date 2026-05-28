@@ -1,3 +1,4 @@
+pub mod async_gzip;
 pub mod grpc;
 mod pool_monitor;
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconExternal, IconPlus } from '@posthog/icons'
+import { IconExternal, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
+import { openDeleteConversationDialog } from './conversationDialogs'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getSlackThreadUrl } from './utils'
 
@@ -21,7 +22,7 @@ export interface ConversationHistoryProps {
 
 export function ConversationHistory({ sidePanel = false, compact = false }: ConversationHistoryProps): JSX.Element {
     const { conversationHistory, conversationHistoryLoading, conversationId } = useValues(maxLogic)
-    const { toggleConversationHistory, openConversation } = useActions(maxLogic)
+    const { toggleConversationHistory, openConversation, deleteConversation } = useActions(maxLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     if (compact) {
@@ -63,6 +64,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
                         conversation={conversation}
                         openConversation={openConversation}
                         sidePanel={sidePanel}
+                        deleteConversation={deleteConversation}
                     />
                 ))
             ) : conversationHistoryLoading ? (
@@ -108,9 +110,15 @@ interface ConversationCardProps {
     conversation: Conversation
     openConversation: (conversationId: string) => void
     sidePanel: boolean
+    deleteConversation: (conversationId: string) => void
 }
 
-function ConversationCard({ conversation, openConversation, sidePanel }: ConversationCardProps): JSX.Element {
+function ConversationCard({
+    conversation,
+    openConversation,
+    sidePanel,
+    deleteConversation,
+}: ConversationCardProps): JSX.Element {
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
@@ -123,7 +131,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
                 }
             }}
         >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="flex-1 line-clamp-1">{conversation.title}</span>
                 {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
                 {conversation.type === ConversationType.DeepResearch && <LemonTag>Research</LemonTag>}
@@ -141,11 +149,25 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
                     </LemonTag>
                 )}
             </div>
-            {conversation.status === ConversationStatus.InProgress ? (
-                <Spinner className="h-4 w-4" />
-            ) : (
-                <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+                {conversation.status === ConversationStatus.InProgress ? (
+                    <Spinner className="h-4 w-4" />
+                ) : (
+                    <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                )}
+                <LemonButton
+                    size="small"
+                    icon={<IconTrash />}
+                    status="danger"
+                    data-attr="max-conversation-delete"
+                    aria-label="Delete chat"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        openDeleteConversationDialog(() => deleteConversation(conversation.id))
+                    }}
+                />
+            </div>
         </Link>
     )
 }

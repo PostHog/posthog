@@ -33,7 +33,6 @@ export function FunnelStepsBarTooltip({
 
     return (
         <FunnelTooltip
-            embedded
             showPersonsModal={showPersonsModal}
             stepIndex={stepIndex}
             series={series}

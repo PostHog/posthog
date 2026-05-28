@@ -113,11 +113,19 @@ const lifecycleSeries = (status: 'new' | 'returning' | 'resurrecting' | 'dormant
     status,
 })
 
-function lifecycleInsight(stacked: boolean, id: number, shortId: string): object {
+interface LifecycleInsightOpts {
+    stacked: boolean
+    id: number
+    shortId: string
+    name?: string
+    showValuesOnSeries?: boolean
+}
+
+function lifecycleInsight({ stacked, id, shortId, name, showValuesOnSeries }: LifecycleInsightOpts): object {
     return {
         id,
         short_id: shortId,
-        name: stacked ? 'Lifecycle stacked' : 'Lifecycle unstacked',
+        name: name ?? (stacked ? 'Lifecycle stacked' : 'Lifecycle unstacked'),
         derived_name: 'Lifecycle',
         filters: {},
         last_refresh: '2023-07-11T12:00:00Z',
@@ -132,8 +140,9 @@ function lifecycleInsight(stacked: boolean, id: number, shortId: string): object
         last_modified_at: '2023-07-11T12:00:00Z',
         dashboards: [],
         dashboard_tiles: [],
-        // The order intentionally does NOT match the canonical new → resurrecting → returning →
-        // dormant order — the transform sorts by status, so the chart should look the same.
+        // The order intentionally does NOT match the chart's rendered dormant → returning →
+        // resurrecting → new order — the transform sorts by status, so the chart should look
+        // the same regardless of how the API returns the rows.
         result: [
             lifecycleSeries('returning', [42, 38, 45, 40, 50, 47, 44]),
             lifecycleSeries('new', [22, 30, 18, 24, 28, 20, 26]),
@@ -148,7 +157,7 @@ function lifecycleInsight(stacked: boolean, id: number, shortId: string): object
                 interval: 'day',
                 kind: 'LifecycleQuery',
                 series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
-                lifecycleFilter: { stacked },
+                lifecycleFilter: { stacked, showValuesOnSeries },
                 version: 2,
             },
             full: true,
@@ -157,9 +166,41 @@ function lifecycleInsight(stacked: boolean, id: number, shortId: string): object
 }
 
 export const Stacked: Story = {
-    render: () => <LifecycleStory insightFixture={lifecycleInsight(true, 300, 'lifecycleStacked')} />,
+    render: () => (
+        <LifecycleStory insightFixture={lifecycleInsight({ stacked: true, id: 300, shortId: 'lifecycleStacked' })} />
+    ),
 }
 
 export const Unstacked: Story = {
-    render: () => <LifecycleStory insightFixture={lifecycleInsight(false, 301, 'lifecycleUnstacked')} />,
+    render: () => (
+        <LifecycleStory insightFixture={lifecycleInsight({ stacked: false, id: 301, shortId: 'lifecycleUnstacked' })} />
+    ),
+}
+
+export const StackedWithValuesOnSeries: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: true,
+                id: 302,
+                shortId: 'lifecycleStackedValues',
+                name: 'Lifecycle stacked (values on series)',
+                showValuesOnSeries: true,
+            })}
+        />
+    ),
+}
+
+export const UnstackedWithValuesOnSeries: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: false,
+                id: 303,
+                shortId: 'lifecycleUnstackedValues',
+                name: 'Lifecycle unstacked (values on series)',
+                showValuesOnSeries: true,
+            })}
+        />
+    ),
 }
