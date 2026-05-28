@@ -26,7 +26,13 @@ If the file you were pointed at is a coordinator, orchestrator, Celery task, Tem
 
 ## Background: read these once
 
-Read the table schema files so you know what columns, sort keys, partition keys, and skip indexes already exist. Do not read them line-by-line; skim for `ORDER BY`, `PARTITION BY`, `INDEX`, and materialized column declarations.
+Start with the handbook context for the conceptual model:
+
+- [Query performance optimization](https://posthog.com/handbook/engineering/databases/query-performance-optimization) covers how to find and fix slow queries across both stores.
+- [HogQL in Python](https://posthog.com/handbook/engineering/databases/hogql-python) explains the printer pipeline and how to drive HogQL programmatically.
+- [ClickHouse queries for new products](https://posthog.com/handbook/engineering/databases/clickhouse-queries-new-products) is the authoritative guide for designing tables and writing query runners; useful even when you're tuning existing ones.
+
+Then read the table schema files so you know what columns, sort keys, partition keys, and skip indexes already exist. Do not read them line-by-line; skim for `ORDER BY`, `PARTITION BY`, `INDEX`, and materialized column declarations.
 
 - Events: [`posthog/models/event/sql.py`](../../../posthog/models/event/sql.py)
 - Sessions (v3): [`posthog/models/raw_sessions/sessions_v3.py`](../../../posthog/models/raw_sessions/sessions_v3.py) (v2 still exists at [`sessions_v2.py`](../../../posthog/models/raw_sessions/sessions_v2.py))
