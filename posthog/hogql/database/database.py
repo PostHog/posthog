@@ -488,7 +488,7 @@ class Database(BaseModel):
         if not isinstance(system_tables, SystemTables):
             return []
 
-        return ["query_log", *system_tables.resolve_all_table_names()]
+        return ["query_log", *system_tables.resolve_visible_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names

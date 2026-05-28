@@ -18,6 +18,7 @@ from posthog.models import (
     GroupTypeMapping,
     GroupUsageMetric,
     Organization,
+    Tag,
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -43,7 +44,7 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey
@@ -695,3 +696,57 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
+    """Verify the `accounts.tags.names` and `accounts.notebooks.count` lazy joins."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def test_tags_lazy_join_returns_tag_names_array(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        billing = Tag.objects.create(name="billing", team=self.team)
+        urgent = Tag.objects.create(name="urgent", team=self.team)
+        account.tagged_items.create(tag=billing)
+        account.tagged_items.create(tag=urgent)
+        Account.objects.unscoped().create(team=self.team, name="B")  # untagged
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.tags.names FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert sorted(rows_by_id[str(account.id)]) == ["billing", "urgent"]
+
+    def test_tags_lazy_join_isolated_per_team(self):
+        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
+        other_tag = Tag.objects.create(name="billing", team=self.other_team)
+        other_account.tagged_items.create(tag=other_tag)
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.tags.names FROM system.accounts AS accounts",
+            team=self.team,
+        )
+        assert response.results == []
+
+    def test_notebooks_lazy_join_returns_count(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        for label in ("n1", "n2", "n3"):
+            notebook = Notebook.objects.create(team=self.team, title=label)
+            ResourceNotebook.objects.create(notebook=notebook, account=account)
+        Account.objects.unscoped().create(team=self.team, name="B")  # no notebooks
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.notebooks.count FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert rows_by_id[str(account.id)] == 3
