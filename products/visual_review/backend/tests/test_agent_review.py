@@ -161,8 +161,12 @@ class TestGenerateAgentReviewFacade:
 
         snapshots = api.get_run_snapshots(run.id, team_id=team.id)
         by_identifier = {s.identifier: s for s in snapshots}
-        assert by_identifier["a"].agent_review.verdict == "approved"
-        assert by_identifier["b"].agent_review.verdict == "deferred"
+        review_a = by_identifier["a"].agent_review
+        review_b = by_identifier["b"].agent_review
+        assert review_a is not None
+        assert review_b is not None
+        assert review_a.verdict == "approved"
+        assert review_b.verdict == "deferred"
 
     @patch("products.visual_review.backend.agent_reviewer.review_run")
     def test_skips_llm_call_when_no_actionable_snapshots(self, mock_review, repo, team, user):
