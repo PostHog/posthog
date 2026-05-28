@@ -14,7 +14,7 @@
  *     request cuts cleanly.
  */
 
-import type { AssistantMessage, Context, Tool, ToolCall } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Context, ToolCall } from '@earendil-works/pi-ai'
 
 import {
     AgentRevision,
@@ -32,14 +32,13 @@ import {
     SessionEvent,
     SessionEventBus,
     SessionEventKind,
-    ToolResultMessage,
 } from '@posthog/agent-shared-v2'
-import { listNativeTools } from '@posthog/agent-tools'
 
+import { buildToolList } from './build-tool-list'
+import { dispatchOne } from './dispatch-one'
 import { PiClient } from './pi-client'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 import { buildSystemPrompt } from './system-prompt'
-import { dispatchTool } from './tool-dispatch'
 
 export interface RunSessionDeps {
     pi: PiClient
@@ -237,74 +236,25 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let end: { summary?: string } | null = null
 
         for (const call of toolCalls) {
-            // Translate the provider-safe name (what the model emits) back
-            // to the internal id (what dispatchTool + our event consumers
-            // expect). Unknown names pass through unchanged — dispatchTool
-            // will reject them as not-in-spec.
-            const originalName = toolNameMap.get(call.name) ?? call.name
-            runLog.debug(
-                { turn: turns, tool: originalName, safeName: call.name, callId: call.id },
-                'tool.dispatch.begin'
-            )
-            await emit('tool_call', { name: originalName, args: call.arguments, id: call.id })
-            const dispatchStart = Date.now()
-            const outcome = await dispatchTool(
-                {
-                    teamId: session.team_id,
-                    sessionId: session.id,
-                    rev,
-                    sandbox: deps.sandbox,
-                    integrations: deps.integrations,
-                    secret: (name) => deps.secrets[name],
-                    bundle: deps.bundle,
-                    log,
-                },
-                originalName,
-                call.arguments
-            )
-            runLog.debug(
-                {
-                    turn: turns,
-                    tool: originalName,
-                    kind: outcome.kind,
-                    durationMs: Date.now() - dispatchStart,
-                    error: outcome.kind === 'error' ? outcome.message : undefined,
-                },
-                'tool.dispatch.done'
-            )
-            await emit('tool_result', {
-                name: originalName,
-                id: call.id,
-                ok: outcome.kind === 'ok',
-                error: outcome.kind === 'error' ? outcome.message : undefined,
+            const signal = await dispatchOne(call, {
+                rev,
+                session,
+                sandbox: deps.sandbox,
+                integrations: deps.integrations,
+                secrets: deps.secrets,
+                bundle: deps.bundle,
+                runLog,
+                log,
+                emit,
+                toolNameMap,
+                turn: turns,
             })
-            const toolResult: ToolResultMessage = {
-                role: 'toolResult',
-                toolCallId: call.id,
-                toolName: originalName,
-                content: [
-                    {
-                        type: 'text',
-                        text:
-                            outcome.kind === 'ok'
-                                ? JSON.stringify(outcome.result)
-                                : outcome.kind === 'error'
-                                  ? outcome.message
-                                  : outcome.kind === 'suspend'
-                                    ? JSON.stringify({ suspended: true })
-                                    : JSON.stringify({ ended: true }),
-                    },
-                ],
-                isError: outcome.kind === 'error',
-                timestamp: Date.now(),
-            }
-            session.conversation.push(toolResult)
-            if (outcome.kind === 'suspend') {
-                suspend = { prompt: outcome.prompt }
+            if (signal.kind === 'suspend') {
+                suspend = { prompt: signal.prompt }
                 break
             }
-            if (outcome.kind === 'end') {
-                end = { summary: outcome.summary }
+            if (signal.kind === 'end') {
+                end = { summary: signal.summary }
                 break
             }
         }
@@ -322,58 +272,4 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     }
     await emit('failed', { reason: 'max_turns_exceeded', turns })
     return { state: 'failed', reason: 'max_turns_exceeded', turns }
-}
-
-/**
- * Meta control-flow tools — always exposed to the model, even if the agent
- * spec doesn't list them. Without these the model can't suspend (ask the
- * user) or cleanly end a session.
- */
-const ALWAYS_ON_NATIVE_TOOL_IDS = ['@posthog/meta-ask-for-input', '@posthog/meta-end-session']
-
-async function buildToolList(rev: AgentRevision, bundle: BundleStore): Promise<Tool[]> {
-    const decls: Tool[] = []
-    const seen = new Set<string>()
-    // `@posthog/load-skill` is auto-included only when the agent has skills —
-    // exposing it to a skill-less agent just adds a tool that errors on use.
-    const alwaysOn = [...ALWAYS_ON_NATIVE_TOOL_IDS]
-    if (rev.spec.skills.length > 0) {
-        alwaysOn.push('@posthog/load-skill')
-    }
-    const allTools = [...alwaysOn.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
-    for (const t of allTools) {
-        if (seen.has(t.id)) {
-            continue
-        }
-        seen.add(t.id)
-        if (t.kind === 'native') {
-            const native = listNativeTools().find((n) => n.id === t.id)
-            if (!native) {
-                continue
-            }
-            decls.push({
-                name: native.id,
-                description: native.schema.description,
-                parameters: native.schema.args,
-            })
-        } else {
-            const schemaPath = `${t.path.replace(/\/$/, '')}/schema.json`
-            try {
-                const raw = await bundle.readText(rev.id, schemaPath)
-                const schema = JSON.parse(raw) as { description?: string; args?: unknown }
-                decls.push({
-                    name: t.id,
-                    description: schema.description ?? `custom tool ${t.id}`,
-                    parameters: (schema.args as Tool['parameters']) ?? ({ type: 'object' } as Tool['parameters']),
-                })
-            } catch {
-                decls.push({
-                    name: t.id,
-                    description: `custom tool ${t.id}`,
-                    parameters: { type: 'object' } as Tool['parameters'],
-                })
-            }
-        }
-    }
-    return decls
 }

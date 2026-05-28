@@ -3,7 +3,7 @@
  * Django via internal HTTP (or direct PG read). Tests use the in-memory impl.
  */
 
-import { AgentApplication, AgentRevision, AgentSpec, RevisionState } from './spec'
+import { AgentApplication, AgentRevision, AgentSpec, RevisionState } from '../spec/spec'
 
 export interface RevisionStore {
     getApplication(applicationId: string): Promise<AgentApplication | null>

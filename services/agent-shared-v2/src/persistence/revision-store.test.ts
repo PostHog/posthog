@@ -1,5 +1,5 @@
+import { AgentSpecSchema } from '../spec/spec'
 import { MemoryRevisionStore } from './revision-store'
-import { AgentSpecSchema } from './spec'
 
 describe('MemoryRevisionStore', () => {
     it('creates and looks up applications by slug', async () => {

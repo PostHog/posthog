@@ -10,11 +10,11 @@
 
 import { Pool } from 'pg'
 
+import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'
+import { AgentSpecSchema } from '../spec/spec'
 import { PgSessionQueue } from './pg-queue'
 import { PgRevisionStore } from './pg-revision-store'
 import { DROP_SQL, SCHEMA_SQL } from './pg-schema'
-import { PgSandboxInstanceStore } from './sandbox-instance-store'
-import { AgentSpecSchema } from './spec'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'

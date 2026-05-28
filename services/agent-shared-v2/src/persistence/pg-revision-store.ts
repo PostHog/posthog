@@ -6,8 +6,8 @@
 import type { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
+import { AgentApplication, AgentRevision, AgentSpec, AgentSpecSchema, RevisionState } from '../spec/spec'
 import { NewApplication, NewRevision, RevisionStore } from './revision-store'
-import { AgentApplication, AgentRevision, AgentSpec, AgentSpecSchema, RevisionState } from './spec'
 
 export class PgRevisionStore implements RevisionStore {
     constructor(private readonly pool: Pool) {}

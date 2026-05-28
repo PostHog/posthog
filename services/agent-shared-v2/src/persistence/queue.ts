@@ -4,7 +4,7 @@
  * in-memory impl below.
  */
 
-import { AgentSession, ConversationMessage } from './spec'
+import { AgentSession, ConversationMessage } from '../spec/spec'
 
 export interface SessionQueue {
     enqueue(session: AgentSession): Promise<void>

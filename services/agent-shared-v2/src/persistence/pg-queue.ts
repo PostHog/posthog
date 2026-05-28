@@ -10,8 +10,8 @@
 
 import type { Pool, PoolClient } from 'pg'
 
+import { AgentSession, ConversationMessage } from '../spec/spec'
 import { SessionQueue } from './queue'
-import { AgentSession, ConversationMessage } from './spec'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
                      conversation, pending_inputs, principal, retry_count, created_at, updated_at`

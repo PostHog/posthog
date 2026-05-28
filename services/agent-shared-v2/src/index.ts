@@ -1,22 +1,39 @@
-export * from './spec'
-export * from './bundle'
-export * from './sandbox'
-export * from './sandbox-inprocess'
-export * from './sandbox-docker'
-export * from './sandbox-modal'
-export * from './sandbox-selector'
-export * from './tool'
-export * from './secret-broker'
-export * from './memory-bundle-store'
-export * from './fs-bundle-store'
-export * from './queue'
-export * from './revision-store'
-export * from './pg-schema'
-export * from './pg-queue'
-export * from './pg-revision-store'
-export * from './bus'
-export * from './identity-store'
-export * from './log-sink'
-export * from './logger'
-export * from './encryption'
-export * from './sandbox-instance-store'
+/**
+ * Public surface of @posthog/agent-shared-v2. Re-exports everything callers
+ * (runner, ingress, janitor, tests) need. Internal organization lives under
+ * `src/<concern>/`:
+ *   - spec/         — agent spec, tool ref, session shape (zod + TS types)
+ *   - storage/      — bundle storage interfaces + impls
+ *   - persistence/  — Postgres schema, session queue, revision store, identities
+ *   - sandbox/      — sandbox interface + Docker/Modal/in-process pools + the
+ *                     durable instance log + the secret broker
+ *   - runtime/      — bus, log sink, logger, encryption — runtime support that
+ *                     isn't tied to one persistence backend
+ */
+
+export * from './spec/spec'
+export * from './spec/tool'
+
+export * from './storage/bundle'
+export * from './storage/memory-bundle-store'
+export * from './storage/fs-bundle-store'
+
+export * from './persistence/queue'
+export * from './persistence/revision-store'
+export * from './persistence/identity-store'
+export * from './persistence/pg-schema'
+export * from './persistence/pg-queue'
+export * from './persistence/pg-revision-store'
+
+export * from './sandbox/sandbox'
+export * from './sandbox/sandbox-inprocess'
+export * from './sandbox/sandbox-docker'
+export * from './sandbox/sandbox-modal'
+export * from './sandbox/sandbox-selector'
+export * from './sandbox/sandbox-instance-store'
+export * from './sandbox/secret-broker'
+
+export * from './runtime/bus'
+export * from './runtime/log-sink'
+export * from './runtime/logger'
+export * from './runtime/encryption'
