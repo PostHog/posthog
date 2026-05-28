@@ -56,6 +56,7 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     getEventDefinitionIcon,
+    getEventMetadataDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
@@ -74,7 +75,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -101,7 +102,6 @@ import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/h
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { cohortTaxonomicGroupsLogic } from './cohortTaxonomicGroupsLogic'
-import { eventMetadataTaxonomicGroupsLogic } from './eventMetadataTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
@@ -321,6 +321,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['dataWarehouseTables'],
             joinsLogic,
             ['columnsJoinedToPersons'],
+            propertyDefinitionsModel,
+            ['eventMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
             primaryEventPropertiesModel,
@@ -331,8 +333,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['cohortTaxonomicGroups'],
             hogQLExpressionTaxonomicGroupsLogic,
             ['hogQLExpressionTaxonomicGroups'],
-            eventMetadataTaxonomicGroupsLogic,
-            ['eventMetadataTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -551,7 +551,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.hogQLExpressionTaxonomicGroups,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
-                s.eventMetadataTaxonomicGroups,
+                s.eventMetadataPropertyDefinitions,
                 s.maxContextOptions,
                 s.cohortTaxonomicGroups,
                 s.endpointFilters,
@@ -571,7 +571,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 hogQLExpressionTaxonomicGroups: TaxonomicFilterGroup[],
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
-                eventMetadataTaxonomicGroups: TaxonomicFilterGroup[],
+                eventMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 endpointFilters: Record<string, any> | undefined,
@@ -782,7 +782,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getPropertyDefinitionIcon,
                         getPopoverHeader: () => 'Internal event properties',
                     },
-                    ...eventMetadataTaxonomicGroups,
+                    {
+                        name: 'Event metadata',
+                        searchPlaceholder: 'event metadata',
+                        type: TaxonomicFilterGroupType.EventMetadata,
+                        options: eventMetadataPropertyDefinitions,
+                        getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.EventMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/event/values/?key=${encodeURIComponent(key)}&is_column=true`
+                        },
+                        getPopoverHeader: () => 'Event metadata',
+                    },
                     {
                         name: 'Feature flags',
                         searchPlaceholder: 'feature flags',
