@@ -8,8 +8,7 @@ import dagster
 
 from posthog.schema import WebStatsBreakdown
 
-from posthog.models import Organization, Team
-from posthog.models.feature_flag import FeatureFlag
+from posthog.models import FeatureFlag, Organization, Team
 
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
@@ -359,8 +358,16 @@ class TestWarmBaselineForTeam(APIBaseTest):
         # Order matters: tag_queries writes to a contextvar; any I/O the
         # runner does at construction time must inherit the warmer's tags.
         call_order: list[str] = []
-        tag_queries_mock.side_effect = lambda **kwargs: call_order.append("tag")
-        get_runner.side_effect = lambda **kwargs: call_order.append("get_runner") or Mock(run=Mock())
+
+        def record_tag(**kwargs):
+            call_order.append("tag")
+
+        def record_get_runner(**kwargs):
+            call_order.append("get_runner")
+            return Mock(run=Mock())
+
+        tag_queries_mock.side_effect = record_tag
+        get_runner.side_effect = record_get_runner
 
         _warm_baseline_for_team(Mock(spec=dagster.OpExecutionContext), self.team)
 

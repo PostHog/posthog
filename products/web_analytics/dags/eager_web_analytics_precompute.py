@@ -62,8 +62,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team
-from posthog.models.feature_flag import FeatureFlag
+from posthog.models import FeatureFlag, Team
 
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
