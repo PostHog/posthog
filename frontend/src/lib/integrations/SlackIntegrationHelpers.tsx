@@ -165,7 +165,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
+                    // max-w keeps the popover from outgrowing its modal — the popover only sets
+                    // min-width to the input via matchWidth, not max-width, so an un-wrapped
+                    // empty-state would otherwise stretch the portaled popover past the modal edge.
+                    <p className="text-secondary italic p-1 max-w-sm">
                         No channels match your search. If you expected to see a channel here, make sure the PostHog
                         Slack app is installed in it.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
