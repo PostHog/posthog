@@ -165,7 +165,11 @@ present from day one; the signing extension is purely additive
 - `CaptureAnalyticsSink` wraps `posthog-node`, lazy-imports on first
   `connect()`, drains on `shutdown()`.
 - Config knobs: `POSTHOG_ANALYTICS_API_KEY` + `POSTHOG_ANALYTICS_HOST`.
-  Unset → `NoopAnalyticsSink` (dev / harness).
+  Unset → `NoopAnalyticsSink` (harness / CI). Local `hogli` dev sets
+  them on the agent-runner mprocs entry pointing at the same target
+  the llm-gateway uses (`phc_localposthogprojecttoken` /
+  `http://localhost:8010`), so a fresh `hogli` start has agent traffic
+  showing up in the local PostHog project's LLM Analytics view.
 - `$ai_origin: 'agent_platform_runner'` stamped on every event as the
   placeholder for the future signed-origin work.
 
