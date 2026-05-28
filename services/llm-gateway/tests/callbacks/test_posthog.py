@@ -521,6 +521,50 @@ class TestPostHogCallback:
         assert mock_cls.call_count == 1
         assert mock_client.capture.call_count == 1
 
+    @pytest.mark.asyncio
+    async def test_on_failure_mirrors_to_secondary_destination_when_configured(
+        self,
+        auth_user: AuthenticatedUser,
+    ) -> None:
+        mock_client = MagicMock()
+        with patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client) as mock_cls:
+            callback = PostHogCallback(
+                api_key="eu-key",
+                host="https://eu.i.posthog.com",
+                region_url="https://eu.posthog.com",
+                secondary_api_key="us-key",
+                secondary_host="https://us.i.posthog.com",
+            )
+            kwargs = {
+                "standard_logging_object": {
+                    "model": "claude-sonnet-4-6",
+                    "custom_llm_provider": "anthropic",
+                    "error_str": "boom",
+                },
+                "litellm_params": {},
+            }
+
+            with (
+                patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+                patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+            ):
+                await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            primary_call, secondary_call = mock_cls.call_args_list
+            assert primary_call.args == ("eu-key",)
+            assert primary_call.kwargs["host"] == "https://eu.i.posthog.com"
+            assert secondary_call.args == ("us-key",)
+            assert secondary_call.kwargs["host"] == "https://us.i.posthog.com"
+            assert mock_client.capture.call_count == 2
+
+            for capture_call in mock_client.capture.call_args_list:
+                assert capture_call.kwargs["groups"] == {
+                    "instance": "https://eu.posthog.com",
+                    "project": 456,
+                }
+                assert capture_call.kwargs["properties"]["$group_1"] == "https://eu.posthog.com"
+                assert capture_call.kwargs["properties"]["$ai_is_error"] is True
+
 
 class TestNormalizeTraceId:
     def test_returns_fresh_uuid_when_value_is_falsy(self) -> None:

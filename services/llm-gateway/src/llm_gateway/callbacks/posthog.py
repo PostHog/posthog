@@ -316,21 +316,43 @@ class PostHogCallback(InstrumentedCallback):
         loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
 
     def _capture_sync(self, **capture_kwargs: Any) -> None:
-        self._capture_to_destination(self._api_key, self._host, **capture_kwargs)
+        # Wrap each destination in its own try/except so a primary failure
+        # (e.g. Posthog() construction raising, or capture_exception itself
+        # raising inside the inner handler) does not skip the mirror capture
+        # that the regional usage-report depends on.
+        try:
+            self._capture_to_destination(self._api_key, self._host, **capture_kwargs)
+        except Exception as e:
+            logger.exception("posthog_primary_capture_failed", host=self._host, error=str(e))
         if self._secondary_api_key and self._secondary_host:
-            self._capture_to_destination(
-                self._secondary_api_key,
-                self._secondary_host,
-                **capture_kwargs,
-            )
+            try:
+                self._capture_to_destination(
+                    self._secondary_api_key,
+                    self._secondary_host,
+                    **capture_kwargs,
+                )
+            except Exception as e:
+                logger.exception(
+                    "posthog_secondary_capture_failed",
+                    host=self._secondary_host,
+                    error=str(e),
+                )
 
     def _capture_to_destination(self, api_key: str, host: str, **capture_kwargs: Any) -> None:
         """Fire a single capture against one PostHog instance.
 
         Each call uses a fresh client so a slow shutdown on one destination
         doesn't pin a pooled client and to avoid cross-destination state
-        bleed in the SDK.
+        bleed in the SDK. Mutable `properties` / `groups` dicts are
+        shallow-copied per destination so an in-place mutation by the SDK
+        (adding `$lib`, `$lib_version`, distinct-id resolution, etc.) on
+        one capture cannot bleed into the other.
         """
+        capture_kwargs = dict(capture_kwargs)
+        if "properties" in capture_kwargs:
+            capture_kwargs["properties"] = dict(capture_kwargs["properties"])
+        if "groups" in capture_kwargs:
+            capture_kwargs["groups"] = dict(capture_kwargs["groups"])
         client = Posthog(
             api_key,
             host=host,
