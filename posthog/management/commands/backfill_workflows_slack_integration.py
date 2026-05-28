@@ -11,26 +11,22 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 logger = logging.getLogger(__name__)
 
 
-# Defaults chosen for the one-off migration on team 2:
-# The Slack integration was re-installed under a new primary key (173069). 40 hogflows
-# still reference the old integration row (54567), which no longer exists, so their
-# Slack steps fail at runtime. The UI auto-substitutes on render but never writes the
-# new id back to the stored config until the user saves.
-DEFAULT_TEAM_ID = 2
-DEFAULT_OLD_INTEGRATION_ID = 54567
-DEFAULT_NEW_INTEGRATION_ID = 173069
+# One-off backfill for team 2: the Slack integration was re-installed under a new
+# primary key (173069). 40 hogflows still reference the old integration row (54567),
+# which no longer exists, so their Slack steps fail at runtime. The UI auto-substitutes
+# on render but never writes the new id back to the stored config until the user saves.
+# Hard-coded by intent — this is not a generic remapper, just the one swap we need.
+TEAM_ID = 2
+OLD_INTEGRATION_ID = 54567
+NEW_INTEGRATION_ID = 173069
 
 
-def _rewrite_slack_workspace_in_actions(
-    actions: Any,
-    old_id: int,
-    new_id: int,
-) -> tuple[Any, list[str]]:
+def _rewrite_slack_workspace_in_actions(actions: Any) -> tuple[Any, list[str]]:
     """Return (new_actions, changed_action_ids). actions is left untouched if no match.
 
-    Looks for `config.inputs.slack_workspace.value == old_id` on any action and rewrites
-    it to new_id. The integration id is stored as a literal integer (no bytecode), so
-    only the `value` needs swapping.
+    Looks for `config.inputs.slack_workspace.value == OLD_INTEGRATION_ID` on any action
+    and rewrites it to NEW_INTEGRATION_ID. The integration id is stored as a literal
+    integer (no bytecode), so only the `value` needs swapping.
     """
     if not isinstance(actions, list):
         return actions, []
@@ -45,8 +41,8 @@ def _rewrite_slack_workspace_in_actions(
         slack_workspace = inputs.get("slack_workspace")
         if not isinstance(slack_workspace, dict):
             continue
-        if slack_workspace.get("value") == old_id:
-            slack_workspace["value"] = new_id
+        if slack_workspace.get("value") == OLD_INTEGRATION_ID:
+            slack_workspace["value"] = NEW_INTEGRATION_ID
             changed_ids.append(str(action.get("id") or "<unknown>"))
 
     return new_actions, changed_ids
@@ -54,29 +50,11 @@ def _rewrite_slack_workspace_in_actions(
 
 class Command(BaseCommand):
     help = (
-        "Rewrite stale Slack integration references in HogFlow actions. "
-        "Defaults target team 2 and the 54567 → 173069 swap; pass overrides for other one-offs."
+        f"One-off: rewrite stale Slack integration {OLD_INTEGRATION_ID} → {NEW_INTEGRATION_ID} "
+        f"in HogFlow actions on team {TEAM_ID}."
     )
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--team-id",
-            type=int,
-            default=DEFAULT_TEAM_ID,
-            help=f"Team ID to scope the rewrite to (default: {DEFAULT_TEAM_ID})",
-        )
-        parser.add_argument(
-            "--old-integration-id",
-            type=int,
-            default=DEFAULT_OLD_INTEGRATION_ID,
-            help=f"Integration id to replace (default: {DEFAULT_OLD_INTEGRATION_ID})",
-        )
-        parser.add_argument(
-            "--new-integration-id",
-            type=int,
-            default=DEFAULT_NEW_INTEGRATION_ID,
-            help=f"Integration id to write in its place (default: {DEFAULT_NEW_INTEGRATION_ID})",
-        )
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -85,26 +63,22 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         start_time = time.time()
-        team_id: int = options["team_id"]
-        old_id: int = options["old_integration_id"]
-        new_id: int = options["new_integration_id"]
         dry_run: bool = options["dry_run"]
-
-        if old_id == new_id:
-            self.stdout.write(self.style.ERROR("--old-integration-id and --new-integration-id must differ"))
-            return
 
         if dry_run:
             self.stdout.write(self.style.WARNING("Running in DRY RUN mode — no changes will be made"))
 
-        self.stdout.write(f"Scanning HogFlows for team {team_id}, swapping slack_workspace {old_id} → {new_id}...")
+        self.stdout.write(
+            f"Scanning HogFlows for team {TEAM_ID}, "
+            f"swapping slack_workspace {OLD_INTEGRATION_ID} → {NEW_INTEGRATION_ID}..."
+        )
 
         # Team 2 has on the order of a few hundred hogflows. Pull them all in one go;
         # no pagination required at this scale, and a single transaction keeps the
         # write atomic for the team.
-        flows = list(HogFlow.objects.filter(team_id=team_id).order_by("id"))
+        flows = list(HogFlow.objects.filter(team_id=TEAM_ID).order_by("id"))
         total_count = len(flows)
-        self.stdout.write(f"Found {total_count} HogFlows on team {team_id}")
+        self.stdout.write(f"Found {total_count} HogFlows on team {TEAM_ID}")
 
         if total_count == 0:
             return
@@ -115,12 +89,12 @@ class Command(BaseCommand):
 
         for flow in flows:
             try:
-                new_actions, actions_changed = _rewrite_slack_workspace_in_actions(flow.actions, old_id, new_id)
+                new_actions, actions_changed = _rewrite_slack_workspace_in_actions(flow.actions)
                 draft_actions_changed: list[str] = []
                 new_draft = flow.draft
                 if isinstance(flow.draft, dict) and "actions" in flow.draft:
                     rewritten_draft_actions, draft_actions_changed = _rewrite_slack_workspace_in_actions(
-                        flow.draft.get("actions"), old_id, new_id
+                        flow.draft.get("actions")
                     )
                     if draft_actions_changed:
                         new_draft = {**flow.draft, "actions": rewritten_draft_actions}
