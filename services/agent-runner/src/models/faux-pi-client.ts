@@ -95,3 +95,12 @@ export function lengthCappedTurn(): AssistantMessage {
         ...BASE_META,
     }
 }
+
+/**
+ * Returns a copy of `turn` with its `usage` block replaced. Lets tests
+ * exercise the runner's per-turn usage accumulator without inventing the
+ * whole AssistantMessage shape.
+ */
+export function withUsage(turn: AssistantMessage, usage: AssistantMessage['usage']): AssistantMessage {
+    return { ...turn, usage }
+}

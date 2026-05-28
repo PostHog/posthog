@@ -188,10 +188,42 @@ with a default; the backfill is async via the janitor endpoint.
    each stream with an `end` event carrying the materialized
    `AssistantMessage` including usage — so `onTurnPersist` still has
    the numbers. No change needed.
-3. **Cost-attribution surface.** Hinted at across B.3, C.1, D.2. This
+3. **LLM gateway cost — don't trust pi-ai's calc.** When
+   `config.useLlmGateway === true`, the runner routes every call
+   through `posthogLlmGatewayModel()`. pi-ai's `usage.cost.*` numbers
+   in that path are client-side estimates (often zero / based on
+   pi's own pricing tables, which we don't own and can't keep in
+   sync with our llm-gateway billing). We want **our own** cost
+   calculation, not pi's:
+   - **Token counts (`input`, `output`, `cacheRead`, `cacheWrite`)
+     are fine** — those come from the provider response, not pi's
+     pricing table. Keep accumulating them.
+   - **Cost fields (`cost.input`, `cost.output`, `cost.cacheRead`,
+     `cost.cacheWrite`, `cost.total`) come from PostHog's price
+     table**, not pi's. Two implementation options:
+     1. **Recompute at accumulate time** in `onTurnPersist`: feed
+        the token counts + the model id into a `posthogCost()`
+        helper that reads our internal price map and returns the
+        dollar figures. Same place as the accumulator; one source
+        of truth.
+     2. **Pull from the gateway's tracking endpoint.** The
+        llm-gateway already tracks per-request cost server-side; a
+        future endpoint returns the materialized number. Cleaner
+        long-term but adds a round trip per turn.
+   - Lean **(1)** for v0 — no new round trips, gateway service can
+     evolve independently. Revisit once the gateway has a
+     query-cost endpoint and we want a single source on the gateway
+     side. The price table lives somewhere central (likely
+     `posthog/llm/pricing.py` shared between Django + the gateway);
+     the node side either imports a JSON snapshot or hits a small
+     `/v1/pricing` lookup at boot.
+   - **Non-gateway path stays as-is** — pi-ai's pricing for direct
+     Anthropic / OpenAI calls is the legacy behavior and continues
+     to work. The gateway branch is the one where we override.
+4. **Cost-attribution surface.** Hinted at across B.3, C.1, D.2. This
    plan is its foundation but doesn't build the surface itself.
    Future plan once we have a use case beyond billing.
-4. **Cross-revision aggregation.** "How much did agent X cost across
+5. **Cross-revision aggregation.** "How much did agent X cost across
    all revisions in May?" is one of:
    - join `agent_session` (queue DB) → `agent_revision` (Django DB)
      → `agent_application` (Django DB) at query time, OR

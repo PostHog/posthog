@@ -37,9 +37,39 @@ CREATE TABLE IF NOT EXISTS agent_session (
     -- running detection. Bounded by sweep policy (poison-pill threshold) —
     -- past the limit the session is marked failed instead of re-queued.
     retry_count     INT NOT NULL DEFAULT 0,
+    -- Per-session accumulator for tokens + cost. The runner adds to this
+    -- after every assistant turn; reads are cheap (single column, no JSONB
+    -- walk). Backfilled from conversation for legacy sessions via the
+    -- janitor /sessions/backfill_usage endpoint.
+    usage_total     JSONB NOT NULL DEFAULT '{
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "cost_input": 0,
+        "cost_output": 0,
+        "cost_cache_read": 0,
+        "cost_cache_write": 0,
+        "cost_total": 0
+    }'::jsonb,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Live deployments created agent_session before usage_total existed; add it
+-- here so prod boots upgrade idempotently without a separate migration tool.
+ALTER TABLE agent_session
+    ADD COLUMN IF NOT EXISTS usage_total JSONB NOT NULL DEFAULT '{
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "cost_input": 0,
+        "cost_output": 0,
+        "cost_cache_read": 0,
+        "cost_cache_write": 0,
+        "cost_total": 0
+    }'::jsonb;
 
 CREATE INDEX IF NOT EXISTS agent_session_state_created_idx
     ON agent_session (state, created_at);

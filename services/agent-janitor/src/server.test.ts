@@ -3,6 +3,7 @@ import request from 'supertest'
 import {
     AgentSession,
     AgentSpecSchema,
+    EMPTY_USAGE_TOTAL,
     MemoryBundleStore,
     MemoryRevisionStore,
     MemorySessionQueue,
@@ -22,6 +23,7 @@ function session(id: string): AgentSession {
         pending_inputs: [],
         principal: null,
         retry_count: 0,
+        usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -141,11 +143,21 @@ describe('janitor HTTP', () => {
         expect((recent.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
     })
 
-    it('GET /sessions summaries include preview + usage_total derived from conversation', async () => {
+    it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-rich'),
             application_id: 'app-1',
+            // The runner accumulates this; we set it explicitly so the summary
+            // matches what a live row would carry.
+            usage_total: {
+                ...EMPTY_USAGE_TOTAL,
+                tokens_in: 50,
+                tokens_out: 10,
+                cost_input: 0.0005,
+                cost_output: 0.0002,
+                cost_total: 0.0007,
+            },
             conversation: [
                 { role: 'user', content: 'hi', timestamp: 1 },
                 {
@@ -184,6 +196,15 @@ describe('janitor HTTP', () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-long'),
+            // Mirror what the runner would have accumulated by turn 2.
+            usage_total: {
+                ...EMPTY_USAGE_TOTAL,
+                tokens_in: 30,
+                tokens_out: 15,
+                cost_input: 0.0003,
+                cost_output: 0.00015,
+                cost_total: 0.00045,
+            },
             conversation: [
                 { role: 'user', content: 'turn1', timestamp: 1 },
                 {
@@ -213,7 +234,48 @@ describe('janitor HTTP', () => {
         expect(res.body.conversation).toHaveLength(2)
         // Last two messages are turn2 + reply2.
         expect(res.body.conversation[0].content).toBe('turn2')
-        expect(res.body.usage_total.tokens_in).toBe(30) // accumulated over the full session
+        // usage_total comes off the persisted column — not derived from the trim.
+        expect(res.body.usage_total.tokens_in).toBe(30)
+    })
+
+    it('POST /sessions/backfill_usage rewrites usage_total from conversation', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-backfill'),
+            application_id: 'app-x',
+            conversation: [
+                { role: 'user', content: 'q', timestamp: 1 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'a' }],
+                    api: 'a',
+                    provider: 'a',
+                    model: 'm',
+                    usage: { input: 7, output: 3, cost: { input: 0.01, output: 0.005, total: 0.015 } },
+                    timestamp: 2,
+                },
+            ],
+        })
+        // Dry-run reports the would-be change but doesn't persist.
+        const dry = await request(app).post('/sessions/backfill_usage').send({ application_id: 'app-x', dry_run: true })
+        expect(dry.status).toBe(200)
+        expect(dry.body).toMatchObject({ scanned: 1, updated: 1, dry_run: true })
+        expect((await queue.get('s-backfill'))!.usage_total.tokens_in).toBe(0)
+
+        // Real run writes the recomputed totals.
+        const real = await request(app)
+            .post('/sessions/backfill_usage')
+            .send({ application_id: 'app-x', dry_run: false })
+        expect(real.body).toMatchObject({ scanned: 1, updated: 1, dry_run: false })
+        const after = (await queue.get('s-backfill'))!
+        expect(after.usage_total.tokens_in).toBe(7)
+        expect(after.usage_total.cost_total).toBeCloseTo(0.015, 10)
+
+        // Second run finds nothing to update.
+        const repeat = await request(app)
+            .post('/sessions/backfill_usage')
+            .send({ application_id: 'app-x', dry_run: false })
+        expect(repeat.body).toMatchObject({ scanned: 1, updated: 0 })
     })
 
     it('POST /sessions/:id/cancel marks failed', async () => {

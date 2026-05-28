@@ -1,5 +1,5 @@
-import { AssistantMessageRecord, ConversationMessage, UserMessage } from './spec'
-import { lastAssistantTextPreview, totalConversationUsage } from './summarize-conversation'
+import { AssistantMessageRecord, ConversationMessage, EMPTY_USAGE_TOTAL, UserMessage } from './spec'
+import { accumulateUsage, lastAssistantTextPreview, totalConversationUsage } from './summarize-conversation'
 
 function user(content: string): UserMessage {
     return { role: 'user', content, timestamp: Date.now() }
@@ -78,8 +78,12 @@ describe('totalConversationUsage', () => {
         expect(totalConversationUsage([])).toEqual({
             tokens_in: 0,
             tokens_out: 0,
+            cache_read: 0,
+            cache_write: 0,
             cost_input: 0,
             cost_output: 0,
+            cost_cache_read: 0,
+            cost_cache_write: 0,
             cost_total: 0,
         })
     })
@@ -110,5 +114,33 @@ describe('totalConversationUsage', () => {
         const total = totalConversationUsage(c)
         expect(total.tokens_in).toBe(7)
         expect(total.tokens_out).toBe(1)
+    })
+})
+
+describe('accumulateUsage', () => {
+    it('folds one assistant message into a running total', () => {
+        const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
+        const after = accumulateUsage(EMPTY_USAGE_TOTAL, msg)
+        expect(after.tokens_in).toBe(10)
+        expect(after.tokens_out).toBe(2)
+        expect(after.cost_total).toBeCloseTo(0.15, 10)
+    })
+
+    it('keeps tokens but zeros cost when useGatewayCost is true', () => {
+        const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
+        const after = accumulateUsage(EMPTY_USAGE_TOTAL, msg, { useGatewayCost: true })
+        expect(after.tokens_in).toBe(10)
+        expect(after.tokens_out).toBe(2)
+        expect(after.cost_input).toBe(0)
+        expect(after.cost_output).toBe(0)
+        expect(after.cost_total).toBe(0)
+    })
+
+    it('returns the prev total unchanged when the message has no usage', () => {
+        const noUsage = assistant({ text: 'noop' })
+        noUsage.usage = undefined
+        const prev = { ...EMPTY_USAGE_TOTAL, tokens_in: 42 }
+        const after = accumulateUsage(prev, noUsage)
+        expect(after).toEqual(prev)
     })
 })

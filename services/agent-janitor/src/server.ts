@@ -43,13 +43,14 @@ import express, { Express, NextFunction, Request, Response } from 'express'
 import { z } from 'zod'
 
 import {
+    accumulateUsage,
     AgentSession,
     BundleStore,
     createLogger,
+    EMPTY_USAGE_TOTAL,
     lastAssistantTextPreview,
     RevisionStore,
     SessionQueue,
-    totalConversationUsage,
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
@@ -87,6 +88,18 @@ const ListSessionsQuerySchema = z.object({
 
 const GetSessionQuerySchema = z.object({
     last_n: z.coerce.number().int().nonnegative().optional(),
+})
+
+const BackfillUsageBodySchema = z.object({
+    /**
+     * Walk sessions for this application. Required so a single call can't
+     * scan every session in the cluster — call repeatedly per app.
+     */
+    application_id: z.string().min(1, 'missing_application_id'),
+    /** Count what would change without writing. Default true to keep accidents cheap. */
+    dry_run: z.boolean().default(true),
+    /** Cap on rows scanned per call so a giant backlog doesn't tie up the request. */
+    limit: z.coerce.number().int().positive().max(5000).default(500),
 })
 
 const FilePathQuerySchema = z.object({
@@ -146,8 +159,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 createdBefore: q.created_before,
             })
             // Conversation can be large; strip it from the list view but derive a
-            // preview + usage_total so a single tool call still tells you what the
-            // agent said and how much it cost.
+            // preview so a single tool call still tells you what the agent said.
+            // usage_total reads off the persisted column — no JSONB walk.
             const summaries = sessions.map((s) => ({
                 id: s.id,
                 application_id: s.application_id,
@@ -157,7 +170,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 principal: s.principal,
                 turns: s.conversation.length,
                 preview: lastAssistantTextPreview(s.conversation),
-                usage_total: totalConversationUsage(s.conversation),
+                usage_total: s.usage_total,
                 retry_count: s.retry_count,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
@@ -177,8 +190,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             }
             // Optional ?last_n=<int> returns just the tail of the conversation —
             // useful for huge sessions where the caller only cares about the most
-            // recent turns. usage_total is always computed over the full
-            // conversation so cost reporting stays accurate.
+            // recent turns. usage_total comes off the row regardless so cost
+            // reporting stays accurate.
             if (q.last_n !== undefined && q.last_n < s.conversation.length) {
                 const trimmed: AgentSession = {
                     ...s,
@@ -186,13 +199,12 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 }
                 res.json({
                     ...trimmed,
-                    usage_total: totalConversationUsage(s.conversation),
                     conversation_total_turns: s.conversation.length,
                     conversation_trimmed: true,
                 })
                 return
             }
-            res.json({ ...s, usage_total: totalConversationUsage(s.conversation), conversation_trimmed: false })
+            res.json({ ...s, conversation_trimmed: false })
         })
     )
     app.post(
@@ -212,6 +224,36 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         asyncHandler(async (_req, res) => {
             const result = await sweepOnce(opts.sweep)
             res.json(result)
+        })
+    )
+
+    // Recompute `usage_total` from `conversation` for sessions created before
+    // the column existed (or where a backwards-compat write zeroed it). Plan:
+    // docs/agent-platform/plans/per-turn-cost-capture.md §4.
+    app.post(
+        '/sessions/backfill_usage',
+        asyncHandler(async (req, res) => {
+            const body = BackfillUsageBodySchema.parse(req.body)
+            const sessions = await opts.queue.listByApplication(body.application_id, { limit: body.limit })
+            let scanned = 0
+            let updated = 0
+            for (const s of sessions) {
+                scanned++
+                const recomputed = s.conversation.reduce((acc, msg) => {
+                    if (msg.role !== 'assistant' || !msg.usage) {
+                        return acc
+                    }
+                    return accumulateUsage(acc, msg)
+                }, EMPTY_USAGE_TOTAL)
+                if (usageMatches(s.usage_total, recomputed)) {
+                    continue
+                }
+                updated++
+                if (!body.dry_run) {
+                    await opts.queue.update(s.id, { usage_total: recomputed })
+                }
+            }
+            res.json({ scanned, updated, dry_run: body.dry_run })
         })
     )
 
@@ -441,4 +483,18 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     app.use(errorHandler(log))
 
     return app
+}
+
+function usageMatches(a: typeof EMPTY_USAGE_TOTAL, b: typeof EMPTY_USAGE_TOTAL): boolean {
+    return (
+        a.tokens_in === b.tokens_in &&
+        a.tokens_out === b.tokens_out &&
+        a.cache_read === b.cache_read &&
+        a.cache_write === b.cache_write &&
+        a.cost_input === b.cost_input &&
+        a.cost_output === b.cost_output &&
+        a.cost_cache_read === b.cost_cache_read &&
+        a.cost_cache_write === b.cost_cache_write &&
+        a.cost_total === b.cost_total
+    )
 }
