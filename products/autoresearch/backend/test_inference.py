@@ -1,11 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from products.autoresearch.backend.inference import (
-    _build_population_conditions,
-    _score_rows,
-    run_inference_for_pipeline,
-)
+from products.autoresearch.backend.inference import _score_rows, run_inference_for_pipeline
+from products.autoresearch.backend.labeling import _build_population_conditions
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 
 

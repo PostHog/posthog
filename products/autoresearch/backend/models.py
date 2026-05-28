@@ -136,7 +136,10 @@ class AutoresearchTrainingRun(UUIDModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="training_runs")
 
-    # Link to the Task/TaskRun sandbox (nullable for stubs)
+    # Link to the Task/TaskRun sandbox (nullable for stubs).
+    # task_id is the parent Task — needed for the /tasks/:taskId detail UI.
+    # task_run_id is the specific TaskRun, kept for log lookups.
+    task_id = models.UUIDField(null=True, blank=True, help_text="Parent Task ID in the tasks product sandbox")
     task_run_id = models.UUIDField(null=True, blank=True, help_text="TaskRun ID in the tasks product sandbox")
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

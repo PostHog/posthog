@@ -65,7 +65,6 @@ tools:
             List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each
             pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event,
             horizon, and timestamps. Use autoresearch-retrieve to get full details including population definitions.
-        mcp_version: 1
         response:
             include:
                 - id
@@ -94,7 +93,6 @@ tools:
             List champion, challenger, and archived model versions for a pipeline. Each model includes its
             holdout_score, role, recipe_hash, is_preliminary flag, and agent_description. The active scoring model has
             role='champion'. Use the recipe_hash to detect when the champion has changed across training runs.
-        mcp_version: 1
         response:
             include:
                 - id
@@ -122,7 +120,6 @@ tools:
         description: >
             Get full details for a specific model version, including the portable model recipe (feature SQL, transforms,
             model class, params) and feature importance explanation.
-        mcp_version: 1
     autoresearch-partial-update:
         operation: autoresearch_partial_update
         enabled: false
@@ -190,7 +187,6 @@ tools:
         description: >
             Get full details for a specific autoresearch pipeline by ID, including population definitions, training
             configuration, and current status.
-        mcp_version: 1
     autoresearch-runs-list:
         operation: autoresearch_runs_list
         enabled: true
@@ -205,7 +201,6 @@ tools:
         description: >
             List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status
             to understand scoring history. run_type is 'inference' for daily scoring runs.
-        mcp_version: 1
         response:
             include:
                 - id
@@ -279,7 +274,6 @@ tools:
             List steering suggestions for a pipeline, ordered most recent first. Each entry shows the prompt, priority,
             status (queued/picked_up/acted_on/dismissed), and the agent's response when available. Use
             'linked_iteration_ids' to trace which iterations were spawned from a suggestion.
-        mcp_version: 1
         response:
             include:
                 - id
@@ -303,7 +297,6 @@ tools:
         title: Get suggestion
         description: |
             Get full details for a specific suggestion including its status and agent_response.
-        mcp_version: 1
     autoresearch-templates-list:
         operation: autoresearch_templates_list
         enabled: true
@@ -411,7 +404,6 @@ tools:
         description: >
             List training runs for a pipeline, ordered most recent first. Check status (completed/failed),
             iteration_count, and best_holdout_score to understand training history.
-        mcp_version: 1
         response:
             include:
                 - id

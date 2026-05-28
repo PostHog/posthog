@@ -17,6 +17,7 @@ Flow:
 
 from __future__ import annotations
 
+import re
 import json
 import textwrap
 from datetime import date
@@ -24,9 +25,72 @@ from datetime import date
 from django.utils import timezone as django_timezone
 
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from products.autoresearch.backend.labeling import NUM_FOLDS, _build_labeled_users_cte
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
+
+# Static contract enforced on the agent's feature_sql to prevent the most common
+# leakage patterns. See ModelRecipeOutput.feature_sql and the agent prompt for
+# the full contract; this list is the machine-checked subset.
+_FEATURE_SQL_ANCHORS_PLACEHOLDER = "{anchors}"
+_FEATURE_SQL_CUTOFF_REFERENCE = "cutoff_ts"
+# Match bare now() / now(0) / now(arg) — the leakage tell. Comments and string
+# literals can false-positive here, but agents don't typically use now() inside
+# strings; if they do, they can rephrase.
+_FEATURE_SQL_NOW_RE = re.compile(r"\bnow\s*\(", re.IGNORECASE)
+
+
+def _quote_for_inlined_sql(value: object) -> str:
+    """
+    Conservatively render a value for inlining into a SQL string the agent will
+    paste into execute-sql. Only handles the value shapes labeling.py emits —
+    target_event strings, numeric horizons/lookbacks, and population-filter
+    primitives. Anything else falls through to a quoted string with embedded
+    single quotes doubled (HogQL string literal escape).
+    """
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int | float):
+        return str(value)
+    if value is None:
+        return "NULL"
+    text = str(value).replace("'", "''")
+    return f"'{text}'"
+
+
+def _resolve_labeled_anchors_cte_for_prompt(pipeline: AutoresearchPipeline) -> str:
+    """
+    Return the labeled_anchors CTE block as a ready-to-paste SQL string, with all
+    placeholders inlined. The agent embeds this verbatim into its execute-sql
+    queries to materialize labeled training data for its inner loop.
+
+    Same labeling math the server runs at inference time (build_training_features_sql)
+    so the agent's local eval is the trainer's actual training data — not a proxy.
+    """
+    cte, values = _build_labeled_users_cte(
+        target_event=pipeline.target_event,
+        horizon_days=pipeline.horizon_days,
+        lookback_days=pipeline.training_lookback_days or 180,
+        training_population=pipeline.training_population,
+        sample_limit=None,
+    )
+    resolved = cte
+    for key, val in values.items():
+        resolved = resolved.replace("{" + key + "}", _quote_for_inlined_sql(val))
+
+    return (
+        resolved.rstrip()
+        + ",\n        labeled_anchors AS (\n"
+        + "            SELECT\n"
+        + "                person_id,\n"
+        + "                t0_ts,\n"
+        + "                positive,\n"
+        + f"                toInt(bitAnd(cityHash64(concat('fold:', toString(person_id))), 2147483647)) % {NUM_FOLDS} AS fold\n"
+        + "            FROM labeled_users\n"
+        + "        )"
+    )
+
 
 logger = structlog.get_logger(__name__)
 
@@ -60,7 +124,11 @@ class ModelExplanation(BaseModel):
 class ModelRecipeOutput(BaseModel):
     feature_sql: str = Field(
         description=(
-            "HogQL SELECT returning one row per person_id with feature columns. "
+            "HogQL SELECT returning one row per anchor (person_id) with feature columns. "
+            "MUST contain the literal placeholder `{anchors}` — the framework substitutes it with a "
+            "per-user (person_id, cutoff_ts) table at runtime (per-user T0 during training; "
+            "now() during inference). MUST filter events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` "
+            "to prevent label leakage. MUST NOT call `now()` directly — use `a.cutoff_ts` instead. "
             "Use {lookback_days} as a placeholder for the rolling-window size in days."
         )
     )
@@ -68,6 +136,36 @@ class ModelRecipeOutput(BaseModel):
         default_factory=list,
         description="Optional preprocessing transforms (e.g. log scale, clipping). Usually empty.",
     )
+
+    @field_validator("feature_sql")
+    @classmethod
+    def _feature_sql_contract(cls, value: str) -> str:
+        """
+        Enforce the leakage-prevention contract on feature_sql at submission time.
+        Agents that violate the contract get a clear error from set_output and can
+        retry within their iteration budget.
+        """
+        if _FEATURE_SQL_ANCHORS_PLACEHOLDER not in value:
+            raise ValueError(
+                f"feature_sql must contain the placeholder {_FEATURE_SQL_ANCHORS_PLACEHOLDER!r}. "
+                "Select FROM {anchors} a (the framework-supplied per-user (person_id, cutoff_ts) "
+                "table) and join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)`. "
+                "See the agent prompt's worked example."
+            )
+        if _FEATURE_SQL_CUTOFF_REFERENCE not in value:
+            raise ValueError(
+                "feature_sql must reference `cutoff_ts` (e.g. `e.timestamp < "
+                "fromUnixTimestamp(a.cutoff_ts)`). Without this filter, features include events "
+                "from the label window — direct leakage."
+            )
+        if _FEATURE_SQL_NOW_RE.search(value):
+            raise ValueError(
+                "feature_sql must not call `now()` — use `fromUnixTimestamp(a.cutoff_ts)` as the "
+                "per-user cutoff. Calling `now()` breaks training (the cutoff varies per user) "
+                "and silently leaks label-window data into features."
+            )
+        return value
+
     model_class: str = Field(
         default="sklearn.linear_model.LogisticRegression",
         description="sklearn model class path, e.g. sklearn.linear_model.LogisticRegression",
@@ -108,6 +206,7 @@ def build_agent_description(
     schema_json = json.dumps(ModelRecipeOutput.model_json_schema(), indent=2)
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
+    labeled_anchors_cte = _resolve_labeled_anchors_cte_for_prompt(pipeline)
 
     prompt = textwrap.dedent(f"""
         # PostHog Autoresearch Agent
@@ -141,6 +240,23 @@ def build_agent_description(
 
         If no champion exists you are establishing the baseline — aim for AUC > 0.6.
 
+        ## How labeling works (read this carefully — it shapes everything below)
+
+        You do NOT compute labels yourself. PostHog runs a deterministic random-T0
+        labeler that produces, for each user in the training population, exactly one
+        labeled example:
+
+          T0_user   = a per-user deterministic random point in their history
+          label     = 1 if `{pipeline.target_event}` fires in [T0_user, T0_user + {pipeline.horizon_days}), else 0
+
+        This means features for each user MUST be computed strictly as of THAT
+        user's T0 — never using events from on/after T0_user. Otherwise the model
+        peeks at the label window and the holdout AUC is fiction.
+
+        At inference time the same feature SQL runs with cutoff_ts = now() per
+        user. Train and inference become byte-identical operations on different
+        anchor tables — that is the only way the holdout AUC means anything.
+
         ## Research loop (perform at least {min_iters} iterations)
 
         ### Step 1 — Explore the data
@@ -155,45 +271,130 @@ def build_agent_description(
         GROUP BY event ORDER BY cnt DESC LIMIT 30
         ```
 
+        Note: the base rate of the prediction task (random-T0 conversion rate)
+        is already computed and shown to the user in the wizard — you don't need
+        to estimate it yourself. If you want to sanity-check the data, query
+        event volumes, not "did target fire in last N days" style proxies.
+
+        ### Step 2 — Design feature SQL (the leakage-safe contract)
+
+        Your feature SQL MUST follow this contract. Recipes that violate it are
+        rejected at submission with a clear error — fix and resubmit within your
+        iteration budget.
+
+        **Hard rules:**
+
+        1. Select `FROM {{anchors}} a` — the framework provides this table with
+           columns `(person_id, cutoff_ts)`. At training cutoff_ts is per-user T0;
+           at inference cutoff_ts = now(). Same SQL, two anchor tables.
+        2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` —
+           strict `<`, not `<=`. This is the leakage guard. Any feature that
+           reads events at or after cutoff_ts is invalid.
+        3. Window the lookback against the cutoff:
+           `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
+        4. Output `a.person_id AS distinct_id` as the first column.
+        5. `GROUP BY a.person_id`.
+        6. **Never** call `now()` in feature SQL — use `a.cutoff_ts` instead.
+           The framework's static validator rejects `now()` outright.
+
+        **Worked example:**
+
         ```sql
-        -- What fraction of users trigger the target event within the horizon?
         SELECT
-            countDistinct(person_id) AS total_users,
-            countDistinctIf(person_id, event = '{pipeline.target_event}') AS positive_users,
-            positive_users / total_users AS base_rate
-        FROM events
-        WHERE timestamp >= now() - toIntervalDay(90)
+            a.person_id AS distinct_id,
+            countIf(e.event = '$pageview') AS pageviews_in_window,
+            countIf(e.event = 'uploaded_file') AS uploads_in_window,
+            uniqIf(e.event, e.event NOT LIKE '$%') AS unique_user_events,
+            dateDiff(
+                'day',
+                max(e.timestamp),
+                fromUnixTimestamp(a.cutoff_ts)
+            ) AS days_since_last_event
+        FROM {{anchors}} a
+        LEFT JOIN events e
+            ON e.person_id = a.person_id
+            AND e.timestamp <  fromUnixTimestamp(a.cutoff_ts)
+            AND e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})
+        GROUP BY a.person_id
         ```
 
-        ### Step 2 — Build a binary label
-
-        Identify users who performed `{pipeline.target_event}` within {pipeline.horizon_days} days
-        after a reference date. Use a 90-day lookback as your training window.
-
-        ### Step 3 — Design feature SQL
-
-        Write a HogQL SELECT returning **one row per person_id** with feature columns.
-        Good features:
-        - Event count aggregates (`countIf(event = 'X' AND ...)`)
-        - Recency signals (`dateDiff('day', max(timestamp), today())`)
-        - Event diversity (`uniqIf(event, ...)`)
+        Good features to consider:
+        - Event count aggregates (`countIf(e.event = 'X')`)
+        - Recency signals (`dateDiff('day', max(e.timestamp), fromUnixTimestamp(a.cutoff_ts))`)
+        - Event diversity (`uniqIf(e.event, ...)`)
         - Property features if meaningful
 
-        Rules:
-        - Always: `person_id AS distinct_id` as the first column
-        - Always: `GROUP BY person_id`
-        - Use `{{lookback_days}}` as a placeholder for the rolling window (integer days)
-        - Query must run against the `events` table
+        ### Step 3 — Fit and evaluate (in your sandbox)
 
-        ### Step 4 — Estimate quality
+        For each iteration, run one composite `execute-sql` query that returns one row
+        per labeled user with feature columns + `__label` + `__fold`. Then fit sklearn
+        locally on `__fold != 0` and evaluate on `__fold == 0`. This is the real
+        holdout AUC — no proxies, no `corr()` shortcuts.
 
-        Use ClickHouse `corr()` to measure point-biserial correlation between each feature
-        and the binary label. Estimate AUC ≈ 0.5 + 0.25 × Σ|corr_i| (cap at 0.95).
+        **Paste-in `labeled_anchors` CTE for THIS pipeline** (uses your real
+        horizon, training lookback, target event, and population filter):
 
-        ### Step 5 — Iterate
+        ```sql
+        WITH {labeled_anchors_cte}
+        ```
 
-        Try at least {min_iters} distinct feature sets. Compare estimated AUCs.
-        Choose the best recipe for the final output.
+        **The composite query template you run each iteration:**
+
+        ```sql
+        WITH {labeled_anchors_cte}
+        SELECT
+            f.*,
+            la.positive AS __label,
+            la.fold AS __fold
+        FROM (
+            -- ↓↓↓ YOUR feature_sql, with {{anchors}} substituted with
+            --     (SELECT person_id, t0_ts AS cutoff_ts FROM labeled_anchors)
+            <your feature SQL>
+        ) f
+        LEFT JOIN labeled_anchors la ON f.distinct_id = la.person_id
+        ```
+
+        **The Python fit + eval pattern:**
+
+        ```python
+        import pandas as pd
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import roc_auc_score
+
+        # `rows` is whatever execute-sql returned for the composite query above.
+        df = pd.DataFrame(rows)
+
+        feature_cols = [c for c in df.columns if c not in ('distinct_id', '__label', '__fold')]
+        X = df[feature_cols].fillna(0).astype(float)
+        y = df['__label'].astype(int)
+        fold = df['__fold'].astype(int)
+
+        train, holdout = fold != 0, fold == 0
+        if y[holdout].nunique() < 2 or y[train].sum() < 5:
+            # Skip this iteration — not enough signal to fit/evaluate honestly.
+            holdout_auc = None
+        else:
+            model = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            model.fit(X[train], y[train])
+            p_holdout = model.predict_proba(X[holdout])[:, 1]
+            holdout_auc = float(roc_auc_score(y[holdout], p_holdout))
+        ```
+
+        **Recording each iteration:** call `autoresearch-training-runs-iterations-create`
+        with the iteration's feature_sql, model_class, model_params, holdout_score (the
+        AUC you just computed), and a one-line agent_description of what you tried.
+        Status: `"kept"` if it beats your best so far, `"discarded"` otherwise.
+
+        ### Step 4 — Iterate
+
+        Try at least {min_iters} distinct feature hypotheses. Vary along axes that
+        actually matter for predictive signal:
+        - Which events you count (engagement, conversion-adjacent, friction)
+        - Recency vs frequency (counts in last 7d vs 30d, time-since-last)
+        - Cross-event ratios and diversity (uniqIf)
+        - Property-conditioned counts (countIf with a property filter)
+
+        Pick the iteration with the highest holdout AUC as your final submission.
 
         ## Submitting your recipe
 
@@ -309,7 +510,10 @@ def run_training(
             mode="background",
             internal=True,
             output_schema=ModelRecipeOutput,
-            posthog_mcp_scopes="read_only",  # INTERNAL_SCOPES already adds task:write
+            # "full" grants the agent autoresearch:write so it can record per-iteration
+            # progress via autoresearch-training-runs-iterations-create. Read-only would
+            # hide write tools and the iterations tab would stay empty.
+            posthog_mcp_scopes="full",
         )
 
         task_run = task.latest_run
@@ -323,8 +527,9 @@ def run_training(
             updates={"autoresearch_training_run_id": str(training_run.id)},
         )
 
+        training_run.task_id = task.pk
         training_run.task_run_id = task_run.id
-        training_run.save(update_fields=["task_run_id"])
+        training_run.save(update_fields=["task_id", "task_run_id"])
 
         logger.info(
             "autoresearch_training_started",

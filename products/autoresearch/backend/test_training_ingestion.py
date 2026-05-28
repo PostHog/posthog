@@ -12,6 +12,7 @@ from products.autoresearch.backend.models import (
     AutoresearchPipeline,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.training import ModelRecipeOutput
 from products.autoresearch.backend.training_ingestion import (
     ITERATION_EVENT_NAME,
     _extract_json_from_text,
@@ -19,8 +20,19 @@ from products.autoresearch.backend.training_ingestion import (
     handle_task_run_completed,
 )
 
+# Contract-compliant feature_sql: references {anchors}, filters by cutoff_ts, no bare now().
+# See ModelRecipeOutput._feature_sql_contract in training.py for the rules.
+_CONTRACT_FEATURE_SQL = (
+    "SELECT a.person_id AS distinct_id, count() AS event_count "
+    "FROM {anchors} a "
+    "LEFT JOIN events e ON e.person_id = a.person_id "
+    "AND e.timestamp < fromUnixTimestamp(a.cutoff_ts) "
+    "AND e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({lookback_days}) "
+    "GROUP BY a.person_id"
+)
+
 MINIMAL_RECIPE: dict = {
-    "feature_sql": "SELECT person_id AS distinct_id FROM events GROUP BY person_id",
+    "feature_sql": _CONTRACT_FEATURE_SQL,
     "feature_transforms": [],
     "model_class": "sklearn.linear_model.LogisticRegression",
     "model_params": {"C": 1.0},
@@ -288,6 +300,55 @@ class TestExtractJsonFromText:
 
     def test_returns_none_for_json_array(self) -> None:
         assert _extract_json_from_text("[1, 2, 3]") is None
+
+
+class TestFeatureSqlContract:
+    """
+    Static contract enforced on the agent's feature_sql. See
+    ModelRecipeOutput._feature_sql_contract in training.py for the rules.
+    """
+
+    def _recipe(self, feature_sql: str) -> dict:
+        return {**MINIMAL_RECIPE, "feature_sql": feature_sql}
+
+    def test_accepts_contract_compliant_sql(self) -> None:
+        sql = (
+            "SELECT a.person_id AS distinct_id, count() AS n "
+            "FROM {anchors} a LEFT JOIN events e "
+            "ON e.person_id = a.person_id AND e.timestamp < fromUnixTimestamp(a.cutoff_ts) "
+            "AND e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({lookback_days}) "
+            "GROUP BY a.person_id"
+        )
+        ModelRecipeOutput.model_validate(self._recipe(sql))
+
+    @pytest.mark.parametrize(
+        "feature_sql,expected_message_fragment",
+        [
+            (
+                # missing {anchors} placeholder
+                "SELECT person_id AS distinct_id FROM events WHERE timestamp < now() - toIntervalDay(7) "
+                "AND cutoff_ts < cutoff_ts GROUP BY person_id",
+                "{anchors}",
+            ),
+            (
+                # missing cutoff_ts reference
+                "SELECT a.person_id AS distinct_id FROM {anchors} a LEFT JOIN events e "
+                "ON e.person_id = a.person_id GROUP BY a.person_id",
+                "cutoff_ts",
+            ),
+            (
+                # bare now() call
+                "SELECT a.person_id AS distinct_id FROM {anchors} a LEFT JOIN events e "
+                "ON e.person_id = a.person_id AND e.timestamp < now() "
+                "AND a.cutoff_ts > 0 GROUP BY a.person_id",
+                "now()",
+            ),
+        ],
+    )
+    def test_rejects_contract_violations(self, feature_sql: str, expected_message_fragment: str) -> None:
+        with pytest.raises(Exception) as exc_info:
+            ModelRecipeOutput.model_validate(self._recipe(feature_sql))
+        assert expected_message_fragment in str(exc_info.value)
 
 
 class TestExtractLastAgentMessage:

@@ -10,13 +10,21 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 
-from products.autoresearch.backend.inference import _build_population_conditions
+from products.autoresearch.backend.labeling import (
+    _build_population_conditions,
+    build_eligible_count_sql,
+    build_random_t0_labeler_sql,
+)
 
 logger = structlog.get_logger(__name__)
 
 # Minimum number of labeled examples needed to train a meaningful model
 MIN_TRAINING_ROWS = 100
 MIN_POSITIVE_EXAMPLES = 20
+
+# Cap the user_window CTE during live wizard estimates — sampled base rate is
+# unbiased for the same quantity the trainer computes unsampled.
+LIVE_ESTIMATE_SAMPLE_LIMIT = 5_000
 
 
 @dataclass
@@ -91,35 +99,46 @@ def _run_validation(
     # still produce a meaningful estimate.
     lookback_days = max(training_lookback_days, 7)
 
-    training_properties = (training_population or {}).get("properties", []) if training_population else []
-    train_parts, train_values = _build_population_conditions(training_properties)
-    training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
-
-    count_query = HogQLQuery(
-        query=f"""
-            SELECT
-                countDistinctIf(person_id, event = {{target}}) AS positives,
-                countDistinct(person_id) AS total_users
-            FROM events
-            WHERE timestamp >= now() - toIntervalDay({{lookback}})
-              AND timestamp < now(){training_clause}
-        """,
-        values={"target": target_event, "lookback": lookback_days, **train_values},
-    )
-
     tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-    runner = HogQLQueryRunner(query=count_query, team=team)
-    result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-    positives = 0
+    # Headline eligible count — true number of users that would be labeled by the
+    # random-T0 labeler, no sampling. Used for the UI's "Training rows" metric and
+    # volume warnings.
+    eligible_sql, eligible_values = build_eligible_count_sql(
+        horizon_days=horizon_days,
+        lookback_days=lookback_days,
+        training_population=training_population,
+    )
+    eligible_runner = HogQLQueryRunner(query=HogQLQuery(query=eligible_sql, values=eligible_values), team=team)
+    eligible_result = eligible_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     total_users = 0
-    if result.results and len(result.results) > 0:
-        row = result.results[0]
-        positives = int(row[0] or 0)
-        total_users = int(row[1] or 0)
+    if eligible_result.results and len(eligible_result.results) > 0:
+        total_users = int(eligible_result.results[0][0] or 0)
 
+    # Sampled random-T0 labeler — each user is assigned a deterministic random T0 in
+    # their history and labeled by whether target_event fires in [T0, T0 + horizon).
+    # Sampled at LIVE_ESTIMATE_SAMPLE_LIMIT for fast wizard feedback; the resulting
+    # base_rate is an unbiased estimator of the trainer's unsampled rate.
+    label_sql, label_values = build_random_t0_labeler_sql(
+        target_event=target_event,
+        horizon_days=horizon_days,
+        lookback_days=lookback_days,
+        training_population=training_population,
+        sample_limit=LIVE_ESTIMATE_SAMPLE_LIMIT,
+    )
+    label_runner = HogQLQueryRunner(query=HogQLQuery(query=label_sql, values=label_values), team=team)
+    label_result = label_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    sampled_users = 0
+    sampled_positives = 0
+    if label_result.results and len(label_result.results) > 0:
+        row = label_result.results[0]
+        sampled_users = int(row[0] or 0)
+        sampled_positives = int(row[1] or 0)
+
+    base_rate = sampled_positives / sampled_users if sampled_users > 0 else 0.0
+    # Extrapolate sample-rate to the full eligible population for the headline counts.
+    positives = round(base_rate * total_users) if total_users > 0 else 0
     negatives = total_users - positives
-    base_rate = positives / total_users if total_users > 0 else 0.0
 
     # Inference population — count distinct users matching the prediction filter.
     # If no inference filter is provided we fall back to the training count.

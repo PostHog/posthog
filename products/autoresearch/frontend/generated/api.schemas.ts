@@ -566,10 +566,20 @@ export interface AutoresearchTrainingRunApi {
     /** Pipeline this training run belongs to. */
     pipeline: string
     /**
+     * Parent Task ID in the tasks sandbox. Null for stub runs.
+     * @nullable
+     */
+    task_id?: string | null
+    /**
      * Task sandbox run ID. Null for stub/synchronous training runs.
      * @nullable
      */
     task_run_id?: string | null
+    /**
+     * Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs.
+     * @nullable
+     */
+    readonly task_url: string | null
     /** Run status: pending, running, completed, or failed.
 
   * `pending` - Pending

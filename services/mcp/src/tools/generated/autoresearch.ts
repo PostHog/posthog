@@ -170,7 +170,6 @@ const autoresearchList = (): ToolBase<
 > => ({
     name: 'autoresearch-list',
     schema: AutoresearchListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAutoresearchPipelineList>({
@@ -213,7 +212,6 @@ const autoresearchModelsList = (): ToolBase<
 > => ({
     name: 'autoresearch-models-list',
     schema: AutoresearchModelsListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchModelsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAutoresearchModelList>({
@@ -255,7 +253,6 @@ const autoresearchModelsRetrieve = (): ToolBase<
 > => ({
     name: 'autoresearch-models-retrieve',
     schema: AutoresearchModelsRetrieveSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchModelsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AutoresearchModel>({
@@ -419,7 +416,6 @@ const autoresearchRetrieve = (): ToolBase<
 > => ({
     name: 'autoresearch-retrieve',
     schema: AutoresearchRetrieveSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AutoresearchPipeline>({
@@ -440,7 +436,6 @@ const autoresearchRunsList = (): ToolBase<
 > => ({
     name: 'autoresearch-runs-list',
     schema: AutoresearchRunsListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchRunsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAutoresearchRunList>({
@@ -525,7 +520,6 @@ const autoresearchSuggestionsList = (): ToolBase<
 > => ({
     name: 'autoresearch-suggestions-list',
     schema: AutoresearchSuggestionsListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchSuggestionsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAutoresearchSuggestionList>({
@@ -564,7 +558,6 @@ const autoresearchSuggestionsRetrieve = (): ToolBase<
 > => ({
     name: 'autoresearch-suggestions-retrieve',
     schema: AutoresearchSuggestionsRetrieveSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchSuggestionsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AutoresearchSuggestion>({
@@ -748,7 +741,6 @@ const autoresearchTrainingRunsList = (): ToolBase<
 > => ({
     name: 'autoresearch-training-runs-list',
     schema: AutoresearchTrainingRunsListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAutoresearchTrainingRunList>({

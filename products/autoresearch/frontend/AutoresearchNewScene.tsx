@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -74,7 +74,25 @@ function ValidationPanel(): JSX.Element {
                             <div className="font-mono">{formatNumber(validation.negative_count)}</div>
                         </div>
                         <div className="col-span-2">
-                            <div className="text-muted">Base rate</div>
+                            <div className="text-muted flex items-center gap-1">
+                                Base rate
+                                <Tooltip
+                                    title={
+                                        <span>
+                                            For each user in the training population we pick a random reference point in
+                                            their history and check whether the target event fired in the following
+                                            "Prediction horizon" days. Base rate is the fraction labeled positive — the
+                                            conversion rate the model is trained to predict.
+                                            <br />
+                                            <br />
+                                            Computed from a sample of up to 5,000 users for speed; the sampled rate is
+                                            an unbiased estimate of what the trainer sees unsampled.
+                                        </span>
+                                    }
+                                >
+                                    <IconInfo className="text-sm cursor-help" />
+                                </Tooltip>
+                            </div>
                             <div className="font-mono">{formatPercent(validation.base_rate)}</div>
                         </div>
                     </div>
@@ -139,6 +157,23 @@ export function AutoresearchNewScene(): JSX.Element {
                         <LemonInput placeholder="e.g. File sharing prediction" autoFocus />
                     </LemonField>
 
+                    <LemonField
+                        name="target_event"
+                        label="Target event"
+                        info="PostHog event to predict, e.g. shared_file or $pageview. Everything else flows from this pick."
+                    >
+                        {({ value, onChange }) => (
+                            <TaxonomicStringPopover
+                                groupType={TaxonomicFilterGroupType.Events}
+                                value={value}
+                                onChange={(picked) => onChange(picked)}
+                                placeholder="Search events..."
+                                allowClear
+                                data-attr="autoresearch-new-target-event"
+                            />
+                        )}
+                    </LemonField>
+
                     <div className="flex flex-col gap-3 border-t pt-4">
                         <div>
                             <h3 className="text-base font-semibold mb-1">Training</h3>
@@ -177,22 +212,6 @@ export function AutoresearchNewScene(): JSX.Element {
                             <h3 className="text-base font-semibold mb-1">Prediction</h3>
                             <p className="text-xs text-muted mb-0">What the model predicts, and who it scores.</p>
                         </div>
-                        <LemonField
-                            name="target_event"
-                            label="Target event"
-                            info="PostHog event to predict, e.g. shared_file or $pageview."
-                        >
-                            {({ value, onChange }) => (
-                                <TaxonomicStringPopover
-                                    groupType={TaxonomicFilterGroupType.Events}
-                                    value={value}
-                                    onChange={(picked) => onChange(picked)}
-                                    placeholder="Search events..."
-                                    allowClear
-                                    data-attr="autoresearch-new-target-event"
-                                />
-                            )}
-                        </LemonField>
                         <LemonField
                             name="horizon_days"
                             label="Prediction horizon (days)"

@@ -5,10 +5,19 @@ from products.autoresearch.backend.validation import _run_validation, validate_p
 
 
 def _make_mock_runner(positives: int, total: int):
-    mock_result = MagicMock()
-    mock_result.results = [[positives, total]]
+    """
+    Validation now issues two HogQL queries in order:
+      1. eligible count            -> [[total_users]]
+      2. random-T0 sampled labeler -> [[sampled_users, sampled_positives]]
+    For tests we assume sample size == total (i.e. total ≤ live sample cap)
+    so the extrapolated positives line up with the input.
+    """
+    eligible_result = MagicMock()
+    eligible_result.results = [[total]]
+    label_result = MagicMock()
+    label_result.results = [[total, positives]]
     mock_runner = MagicMock()
-    mock_runner.run.return_value = mock_result
+    mock_runner.run.side_effect = [eligible_result, label_result]
     return mock_runner
 
 

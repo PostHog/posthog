@@ -591,7 +591,7 @@
         "summary": "List pipelines",
         "title": "List pipelines",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -606,7 +606,7 @@
         "summary": "List models for a pipeline",
         "title": "List models for a pipeline",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -621,7 +621,7 @@
         "summary": "Get model",
         "title": "Get model",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -681,7 +681,7 @@
         "summary": "Get pipeline",
         "title": "Get pipeline",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -696,7 +696,7 @@
         "summary": "List inference runs",
         "title": "List inference runs",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -741,7 +741,7 @@
         "summary": "List suggestions",
         "title": "List suggestions",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -756,7 +756,7 @@
         "summary": "Get suggestion",
         "title": "Get suggestion",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -846,7 +846,7 @@
         "summary": "List training runs",
         "title": "List training runs",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

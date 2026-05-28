@@ -22,7 +22,6 @@ Event shape:
         $autoresearch_features_hash:   str (SHA-256 of feature row)
 """
 
-import re
 import json
 import math
 import hashlib
@@ -43,6 +42,11 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 
+from products.autoresearch.backend.labeling import (
+    _build_population_conditions,
+    build_inference_features_sql,
+    build_training_features_sql,
+)
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 
 logger = structlog.get_logger(__name__)
@@ -53,8 +57,16 @@ PREDICTION_EVENT_NAME = "autoresearch_prediction"
 # Batch size for ClickHouse feature queries — keeps memory bounded
 FEATURE_QUERY_LIMIT = 10_000
 
-# Only property keys matching this pattern are safe to interpolate into HogQL field paths
-_SAFE_PROPERTY_KEY = re.compile(r"^[\w.\- ]+$")
+# Anchors-style feature SQL contract marker (see labeling.py + Step B validator).
+# Presence routes through _score_via_anchors; absence falls back to the legacy
+# transductive path for older recipes.
+_ANCHORS_PLACEHOLDER = "{anchors}"
+
+# Internal columns added by labeling.build_training_features_sql.
+_LABEL_COL = "__label"
+_FOLD_COL = "__fold"
+# Reserve fold == 0 as the holdout slice; folds 1..N-1 are training.
+_HOLDOUT_FOLD = 0
 
 
 def run_inference_for_pipeline(
@@ -126,22 +138,38 @@ def _score_and_emit(
     Fetch feature rows, compute scores, emit prediction events.
     Returns (rows_scored, score_distribution_summary).
     """
-    feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
+    recipe = model.model_recipe
+    feature_sql = recipe.get("feature_sql", "")
 
-    if not feature_rows:
+    # Route based on the recipe contract. New anchors-style recipes get the
+    # leak-free path: features and labels both live in time strictly before
+    # each user's cutoff_ts, training cohort != scoring cohort, fit happens
+    # on training-fold rows only. Legacy recipes fall through to the
+    # transductive path until they're regenerated.
+    if _ANCHORS_PLACEHOLDER in feature_sql:
+        scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe)
+    else:
+        feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
+        if not feature_rows:
+            logger.warning(
+                "autoresearch_no_feature_rows",
+                pipeline_id=str(pipeline.pk),
+                team_id=team.pk,
+            )
+            return 0, {}
+        if recipe.get("stub"):
+            scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
+        else:
+            positive_ids = _fetch_label_distinct_ids(team=team, pipeline=pipeline)
+            scored = _fit_and_score(feature_rows=feature_rows, positive_ids=positive_ids, recipe=recipe)
+
+    if not scored:
         logger.warning(
-            "autoresearch_no_feature_rows",
+            "autoresearch_no_scored_rows",
             pipeline_id=str(pipeline.pk),
             team_id=team.pk,
         )
         return 0, {}
-
-    recipe = model.model_recipe
-    if recipe.get("stub"):
-        scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
-    else:
-        positive_ids = _fetch_label_distinct_ids(team=team, pipeline=pipeline)
-        scored = _fit_and_score(feature_rows=feature_rows, positive_ids=positive_ids, recipe=recipe)
 
     scores = [s["p_y"] for s in scored]
     score_distribution = _summarize_scores(scores)
@@ -327,85 +355,6 @@ def _fetch_population_distinct_ids(
         return None
 
 
-def _build_population_conditions(
-    properties: list[dict[str, Any]],
-) -> tuple[list[str], dict[str, Any]]:
-    """
-    Translate a list of PostHog property filter dicts into HogQL WHERE condition
-    strings and a values dict for parameterized binding.
-
-    Property types:
-    - "person"  → person.properties.<key>  (events table context)
-    - "event"   → properties.<key>
-
-    Operators: exact, is_not, icontains, not_icontains, gt, gte, lt, lte,
-               is_set, is_not_set.
-
-    Unsupported types/operators are skipped with a warning rather than raising.
-    """
-    parts: list[str] = []
-    values: dict[str, Any] = {}
-
-    for i, prop in enumerate(properties):
-        key = prop.get("key")
-        prop_type = prop.get("type", "person")
-        operator = prop.get("operator", "exact")
-        value = prop.get("value")
-
-        if not key or not _SAFE_PROPERTY_KEY.match(str(key)):
-            logger.warning("autoresearch_population_unsafe_key", key=key)
-            continue
-
-        if prop_type == "person":
-            field = f"person.properties.{key}"
-        elif prop_type == "event":
-            field = f"properties.{key}"
-        else:
-            logger.warning("autoresearch_population_unsupported_prop_type", prop_type=prop_type)
-            continue
-
-        param = f"pop_{i}"
-
-        if operator == "is_set":
-            parts.append(f"isNotNull({field}) AND {field} != ''")
-        elif operator == "is_not_set":
-            parts.append(f"(isNull({field}) OR {field} = '')")
-        elif operator == "exact":
-            if isinstance(value, list):
-                in_params = [f"pop_{i}_{j}" for j in range(len(value))]
-                for j, v in enumerate(value):
-                    values[f"pop_{i}_{j}"] = v
-                in_refs = ", ".join("{" + p + "}" for p in in_params)
-                parts.append(f"{field} IN ({in_refs})")
-            else:
-                values[param] = value
-                parts.append(f"{field} = {{{param}}}")
-        elif operator == "is_not":
-            if isinstance(value, list):
-                in_params = [f"pop_{i}_{j}" for j in range(len(value))]
-                for j, v in enumerate(value):
-                    values[f"pop_{i}_{j}"] = v
-                in_refs = ", ".join("{" + p + "}" for p in in_params)
-                parts.append(f"{field} NOT IN ({in_refs})")
-            else:
-                values[param] = value
-                parts.append(f"{field} != {{{param}}}")
-        elif operator == "icontains":
-            values[param] = f"%{value}%"
-            parts.append(f"{field} ILIKE {{{param}}}")
-        elif operator == "not_icontains":
-            values[param] = f"%{value}%"
-            parts.append(f"{field} NOT ILIKE {{{param}}}")
-        elif operator in ("gt", "gte", "lt", "lte"):
-            op_sql = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[operator]
-            values[param] = value
-            parts.append(f"toFloat64OrNull({field}) {op_sql} {{{param}}}")
-        else:
-            logger.warning("autoresearch_population_unsupported_operator", operator=operator)
-
-    return parts, values
-
-
 def _fetch_label_distinct_ids(
     team: Team,
     pipeline: AutoresearchPipeline,
@@ -431,6 +380,252 @@ def _fetch_label_distinct_ids(
     except Exception:
         logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
         return frozenset()
+
+
+def _score_via_anchors(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    recipe: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Anchors-style scoring (the leak-free path).
+
+    The agent's feature_sql contains `{anchors}` and reads events with
+    `e.timestamp < fromUnixTimestamp(a.cutoff_ts)`. Same SQL runs against two
+    different anchor tables:
+      - training anchors: per-user random T0 + labels + fold (from labeling.py)
+      - inference anchors: (person_id, cutoff_ts = now()) for users to score
+
+    We fit on training rows where fold != 0, evaluate on fold == 0 for a
+    real holdout AUC, then predict on the inference rows. Falls back to stub
+    scoring if anything in the train path fails — that lets a half-broken
+    recipe still emit (zero-information) predictions instead of nothing.
+    """
+    feature_sql = recipe.get("feature_sql", "")
+    if not feature_sql:
+        logger.warning("autoresearch_empty_feature_sql", pipeline_id=str(pipeline.pk))
+        return []
+
+    # Substitute {lookback_days} consistently — same value at train and inference
+    # so the feature window has the same width in both phases.
+    lookback_days = max(30, pipeline.horizon_days * 4)
+    feature_sql_resolved = feature_sql.replace("{lookback_days}", str(lookback_days))
+
+    training_rows = _fetch_training_rows(team=team, pipeline=pipeline, feature_sql=feature_sql_resolved)
+    inference_rows = _fetch_inference_rows(team=team, pipeline=pipeline, feature_sql=feature_sql_resolved)
+    if not inference_rows:
+        logger.warning(
+            "autoresearch_no_inference_rows",
+            pipeline_id=str(pipeline.pk),
+        )
+        return []
+    if not training_rows:
+        logger.warning(
+            "autoresearch_no_training_rows_anchored_fallback_stub",
+            pipeline_id=str(pipeline.pk),
+        )
+        return _score_rows(inference_rows, recipe)
+
+    return _fit_on_training_predict_on_inference(
+        training_rows=training_rows,
+        inference_rows=inference_rows,
+        recipe=recipe,
+        pipeline_id=str(pipeline.pk),
+    )
+
+
+def _fetch_training_rows(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+) -> list[dict[str, Any]]:
+    """
+    Run the composite training-features SQL: build the labeled_anchors CTE
+    from the random-T0 labeler, substitute it into the agent's feature_sql,
+    JOIN back to bring __label + __fold onto each row. One row per eligible
+    user.
+    """
+    sql, values = build_training_features_sql(
+        feature_sql=feature_sql,
+        target_event=pipeline.target_event,
+        horizon_days=pipeline.horizon_days,
+        lookback_days=pipeline.training_lookback_days,
+        training_population=pipeline.training_population,
+    )
+    try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if not result.results or not result.columns:
+            return []
+        columns = result.columns
+        rows = [dict(zip(columns, row)) for row in result.results]
+        for r in rows:
+            if r.get("distinct_id") is not None:
+                r["distinct_id"] = str(r["distinct_id"])
+        return rows
+    except Exception:
+        logger.exception(
+            "autoresearch_training_features_query_failed",
+            pipeline_id=str(pipeline.pk),
+        )
+        return []
+
+
+def _fetch_inference_rows(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+) -> list[dict[str, Any]]:
+    """
+    Run the inference-features SQL: substitute {anchors} in the agent's
+    feature_sql with the inference anchors (cutoff_ts = now() per user).
+    Returns one row per eligible scoring user, no labels.
+    """
+    lookback_days = max(30, pipeline.horizon_days * 4)
+    sql, values = build_inference_features_sql(
+        feature_sql=feature_sql,
+        lookback_days=lookback_days,
+        inference_population=pipeline.inference_population,
+    )
+    try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if not result.results or not result.columns:
+            return []
+        columns = result.columns
+        rows = [dict(zip(columns, row)) for row in result.results]
+        for r in rows:
+            if r.get("distinct_id") is not None:
+                r["distinct_id"] = str(r["distinct_id"])
+        return rows
+    except Exception:
+        logger.exception(
+            "autoresearch_inference_features_query_failed",
+            pipeline_id=str(pipeline.pk),
+        )
+        return []
+
+
+def _fit_on_training_predict_on_inference(
+    *,
+    training_rows: list[dict[str, Any]],
+    inference_rows: list[dict[str, Any]],
+    recipe: dict[str, Any],
+    pipeline_id: str,
+) -> list[dict[str, Any]]:
+    """
+    Fit the recipe's sklearn model on training rows (fold != 0), evaluate on
+    the holdout slice (fold == 0) for a real holdout AUC, predict on
+    inference rows. Falls back to stub scoring on any failure so we still
+    emit predictions (zero-information rather than nothing).
+    """
+    feature_cols = sorted(
+        col
+        for col in training_rows[0]
+        if col not in {"distinct_id", _LABEL_COL, _FOLD_COL}
+        and isinstance(training_rows[0].get(col), (int, float, type(None)))
+    )
+    if not feature_cols:
+        logger.warning("autoresearch_no_numeric_features", pipeline_id=pipeline_id)
+        return _score_rows(inference_rows, recipe)
+
+    train_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) != _HOLDOUT_FOLD]
+    holdout_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) == _HOLDOUT_FOLD]
+
+    if not train_rows:
+        logger.warning("autoresearch_no_train_fold_rows", pipeline_id=pipeline_id)
+        return _score_rows(inference_rows, recipe)
+
+    X_train = np.array(
+        [[float(r.get(c) or 0) for c in feature_cols] for r in train_rows],
+        dtype=np.float64,
+    )
+    y_train = np.array(
+        [int(r.get(_LABEL_COL) or 0) for r in train_rows],
+        dtype=np.int32,
+    )
+    n_pos = int(y_train.sum())
+    n_neg = int(len(y_train) - n_pos)
+    if n_pos < 5 or n_neg < 5:
+        logger.warning(
+            "autoresearch_insufficient_labels",
+            pipeline_id=pipeline_id,
+            n_pos=n_pos,
+            n_neg=n_neg,
+        )
+        return _score_rows(inference_rows, recipe)
+
+    model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
+    model_params = recipe.get("model_params", {})
+    try:
+        module_path, class_name = model_class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        ModelClass = getattr(module, class_name)
+        estimator = ModelClass(**model_params)
+        estimator.fit(X_train, y_train)
+    except Exception:
+        logger.exception(
+            "autoresearch_anchored_fit_failed",
+            pipeline_id=pipeline_id,
+            model_class=model_class_path,
+        )
+        return _score_rows(inference_rows, recipe)
+
+    # Holdout AUC — informational. Logged so we can see the realized vs
+    # claimed AUC gap later. Skip silently if holdout is empty or single-class.
+    if holdout_rows:
+        try:
+            from sklearn.metrics import roc_auc_score
+
+            X_holdout = np.array(
+                [[float(r.get(c) or 0) for c in feature_cols] for r in holdout_rows],
+                dtype=np.float64,
+            )
+            y_holdout = np.array(
+                [int(r.get(_LABEL_COL) or 0) for r in holdout_rows],
+                dtype=np.int32,
+            )
+            if len(set(y_holdout.tolist())) > 1:
+                p_holdout = estimator.predict_proba(X_holdout)[:, 1]
+                holdout_auc = float(roc_auc_score(y_holdout, p_holdout))
+                logger.info(
+                    "autoresearch_anchored_holdout_auc",
+                    pipeline_id=pipeline_id,
+                    holdout_auc=round(holdout_auc, 4),
+                    n_train=len(y_train),
+                    n_holdout=len(y_holdout),
+                    n_features=len(feature_cols),
+                )
+        except Exception:
+            logger.exception("autoresearch_holdout_auc_failed", pipeline_id=pipeline_id)
+
+    # Score inference rows
+    try:
+        X_score = np.array(
+            [[float(r.get(c) or 0) for c in feature_cols] for r in inference_rows],
+            dtype=np.float64,
+        )
+        proba = estimator.predict_proba(X_score)[:, 1]
+    except Exception:
+        logger.exception(
+            "autoresearch_anchored_predict_failed",
+            pipeline_id=pipeline_id,
+            model_class=model_class_path,
+        )
+        return _score_rows(inference_rows, recipe)
+
+    scored: list[dict[str, Any]] = []
+    for row, p in zip(inference_rows, proba):
+        distinct_id = row.get("distinct_id")
+        if not distinct_id:
+            continue
+        scored.append({**row, "p_y": round(float(p), 4)})
+    return scored
 
 
 def _fit_and_score(

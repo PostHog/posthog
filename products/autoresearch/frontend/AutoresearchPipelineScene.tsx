@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPause, IconPlay } from '@posthog/icons'
+import { IconExternal, IconPause, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -125,8 +125,18 @@ function TrainingTab(): JSX.Element {
                     {trainingRuns.map((run: AutoresearchTrainingRunApi) => (
                         <div key={run.id} className="border rounded p-3 flex justify-between items-center">
                             <div className="space-y-0.5">
-                                <div className="text-sm font-semibold">
+                                <div className="text-sm font-semibold flex items-center gap-1">
                                     Run {run.id.slice(0, 8)}
+                                    {run.task_url && (
+                                        <Link
+                                            to={run.task_url}
+                                            target="_blank"
+                                            className="text-muted hover:text-primary"
+                                            title="Open sandbox task"
+                                        >
+                                            <IconExternal className="text-sm" />
+                                        </Link>
+                                    )}
                                     {run.status === 'running' && <Spinner className="ml-2 inline" />}
                                 </div>
                                 <div className="text-xs text-muted">

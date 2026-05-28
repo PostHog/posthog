@@ -303,12 +303,18 @@ class AutoresearchModelSerializer(serializers.ModelSerializer):
 
 
 class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
+    task_url = serializers.SerializerMethodField(
+        help_text="Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs."
+    )
+
     class Meta:
         model = AutoresearchTrainingRun
         fields = [
             "id",
             "pipeline",
+            "task_id",
             "task_run_id",
+            "task_url",
             "status",
             "iteration_budget",
             "iteration_count",
@@ -320,6 +326,7 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "task_url",
             "status",
             "iteration_count",
             "best_holdout_score",
@@ -331,6 +338,7 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "id": {"help_text": "Unique UUID of this training run."},
             "pipeline": {"help_text": "Pipeline this training run belongs to."},
+            "task_id": {"help_text": "Parent Task ID in the tasks sandbox. Null for stub runs."},
             "task_run_id": {"help_text": "Task sandbox run ID. Null for stub/synchronous training runs."},
             "status": {"help_text": "Run status: pending, running, completed, or failed."},
             "iteration_budget": {"help_text": "Maximum iterations allowed for this run."},
@@ -340,6 +348,9 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
             "started_at": {"help_text": "Timestamp when the training run started."},
             "completed_at": {"help_text": "Timestamp when the training run completed or failed."},
         }
+
+    def get_task_url(self, obj: AutoresearchTrainingRun) -> str | None:
+        return f"/tasks/{obj.task_id}" if obj.task_id else None
 
 
 class AutoresearchIterationSerializer(serializers.ModelSerializer):
