@@ -25,6 +25,7 @@ describe('isCodingAgentClient', () => {
             ['zed'],
             ['aider'],
             ['copilot'],
+            ['notion'],
         ])('returns true for %s', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
         })
@@ -42,6 +43,8 @@ describe('isCodingAgentClient', () => {
             ['GitHub Copilot Chat'],
             ['zed-editor'],
             ['Codex CLI'],
+            ['notion-mcp-client'],
+            ['Notion'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
         })
@@ -123,6 +126,8 @@ describe('isVibeCodingClient', () => {
         ['replit'],
         ['Replit Agent'],
         ['replit-ai'],
+        ['Notion'],
+        ['notion'],
     ])('returns true for OAuth client name %s', (oauthClientName) => {
         expect(isVibeCodingClient(oauthClientName)).toBe(true)
     })
@@ -165,6 +170,7 @@ describe('MCPClientProfile', () => {
             ['aider'],
             ['github.copilot'],
             ['GitHub Copilot Chat'],
+            ['notion-mcp-client'],
         ])('returns true for %s', (clientName) => {
             expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
         })
@@ -222,7 +228,7 @@ describe('MCPClientProfile', () => {
     })
 
     describe('isVibeCodingClient()', () => {
-        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent']])(
+        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent'], ['Notion']])(
             'returns true for OAuth client name %s',
             (oauthClientName) => {
                 expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(true)
