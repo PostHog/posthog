@@ -64,10 +64,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Aggregate states for bounce-rate and session-duration metrics.
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
-    pageviews_count_state AggregateFunction(sum, UInt64),
-    bounces_count_state AggregateFunction(sum, UInt64),
+    pageviews_count_state AggregateFunction(sum, Int64),
+    bounces_count_state AggregateFunction(sum, Int64),
     total_session_duration_state AggregateFunction(sum, Int64),
-    total_session_count_state AggregateFunction(sum, UInt64),
+    total_session_count_state AggregateFunction(sum, Int64),
 
     -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
     computed_at DateTime64(6, 'UTC') DEFAULT now(),

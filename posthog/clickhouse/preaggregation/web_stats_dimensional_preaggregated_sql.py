@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Aggregate states: unique persons, unique sessions and total pageviews.
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
-    pageviews_count_state AggregateFunction(sum, UInt64),
+    pageviews_count_state AggregateFunction(sum, Int64),
 
     -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
     computed_at DateTime64(6, 'UTC') DEFAULT now(),

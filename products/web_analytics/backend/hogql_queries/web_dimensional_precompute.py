@@ -91,8 +91,8 @@ FROM (
         events.properties.$pathname AS pathname,
         events.properties.$browser AS browser,
         events.properties.$os AS os,
-        coalesce(accurateCastOrNull(toString(events.properties.$viewport_width), 'Int64'), 0) AS viewport_width,
-        coalesce(accurateCastOrNull(toString(events.properties.$viewport_height), 'Int64'), 0) AS viewport_height,
+        toIntOrZero(toString(events.properties.$viewport_width)) AS viewport_width,
+        toIntOrZero(toString(events.properties.$viewport_height)) AS viewport_height,
         events.properties.$geoip_country_code AS country_code,
         events.properties.$geoip_city_name AS city_name,
         events.properties.$geoip_subdivision_1_code AS region_code,
@@ -105,12 +105,12 @@ FROM (
         any(session.$entry_utm_campaign) AS utm_campaign,
         any(session.$entry_utm_term) AS utm_term,
         any(session.$entry_utm_content) AS utm_content,
-        any(session.$entry_has_gclid) AS has_gclid,
-        any(equals(session.$entry_gad_source, '1')) AS has_gad_source_paid_search,
-        any(session.$entry_has_fbclid) AS has_fbclid,
+        any(and(notEmpty(coalesce(session.$entry_gclid, '')), notEquals(coalesce(session.$entry_gclid, ''), 'null'))) AS has_gclid,
+        any(equals(coalesce(session.$entry_gad_source, ''), '1')) AS has_gad_source_paid_search,
+        any(and(notEmpty(coalesce(session.$entry_fbclid, '')), notEquals(coalesce(session.$entry_fbclid, ''), 'null'))) AS has_fbclid,
         {mat_logged_in_inner} AS mat_metadata_loggedIn,
         {mat_backend_inner} AS mat_metadata_backend,
-        toUInt64(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS pageview_count
+        assumeNotNull(toInt(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))))) AS pageview_count
     FROM events
     WHERE and(
         events.$session_id IS NOT NULL,
@@ -197,9 +197,9 @@ SELECT
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state,
-    sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state,
+    sumState(assumeNotNull(toInt(ifNull(is_bounce, 0)))) AS bounces_count_state,
     sumState(session_duration) AS total_session_duration_state,
-    sumState(toUInt64(1)) AS total_session_count_state
+    sumState(assumeNotNull(toInt(1))) AS total_session_count_state
 FROM (
     SELECT
         any(events.person_id) AS session_person_id,
@@ -209,8 +209,8 @@ FROM (
         any(events.properties.$device_type) AS device_type,
         any(events.properties.$browser) AS browser,
         any(events.properties.$os) AS os,
-        coalesce(accurateCastOrNull(toString(any(events.properties.$viewport_width)), 'Int64'), 0) AS viewport_width,
-        coalesce(accurateCastOrNull(toString(any(events.properties.$viewport_height)), 'Int64'), 0) AS viewport_height,
+        toIntOrZero(toString(any(events.properties.$viewport_width))) AS viewport_width,
+        toIntOrZero(toString(any(events.properties.$viewport_height))) AS viewport_height,
         any(events.properties.$geoip_country_code) AS country_code,
         any(events.properties.$geoip_city_name) AS city_name,
         any(events.properties.$geoip_subdivision_1_code) AS region_code,
@@ -223,14 +223,14 @@ FROM (
         any(session.$entry_utm_campaign) AS utm_campaign,
         any(session.$entry_utm_term) AS utm_term,
         any(session.$entry_utm_content) AS utm_content,
-        any(session.$entry_has_gclid) AS has_gclid,
-        any(equals(session.$entry_gad_source, '1')) AS has_gad_source_paid_search,
-        any(session.$entry_has_fbclid) AS has_fbclid,
+        any(and(notEmpty(coalesce(session.$entry_gclid, '')), notEquals(coalesce(session.$entry_gclid, ''), 'null'))) AS has_gclid,
+        any(equals(coalesce(session.$entry_gad_source, ''), '1')) AS has_gad_source_paid_search,
+        any(and(notEmpty(coalesce(session.$entry_fbclid, '')), notEquals(coalesce(session.$entry_fbclid, ''), 'null'))) AS has_fbclid,
         {mat_logged_in_inner} AS mat_metadata_loggedIn,
         {mat_backend_inner} AS mat_metadata_backend,
         any(session.$is_bounce) AS is_bounce,
-        toInt(any(session.$session_duration)) AS session_duration,
-        toUInt64(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS pageview_count
+        assumeNotNull(toInt(any(session.$session_duration))) AS session_duration,
+        assumeNotNull(toInt(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))))) AS pageview_count
     FROM events
     WHERE and(
         events.$session_id IS NOT NULL,
@@ -280,9 +280,11 @@ def _mat_metadata_placeholders() -> dict[str, ast.Expr]:
     NULL, typed so the INSERT into the Nullable columns succeeds.
     """
     if not is_eu_cluster():
+        # Typed NULLs without a CAST (HogQL rejects `CAST(NULL AS Nullable(...))`):
+        # `if(false, <typed literal>, NULL)` yields Nullable(Bool)/Nullable(String).
         return {
-            "mat_logged_in_inner": parse_expr("CAST(NULL AS Nullable(Bool))"),
-            "mat_backend_inner": parse_expr("CAST(NULL AS Nullable(String))"),
+            "mat_logged_in_inner": parse_expr("if(1 = 0, true, NULL)"),
+            "mat_backend_inner": parse_expr("if(1 = 0, '', NULL)"),
         }
 
     return {
