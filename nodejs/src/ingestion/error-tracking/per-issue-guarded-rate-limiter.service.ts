@@ -9,19 +9,19 @@ const guardOutcomeCounter = new Counter({
     labelNames: ['outcome'],
 })
 
-export type GuardedStatus = 'allowed' | 'limited' | 'tripped' | 'fallback'
+export type GuardedStatus = 'allowed' | 'limited' | 'tripped' | 'cooldown'
 
-const STATUS_BY_CODE: GuardedStatus[] = ['allowed', 'limited', 'tripped', 'fallback']
+const STATUS_BY_CODE: GuardedStatus[] = ['allowed', 'limited', 'tripped', 'cooldown']
 
 export interface PerIssueGuardedRateLimiterConfig {
-    /** Logical name; produces `@posthog/<name>/tokens|sigcount|sigfb/...` keys (`@posthog-test/...` under NODE_ENV=test). */
+    /** Logical name; produces `@posthog/<name>/tokens|sigcount|sigcooldown/...` keys (`@posthog-test/...` under NODE_ENV=test). */
     name: string
-    /** Max new bucket keys per team per window before tripping fallback. */
+    /** Max new bucket keys per team per window before tripping cooldown. */
     threshold: number
     /** Counter window TTL (seconds). Also drives the hourly counter key rotation. */
     windowTtlSeconds: number
-    /** Fallback flag TTL (seconds). How long a tripped team is quarantined from new-key creation. */
-    fallbackTtlSeconds: number
+    /** Cooldown flag TTL (seconds). How long a tripped team is quarantined from new-key creation. */
+    cooldownTtlSeconds: number
     /** Token-bucket TTL (seconds). Mirrors the existing rate-limiter's bucket TTL. */
     bucketTtlSeconds: number
     /** When false, throw if the Redis pipeline returns null instead of fail-open allowing all. Default: true. */
@@ -30,7 +30,7 @@ export interface PerIssueGuardedRateLimiterConfig {
 
 type GuardedPipeline = RedisClientPipeline & {
     checkGuardedRateLimit: (
-        fallbackKey: string,
+        cooldownKey: string,
         counterKey: string,
         bucketKey: string,
         now: number,
@@ -40,21 +40,21 @@ type GuardedPipeline = RedisClientPipeline & {
         bucketExpiry: number,
         threshold: number,
         windowTtl: number,
-        fallbackTtl: number
+        cooldownTtl: number
     ) => GuardedPipeline
 }
 
-const buildPrefixes = (name: string): { bucket: string; counter: string; fallback: string } => {
+const buildPrefixes = (name: string): { bucket: string; counter: string; cooldown: string } => {
     const root = process.env.NODE_ENV === 'test' ? '@posthog-test' : '@posthog'
     return {
         bucket: `${root}/${name}/tokens`,
         counter: `${root}/${name}/sigcount`,
-        fallback: `${root}/${name}/sigfb`,
+        cooldown: `${root}/${name}/sigcooldown`,
     }
 }
 
 export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
-    private readonly prefixes: { bucket: string; counter: string; fallback: string }
+    private readonly prefixes: { bucket: string; counter: string; cooldown: string }
 
     constructor(
         private readonly config: PerIssueGuardedRateLimiterConfig,
@@ -71,12 +71,12 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
         return this.prefixes.counter
     }
 
-    public getFallbackKeyPrefix(): string {
-        return this.prefixes.fallback
+    public getCooldownKeyPrefix(): string {
+        return this.prefixes.cooldown
     }
 
-    public fallbackKey(teamId: number): string {
-        return `${this.prefixes.fallback}/${teamId}`
+    public cooldownKey(teamId: number): string {
+        return `${this.prefixes.cooldown}/${teamId}`
     }
 
     public counterKey(teamId: number, nowSeconds: number): string {
@@ -84,7 +84,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
         return `${this.prefixes.counter}/${teamId}/${window}`
     }
 
-    /** Tripped/fallback pass through as `isRateLimited: false`; the 4-state status only surfaces via the Prom counter. */
+    /** Tripped/cooldown pass through as `isRateLimited: false`; the 4-state status only surfaces via the Prom counter. */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
             return []
@@ -134,7 +134,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                     const teamId = teamIds[i]
                     const now = req.now ?? Math.round(Date.now() / 1000)
                     ;(pipeline as GuardedPipeline).checkGuardedRateLimit(
-                        this.fallbackKey(teamId),
+                        this.cooldownKey(teamId),
                         this.counterKey(teamId, now),
                         `${this.prefixes.bucket}/${req.id}`,
                         now,
@@ -144,7 +144,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                         req.ttlSeconds ?? this.config.bucketTtlSeconds,
                         this.config.threshold,
                         this.config.windowTtlSeconds,
-                        this.config.fallbackTtlSeconds
+                        this.config.cooldownTtlSeconds
                     )
                 })
             }
@@ -179,7 +179,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
             const tokensBefore = budgetById.get(req.id) ?? 0
             guardOutcomeCounter.inc({ outcome: status }, 1)
 
-            if (status === 'tripped' || status === 'fallback') {
+            if (status === 'tripped' || status === 'cooldown') {
                 // Skip client-side fan-out: per-issue defers to team-global limiter.
                 return [req.id, { tokensBefore: 0, tokens: 0, isRateLimited: false }]
             }

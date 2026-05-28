@@ -216,7 +216,7 @@ export class ErrorTrackingServer implements NodeServer {
                     rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
                     perIssueGuardThreshold: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
                     perIssueGuardWindowTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-                    perIssueGuardFallbackTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_FALLBACK_TTL_SECONDS,
+                    perIssueGuardCooldownTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
                     fallbackRedisUrl: this.config.REDIS_URL,
                     rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                     rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,

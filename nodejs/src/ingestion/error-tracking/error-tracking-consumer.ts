@@ -70,7 +70,7 @@ export interface ErrorTrackingConsumerOptions {
     rateLimiterTtlSeconds: number
     perIssueGuardThreshold: number
     perIssueGuardWindowTtlSeconds: number
-    perIssueGuardFallbackTtlSeconds: number
+    perIssueGuardCooldownTtlSeconds: number
     /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
     fallbackRedisUrl?: string
     /** Pool sizing for the dedicated rate limiter Redis pool. */
@@ -219,7 +219,7 @@ export class ErrorTrackingConsumer {
                     name: 'error-tracking-rate-limiter',
                     threshold: config.perIssueGuardThreshold,
                     windowTtlSeconds: config.perIssueGuardWindowTtlSeconds,
-                    fallbackTtlSeconds: config.perIssueGuardFallbackTtlSeconds,
+                    cooldownTtlSeconds: config.perIssueGuardCooldownTtlSeconds,
                     bucketTtlSeconds: config.rateLimiterTtlSeconds,
                 },
                 this.rateLimiterRedis

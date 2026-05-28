@@ -59,12 +59,12 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
 
     /** Max new per-issue bucket keys a single team can create per window before
-     *  fallback engages and per-issue limiting is bypassed for that team. */
+     *  cooldown engages and per-issue limiting is bypassed for that team. */
     ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD: number
     /** Length of the new-key counter window (seconds). */
     ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS: number
     /** Cooldown duration once a team trips the guard (seconds). */
-    ERROR_TRACKING_PER_ISSUE_GUARD_FALLBACK_TTL_SECONDS: number
+    ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: number
 
     /** Pipeline name for metrics labeling */
     INGESTION_PIPELINE: string | null
@@ -96,7 +96,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
         ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD: 1000,
         ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS: 3600,
-        ERROR_TRACKING_PER_ISSUE_GUARD_FALLBACK_TTL_SECONDS: 300,
+        ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: 300,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
     }

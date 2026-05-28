@@ -47,7 +47,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
         overrides: Partial<{
             threshold: number
             windowTtlSeconds: number
-            fallbackTtlSeconds: number
+            cooldownTtlSeconds: number
             bucketTtlSeconds: number
         }> = {}
     ) =>
@@ -56,7 +56,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
                 name,
                 threshold: overrides.threshold ?? 3,
                 windowTtlSeconds: overrides.windowTtlSeconds ?? 3600,
-                fallbackTtlSeconds: overrides.fallbackTtlSeconds ?? 300,
+                cooldownTtlSeconds: overrides.cooldownTtlSeconds ?? 300,
                 bucketTtlSeconds: overrides.bucketTtlSeconds ?? 60 * 60 * 24,
             },
             redis
@@ -65,7 +65,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
     const cleanLimiter = async (limiter: PerIssueGuardedRateLimiterService) => {
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
         await deleteKeysWithPrefix(redis, limiter.getCounterKeyPrefix())
-        await deleteKeysWithPrefix(redis, limiter.getFallbackKeyPrefix())
+        await deleteKeysWithPrefix(redis, limiter.getCooldownKeyPrefix())
     }
 
     const readCounter = async (key: string): Promise<number | null> => {
@@ -73,8 +73,8 @@ describe('PerIssueGuardedRateLimiterService', () => {
         return res == null ? null : Number(res)
     }
 
-    const fallbackIsSet = async (key: string): Promise<boolean> => {
-        const res = await redis.useClient({ name: 'read-fallback' }, async (client) => client.get(key))
+    const cooldownIsSet = async (key: string): Promise<boolean> => {
+        const res = await redis.useClient({ name: 'read-cooldown' }, async (client) => client.get(key))
         return res != null
     }
 
@@ -100,7 +100,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(res[0][1]).toEqual(expect.objectContaining({ isRateLimited: false }))
         const nowSeconds = Math.round(now / 1000)
         expect(await readCounter(limiter.counterKey(42, nowSeconds))).toBe(1)
-        expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(false)
+        expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(false)
     })
 
     it('skips counter increment for an already-seen sig', async () => {
@@ -121,13 +121,13 @@ describe('PerIssueGuardedRateLimiterService', () => {
 
         const r1 = await limiter.rateLimitGrouped([req(42, 'a')]) // allowed (counter=1)
         const r2 = await limiter.rateLimitGrouped([req(42, 'b')]) // tripped (counter=2 > threshold 1)
-        const r3 = await limiter.rateLimitGrouped([req(42, 'c')]) // fallback (flag set)
+        const r3 = await limiter.rateLimitGrouped([req(42, 'c')]) // cooldown (flag set)
 
         // r1 mints a bucket, r2/r3 do not (per-issue defers to team-global → isRateLimited=false).
         expect(r1[0][1].isRateLimited).toBe(false)
         expect(r2[0][1].isRateLimited).toBe(false)
         expect(r3[0][1].isRateLimited).toBe(false)
-        expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(true)
+        expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(true)
 
         // Bucket for 'b' was never written.
         const bExists = await redis.useClient({ name: 'check' }, async (client) =>
@@ -135,22 +135,22 @@ describe('PerIssueGuardedRateLimiterService', () => {
         )
         expect(bExists).toBe(0)
 
-        // Counter stayed at 2 — no INCR during fallback.
+        // Counter stayed at 2 — no INCR during cooldown.
         const nowSeconds = Math.round(now / 1000)
         expect(await readCounter(limiter.counterKey(42, nowSeconds))).toBe(2)
     })
 
-    it('isolates fallback flags by team', async () => {
+    it('isolates cooldown flags by team', async () => {
         const limiter = build('team-iso', { threshold: 1 })
         await cleanLimiter(limiter)
 
         await limiter.rateLimitGrouped([req(42, 'a')])
         await limiter.rateLimitGrouped([req(42, 'b')])
-        expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(true)
+        expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(true)
 
         const r = await limiter.rateLimitGrouped([req(99, 'a')])
         expect(r[0][1].isRateLimited).toBe(false)
-        expect(await fallbackIsSet(limiter.fallbackKey(99))).toBe(false)
+        expect(await cooldownIsSet(limiter.cooldownKey(99))).toBe(false)
     })
 
     it('rotates the counter on hour boundary', async () => {
@@ -170,16 +170,16 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(await readCounter(counterHPlus1)).toBe(1)
     })
 
-    it('returns to allowed once fallback TTL expires and team stops creating new sigs', async () => {
-        const limiter = build('recover', { threshold: 1, fallbackTtlSeconds: 1 })
+    it('returns to allowed once cooldown TTL expires and team stops creating new sigs', async () => {
+        const limiter = build('recover', { threshold: 1, cooldownTtlSeconds: 1 })
         await cleanLimiter(limiter)
 
         await limiter.rateLimitGrouped([req(42, 'a')])
         await limiter.rateLimitGrouped([req(42, 'b')])
-        expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(true)
+        expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(true)
 
         await new Promise((resolve) => setTimeout(resolve, 1100))
-        expect(await fallbackIsSet(limiter.fallbackKey(42))).toBe(false)
+        expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(false)
 
         const r = await limiter.rateLimitGrouped([req(42, 'a')])
         expect(r[0][1].isRateLimited).toBe(false)
@@ -209,7 +209,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
                 name: 'fail-open',
                 threshold: 1,
                 windowTtlSeconds: 3600,
-                fallbackTtlSeconds: 60,
+                cooldownTtlSeconds: 60,
                 bucketTtlSeconds: 60,
             },
             {

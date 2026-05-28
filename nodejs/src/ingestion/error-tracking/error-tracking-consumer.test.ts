@@ -167,7 +167,7 @@ describe('ErrorTrackingConsumer', () => {
             rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
             perIssueGuardThreshold: hub.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
             perIssueGuardWindowTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-            perIssueGuardFallbackTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_FALLBACK_TTL_SECONDS,
+            perIssueGuardCooldownTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
             fallbackRedisUrl: hub.REDIS_URL,
             rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
             rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,

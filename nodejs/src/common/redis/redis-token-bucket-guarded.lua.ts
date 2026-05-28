@@ -1,14 +1,14 @@
 import { Redis } from 'ioredis'
 
-// v3 token-bucket + per-team new-key counter + per-team fallback flag.
+// v3 token-bucket + per-team new-key counter + per-team cooldown flag.
 // Caps how many unique bucket keys a team can mint per window.
 //
-// KEYS: [1] fallback_flag, [2] counter (per-window), [3] bucket
-// ARGV: now, cost, poolMax, fillRate, bucketExpiry, threshold, windowTtl, fallbackTtl
-// Returns: { tokensBefore, tokensAfter, statusCode } where statusCode is 0=allowed | 1=limited | 2=tripped | 3=fallback.
-// On tripped/fallback the bucket is not written.
+// KEYS: [1] cooldown_flag, [2] counter (per-window), [3] bucket
+// ARGV: now, cost, poolMax, fillRate, bucketExpiry, threshold, windowTtl, cooldownTtl
+// Returns: { tokensBefore, tokensAfter, statusCode } where statusCode is 0=allowed | 1=limited | 2=tripped | 3=cooldown.
+// On tripped/cooldown the bucket is not written.
 const LUA_TOKEN_BUCKET_GUARDED = `
-local fallback_key = KEYS[1]
+local cooldown_key = KEYS[1]
 local counter_key = KEYS[2]
 local key = KEYS[3]
 local now = tonumber(ARGV[1])
@@ -18,9 +18,9 @@ local fillRate = tonumber(ARGV[4])
 local expiry = tonumber(ARGV[5])
 local threshold = tonumber(ARGV[6])
 local window_ttl = tonumber(ARGV[7])
-local fallback_ttl = tonumber(ARGV[8])
+local cooldown_ttl = tonumber(ARGV[8])
 
-if redis.call('exists', fallback_key) == 1 then
+if redis.call('exists', cooldown_key) == 1 then
   return {0, 0, 3}
 end
 
@@ -31,7 +31,7 @@ if is_new then
     redis.call('expire', counter_key, window_ttl)
   end
   if count > threshold then
-    redis.call('set', fallback_key, '1', 'ex', fallback_ttl)
+    redis.call('set', cooldown_key, '1', 'ex', cooldown_ttl)
     return {0, 0, 2}
   end
 end
