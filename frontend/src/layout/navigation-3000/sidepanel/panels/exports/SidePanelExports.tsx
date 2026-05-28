@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
 
+import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
@@ -78,12 +79,8 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
     const stillCalculating = !asset.has_content && !asset.exception
-    let disabledReason: string | undefined = undefined
-    if (asset.exception) {
-        disabledReason = asset.exception
-    } else if (!asset.has_content) {
-        disabledReason = 'Export not ready yet'
-    }
+    const disabledReason = getExportDisabledReason(asset)
+    const pendingLabel = getExportPendingLabel(asset)
 
     return (
         <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
@@ -105,6 +102,14 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                                 ? humanFriendlyNumber(asset.export_context.row_limit)
                                 : `${ROW_LIMIT_IN_THOUSANDS}k`}{' '}
                             row limit
+                        </span>
+                    )}
+                    {stillCalculating && pendingLabel && (
+                        <span
+                            className="text-xs text-secondary mt-1 block"
+                            data-attr="export-pending-label"
+                        >
+                            {pendingLabel}
                         </span>
                     )}
                 </div>

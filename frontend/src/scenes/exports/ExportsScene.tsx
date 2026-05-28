@@ -4,6 +4,7 @@ import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/ico
 import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } from '@posthog/lemon-ui'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
@@ -32,12 +33,8 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
     const stillCalculating = !asset.has_content && !asset.exception
-    let disabledReason: string | undefined = undefined
-    if (asset.exception) {
-        disabledReason = asset.exception
-    } else if (!asset.has_content) {
-        disabledReason = 'Export not ready yet'
-    }
+    const disabledReason = getExportDisabledReason(asset)
+    const pendingLabel = getExportPendingLabel(asset)
 
     const handleEdit = async (): Promise<void> => {
         const r = await exportedAssetBlob(asset)
@@ -49,7 +46,12 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
     }
 
     return (
-        <div className="flex gap-2 justify-end">
+        <div className="flex gap-2 justify-end items-center">
+            {stillCalculating && pendingLabel && (
+                <span className="text-xs text-secondary" data-attr="export-pending-label">
+                    {pendingLabel}
+                </span>
+            )}
             {asset.export_format === ExporterFormat.PNG && (
                 <LemonButton
                     tooltip="Edit"
