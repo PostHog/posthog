@@ -93,32 +93,25 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
     )
 }
 
-function TagsCell({ value }: { value: unknown }): JSX.Element {
-    const tags = Array.isArray(value) ? (value.filter((t) => typeof t === 'string') as string[]) : []
+function TagsCell({ record }: { record: unknown }): JSX.Element {
+    const raw = getCell(record, 'tag_names')
+    const tags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
     return tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : <span className="text-muted">—</span>
 }
 
-function NotebookCountCell({ value }: { value: unknown }): JSX.Element {
-    const count = Number(value) || 0
+function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
+    const count = Number(getCell(record, 'notebook_count')) || 0
     return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
 }
 
-function RoleAssignmentCell({
-    record,
-    value,
-    role,
-}: {
-    record: unknown
-    value: unknown
-    role: AccountRoleKey
-}): JSX.Element {
+function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRoleKey }): JSX.Element {
     const { isRoleSaving, accountOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
     const accountId = String(getCell(record, 'id') ?? '')
     const overrideProperties = accountId ? accountOverrides[accountId]?.properties : undefined
     const overrideRole = overrideProperties != null ? overrideProperties[role] : undefined
     const assignment: AccountAssignment =
-        overrideRole === undefined ? tupleToAssignment(value) : (overrideRole as AccountAssignment)
+        overrideRole === undefined ? tupleToAssignment(getCell(record, role)) : (overrideRole as AccountAssignment)
     const saving = accountId ? isRoleSaving(accountId, role) : false
 
     return (
@@ -168,29 +161,27 @@ const CONTEXT: QueryContext<DataTableNode> = {
         tag_names: {
             title: 'Tags',
             width: COLUMN_WIDTHS.tag_names,
-            render: ({ value }) => <TagsCell value={value} />,
+            render: ({ record }) => <TagsCell record={record} />,
         },
         notebook_count: {
             title: 'Notes',
             width: COLUMN_WIDTHS.notebook_count,
-            render: ({ value }) => <NotebookCountCell value={value} />,
+            render: ({ record }) => <NotebookCountCell record={record} />,
         },
         csm: {
             title: ROLE_LABELS.csm,
             width: COLUMN_WIDTHS.csm,
-            render: ({ record, value }) => <RoleAssignmentCell record={record} value={value} role="csm" />,
+            render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
         },
         account_executive: {
             title: ROLE_LABELS.account_executive,
             width: COLUMN_WIDTHS.account_executive,
-            render: ({ record, value }) => (
-                <RoleAssignmentCell record={record} value={value} role="account_executive" />
-            ),
+            render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
         },
         account_owner: {
             title: ROLE_LABELS.account_owner,
             width: COLUMN_WIDTHS.account_owner,
-            render: ({ record, value }) => <RoleAssignmentCell record={record} value={value} role="account_owner" />,
+            render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
         },
     },
     expandable: {
