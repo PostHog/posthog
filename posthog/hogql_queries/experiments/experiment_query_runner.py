@@ -344,13 +344,12 @@ class ExperimentQueryRunner(QueryRunner):
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception as e:
-                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
-                # The query still succeeds via the direct-scan fallback below, so the failure is
-                # otherwise invisible. Surface it to error tracking so a broken precomputation path
-                # doesn't hide behind the fallback.
+                # Swallowed: the direct-scan fallback below still returns results, which would
+                # otherwise hide a broken precomputation path. Report so it isn't silent.
                 capture_exception(
                     e,
                     additional_properties={
+                        "tag": "exposure_lazy_computation_failed",
                         "experiment_id": self.experiment.id,
                         "precomputation_path": "exposure",
                         "metric_type": self.metric.metric_type,
@@ -374,11 +373,10 @@ class ExperimentQueryRunner(QueryRunner):
                     else:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
                 except Exception as e:
-                    logger.exception("metric_events_lazy_computation_failed", experiment_id=self.experiment.id)
-                    # See note above: the direct-scan fallback masks this failure, so report it.
                     capture_exception(
                         e,
                         additional_properties={
+                            "tag": "metric_events_lazy_computation_failed",
                             "experiment_id": self.experiment.id,
                             "precomputation_path": "metric_events",
                             "metric_type": self.metric.metric_type,
